@@ -19,7 +19,7 @@ interface StepData {
   imagePath?: string;
 }
 
-const apiUrl = import.meta.env.VITE_API_URL || "https://back-wash-test.onrender.com";
+const apiUrl = "https://back-wash-test.onrender.com";
 
 const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout }) => {
   const [batchId, setBatchId] = useState<number | null>(null);

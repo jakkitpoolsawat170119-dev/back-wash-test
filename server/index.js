@@ -23,13 +23,15 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// Configure CORS to allow your Vercel URL later
-app.use(cors({
-  origin: true, // Allow all origins for now, we will restrict it later for security
-  credentials: true
-}));
-
+app.use(cors());
 app.use(express.json());
+
+// Request logger for debugging
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
+
 app.use('/uploads', express.static('uploads'));
 
 const dbPath = path.resolve(__dirname, 'cip_database.sqlite');
