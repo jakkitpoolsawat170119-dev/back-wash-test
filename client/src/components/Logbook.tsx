@@ -126,7 +126,18 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout }) => {
   const handleStop = (stepId: number) => {
     if (batchId) {
       const endTime = new Date().toISOString();
-      saveStepData(stepId, { endTime, status: 'completed' }, batchId);
+      const currentData = stepData[stepId] || {};
+      
+      // Send the latest data along with endTime to ensure n8n gets the right values
+      saveStepData(stepId, { 
+        endTime, 
+        status: 'completed',
+        pressure: currentData.pressure,
+        brix: currentData.brix,
+        pH: currentData.pH,
+        remarks: currentData.remarks
+      }, batchId);
+
       // Auto-expand next step
       if (stepId < cipSteps.length) {
         setExpandedStep(stepId + 1);
