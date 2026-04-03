@@ -130,6 +130,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout }) => {
       
       // Send the latest data along with endTime to ensure n8n gets the right values
       saveStepData(stepId, { 
+        startTime: currentData.startTime, // Added this line
         endTime, 
         status: 'completed',
         pressure: currentData.pressure,
