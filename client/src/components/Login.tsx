@@ -54,6 +54,7 @@ console.log("Current API URL:", apiUrl);
   return (
     <div className={styles.loginCard}>
       <h2>เลือกผู้ปฏิบัติงาน (Operator)</h2>
+      {error && <div style={{ color: 'red', marginBottom: '10px', fontSize: '0.8rem', backgroundColor: '#fee', padding: '10px', borderRadius: '8px' }}>{error}</div>}
       <div className={styles.operatorButtons}>
         {operators.map(op => (
           <button
@@ -81,6 +82,15 @@ console.log("Current API URL:", apiUrl);
           />
           <button className={styles.btnPrimary} onClick={handleLogin}>
             เข้าสู่ระบบ
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Login;
+าสู่ระบบ
           </button>
         </div>
       )}
