@@ -30,16 +30,19 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout }) => {
   const startBatchIfNeeded = async () => {
     if (batchId) return batchId;
     try {
+      console.log("Starting batch for:", operatorName);
       const response = await fetch(`${apiUrl}/api/batches/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ operatorName })
       });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
       setBatchId(data.batchId);
       return data.batchId;
     } catch (error) {
       console.error('Failed to start batch', error);
+      alert('ไม่สามารถเริ่มงานได้: ' + (error instanceof Error ? error.message : 'Unknown error'));
       return null;
     }
   };
