@@ -78,14 +78,15 @@ function createTables() {
     )`);
 
     // Reset and Re-insert operators to fix typos and duplicates
-    db.serialize(() => {
-      db.run("DELETE FROM operators");
-      const insertOp = db.prepare("INSERT INTO operators (name, pin) VALUES (?, ?)");
-      insertOp.run("นาย จักรกฤษ พูลสวัสดิ์", "1234");
-      insertOp.run("นาย พัฒพริศ อ่ำอยู่", "1234");
-      insertOp.run("นาย อนวัตน์ สุวรรณวงค์", "1234");
-      insertOp.finalize();
-      console.log("Operators list reset and updated.");
+    db.run("DELETE FROM operators", (err) => {
+      if (!err) {
+        const insertOp = db.prepare("INSERT OR IGNORE INTO operators (name, pin) VALUES (?, ?)");
+        insertOp.run("นาย จักรกฤษ พูลสวัสดิ์", "1234");
+        insertOp.run("นาย พัฒพริศ อ่ำอยู่", "1234");
+        insertOp.run("นาย อนวัตน์ สุวรรณวงค์", "1234");
+        insertOp.finalize();
+        console.log("Operators list reset and updated.");
+      }
     });
   });
 }
