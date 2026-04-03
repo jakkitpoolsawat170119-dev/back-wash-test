@@ -46,7 +46,7 @@ function createTables() {
   db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS operators (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
+      name TEXT NOT NULL UNIQUE,
       pin TEXT NOT NULL
     )`);
 
@@ -75,12 +75,14 @@ function createTables() {
       FOREIGN KEY (batch_id) REFERENCES cip_batches (id)
     )`);
 
-    db.get("SELECT count(*) as count FROM operators", (err, row) => {
-      if (row && row.count === 0) {
-        db.run("INSERT INTO operators (name, pin) VALUES (?, ?)", ["นาย จักรกฤษ พูลสวัสดิ์", "1234"]);
-        db.run("INSERT INTO operators (name, pin) VALUES (?, ?)", ["นาย พััฒพริศ อ่ำอยู่", "1234"]);
-        db.run("INSERT INTO operators (name, pin) VALUES (?, ?)", ["นาย อนวัตน์ สุวรรณวงค์", "1234"]);
-      }
+    // Reset and Re-insert operators to fix typos and duplicates
+    db.run("DELETE FROM operators", () => {
+      const insertOp = db.prepare("INSERT OR IGNORE INTO operators (name, pin) VALUES (?, ?)");
+      insertOp.run("นาย จักรกฤษ พูลสวัสดิ์", "1234");
+      insertOp.run("นาย พัฒพริศ อ่ำอยู่", "1234");
+      insertOp.run("นาย อนวัตน์ สุวรรณวงค์", "1234");
+      insertOp.finalize();
+      console.log("Operators list reset and updated.");
     });
   });
 }
