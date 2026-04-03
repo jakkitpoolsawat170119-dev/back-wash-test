@@ -1,0 +1,352 @@
+.container {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 20px 15px; /* Reduced padding for mobile */
+  background-color: #f8f9fa; /* Light grey background for the whole app */
+  min-height: 100vh;
+  color: #333333;
+}
+
+@media (max-width: 600px) {
+  .container {
+    padding: 10px 10px;
+  }
+  .header {
+    font-size: 1.5rem;
+    margin-bottom: 20px;
+  }
+  .loginCard {
+    padding: 20px;
+  }
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 30px;
+  font-weight: 700;
+  color: #ff6b00;
+  letter-spacing: -0.5px;
+}
+
+.loginCard {
+  background: #ffffff;
+  padding: 40px;
+  border-radius: 24px;
+  box-shadow: 0 10px 25px rgba(255, 107, 0, 0.08);
+  border: 1px solid #f0f0f0;
+  text-align: center;
+}
+
+.operatorButtons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.btnOperator {
+  padding: 18px;
+  font-size: 1.1rem;
+  background-color: #fafafa;
+  color: #333333 !important;
+  border: 1px solid #eeeeee;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btnOperator:hover {
+  background-color: #fff5eb;
+  border-color: #ffbd8a;
+}
+
+.btnOperator.active {
+  background-color: #ff6b00 !important;
+  color: #ffffff !important;
+  border-color: #ff6b00;
+  box-shadow: 0 4px 12px rgba(255, 107, 0, 0.2);
+}
+
+.pinInput {
+  margin-top: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.inputField {
+  padding: 16px;
+  font-size: 1.8rem;
+  width: 180px;
+  text-align: center;
+  border: 2px solid #f0f0f0;
+  border-radius: 16px;
+  outline: none;
+  transition: border-color 0.2s;
+  letter-spacing: 8px;
+  color: #000000 !important;
+  background-color: #ffffff !important;
+}
+
+.inputField:focus {
+  border-color: #ff6b00;
+}
+
+/* Validation Feedback */
+.invalidInput {
+  border-color: #ff3b30 !important; /* iOS Red */
+  background-color: #fff2f2 !important;
+  color: #ff3b30 !important;
+}
+
+.warningLabel {
+  color: #ff3b30;
+  font-size: 0.75rem;
+  font-weight: bold;
+  margin-top: 4px;
+}
+
+/* Collapsible Styles */
+.stepCard {
+  background: #ffffff;
+  padding: 16px;
+  border-radius: 20px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+  margin-bottom: 12px;
+  border: 1px solid #f5f5f5;
+  transition: all 0.2s ease;
+}
+
+.stepHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+}
+
+.stepCard.collapsed .formGrid,
+.stepCard.collapsed .actionButtons {
+  display: none;
+}
+
+.stepCard.active {
+  border-color: #ff6b00;
+  background-color: #fff9f5;
+  box-shadow: 0 4px 15px rgba(255, 107, 0, 0.1);
+}
+
+.stepCard.completed {
+  border-color: #e0e0e0;
+  opacity: 0.9;
+}
+
+/* Finish Button Section */
+.finishSection {
+  margin: 40px 0;
+  padding: 30px;
+  background: #ffffff;
+  border-radius: 24px;
+  text-align: center;
+  border: 2px dashed #ff6b00;
+}
+
+.btnFinish {
+  width: 100%;
+  padding: 20px;
+  background-color: #ff6b00 !important;
+  color: #ffffff !important;
+  border: none;
+  border-radius: 16px;
+  font-size: 1.3rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 10px 20px rgba(255, 107, 0, 0.3);
+  transition: transform 0.2s;
+}
+
+.btnFinish:active {
+  transform: scale(0.98);
+}
+
+.btnFinish:disabled {
+  background-color: #cccccc !important;
+  box-shadow: none;
+}
+
+.stepTitle {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #000000 !important;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.timeContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: #666666 !important;
+  text-align: right;
+}
+
+.actionButtons {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.btnStart {
+  flex: 1;
+  padding: 14px;
+  background-color: #ff6b00 !important;
+  color: #ffffff !important;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btnStop {
+  flex: 1;
+  padding: 14px;
+  background-color: #333333 !important;
+  color: #ffffff !important;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #f9f9f9;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.formGroup.fullWidth {
+  grid-column: span 2;
+}
+
+.formLabel {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #333333 !important;
+}
+
+.formInput {
+  padding: 12px;
+  font-size: 1rem;
+  border: 1px solid #dddddd;
+  border-radius: 10px;
+  background-color: #ffffff !important;
+  outline: none;
+  color: #000000 !important;
+}
+
+.formInput:focus {
+  border-color: #ff6b00;
+}
+
+.navHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff;
+  padding: 16px 24px;
+  border-radius: 16px;
+  margin-bottom: 32px;
+  border: 1px solid #f0f0f0;
+  color: #000000 !important;
+}
+
+.btnLogout {
+  padding: 8px 16px;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  color: #333333 !important;
+}
+
+/* History Styles */
+.historyBtn {
+  margin-top: 24px;
+  background-color: #ffffff !important;
+  color: #ff6b00 !important;
+  padding: 12px;
+  border: 2px solid #ff6b00 !important;
+  border-radius: 16px;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 600;
+  width: 100%;
+  max-width: 300px;
+}
+
+.historyTable {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 8px;
+  margin-top: 16px;
+}
+
+.historyTable th {
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 700;
+  color: #333333 !important;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.historyTable td {
+  padding: 20px 16px;
+  background: #fff;
+  border-top: 1px solid #f0f0f0;
+  border-bottom: 1px solid #f0f0f0;
+  color: #000000 !important;
+  font-weight: 500;
+}
+
+.historyTable td:first-child {
+  border-left: 1px solid #f0f0f0;
+  border-top-left-radius: 16px;
+  border-bottom-left-radius: 16px;
+}
+
+.historyTable td:last-child {
+  border-right: 1px solid #f0f0f0;
+  border-top-right-radius: 16px;
+  border-bottom-right-radius: 16px;
+}
+
+.historyRow:hover td {
+  background-color: #fff9f5;
+  border-color: #ffbd8a;
+}
+
+.backBtn {
+  margin-bottom: 24px;
+  background: none;
+  border: none;
+  color: #ff6b00 !important;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
