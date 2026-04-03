@@ -22,7 +22,9 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         return res.json();
       })
       .then(data => {
-        setOperators(data);
+        // Deduplicate names just in case backend has duplicates
+        const uniqueOperators = Array.isArray(data) ? [...new Set(data)] : [];
+        setOperators(uniqueOperators);
         setLoading(false);
       })
       .catch(err => {
