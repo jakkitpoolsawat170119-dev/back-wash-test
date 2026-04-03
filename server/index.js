@@ -167,6 +167,7 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
           if (endTime) {
             db.get("SELECT operator_name FROM cip_batches WHERE id = ?", [batchId], (err, batch) => {
                 const publicUrl = `https://${req.get('host')}`;
+                console.log(`[Webhook] Sending NEW Step ${stepNumber} to n8n...`);
                 sendToN8n({ 
                   type: 'step_completed', 
                   batchId, 
@@ -258,4 +259,6 @@ app.post('/api/batches/finish', (req, res) => {
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`Server running at http://0.0.0.0:${port}`);
+});
+r running at http://0.0.0.0:${port}`);
 });
