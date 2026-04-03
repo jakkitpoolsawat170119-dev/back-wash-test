@@ -11,7 +11,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [pin, setPin] = useState('');
   const [loading, setLoading] = useState(true);
 
-const apiUrl = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:3001`;
+const apiUrl = import.meta.env.VITE_API_URL || "https://back-wash-test.onrender.com";
 console.log("Current API URL:", apiUrl);
 
   useEffect(() => {
