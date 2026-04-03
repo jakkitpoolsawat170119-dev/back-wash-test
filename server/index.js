@@ -10,6 +10,19 @@ const fs = require('fs');
 const app = express();
 const port = process.env.PORT || 3001;
 
+// Configure Multer for local storage
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = 'uploads';
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir);
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    cb(null, `${Date.now()}-${file.originalname}`);
+  }
+});
+const upload = multer({ storage });
+
 // Configure CORS to allow your Vercel URL later
 app.use(cors({
   origin: true, // Allow all origins for now, we will restrict it later for security
