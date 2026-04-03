@@ -134,10 +134,10 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
       
       db.run(query, [fmtStart, fmtEnd, updPressure, updBrix, updPh, updRemarks, updImagePath, row.id], async (err) => {
           if (err) return res.status(500).json({ error: err.message });
-          
           if (endTime && !row.end_time) {
             db.get("SELECT operator_name FROM cip_batches WHERE id = ?", [batchId], (err, batch) => {
                 const publicUrl = `https://${req.get('host')}`;
+                console.log(`[Webhook] Sending Step ${stepNumber} to n8n with UPDATED data...`);
                 sendToN8n({ 
                   type: 'step_completed', 
                   batchId, 
@@ -146,11 +146,15 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
                   stepDescription, 
                   startTime: fmtStart || row.start_time, 
                   endTime: fmtEnd, 
-                  pressure: updPressure, brix: updBrix, ph: updPh, remarks: updRemarks,
+                  pressure: updPressure, 
+                  brix: updBrix, 
+                  ph: updPh, 
+                  remarks: updRemarks,
                   image: updImagePath ? `${publicUrl}${updImagePath}` : null
                 });
             });
           }
+
           res.json({ success: true, imagePath: updImagePath });
         }
       );
