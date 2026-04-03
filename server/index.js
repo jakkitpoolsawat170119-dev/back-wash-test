@@ -165,6 +165,7 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
           
           if (endTime) {
             db.get("SELECT operator_name FROM cip_batches WHERE id = ?", [batchId], (err, batch) => {
+                const publicUrl = `https://${req.get('host')}`;
                 sendToN8n({ 
                   type: 'step_completed', 
                   batchId, 
@@ -174,7 +175,7 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
                   startTime: fmtStart, 
                   endTime: fmtEnd, 
                   pressure, brix, ph, remarks,
-                  image: imagePath ? `http://${req.hostname}:3001${imagePath}` : null
+                  image: imagePath ? `${publicUrl}${imagePath}` : null
                 });
             });
           }
