@@ -12,8 +12,9 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [loading, setLoading] = useState(true);
 
 const apiUrl = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:3001`;
+console.log("Current API URL:", apiUrl);
 
-useEffect(() => {
+  useEffect(() => {
     fetch(`${apiUrl}/api/operators`)
       .then(res => res.json())
       .then(data => {
