@@ -111,8 +111,8 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
   // LOG EVERYTHING to console for debugging
   console.log(`>>> DATA RECEIVED: Batch ${batchId} | Step ${stepNumber} | P: ${pressure} | B: ${brix} | pH: ${ph} | Img: ${imagePath}`);
 
-  const fmtStart = startTime ? new Date(startTime).toLocaleString('sv-SE').replace(' ', 'T') : null;
-  const fmtEnd = endTime ? new Date(endTime).toLocaleString('sv-SE').replace(' ', 'T') : null;
+  const fmtStart = startTime ? new Date(startTime).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T') : null;
+  const fmtEnd = endTime ? new Date(endTime).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T') : null;
 
   db.get("SELECT id, image_path, pressure, brix, ph, remarks, end_time FROM cip_step_logs WHERE batch_id = ? AND step_number = ?", [batchId, stepNumber], (err, row) => {
     if (row) {
@@ -241,7 +241,7 @@ app.get('/api/operators', (req, res) => {
   
 app.post('/api/batches/start', (req, res) => {
     const { operatorName } = req.body;
-    const now = new Date().toLocaleString('sv-SE').replace(' ', 'T'); 
+    const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T'); 
     db.run("INSERT INTO cip_batches (operator_name, start_time) VALUES (?, ?)", [operatorName, now], function(err) {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ batchId: this.lastID });
@@ -250,7 +250,7 @@ app.post('/api/batches/start', (req, res) => {
 
 app.post('/api/batches/finish', (req, res) => {
   const { batchId } = req.body;
-  const now = new Date().toLocaleString('sv-SE').replace(' ', 'T');
+  const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
   db.run("UPDATE cip_batches SET end_time = ?, status = 'completed' WHERE id = ?", [now, batchId], function(err) {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true, endTime: now });
