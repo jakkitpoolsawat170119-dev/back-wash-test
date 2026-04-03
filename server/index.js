@@ -116,8 +116,6 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
 
   db.get("SELECT id, image_path, pressure, brix, ph, remarks, end_time FROM cip_step_logs WHERE batch_id = ? AND step_number = ?", [batchId, stepNumber], (err, row) => {
     if (row) {
-      // Manual Coalesce to be 100% sure we don't mix data
-      // Only update if the value is provided and NOT an empty string or null
       const updPressure = (pressure !== undefined && pressure !== '') ? pressure : row.pressure;
       const updBrix = (brix !== undefined && brix !== '') ? brix : row.brix;
       const updPh = (ph !== undefined && ph !== '') ? ph : row.ph;
@@ -137,9 +135,9 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
       db.run(query, [fmtStart, fmtEnd, updPressure, updBrix, updPh, updRemarks, updImagePath, row.id], async (err) => {
           if (err) return res.status(500).json({ error: err.message });
           
-          // ONLY send to n8n if this is the FIRST time we are setting the end_time
           if (endTime && !row.end_time) {
             db.get("SELECT operator_name FROM cip_batches WHERE id = ?", [batchId], (err, batch) => {
+                const publicUrl = `https://${req.get('host')}`;
                 sendToN8n({ 
                   type: 'step_completed', 
                   batchId, 
@@ -149,7 +147,7 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
                   startTime: fmtStart || row.start_time, 
                   endTime: fmtEnd, 
                   pressure: updPressure, brix: updBrix, ph: updPh, remarks: updRemarks,
-                  image: updImagePath ? `http://${req.hostname}:3001${updImagePath}` : null
+                  image: updImagePath ? `${publicUrl}${updImagePath}` : null
                 });
             });
           }
@@ -157,7 +155,6 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
         }
       );
     } else {
-      // NEW ROW: Insert exactly what's received
       db.run(`INSERT INTO cip_step_logs (batch_id, step_number, step_description, start_time, end_time, pressure, brix, ph, remarks, image_path) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [batchId, stepNumber, stepDescription, fmtStart, fmtEnd, pressure, brix, ph, remarks, imagePath],
@@ -167,7 +164,6 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
           if (endTime) {
             db.get("SELECT operator_name FROM cip_batches WHERE id = ?", [batchId], (err, batch) => {
                 const publicUrl = `https://${req.get('host')}`;
-                console.log(`[Webhook] Sending NEW Step ${stepNumber} to n8n...`);
                 sendToN8n({ 
                   type: 'step_completed', 
                   batchId, 
@@ -259,6 +255,4 @@ app.post('/api/batches/finish', (req, res) => {
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`Server running at http://0.0.0.0:${port}`);
-});
-r running at http://0.0.0.0:${port}`);
 });
