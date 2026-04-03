@@ -10,19 +10,24 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [selectedOp, setSelectedOp] = useState<string | null>(null);
   const [pin, setPin] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-const apiUrl = import.meta.env.VITE_API_URL || "https://back-wash-test.onrender.com";
-console.log("Current API URL:", apiUrl);
+  const apiUrl = "https://back-wash-test.onrender.com";
+  console.log("Current API URL:", apiUrl);
 
   useEffect(() => {
     fetch(`${apiUrl}/api/operators`)
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        return res.json();
+      })
       .then(data => {
         setOperators(data);
         setLoading(false);
       })
       .catch(err => {
         console.error('Failed to fetch operators', err);
+        setError(`เชื่อมต่อไม่ได้: ${err.message} (พยายามเรียกไปที่: ${apiUrl})`);
         setLoading(false);
       });
   }, [apiUrl]);
@@ -41,7 +46,7 @@ console.log("Current API URL:", apiUrl);
         } else {
           alert('รหัส PIN ไม่ถูกต้อง');
         }
-      } catch (error) {
+      } catch (err) {
         alert('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
       }
     } else {
@@ -82,15 +87,6 @@ console.log("Current API URL:", apiUrl);
           />
           <button className={styles.btnPrimary} onClick={handleLogin}>
             เข้าสู่ระบบ
-          </button>
-        </div>
-      )}
-    </div>
-  );
-};
-
-export default Login;
-าสู่ระบบ
           </button>
         </div>
       )}
