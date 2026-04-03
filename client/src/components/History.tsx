@@ -8,7 +8,7 @@ interface Batch {
   end_time?: string;
 }
 
-const apiUrl = import.meta.env.VITE_API_URL || "https://back-wash-test.onrender.com";
+const apiUrl = "https://back-wash-test.onrender.com";
 
 const History: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [batches, setBatches] = useState<Batch[]>([]);
