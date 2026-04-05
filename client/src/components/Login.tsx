@@ -86,20 +86,21 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 key={op}
                 className={`${styles.btnOperator} ${selectedOp === op ? styles.active : ''}`}
                 style={{
-                  width: '95%',
-                  maxWidth: '400px',
-                  margin: '0 auto 12px auto',     
-                  boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+                  width: '100%',
+                  maxWidth: '380px',
+                  margin: '0 auto 10px auto',     
+                  boxShadow: '0 4px 8px rgba(0,0,0,0.06)',
                   backgroundColor: selectedOp === op ? '#ff6b00' : '#ffffff',
                   color: selectedOp === op ? '#ffffff' : '#000000',
                   border: '2px solid ' + (selectedOp === op ? '#ff6b00' : '#eeeeee'),
-                  padding: '18px 10px',
+                  padding: '16px 10px',
                   borderRadius: '16px',
                   cursor: 'pointer',
-                  fontWeight: 'bold',
+                  fontWeight: '700',
                   fontSize: '1.2rem',
                   display: 'block',
-                  textAlign: 'center'
+                  textAlign: 'center',
+                  transition: 'all 0.2s ease'
                 }}
                 onClick={() => setSelectedOp(op)}
               >
@@ -112,7 +113,9 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
       {selectedOp && (
         <div className={styles.pinInput}>
-          <label>กรุณาใส่รหัส PIN 4 หลัก</label>
+          <label style={{ fontWeight: '600', color: '#666', marginBottom: '8px' }}>
+            กรุณาใส่รหัส PIN 4 หลัก
+          </label>
           <input
             type="password"
             maxLength={4}
@@ -122,9 +125,10 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             placeholder="****"
             pattern="[0-9]*"
             inputMode="numeric"
+            style={{ marginBottom: '20px' }}
           />
           <button className={styles.btnPrimary} onClick={handleLogin}>
-            เข้าสู่ระบบ
+            🚀 เข้าสู่ระบบ (Login)
           </button>
         </div>
       )}
