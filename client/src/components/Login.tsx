@@ -56,45 +56,59 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     }
   };
 
-  if (loading) return <div className={styles.loginCard}>กำลังโหลดรายชื่อ...</div>;
-
   return (
     <div className={styles.loginCard}>
       <h2 style={{ 
-        backgroundColor: '#e2e0db9a', 
-        border: '2px solid #ff9800', 
+        backgroundColor: '#fff9f5', 
+        border: '3px solid #ff6b00', 
         borderRadius: '15px', 
         padding: '12px',
         color: '#e65100',
         textAlign: 'center',
-        width: '50%',
-        margin: '0 auto 20px auto'
+        width: '90%',
+        maxWidth: '450px',
+        margin: '0 auto 20px auto',
+        boxShadow: '0 4px 10px rgba(0,0,0,0.1)'
       }}>
         เลือกผู้ปฏิบัติงาน
       </h2>
-      {error && <div style={{ color: 'red', marginBottom: '10px', fontSize: '0.8rem', backgroundColor: 'hsla(0, 3%, 51%, 1.00)', padding: '10px', borderRadius: '8px' }}>{error}</div>}
-      <div className={styles.operatorButtons}>
-        {operators.map(op => (
-          <button
-            key={op}
-            className={`${styles.btnOperator} ${selectedOp === op ? styles.active : ''}`}
-            style={{
-              width: '50%',
-              margin: '0 auto 20px auto',     
-              boxShadow: '0 4px 6px rgba(0,0,0,0.1)', // 👈 เพิ่มเงาพื้นหลัง
-              color: selectedOp === op ? 'white' : '#333', // เปลี่ยนสีตัวอักษรตามสถานะ
-              border: '1px solid #ddd',
-              padding: '10px 20px',
-              borderRadius: '10px',
-              cursor: 'pointer',
-              transition: 'all 0.3s ease' // เพิ่มความสมูทเวลาเปลี่ยนสี
-            }}
-            onClick={() => setSelectedOp(op)}
-          >
-            {op}
-          </button>
-        ))}
-      </div>
+
+      {loading ? (
+        <div style={{ padding: '30px', color: '#666', fontStyle: 'italic', textAlign: 'center' }}>
+          ⏳ กำลังโหลดรายชื่อ...
+        </div>
+      ) : (
+        <>
+          {error && <div style={{ color: 'red', marginBottom: '10px', fontSize: '0.8rem', backgroundColor: '#fee', padding: '10px', borderRadius: '8px' }}>{error}</div>}
+          <div className={styles.operatorButtons}>
+            {operators.map(op => (
+              <button
+                key={op}
+                className={`${styles.btnOperator} ${selectedOp === op ? styles.active : ''}`}
+                style={{
+                  width: '90%',
+                  maxWidth: '350px',
+                  margin: '0 auto 12px auto',     
+                  boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+                  backgroundColor: selectedOp === op ? '#ff6b00' : '#ffffff',
+                  color: selectedOp === op ? '#ffffff' : '#333333',
+                  border: '1px solid #ddd',
+                  padding: '18px 20px',
+                  borderRadius: '16px',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  fontSize: '1.2rem',
+                  display: 'block',
+                  transition: 'all 0.3s ease'
+                }}
+                onClick={() => setSelectedOp(op)}
+              >
+                {op}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       {selectedOp && (
         <div className={styles.pinInput}>

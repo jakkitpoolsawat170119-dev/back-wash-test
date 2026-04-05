@@ -209,13 +209,14 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout }) => {
       </div>
 
       <h2 className={styles.header} style={{
-        width: '60%',
+        width: '95%',
+        maxWidth: '500px',
         margin: '0 auto 30px auto',
-        backgroundColor: '#e3f2fd',
-        border: '4px solid #1976d2',
+        backgroundColor: '#fff9f5',
+        border: '4px solid #ff6b00',
         borderRadius: '15px',
         padding: '15px',
-        color: '#0d47a1',
+        color: '#e65100',
         textAlign: 'center',
         boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
       }}>

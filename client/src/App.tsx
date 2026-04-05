@@ -31,19 +31,20 @@ const App: React.FC = () => {
       {!operator ? (
         <>
           <h1 className={styles.header} style={{
-            width: '50%',
-            margin: '0 auto 20px auto',
-            backgroundColor: '#eed893ff',
-            border: '3px solid #e6b112ff',
+            width: '95%',
+            maxWidth: '500px',
+            margin: '0 auto 30px auto',
+            backgroundColor: '#fff9f5',
+            border: '4px solid #ff6b00',
             borderRadius: '15px',
             padding: '20px',
             color: '#e65100',
-          textAlign: 'center',
-          boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
-          marginBottom: '20px',
-      }}>
-      ระบบบันทึก CIP
-      </h1>
+            textAlign: 'center',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+            marginBottom: '30px',
+          }}>
+            ระบบบันทึก CIP
+          </h1>
           {view === 'main' ? (
             <>
               <Login onLogin={handleLogin} />
