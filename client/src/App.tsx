@@ -34,13 +34,13 @@ const App: React.FC = () => {
             width: '95%',
             maxWidth: '500px',
             margin: '0 auto 30px auto',
-            backgroundColor: '#fff9f5',
-            border: '4px solid #ff6b00',
+            background: 'linear-gradient(135deg, #ff6b00, #ff8c00)',
+            border: 'none',
             borderRadius: '15px',
             padding: '20px',
-            color: '#e65100',
+            color: '#ffffff',
             textAlign: 'center',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+            boxShadow: '0 6px 15px rgba(255, 107, 0, 0.3)',
             marginBottom: '30px',
           }}>
             ระบบบันทึก CIP

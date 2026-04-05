@@ -59,15 +59,16 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   return (
     <div className={styles.loginCard}>
       <h2 style={{ 
-        backgroundColor: '#fff9f5', 
-        border: '3px solid #ff6b00', 
+        background: 'linear-gradient(135deg, #ff6b00, #ff8c00)', 
+        border: 'none', 
         borderRadius: '15px', 
         padding: '12px',
-        color: '#e65100',
+        color: '#ffffff',
         textAlign: 'center',
         width: '95%',
+        maxWidth: '450px',
         margin: '0 auto 20px auto',
-        boxShadow: '0 4px 10px rgba(0,0,0,0.1)',
+        boxShadow: '0 4px 10px rgba(255, 107, 0, 0.2)',
         fontSize: '1.4rem'
       }}>
         เลือกผู้ปฏิบัติงาน
