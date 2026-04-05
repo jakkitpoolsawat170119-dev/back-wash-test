@@ -30,7 +30,20 @@ const App: React.FC = () => {
     <div className={styles.container}>
       {!operator ? (
         <>
-          <h1 className={styles.header}>ระบบบันทึก CIP - ส้ม ไลน์ 2</h1>
+          <h1 className={styles.header} style={{
+            width: '50%',
+            margin: '0 auto 20px auto',
+            backgroundColor: '#eed893ff',
+            border: '3px solid #e6b112ff',
+            borderRadius: '15px',
+            padding: '20px',
+            color: '#e65100',
+          textAlign: 'center',
+          boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+          marginBottom: '20px',
+      }}>
+      ระบบบันทึก CIP
+      </h1>
           {view === 'main' ? (
             <>
               <Login onLogin={handleLogin} />

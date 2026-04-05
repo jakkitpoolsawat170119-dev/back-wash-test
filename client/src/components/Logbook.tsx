@@ -208,7 +208,19 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout }) => {
         <button className={styles.btnLogout} onClick={onLogout}>ออกจากระบบ</button>
       </div>
 
-      <h2 className={styles.header}>บันทึก CIP - ส้ม ไลน์ 2</h2>
+      <h2 className={styles.header} style={{
+        width: '60%',
+        margin: '0 auto 30px auto',
+        backgroundColor: '#e3f2fd',
+        border: '4px solid #1976d2',
+        borderRadius: '15px',
+        padding: '15px',
+        color: '#0d47a1',
+        textAlign: 'center',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+      }}>
+        บันทึก CIP - ส้ม ไลน์ 2
+      </h2>
 
       {cipSteps.map((step) => {
         const data = stepData[step.id] || { status: 'pending' };
@@ -294,7 +306,6 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout }) => {
                   <input
                     type="file"
                     accept="image/*"
-                    capture="environment"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (file) handleFileChange(step.id, file);

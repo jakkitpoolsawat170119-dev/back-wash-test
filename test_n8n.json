@@ -1,0 +1,22 @@
+{{
+    {
+      "to": "U36fc00a7ad802419b67a9a1534bf4f88",
+       "messages": [
+         {
+          "type": "text",
+          "text": `[รายงาน CIP ไลน์ 2]
+    
+   ✅ ขั้นตอน: ${$json.body.stepDescription}
+   👤 ผู้ทำ: ${$json.body.operatorName}
+   ⏰ เวลา: ${$json.body.startTime ? new Date($json.body.startTime).toLocaleTimeString('th-TH\,
+      {hour: '2-digit', minute:'2-digit'}) : '-'} - ${new
+      Date($json.body.endTime).toLocaleTimeString('th-TH\, {hour: '2-digit', minute:'2-digit'})}
+   📊 แรงดัน: ${$json.body.pressure} bar
+   🍭 Brix: ${$json.body.brix} %
+   🧪 pH: ${$json.body.ph}
+   📝 หมายเหตุ: ${$json.body.remarks || '-'}
+   ️ รูปถ่าย: ${$json.body.image || 'ไม่มีรูปถ่าย'}`
+       }
+     ]
+   }
+    }}
