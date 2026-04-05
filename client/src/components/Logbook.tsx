@@ -201,11 +201,21 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout }) => {
 
   return (
     <div>
-      <div className={styles.navHeader}>
-        <div>
-          <strong>ผู้ปฏิบัติงาน:</strong> {operatorName} {batchId && <span style={{marginLeft: '10px', color: '#ff6b00'}}>(Batch #{batchId})</span>}
+      <div className={styles.navHeader} style={{ 
+        flexDirection: 'column', 
+        gap: '10px', 
+        padding: '15px',
+        backgroundColor: '#ffffff',
+        border: '2px solid #ff6b00',
+        color: '#000000'
+      }}>
+        <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#000000' }}>
+          👤 ผู้ปฏิบัติงาน: <span style={{ color: '#ff6b00' }}>{operatorName}</span>
+          {batchId && <div style={{ fontSize: '0.9rem', color: '#666' }}>Batch ID: #{batchId}</div>}
         </div>
-        <button className={styles.btnLogout} onClick={onLogout}>ออกจากระบบ</button>
+        <button className={styles.btnLogout} onClick={onLogout} style={{ width: '100%', maxWidth: '200px' }}>
+          🚪 ออกจากระบบ
+        </button>
       </div>
 
       <h2 className={styles.header} style={{

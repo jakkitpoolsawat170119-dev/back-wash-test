@@ -65,41 +65,41 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         padding: '12px',
         color: '#e65100',
         textAlign: 'center',
-        width: '90%',
-        maxWidth: '450px',
+        width: '95%',
         margin: '0 auto 20px auto',
-        boxShadow: '0 4px 10px rgba(0,0,0,0.1)'
+        boxShadow: '0 4px 10px rgba(0,0,0,0.1)',
+        fontSize: '1.4rem'
       }}>
         เลือกผู้ปฏิบัติงาน
       </h2>
 
       {loading ? (
-        <div style={{ padding: '30px', color: '#666', fontStyle: 'italic', textAlign: 'center' }}>
+        <div style={{ padding: '30px', color: '#ff6b00', fontWeight: 'bold', textAlign: 'center' }}>
           ⏳ กำลังโหลดรายชื่อ...
         </div>
       ) : (
         <>
           {error && <div style={{ color: 'red', marginBottom: '10px', fontSize: '0.8rem', backgroundColor: '#fee', padding: '10px', borderRadius: '8px' }}>{error}</div>}
-          <div className={styles.operatorButtons}>
+          <div className={styles.operatorButtons} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
             {operators.map(op => (
               <button
                 key={op}
                 className={`${styles.btnOperator} ${selectedOp === op ? styles.active : ''}`}
                 style={{
-                  width: '90%',
-                  maxWidth: '350px',
+                  width: '95%',
+                  maxWidth: '400px',
                   margin: '0 auto 12px auto',     
                   boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
                   backgroundColor: selectedOp === op ? '#ff6b00' : '#ffffff',
-                  color: selectedOp === op ? '#ffffff' : '#333333',
-                  border: '1px solid #ddd',
-                  padding: '18px 20px',
+                  color: selectedOp === op ? '#ffffff' : '#000000',
+                  border: '2px solid ' + (selectedOp === op ? '#ff6b00' : '#eeeeee'),
+                  padding: '18px 10px',
                   borderRadius: '16px',
                   cursor: 'pointer',
-                  fontWeight: '600',
+                  fontWeight: 'bold',
                   fontSize: '1.2rem',
                   display: 'block',
-                  transition: 'all 0.3s ease'
+                  textAlign: 'center'
                 }}
                 onClick={() => setSelectedOp(op)}
               >
