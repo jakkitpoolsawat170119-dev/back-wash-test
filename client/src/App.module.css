@@ -93,11 +93,60 @@
 }
 
 .btnOperator.active {
-  background: linear-gradient(135deg, #ff6b00, #ff8c00) !important;
-  color: #ffffff !important;
-  border-color: #ff6b00;
-  box-shadow: 0 4px 12px rgba(255, 107, 0, 0.2);
+  background: linear-gradient(135deg, #ffd700, #ff8c00) !important;
+  color: #000000 !important;
+  border: 2px solid #ffffff !important;
+  box-shadow: 0 10px 20px rgba(255, 215, 0, 0.4);
+  position: relative;
+  overflow: hidden;
+  transform: scale(1.05);
 }
+
+/* 🏆 Golden Shine Animation */
+.btnOperator.active::after {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    45deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.1) 30%,
+    rgba(255, 255, 255, 0.8) 50%,
+    rgba(255, 255, 255, 0.1) 70%,
+    transparent 100%
+  );
+  transform: rotate(45deg);
+  animation: shine 2.5s infinite linear;
+}
+
+@keyframes shine {
+  0% { left: -150%; }
+  100% { left: 150%; }
+}
+
+.welcomeMsg {
+  background: rgba(255, 255, 255, 0.9);
+  padding: 15px 25px;
+  border-radius: 20px;
+  margin: 15px 0;
+  border: 2px dashed #ff6b00;
+  color: #ff6b00;
+  font-weight: 800;
+  font-size: 1.2rem;
+  animation: bounceIn 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.05);
+}
+
+@keyframes bounceIn {
+  0% { transform: scale(0.3); opacity: 0; }
+  50% { transform: scale(1.05); }
+  70% { transform: scale(0.9); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
 
 .pinInput {
   margin-top: 32px;

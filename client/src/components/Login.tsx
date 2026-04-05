@@ -1,5 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import styles from '../App.module.css';
+import confetti from 'canvas-confetti';
+
+const greetings = [
+  "สวัสดีครับ พร้อมลุยงานหรือยังครับ? ✌️",
+  "ขอให้เป็นกะที่ราบรื่นนะครับ! 😊",
+  "สุดยอดพนักงานดีเด่นมาแล้ว! 🏆",
+  "สู้ๆ ครับ วันนี้ทำได้แน่นอน! 🚀",
+  "ยินดีต้อนรับกลับมาครับ! 🌟"
+];
 
 interface LoginProps {
   onLogin: (operatorName: string) => void;
@@ -8,9 +17,25 @@ interface LoginProps {
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [operators, setOperators] = useState<string[]>([]);
   const [selectedOp, setSelectedOp] = useState<string | null>(null);
+  const [welcomeNote, setWelcomeNote] = useState('');
   const [pin, setPin] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const selectOperator = (name: string) => {
+    if (selectedOp !== name) {
+      setSelectedOp(name);
+      setWelcomeNote(greetings[Math.floor(Math.random() * greetings.length)]);
+      
+      // 🧨 Trigger Confetti!
+      confetti({
+        particleCount: 150,
+        spread: 70,
+        origin: { y: 0.6 },
+        colors: ['#ff6b00', '#ffd700', '#ffffff']
+      });
+    }
+  };
 
   const apiUrl = "https://back-wash-test.onrender.com";
   console.log("Current API URL:", apiUrl);
@@ -103,7 +128,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                   textAlign: 'center',
                   transition: 'all 0.2s ease'
                 }}
-                onClick={() => setSelectedOp(op)}
+                onClick={() => selectOperator(op)}
               >
                 {op}
               </button>
@@ -114,8 +139,11 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
       {selectedOp && (
         <div className={styles.pinInput}>
+          <div className={styles.welcomeMsg}>
+            ✨ {welcomeNote}
+          </div>
           <label style={{ fontWeight: '600', color: '#666', marginBottom: '8px' }}>
-            กรุณาใส่รหัส PIN 4 หลัก
+            ยินดีต้อนรับคุณ {selectedOp}! กรุณาใส่รหัส PIN
           </label>
           <input
             type="password"
