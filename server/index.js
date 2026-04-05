@@ -136,7 +136,7 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
           if (err) return res.status(500).json({ error: err.message });
           if (endTime && !row.end_time) {
             db.get("SELECT operator_name FROM cip_batches WHERE id = ?", [batchId], (err, batch) => {
-                const publicUrl = `https://${req.get('host')}`;
+                const publicUrl = `https://back-wash-test.onrender.com`;
                 console.log(`[Webhook] Sending Step ${stepNumber} to n8n with UPDATED data...`);
                 sendToN8n({ 
                   type: 'step_completed', 
@@ -167,7 +167,7 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
           
           if (endTime) {
             db.get("SELECT operator_name FROM cip_batches WHERE id = ?", [batchId], (err, batch) => {
-                const publicUrl = `https://${req.get('host')}`;
+                const publicUrl = `https://back-wash-test.onrender.com`;
                 sendToN8n({ 
                   type: 'step_completed', 
                   batchId, 
