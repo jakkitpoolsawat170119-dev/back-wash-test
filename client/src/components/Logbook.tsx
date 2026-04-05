@@ -165,6 +165,15 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout }) => {
         ระบบบันทึก CIP
       </h2>
 
+      {/* 💡 คำแนะนำพิเศษสำหรับผู้ใช้ LINE */}
+      <div style={{ 
+        textAlign: 'center', backgroundColor: '#fff3e0', padding: '10px', 
+        borderRadius: '10px', margin: '10px auto', width: '90%', fontSize: '0.8rem',
+        border: '1px solid #ffcc80', color: '#e65100'
+      }}>
+        🚩 หากถ่ายรูปไม่ได้: ให้กด <b>"..." (มุมขวาบน)</b> แล้วเลือก <b>"เปิดด้วย Browser อื่น"</b> (Safari/Chrome)
+      </div>
+
       {cipSteps.map((step) => {
         const data = stepData[step.id] || { status: 'pending' };
         const isExpanded = expandedStep === step.id;
