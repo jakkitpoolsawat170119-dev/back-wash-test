@@ -214,7 +214,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout }) => {
           {batchId && <div style={{ fontSize: '0.9rem', color: '#666' }}>Batch ID: #{batchId}</div>}
         </div>
         <button className={styles.btnLogout} onClick={onLogout} style={{ width: '100%', maxWidth: '200px' }}>
-          🚪 ออกจากระบบ
+          🚪 ออกจากระบบ (Logout)
         </button>
       </div>
 
@@ -230,7 +230,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout }) => {
         textAlign: 'center',
         boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
       }}>
-        บันทึก CIP - ส้ม ไลน์ 2
+        ระบบบันทึก CIP
       </h2>
 
       {cipSteps.map((step) => {
@@ -253,11 +253,11 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout }) => {
             <div className={styles.actionButtons}>
                {!data.startTime ? (
                  <button className={styles.btnStart} onClick={(e) => { e.stopPropagation(); handleStart(step.id); }}>
-                   เริ่ม (Start)
+                   ▶️ เริ่ม (Start)
                  </button>
                ) : data.status !== 'completed' && (
                  <button className={styles.btnStop} onClick={(e) => { e.stopPropagation(); handleStop(step.id); }}>
-                   เสร็จสิ้น (Stop)
+                   ⏹️ เสร็จสิ้น (Stop)
                  </button>
                )}
             </div>
