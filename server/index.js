@@ -114,7 +114,7 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
   const fmtStart = startTime ? new Date(startTime).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T') : null;
   const fmtEnd = endTime ? new Date(endTime).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T') : null;
 
-  db.get("SELECT id, image_path, pressure, brix, ph, remarks, end_time FROM cip_step_logs WHERE batch_id = ? AND step_number = ?", [batchId, stepNumber], (err, row) => {
+  db.get("SELECT id, start_time, image_path, pressure, brix, ph, remarks, end_time FROM cip_step_logs WHERE batch_id = ? AND step_number = ?", [batchId, stepNumber], (err, row) => {
     if (row) {
       const updPressure = (pressure !== undefined && pressure !== '') ? pressure : row.pressure;
       const updBrix = (brix !== undefined && brix !== '') ? brix : row.brix;
