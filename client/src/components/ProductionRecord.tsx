@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import styles from '../App.module.css';
 
 interface ProductionRecordProps {
   operatorName: string;
   onBack: () => void;
   onHome: () => void;
+  onStatusChange: (active: boolean) => void;
 }
 
 interface CompletedBatch {
@@ -13,7 +14,7 @@ interface CompletedBatch {
   flavor: string;
   startTime: string;
   doneTime: string;
-  duration: number; // รวมเวลาเป็นนาที
+  duration: number; 
   brix: string;
   ph: string;
 }
@@ -23,7 +24,7 @@ interface LineState {
   shiftBatch: string;
   cookingBatch: string;
   startTime: string | null;
-  startRaw: Date | null; // เก็บ Date จริงเพื่อคำนวณนาที
+  startRaw: Date | null;
   doneTime: string | null;
   brix: string;
   ph: string;
@@ -34,9 +35,9 @@ interface LineState {
   showInputs: boolean;
 }
 
-const apiUrl = "http://localhost:3001";
+const apiUrl = "https://back-wash-test.onrender.com";
 
-const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBack, onHome }) => {
+const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBack, onHome, onStatusChange }) => {
   const batchOptions = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
   const [showSummaryModal, setShowSummaryModal] = useState(false);
 
@@ -62,6 +63,12 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
     3: { ...initialLineState },
     4: { ...initialLineState },
   });
+
+  // เช็คสถานะการทำงานรวมของทุก Line เพื่อแจ้งหน้า Dashboard
+  useEffect(() => {
+    const anyProcessing = Object.values(lines).some(line => line.isProcessing);
+    onStatusChange(anyProcessing);
+  }, [lines, onStatusChange]);
 
   const flavorList = [
     "Amazon", "FDS", "Golden", "Freshy Lychee", "Freshy Strawberry",
@@ -119,7 +126,6 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
     const now = new Date();
     const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
     
-    // คำนวณเวลารวมเป็นนาที
     const diffMs = now.getTime() - line.startRaw.getTime();
     const diffMins = Math.round(diffMs / 60000);
 
@@ -185,7 +191,6 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
     }
   };
 
-  // รวม History จากทุก Line เพื่อแสดงในตารางสรุป
   const allHistory = Object.values(lines).flatMap(l => l.history).sort((a, b) => b.line - a.line);
 
   return (
@@ -234,7 +239,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
                 <h3 style={{ margin: 0, color: '#2e7d32' }}>Line {lineId}</h3>
-                <button onClick={() => resetLine(lineId)} style={{ background: '#ffebee', color: '#d32f2f', border: '1px solid #ffcdd2', borderRadius: '8px', padding: '4px 10px', fontSize: '0.7rem', cursor: 'pointer' }}>ล้างค่า</button>
+                <button onClick={() => resetLine(lineId)} style={{ background: '#ffebee', color: '#d32f2f', border: '1px solid #ffcdd2', borderRadius: '8px', padding: '4px 12px', fontSize: '0.7rem', cursor: 'pointer' }}>ล้างค่า</button>
               </div>
 
               {line.showInputs ? (
@@ -264,7 +269,6 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
                     border: '1px solid rgba(0,0,0,0.05)',
                     position: 'relative'
                   }}>
-                    {/* 1. รับช่วงต่อ - อดีต/จุดเริ่ม */}
                     <div className={styles.formGroup} style={{ flex: 1 }}>
                       <label className={styles.formLabel} style={{ fontSize: '0.6rem', textAlign: 'center', display: 'block', color: '#8d6e63', fontWeight: 'bold' }}>📥 รับช่วงต่อ</label>
                       <select 
@@ -272,46 +276,21 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
                         value={line.shiftBatch}
                         onChange={(e) => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], shiftBatch: e.target.value, cookingBatch: '' } }))}
                         disabled={line.history.length > 0 || line.isProcessing}
-                        style={{ 
-                          backgroundColor: 'rgba(255, 255, 255, 0.9)', 
-                          padding: '8px', 
-                          fontSize: '0.9rem', 
-                          textAlign: 'center',
-                          borderRadius: '10px',
-                          border: '1px solid #fbc02d',
-                          boxShadow: '0 2px 5px rgba(251, 192, 45, 0.2)'
-                        }}
+                        style={{ backgroundColor: 'rgba(255, 255, 255, 0.9)', padding: '8px', fontSize: '0.9rem', textAlign: 'center', borderRadius: '10px', border: '1px solid #fbc02d' }}
                       >
                         <option value="">--</option>
                         {batchOptions.map(b => <option key={b} value={b}>{b}</option>)}
                       </select>
                     </div>
 
-                    {/* 2. ล่าสุด - ปัจจุบัน (ตรงกลาง) */}
                     <div style={{ flex: 1, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                       <div style={{ fontSize: '0.6rem', color: '#1565c0', marginBottom: '4px', fontWeight: 'bold' }}>📍 ล่าสุด</div>
-                      <div style={{ 
-                        background: lastBatch ? 'linear-gradient(135deg, #1565c0, #1e88e5)' : '#fff', 
-                        padding: '6px 0', 
-                        borderRadius: '10px', 
-                        border: lastBatch ? 'none' : '1px dashed #90caf9',
-                        width: '100%',
-                        fontWeight: '800',
-                        color: lastBatch ? '#ffffff' : '#90caf9',
-                        fontSize: '1rem',
-                        minHeight: '38px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        boxShadow: lastBatch ? '0 4px 10px rgba(21, 101, 192, 0.3)' : 'none',
-                        transition: 'all 0.3s'
-                      }}>
+                      <div style={{ background: lastBatch ? 'linear-gradient(135deg, #1565c0, #1e88e5)' : '#fff', padding: '6px 0', borderRadius: '10px', width: '100%', fontWeight: '800', color: lastBatch ? '#ffffff' : '#90caf9', fontSize: '1rem', minHeight: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         {lastBatch || '--'}
                       </div>
-                      <div style={{ fontSize: '1rem', marginTop: '2px', color: '#1e88e5', animation: 'bounceRight 1s infinite' }}>➜</div>
+                      <div style={{ fontSize: '1rem', marginTop: '2px', color: '#1e88e5' }}>➜</div>
                     </div>
 
-                    {/* 3. เริ่มต้ม - อนาคต/การกระทำ */}
                     <div className={styles.formGroup} style={{ flex: 1 }}>
                       <label className={styles.formLabel} style={{ fontSize: '0.6rem', textAlign: 'center', display: 'block', color: '#2e7d32', fontWeight: 'bold' }}>🔥 เริ่มต้ม</label>
                       <select 
@@ -319,16 +298,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
                         value={line.cookingBatch}
                         onChange={(e) => handleCookingBatchChange(lineId, e.target.value)}
                         disabled={line.isProcessing || !line.shiftBatch}
-                        style={{ 
-                          background: 'rgba(255, 255, 255, 0.9)', 
-                          border: '2px solid #4caf50', 
-                          padding: '8px', 
-                          fontSize: '0.9rem', 
-                          textAlign: 'center',
-                          borderRadius: '10px',
-                          boxShadow: '0 4px 10px rgba(76, 175, 80, 0.2)',
-                          fontWeight: 'bold'
-                        }}
+                        style={{ background: 'rgba(255, 255, 255, 0.9)', border: '2px solid #4caf50', padding: '8px', fontSize: '0.9rem', textAlign: 'center', borderRadius: '10px', fontWeight: 'bold' }}
                       >
                         <option value="">--</option>
                         {batchOptions.map(b => <option key={b} value={b}>{b}</option>)}
@@ -353,42 +323,21 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '15px' }}>
                     <div className={styles.formGroup}>
                       <label className={styles.formLabel}>ค่า Brix</label>
-                      <input 
-                        type="number" className={styles.formInput} placeholder="Brix" 
-                        value={line.brix} onChange={(e) => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], brix: e.target.value } }))}
-                        disabled={!line.isProcessing}
-                      />
+                      <input type="number" className={styles.formInput} placeholder="Brix" value={line.brix} onChange={(e) => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], brix: e.target.value } }))} disabled={!line.isProcessing} />
                     </div>
                     <div className={styles.formGroup}>
                       <label className={styles.formLabel}>ค่า PH</label>
-                      <input 
-                        type="number" className={styles.formInput} placeholder="PH" 
-                        value={line.ph} onChange={(e) => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], ph: e.target.value } }))}
-                        disabled={!line.isProcessing}
-                      />
+                      <input type="number" className={styles.formInput} placeholder="PH" value={line.ph} onChange={(e) => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], ph: e.target.value } }))} disabled={!line.isProcessing} />
                     </div>
                   </div>
 
                   <button 
                     onClick={() => {
-                      if (!line.brix || !line.ph) {
-                        alert("⚠️ กรุณากรอกค่า Brix และ PH ให้ครบถ้วนก่อนกด Done ครับ!");
-                        return;
-                      }
+                      if (!line.brix || !line.ph) { alert("⚠️ กรุณากรอกค่า Brix และ PH ให้ครบถ้วนก่อนกด Done ครับ!"); return; }
                       handleDone(lineId);
                     }}
                     disabled={!line.isProcessing || !line.brix || !line.ph}
-                    style={{ 
-                      width: '100%', 
-                      padding: '15px', 
-                      background: (!line.isProcessing || !line.brix || !line.ph) ? '#ccc' : '#f44336', 
-                      color: 'white', 
-                      border: 'none', 
-                      borderRadius: '10px', 
-                      fontWeight: 'bold', 
-                      cursor: (!line.isProcessing || !line.brix || !line.ph) ? 'not-allowed' : 'pointer',
-                      transition: 'all 0.3s'
-                    }}
+                    style={{ width: '100%', padding: '15px', background: (!line.isProcessing || !line.brix || !line.ph) ? '#ccc' : '#f44336', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}
                   >
                     {(!line.brix || !line.ph) ? '📝 กรุณากรอก Brix & PH' : '⏹️ Done (เสร็จสิ้น)'}
                   </button>
@@ -397,85 +346,33 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
                 <div style={{ textAlign: 'center', padding: '10px 0' }}>
                   <div style={{ fontSize: '1.2rem', color: '#2e7d32', fontWeight: 'bold', marginBottom: '10px' }}>✅ บันทึกสำเร็จ!</div>
                   <div style={{ background: '#fff9c4', padding: '12px', borderRadius: '10px', marginBottom: '20px', border: '1px solid #fbc02d' }}>
-                    <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#f57f17' }}>
-                      Batch ต่อไปที่คุณต้องผลิตคือ: {nextExpectedBatch || 'จบเซ็ต A-Z'}
-                    </div>
+                    <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#f57f17' }}>Batch ต่อไปที่คุณต้องผลิตคือ: {nextExpectedBatch || 'จบเซ็ต A-Z'}</div>
                   </div>
-                  <button 
-                    onClick={() => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], showInputs: true } }))}
-                    style={{ width: '100%', padding: '15px', background: '#2e7d32', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}
-                  >
-                    ➕ เตรียมผลิต Batch ถัดไป
-                  </button>
+                  <button onClick={() => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], showInputs: true } }))} style={{ width: '100%', padding: '15px', background: '#2e7d32', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>➕ เตรียมผลิต Batch ถัดไป</button>
                 </div>
               )}
 
               <div style={{ marginTop: '15px', display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end' }}>
-                <div style={{ color: '#1565c0', fontWeight: 'bold', fontSize: '0.9rem' }}>
-                   ✅ ผลิตเสร็จแล้ว: {line.totalCompleted} Batch
-                </div>
+                <div style={{ color: '#1565c0', fontWeight: 'bold', fontSize: '0.9rem' }}>✅ ผลิตเสร็จแล้ว: {line.totalCompleted} Batch</div>
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* --- ปุ่มสรุปรายการผลิต ย้ายมาไว้ด้านล่างตรงกลาง --- */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        marginTop: '40px', 
-        marginBottom: '20px',
-        padding: '0 15px' 
-      }}>
-        <button 
-          onClick={() => setShowSummaryModal(true)}
-          style={{ 
-            background: 'linear-gradient(135deg, #1565c0, #0d47a1)', 
-            color: 'white', 
-            border: 'none', 
-            borderRadius: '15px', 
-            padding: '18px 30px', 
-            fontWeight: 'bold', 
-            fontSize: '1.1rem',
-            cursor: 'pointer',
-            boxShadow: '0 8px 20px rgba(21, 101, 192, 0.3)',
-            width: '100%',
-            maxWidth: '400px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '12px',
-            transition: 'transform 0.2s'
-          }}
-          onMouseOver={(e) => { e.currentTarget.style.transform = 'scale(1.02)'; }}
-          onMouseOut={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
-        >
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: '40px', marginBottom: '20px', padding: '0 15px' }}>
+        <button onClick={() => setShowSummaryModal(true)} style={{ background: 'linear-gradient(135deg, #1565c0, #0d47a1)', color: 'white', border: 'none', borderRadius: '15px', padding: '18px 30px', fontWeight: 'bold', fontSize: '1.1rem', cursor: 'pointer', boxShadow: '0 8px 20px rgba(21, 101, 192, 0.3)', width: '100%', maxWidth: '400px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
           📊 ดูสรุปการผลิตทั้งหมด ({allHistory.length} รายการ)
         </button>
       </div>
 
-      {/* --- Modal หน้าต่างสรุปรายการทั้งหมด --- */}
       {showSummaryModal && (
-        <div style={{
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 1000,
-            display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '15px'
-        }}>
-            <div style={{
-                backgroundColor: 'white', width: '100%', maxWidth: '800px', maxHeight: '90vh',
-                borderRadius: '20px', padding: '20px', overflowY: 'auto', position: 'relative'
-            }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '15px' }}>
+            <div style={{ backgroundColor: 'white', width: '100%', maxWidth: '800px', maxHeight: '90vh', borderRadius: '20px', padding: '20px', overflowY: 'auto' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '2px solid #eee', paddingBottom: '10px' }}>
                     <h3 style={{ margin: 0, color: '#1565c0' }}>📊 สรุปรายการผลิตทั้งหมด</h3>
-                    <button 
-                        onClick={() => setShowSummaryModal(false)}
-                        style={{ background: '#f44336', color: 'white', border: 'none', borderRadius: '50%', width: '30px', height: '30px', cursor: 'pointer', fontWeight: 'bold' }}
-                    >
-                        X
-                    </button>
+                    <button onClick={() => setShowSummaryModal(false)} style={{ background: '#f44336', color: 'white', border: 'none', borderRadius: '50%', width: '30px', height: '30px', cursor: 'pointer', fontWeight: 'bold' }}>X</button>
                 </div>
-
                 <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                         <thead>
@@ -501,20 +398,12 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
                                     <td style={{ padding: '10px', border: '1px solid #ddd', color: '#d84315', fontWeight: 'bold' }}>{h.duration} นาที</td>
                                 </tr>
                             )) : (
-                                <tr>
-                                    <td colSpan={7} style={{ padding: '20px', textAlign: 'center', color: '#888' }}>ยังไม่มีรายการที่ผลิตเสร็จ</td>
-                                </tr>
+                                <tr><td colSpan={7} style={{ padding: '20px', textAlign: 'center', color: '#888' }}>ยังไม่มีรายการที่ผลิตเสร็จ</td></tr>
                             )}
                         </tbody>
                     </table>
                 </div>
-                
-                <button 
-                    onClick={() => setShowSummaryModal(false)}
-                    style={{ width: '100%', padding: '12px', background: '#424242', color: 'white', border: 'none', borderRadius: '10px', marginTop: '20px', fontWeight: 'bold', cursor: 'pointer' }}
-                >
-                    ปิดหน้าต่างนี้
-                </button>
+                <button onClick={() => setShowSummaryModal(false)} style={{ width: '100%', padding: '12px', background: '#424242', color: 'white', border: 'none', borderRadius: '10px', marginTop: '20px', fontWeight: 'bold', cursor: 'pointer' }}>ปิดหน้าต่างนี้</button>
             </div>
         </div>
       )}

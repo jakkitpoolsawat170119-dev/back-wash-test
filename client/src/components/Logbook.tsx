@@ -7,6 +7,7 @@ interface LogbookProps {
   onLogout: () => void;
   onViewHistory: () => void;
   onHome: () => void;
+  onStatusChange: (active: boolean) => void;
 }
 
 interface StepData {
@@ -23,7 +24,7 @@ interface StepData {
 
 const apiUrl = "https://back-wash-test.onrender.com";
 
-const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onViewHistory, onHome }) => {
+const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onViewHistory, onHome, onStatusChange }) => {
   const [batchId, setBatchId] = useState<number | null>(null);
   const [stepData, setStepData] = useState<Record<number, StepData>>({});
   const [expandedStep, setExpandedStep] = useState<number | null>(1);
@@ -40,6 +41,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onViewHistory
       });
       const data = await response.json();
       setBatchId(data.batchId);
+      onStatusChange(true); // แจ้งสถานะว่ากำลังทำงาน
       return data.batchId;
     } catch (error) {
       alert('ไม่สามารถเริ่มงานได้');
@@ -123,6 +125,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onViewHistory
         body: JSON.stringify({ batchId })
       });
       alert('บันทึกสมบูรณ์!');
+      onStatusChange(false); // จบงานแล้ว
       onLogout();
     } catch (error) {
       alert('เกิดข้อผิดพลาด');
@@ -132,7 +135,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onViewHistory
   };
 
   const handleInputChange = (stepId: number, field: keyof StepData, value: string) => {
-    setStepData(prev => ({ ...prev, [stepId]: { ...prev[stepId], [field]: value } }));
+    setStepData(prev => ({ ...prev, [stepId]: { ...prev[lineId], [field]: value } }));
   };
 
   const handleBlur = (stepId: number, field: keyof StepData, value: string) => {
@@ -214,19 +217,19 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onViewHistory
             <div className={styles.formGrid}>
                 <div className={styles.formGroup}>
                   <label className={styles.formLabel}>แรงดัน (Pressure)</label>
-                  <input type="number" className={styles.formInput} value={data.pressure || ''} onChange={(e) => handleInputChange(step.id, 'pressure', e.target.value)} onBlur={(e) => handleBlur(step.id, 'pressure', e.target.value)} placeholder="บาร์" inputMode="decimal" />
+                  <input type="number" className={styles.formInput} value={data.pressure || ''} onChange={(e) => handleBlur(step.id, 'pressure', e.target.value)} onBlur={(e) => handleBlur(step.id, 'pressure', e.target.value)} placeholder="บาร์" inputMode="decimal" />
                 </div>
                 <div className={styles.formGroup}>
                   <label className={styles.formLabel}>ค่า Brix</label>
-                  <input type="number" className={styles.formInput} value={data.brix || ''} onChange={(e) => handleInputChange(step.id, 'brix', e.target.value)} onBlur={(e) => handleBlur(step.id, 'brix', e.target.value)} placeholder="% Brix" inputMode="decimal" />
+                  <input type="number" className={styles.formInput} value={data.brix || ''} onChange={(e) => handleBlur(step.id, 'brix', e.target.value)} onBlur={(e) => handleBlur(step.id, 'brix', e.target.value)} placeholder="% Brix" inputMode="decimal" />
                 </div>
                 <div className={styles.formGroup}>
                   <label className={styles.formLabel}>ค่า pH</label>
-                  <input type="number" className={styles.formInput} value={data.pH || ''} onChange={(e) => handleInputChange(step.id, 'pH', e.target.value)} onBlur={(e) => handleBlur(step.id, 'pH', e.target.value)} placeholder="pH" inputMode="decimal" />
+                  <input type="number" className={styles.formInput} value={data.pH || ''} onChange={(e) => handleBlur(step.id, 'pH', e.target.value)} onBlur={(e) => handleBlur(step.id, 'pH', e.target.value)} placeholder="pH" inputMode="decimal" />
                 </div>
                 <div className={`${styles.formGroup} ${styles.fullWidth}`}>
                   <label className={styles.formLabel}>หมายเหตุ</label>
-                  <input type="text" className={styles.formInput} value={data.remarks || ''} onChange={(e) => handleInputChange(step.id, 'remarks', e.target.value)} onBlur={(e) => handleBlur(step.id, 'remarks', e.target.value)} placeholder="พิมพ์หมายเหตุเพิ่มเติม..." />
+                  <input type="text" className={styles.formInput} value={data.remarks || ''} onChange={(e) => handleBlur(step.id, 'remarks', e.target.value)} onBlur={(e) => handleBlur(step.id, 'remarks', e.target.value)} placeholder="พิมพ์หมายเหตุเพิ่มเติม..." />
                 </div>
                 <div className={`${styles.formGroup} ${styles.fullWidth}`}>
                   <label className={styles.formLabel}>📷 รูปถ่ายหน้างาน</label>
