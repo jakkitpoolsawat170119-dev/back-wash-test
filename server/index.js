@@ -86,6 +86,13 @@ app.post('/api/login', (req, res) => {
   });
 });
 
+app.get('/api/operators', (req, res) => {
+  db.all("SELECT name FROM operators", [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
 app.post('/api/batches/start', (req, res) => {
   const { operatorName } = req.body;
   const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
