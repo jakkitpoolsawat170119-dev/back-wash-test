@@ -119,6 +119,20 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
 
   db.run(query, [batchId, stepNumber, stepDescription, startTime, endTime, pressure, brix, ph, remarks, imagePath], function(err) {
     if (err) return res.status(500).json({ error: err.message });
+    
+    // ส่งแจ้งเตือนรายขั้นตอนเข้า LINE
+    sendToN8n({
+      type: 'cip_step_logged',
+      batchId,
+      stepNumber,
+      stepDescription,
+      pressure,
+      brix,
+      ph,
+      remarks,
+      imagePath: imagePath ? `https://back-wash-test.onrender.com${imagePath}` : null
+    });
+
     res.json({ success: true, imagePath });
   });
 });
@@ -128,6 +142,14 @@ app.post('/api/batches/finish', (req, res) => {
   const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
   db.run("UPDATE cip_batches SET end_time = ?, status = 'completed' WHERE id = ?", [now, batchId], function(err) {
     if (err) return res.status(500).json({ error: err.message });
+    
+    // ส่งแจ้งเตือนจบงานเข้า LINE
+    sendToN8n({
+      type: 'cip_batch_finished',
+      batchId,
+      endTime: now
+    });
+
     res.json({ success: true, endTime: now });
   });
 });
