@@ -59,10 +59,11 @@ db.serialize(() => {
       cip_count TEXT
     )`);
 
-    db.run("DELETE FROM operators WHERE name = 'นาย จักรกฤษ พูลสวัสดิ์'");
+    db.run("DELETE FROM operators");
     const insertOp = db.prepare("INSERT OR IGNORE INTO operators (name, pin) VALUES (?, ?)");
+    insertOp.run("จักรกฤษ พูลสวัสดิ์", "1234");
     insertOp.run("พัฒพริศ อ่ำอยู่", "1234");
-    insertOp.run("อนุวัตร รวรรณวงค์", "1234");
+    insertOp.run("อนุวัตร สุวรรณวงค์", "1234");
     insertOp.finalize();
 });
 
