@@ -5,6 +5,8 @@ import { cipSteps } from '../data/steps';
 interface LogbookProps {
   operatorName: string;
   onLogout: () => void;
+  onViewHistory: () => void;
+  onHome: () => void;
 }
 
 interface StepData {
@@ -21,7 +23,7 @@ interface StepData {
 
 const apiUrl = "https://back-wash-test.onrender.com";
 
-const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout }) => {
+const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onViewHistory, onHome }) => {
   const [batchId, setBatchId] = useState<number | null>(null);
   const [stepData, setStepData] = useState<Record<number, StepData>>({});
   const [expandedStep, setExpandedStep] = useState<number | null>(1);
@@ -152,9 +154,24 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout }) => {
           👤 <span style={{ color: '#ff6b00' }}>{operatorName}</span>
           {batchId && <div style={{ fontSize: '0.75rem', color: '#888' }}>Batch: #{batchId}</div>}
         </div>
-        <button className={styles.btnLogout} onClick={onLogout} style={{ padding: '8px 15px', fontSize: '0.8rem' }}>
-          🚪 ออกจากระบบ
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button 
+            onClick={() => {
+              const pin = window.prompt("กรุณาใส่รหัสผ่านเพื่อกลับหน้าแรก:");
+              if (pin === "1234") {
+                onHome();
+              } else if (pin !== null) {
+                alert("รหัสผ่านไม่ถูกต้อง!");
+              }
+            }} 
+            style={{ background: '#f5f5f5', border: '1px solid #ddd', borderRadius: '8px', padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#333', fontWeight: 'bold' }}
+          >
+            🏠 Home
+          </button>
+          <button className={styles.btnLogout} onClick={onLogout} style={{ padding: '8px 15px', fontSize: '0.8rem' }}>
+            🚪 ออกจากระบบ CIP
+          </button>
+        </div>
       </div>
 
       <h2 className={styles.header} style={{
@@ -233,6 +250,21 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout }) => {
           </button>
         </div>
       )}
+
+      {/* --- ปุ่มดูประวัติ CIP ย้ายมาไว้ตรงนี้ --- */}
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: '20px', paddingBottom: '30px' }}>
+        <button 
+          className={styles.historyBtn} 
+          onClick={onViewHistory}
+          style={{ 
+            maxWidth: '400px', 
+            background: 'linear-gradient(135deg, #424242, #212121)',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+          }}
+        >
+          📊 ดูสรุปประวัติการทำ CIP ทั้งหมด
+        </button>
+      </div>
     </div>
   );
 };

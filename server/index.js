@@ -77,6 +77,16 @@ function createTables() {
       FOREIGN KEY (batch_id) REFERENCES cip_batches (id)
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS production_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT,
+      line_name TEXT,
+      flavor TEXT,
+      batch TEXT,
+      operator_name TEXT,
+      cip_count TEXT
+    )`);
+
     // Reset and Re-insert operators to fix typos and duplicates
     db.run("DELETE FROM operators", (err) => {
       if (!err) {
@@ -254,6 +264,32 @@ app.post('/api/batches/finish', (req, res) => {
   db.run("UPDATE cip_batches SET end_time = ?, status = 'completed' WHERE id = ?", [now, batchId], function(err) {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true, endTime: now });
+  });
+});
+
+// Production Logging
+app.post('/api/production/log', (req, res) => {
+  const { line, flavor, batch, operator, timestamp, cipCount } = req.body;
+  const fmtTime = timestamp ? new Date(timestamp).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T') : null;
+  
+  console.log(`>>> PRODUCTION LOG: Line: ${line} | Flavor: ${flavor} | Batch: ${batch} | Op: ${operator}`);
+
+  const query = `INSERT INTO production_logs (timestamp, line_name, flavor, batch, operator_name, cip_count) VALUES (?, ?, ?, ?, ?, ?)`;
+  db.run(query, [fmtTime, line, flavor, batch, operator, cipCount], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    
+    // Optional: Send to n8n Webhook if needed
+    sendToN8n({
+      type: 'production_logged',
+      line,
+      flavor,
+      batch,
+      operator,
+      timestamp: fmtTime,
+      cipCount
+    });
+
+    res.json({ success: true, logId: this.lastID });
   });
 });
 
