@@ -59,12 +59,156 @@ db.serialize(() => {
       cip_count TEXT
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS cip_line2_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      operator_name TEXT,
+      date TEXT,
+      sku TEXT,
+      line TEXT,
+      flavor TEXT,
+      created_at TEXT,
+      status TEXT DEFAULT 'in_progress'
+    )`);
+    db.run(`CREATE TABLE IF NOT EXISTS cip_line2_rows (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER,
+      row_no INTEGER,
+      data TEXT,
+      UNIQUE(session_id, row_no),
+      FOREIGN KEY (session_id) REFERENCES cip_line2_sessions(id)
+    )`);
+    db.run(`CREATE TABLE IF NOT EXISTS cip_line2_back (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER UNIQUE,
+      data TEXT,
+      FOREIGN KEY (session_id) REFERENCES cip_line2_sessions(id)
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS cip_line1_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      operator_name TEXT,
+      date TEXT,
+      sku TEXT,
+      created_at TEXT,
+      status TEXT DEFAULT 'in_progress'
+    )`);
+    db.run(`CREATE TABLE IF NOT EXISTS cip_line1_rows (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER,
+      row_no INTEGER,
+      data TEXT,
+      UNIQUE(session_id, row_no),
+      FOREIGN KEY (session_id) REFERENCES cip_line1_sessions(id)
+    )`);
+    db.run(`CREATE TABLE IF NOT EXISTS cip_line1_extra (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER,
+      section TEXT,
+      data TEXT,
+      UNIQUE(session_id, section),
+      FOREIGN KEY (session_id) REFERENCES cip_line1_sessions(id)
+    )`);
+
     db.run("DELETE FROM operators");
     const insertOp = db.prepare("INSERT OR IGNORE INTO operators (name, pin) VALUES (?, ?)");
     insertOp.run("จักรกฤษ พูลสวัสดิ์", "1234");
     insertOp.run("พัฒพริศ อ่ำอยู่", "1234");
     insertOp.run("อนุวัตร สุวรรณวงค์", "1234");
     insertOp.finalize();
+});
+
+// ─── CIP Line 2 API ───────────────────────────────────────────────────────────
+app.post('/api/cip-line2/start', (req, res) => {
+  const { operatorName, date, sku, line, flavor } = req.body;
+  const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
+  db.run(`INSERT INTO cip_line2_sessions (operator_name, date, sku, line, flavor, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    [operatorName, date, sku, line, flavor, now],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, sessionId: this.lastID });
+    }
+  );
+});
+
+app.post('/api/cip-line2/row', (req, res) => {
+  const { sessionId, rowNo, data } = req.body;
+  db.run(`INSERT INTO cip_line2_rows (session_id, row_no, data) VALUES (?, ?, ?)
+    ON CONFLICT(session_id, row_no) DO UPDATE SET data = excluded.data`,
+    [sessionId, rowNo, JSON.stringify(data)],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
+
+app.post('/api/cip-line2/back', (req, res) => {
+  const { sessionId, data } = req.body;
+  db.run(`INSERT INTO cip_line2_back (session_id, data) VALUES (?, ?)
+    ON CONFLICT(session_id) DO UPDATE SET data = excluded.data`,
+    [sessionId, JSON.stringify(data)],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
+
+app.post('/api/cip-line2/finish', (req, res) => {
+  const { sessionId } = req.body;
+  db.run(`UPDATE cip_line2_sessions SET status = 'completed' WHERE id = ?`, [sessionId],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
+
+// ─── CIP Line 1 API ───────────────────────────────────────────────────────────
+app.post('/api/cip-line1/start', (req, res) => {
+  const { operatorName, date, sku } = req.body;
+  const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
+  db.run(`INSERT INTO cip_line1_sessions (operator_name, date, sku, created_at) VALUES (?, ?, ?, ?)`,
+    [operatorName, date, sku, now],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, sessionId: this.lastID });
+    }
+  );
+});
+
+app.post('/api/cip-line1/row', (req, res) => {
+  const { sessionId, rowNo, data } = req.body;
+  db.run(`INSERT INTO cip_line1_rows (session_id, row_no, data) VALUES (?, ?, ?)
+    ON CONFLICT(session_id, row_no) DO UPDATE SET data = excluded.data`,
+    [sessionId, rowNo, JSON.stringify(data)],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
+
+app.post('/api/cip-line1/extra', (req, res) => {
+  const { sessionId, section, data } = req.body;
+  db.run(`INSERT INTO cip_line1_extra (session_id, section, data) VALUES (?, ?, ?)
+    ON CONFLICT(session_id, section) DO UPDATE SET data = excluded.data`,
+    [sessionId, section, JSON.stringify(data)],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
+
+app.post('/api/cip-line1/finish', (req, res) => {
+  const { sessionId } = req.body;
+  db.run(`UPDATE cip_line1_sessions SET status = 'completed' WHERE id = ?`, [sessionId],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
 });
 
 const sendToN8n = async (data) => {

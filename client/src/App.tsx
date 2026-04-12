@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Login from './components/Login';
 import Logbook from './components/Logbook';
+import CipLine2Form from './components/CipLine2Form';
+import CipLine1Form from './components/CipLine1Form';
 import ProductionRecord from './components/ProductionRecord';
 import styles from './App.module.css';
 
 const App: React.FC = () => {
   const [operator, setOperator] = useState<string | null>(null);
-  const [appMode, setAppMode] = useState<'selection' | 'cip' | 'production'>('selection');
+  const [appMode, setAppMode] = useState<'selection' | 'cip' | 'cipLine2' | 'cipLine1' | 'production'>('selection');
   const [isFlipping, setIsFlipping] = useState(false);
   const [isCipActive, setIsCipActive] = useState(false);
   const [isProdActive, setIsProdActive] = useState(false);
@@ -32,7 +34,7 @@ const App: React.FC = () => {
     }
   };
 
-  const switchMode = (targetMode: 'cip' | 'production' | 'selection') => {
+  const switchMode = (targetMode: 'cip' | 'cipLine2' | 'cipLine1' | 'production' | 'selection') => {
     setIsFlipping(true);
     setTimeout(() => {
       setAppMode(targetMode);
@@ -73,16 +75,27 @@ const App: React.FC = () => {
                   return <div style={{ background: c, color: 'white', padding: '8px 20px', borderRadius: '50px', fontWeight: 'bold' }}>{s}</div>;
                 })()}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', padding: '0 10px' }}>
-                <div onClick={() => switchMode('cip')} style={{ background: 'linear-gradient(135deg, #ff6b00, #ff9800)', padding: '30px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
-                  {isCipActive && <div style={{ position: 'absolute', top: '5px', right: '5px', background: '#ff3b30', color: 'white', fontSize: '0.6rem', padding: '4px 8px', borderRadius: '10px', animation: 'pulse 1.5s infinite' }}>🔴 กำลังทำงาน</div>}
-                  <div style={{ fontSize: '2.5rem' }}>🧼</div>
-                  <div style={{ fontWeight: 'bold' }}>บันทึก CIP</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', padding: '0 10px' }}>
+                <div onClick={() => switchMode('cipLine2')} style={{ background: 'linear-gradient(135deg, #ff6b00, #ff9800)', padding: '25px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
+                  <div style={{ fontSize: '2rem' }}>📋</div>
+                  <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>CIP Line 2</div>
+                  <div style={{ fontSize: '0.7rem', opacity: 0.85, marginTop: '3px' }}>Flavour Syrup</div>
                 </div>
-                <div onClick={() => switchMode('production')} style={{ background: 'linear-gradient(135deg, #2e7d32, #4caf50)', padding: '30px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
+                <div onClick={() => switchMode('cipLine1')} style={{ background: 'linear-gradient(135deg, #1565c0, #1976d2)', padding: '25px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
+                  <div style={{ fontSize: '2rem' }}>📋</div>
+                  <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>CIP Line 1</div>
+                  <div style={{ fontSize: '0.7rem', opacity: 0.85, marginTop: '3px' }}>Syrup</div>
+                </div>
+                <div onClick={() => switchMode('cip')} style={{ background: 'linear-gradient(135deg, #6a1b9a, #8e24aa)', padding: '25px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
+                  {isCipActive && <div style={{ position: 'absolute', top: '5px', right: '5px', background: '#ff3b30', color: 'white', fontSize: '0.6rem', padding: '4px 8px', borderRadius: '10px', animation: 'pulse 1.5s infinite' }}>🔴 กำลังทำงาน</div>}
+                  <div style={{ fontSize: '2rem' }}>🧼</div>
+                  <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>CIP ทดลอง</div>
+                  <div style={{ fontSize: '0.7rem', opacity: 0.85, marginTop: '3px' }}>Line 2 (ใหม่)</div>
+                </div>
+                <div onClick={() => switchMode('production')} style={{ background: 'linear-gradient(135deg, #2e7d32, #4caf50)', padding: '25px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
                   {isProdActive && <div style={{ position: 'absolute', top: '5px', right: '5px', background: '#ff3b30', color: 'white', fontSize: '0.6rem', padding: '4px 8px', borderRadius: '10px', animation: 'pulse 1.5s infinite' }}>🔴 กำลังทำงาน</div>}
-                  <div style={{ fontSize: '2.5rem' }}>🏭</div>
-                  <div style={{ fontWeight: 'bold' }}>บันทึกการผลิต</div>
+                  <div style={{ fontSize: '2rem' }}>🏭</div>
+                  <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>บันทึกการผลิต</div>
                 </div>
               </div>
               <div style={{ textAlign: 'center', marginTop: '50px' }}><button onClick={handleLogout} style={{ background: 'none', border: 'none', color: '#888', textDecoration: 'underline', cursor: 'pointer' }}>ออกจากระบบ</button></div>
@@ -91,6 +104,14 @@ const App: React.FC = () => {
 
           <div style={{ display: appMode === 'cip' ? 'block' : 'none' }}>
             <Logbook operatorName={operator} onLogout={() => switchMode('production')} onBackToMain={() => switchMode('selection')} onHome={handleLogout} onStatusChange={handleCipStatus} />
+          </div>
+
+          <div style={{ display: appMode === 'cipLine2' ? 'block' : 'none' }}>
+            <CipLine2Form operatorName={operator} onBackToMain={() => switchMode('selection')} onStatusChange={handleCipStatus} />
+          </div>
+
+          <div style={{ display: appMode === 'cipLine1' ? 'block' : 'none' }}>
+            <CipLine1Form operatorName={operator} onBackToMain={() => switchMode('selection')} onStatusChange={handleCipStatus} />
           </div>
 
           <div style={{ display: appMode === 'production' ? 'block' : 'none' }}>
