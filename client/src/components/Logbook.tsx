@@ -30,7 +30,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onBackToMain,
   const [stepData, setStepData] = useState<Record<number, StepData>>({});
   const [expandedStep, setExpandedStep] = useState<number | null>(1);
   const [isFinishing, setIsFinishing] = useState(false);
-  const [uploadingStep, setUploadingStep] = useState<number | null>(null);
+  const [uploadingStep, setUploadingStep] = useState<number | null>(null); // ✅ ตัวแปรสำคัญที่เคยหายไป
   
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [stepHistory, setStepHistory] = useState<any[]>([]);
@@ -40,7 +40,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onBackToMain,
       const res = await fetch(`${apiUrl}/api/steps`);
       const data = await res.json();
       if (Array.isArray(data)) setStepHistory(data);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error("History fetch error:", e); }
   };
 
   useEffect(() => { loadHistory(); }, []);
@@ -71,23 +71,27 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onBackToMain,
     formData.append('batchId', currentBatchId.toString());
     formData.append('stepNumber', stepId.toString());
     formData.append('stepDescription', step?.description || '');
+    
     if (update.startTime) formData.append('startTime', update.startTime);
     if (update.endTime) formData.append('endTime', update.endTime);
-    if (update.pressure) formData.append('pressure', update.pressure);
-    if (update.brix) formData.append('brix', update.brix);
-    if (update.pH) formData.append('ph', update.pH);
-    if (update.remarks) formData.append('remarks', update.remarks);
+    if (update.pressure !== undefined) formData.append('pressure', update.pressure);
+    if (update.brix !== undefined) formData.append('brix', update.brix);
+    if (update.pH !== undefined) formData.append('ph', update.pH);
+    if (update.remarks !== undefined) formData.append('remarks', update.remarks);
+    
     if (update.image instanceof File) {
       formData.append('image', update.image);
       setUploadingStep(stepId);
     }
+
     setStepData(prev => ({
       ...prev,
       [stepId]: { ...(prev[stepId] || { status: 'pending' }), ...update }
     }));
+
     try {
-      const response = await fetch(`${apiUrl}/api/steps/log`, { method: 'POST', body: formData });
-      const result = await response.json();
+      const res = await fetch(`${apiUrl}/api/steps/log`, { method: 'POST', body: formData });
+      const result = await res.json();
       if (result.success && result.imagePath) {
         setStepData(prev => ({ ...prev, [stepId]: { ...prev[stepId], imagePath: result.imagePath, image: undefined } }));
       }
@@ -113,29 +117,6 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onBackToMain,
     }
   };
 
-  const handleFinishBatch = async () => {
-    if (!batchId) return;
-    if (!window.confirm('🏁 ยืนยันจบการทำงาน (Finish Batch) หรือไม่?')) return;
-    try {
-      setIsFinishing(true);
-      await fetch(`${apiUrl}/api/batches/finish`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batchId })
-      });
-      alert('บันทึก CIP สมบูรณ์เรียบร้อยแล้ว!');
-      if (onStatusChange) onStatusChange(false);
-      setBatchId(null);
-      setStepData({});
-      setExpandedStep(1);
-      onBackToMain();
-    } catch (error) {
-      alert('เกิดข้อผิดพลาดในการบันทึก');
-    } finally {
-      setIsFinishing(false);
-    }
-  };
-
   const handleInputChange = (stepId: number, field: keyof StepData, value: string) => {
     setStepData(prev => ({ 
       ...prev, 
@@ -152,12 +133,30 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onBackToMain,
   };
 
   const finishSession = () => {
-    if (window.confirm("🏁 สิ้นสุดการทำงานและล้างข้อมูลใหม่?")) {
+    if (window.confirm("🏁 ล้างข้อมูลทั้งหมดในหน้าจอนี้?")) {
       setBatchId(null);
       setStepData({});
       setExpandedStep(1);
       if (onStatusChange) onStatusChange(false);
     }
+  };
+
+  const handleFinishBatch = async () => {
+    if (!batchId) return;
+    if (!window.confirm('🏁 ยืนยันจบงาน Batch นี้?')) return;
+    try {
+      setIsFinishing(true);
+      await fetch(`${apiUrl}/api/batches/finish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batchId })
+      });
+      alert('บันทึก CIP สำเร็จ!');
+      if (onStatusChange) onStatusChange(false);
+      setBatchId(null);
+      setStepData({});
+      onBackToMain();
+    } catch (e) { alert("Error Finish"); } finally { setIsFinishing(false); }
   };
 
   const clearHistory = async () => {
@@ -172,7 +171,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onBackToMain,
   };
 
   return (
-    <div style={{ paddingBottom: '150px' }}>
+    <div style={{ paddingBottom: '120px' }}>
       <h2 className={styles.header} style={{ width: '95%', maxWidth: '500px', margin: '20px auto 15px auto', background: 'linear-gradient(135deg, #ff6b00, #ff8c00)', borderRadius: '15px', padding: '15px', color: '#ffffff', textAlign: 'center', boxShadow: '0 6px 15px rgba(255, 107, 0, 0.3)' }}>
         ระบบบันทึก CIP
       </h2>
@@ -213,23 +212,11 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onBackToMain,
         );
       })}
 
-      {/* --- ส่วนปุ่ม Finish: ปรับให้โชว์ตลอดถ้ามีการเริ่มงานแล้ว และดีไซน์ให้ใหญ่ขึ้น --- */}
-      {batchId && (
-        <div style={{ padding: '20px 15px', textAlign: 'center', background: '#fff9f5', borderRadius: '20px', margin: '20px 10px', border: '2px dashed #ff6b00' }}>
-          <p style={{ color: '#e65100', fontWeight: 'bold', marginBottom: '15px' }}>✨ เมื่อทำครบทุกขั้นตอนแล้ว กรุณากดปุ่มด้านล่างเพื่อบันทึก Batch นี้</p>
-          <button 
-            onClick={handleFinishBatch} 
-            disabled={isFinishing}
-            style={{ width: '100%', maxWidth: '400px', padding: '20px', background: 'linear-gradient(135deg, #ff6b00, #ff8c00)', color: 'white', border: 'none', borderRadius: '15px', fontSize: '1.2rem', fontWeight: '800', cursor: 'pointer', boxShadow: '0 10px 25px rgba(255, 107, 0, 0.3)' }}
-          >
-            {isFinishing ? '⏳ กำลังบันทึก...' : '🏁 จบการทำงาน (Finish Batch)'}
-          </button>
-        </div>
-      )}
+      {batchId && <div style={{ padding: '20px', textAlign: 'center' }}><button onClick={handleFinishBatch} disabled={isFinishing} style={{ width: '100%', maxWidth: '400px', padding: '15px', background: 'linear-gradient(135deg, #ff6b00, #ff8c00)', color: 'white', border: 'none', borderRadius: '15px', fontWeight: 'bold', boxShadow: '0 10px 25px rgba(255, 107, 0, 0.3)' }}>🏁 จบการทำงาน (Finish Batch)</button></div>}
 
       <div style={{ display: 'flex', justifyContent: 'center', marginTop: '40px', marginBottom: '20px', padding: '0 15px' }}>
-        <button onClick={handleOpenHistory} style={{ background: 'linear-gradient(135deg, #1565c0, #0d47a1)', color: 'white', border: 'none', borderRadius: '15px', padding: '18px 30px', fontWeight: 'bold', fontSize: '1.1rem', cursor: 'pointer', boxShadow: '0 8px 20px rgba(21, 101, 192, 0.3)', width: '100%', maxWidth: '400px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
-          📊 ดูสรุปประวัติ CIP ทั้งหมด ({stepHistory.length} รายการ)
+        <button onClick={handleOpenHistory} style={{ background: 'linear-gradient(135deg, #1565c0, #0d47a1)', color: 'white', border: 'none', borderRadius: '15px', padding: '18px 30px', fontWeight: 'bold', fontSize: '1.1rem', cursor: 'pointer', boxShadow: '0 8px 20px rgba(21, 101, 192, 0.3)', width: '100%', maxWidth: '400px' }}>
+          📊 ดูประวัติ CIP ({stepHistory.length} รายการ)
         </button>
       </div>
 
@@ -255,15 +242,15 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onBackToMain,
                         </tbody>
                     </table>
                 </div>
-                <button onClick={() => setShowHistoryModal(false)} style={{ width: '100%', padding: '12px', background: '#424242', color: 'white', border: 'none', borderRadius: '10px', marginTop: '20px', fontWeight: 'bold', cursor: 'pointer' }}>ปิดหน้าต่างนี้</button>
+                <button onClick={() => setShowHistoryModal(false)} style={{ width: '100%', padding: '12px', background: '#424242', color: 'white', border: 'none', borderRadius: '10px', marginTop: '20px' }}>ปิดหน้าต่างนี้</button>
             </div>
         </div>
       )}
 
-      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#fff', padding: '15px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '2px solid #ff6b00', boxShadow: '0 -4px 15px rgba(0,0,0,0.1)', zIndex: 100 }}>
-        <button onClick={() => { const p = window.prompt("รหัส:"); if (p === "1234") onHome(); }} style={{ background: '#f5f5f5', border: '1px solid #ddd', borderRadius: '10px', padding: '10px 15px', fontSize: '0.85rem', cursor: 'pointer', color: '#333', fontWeight: 'bold' }}>🏠 Home</button>
-        <button onClick={finishSession} style={{ background: '#d32f2f', color: 'white', border: 'none', borderRadius: '10px', padding: '10px 20px', fontSize: '0.85rem', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 10px rgba(211, 47, 47, 0.3)' }}>🏁 สิ้นสุดการทำงาน</button>
-        <div style={{ fontSize: '0.9rem', fontWeight: 'bold', color: '#333' }}>👤 <span style={{ color: '#ff6b00' }}>{operatorName}</span></div>
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#fff', padding: '15px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '2px solid #ff6b00', zIndex: 100 }}>
+        <button onClick={() => { const p = window.prompt("รหัส:"); if (p === "1234") onHome(); }} style={{ background: '#f5f5f5', border: '1px solid #ddd', borderRadius: '10px', padding: '10px 15px' }}>🏠 Home</button>
+        <button onClick={finishSession} style={{ background: '#d32f2f', color: 'white', border: 'none', borderRadius: '10px', padding: '10px 15px', fontWeight: 'bold' }}>🏁 สิ้นสุดการทำงาน</button>
+        <div style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>👤 {operatorName}</div>
       </div>
     </div>
   );
