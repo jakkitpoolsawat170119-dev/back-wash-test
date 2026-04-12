@@ -70,6 +70,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onBackToMain,
     formData.append('batchId', currentBatchId.toString());
     formData.append('stepNumber', stepId.toString());
     formData.append('stepDescription', step?.description || '');
+    formData.append('operatorName', operatorName);
     
     if (update.startTime) formData.append('startTime', update.startTime);
     if (update.endTime) formData.append('endTime', update.endTime);

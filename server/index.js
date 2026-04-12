@@ -123,20 +123,25 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
       image_path = COALESCE(excluded.image_path, image_path)
   `;
 
+  const { operatorName } = req.body;
+
   db.run(query, [batchId, stepNumber, stepDescription, startTime, endTime, pressure, brix, ph, remarks, imagePath], function(err) {
     if (err) return res.status(500).json({ error: err.message });
-    
+
     // ส่งแจ้งเตือนรายขั้นตอนเข้า LINE
     sendToN8n({
       type: 'cip_step_logged',
       batchId,
       stepNumber,
       stepDescription,
+      operatorName,
+      startTime,
+      endTime,
       pressure,
       brix,
       ph,
       remarks,
-      imagePath: imagePath ? `https://back-wash-test.onrender.com${imagePath}` : null
+      image: imagePath ? `https://back-wash-test.onrender.com${imagePath}` : null
     });
 
     res.json({ success: true, imagePath });
