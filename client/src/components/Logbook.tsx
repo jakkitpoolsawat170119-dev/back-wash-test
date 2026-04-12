@@ -8,7 +8,6 @@ interface LogbookProps {
   onBackToMain: () => void;
   onHome: () => void;
   onStatusChange: (active: boolean) => void;
-  onViewHistory?: () => void;
 }
 
 interface StepData {
@@ -30,7 +29,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onBackToMain,
   const [stepData, setStepData] = useState<Record<number, StepData>>({});
   const [expandedStep, setExpandedStep] = useState<number | null>(1);
   const [isFinishing, setIsFinishing] = useState(false);
-  const [uploadingStep, setUploadingStep] = useState<number | null>(null); // ✅ ตัวแปรสำคัญที่เคยหายไป
+  const [uploadingStep, setUploadingStep] = useState<number | null>(null);
   
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [stepHistory, setStepHistory] = useState<any[]>([]);
@@ -40,7 +39,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onBackToMain,
       const res = await fetch(`${apiUrl}/api/steps`);
       const data = await res.json();
       if (Array.isArray(data)) setStepHistory(data);
-    } catch (e) { console.error("History fetch error:", e); }
+    } catch (e) { console.error("History fetch error", e); }
   };
 
   useEffect(() => { loadHistory(); }, []);
@@ -58,7 +57,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onBackToMain,
       const data = await res.json();
       if (data.batchId) {
         setBatchId(data.batchId);
-        if (onStatusChange) onStatusChange(true);
+        onStatusChange(true);
         return data.batchId;
       }
       return null;
@@ -96,8 +95,11 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onBackToMain,
         setStepData(prev => ({ ...prev, [stepId]: { ...prev[stepId], imagePath: result.imagePath, image: undefined } }));
       }
       loadHistory();
-    } catch (error) { console.error('Save error', error);
-    } finally { setUploadingStep(null); }
+    } catch (error) {
+      console.error('Save error', error);
+    } finally {
+      setUploadingStep(null);
+    }
   };
 
   const handleStart = async (stepId: number) => {
@@ -118,9 +120,9 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onBackToMain,
   };
 
   const handleInputChange = (stepId: number, field: keyof StepData, value: string) => {
-    setStepData(prev => ({ 
-      ...prev, 
-      [stepId]: { ...(prev[stepId] || { status: 'pending' }), [field]: value } 
+    setStepData(prev => ({
+      ...prev,
+      [stepId]: { ...(prev[stepId] || { status: 'pending' }), [field]: value }
     }));
   };
 
@@ -133,11 +135,11 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onBackToMain,
   };
 
   const finishSession = () => {
-    if (window.confirm("🏁 ล้างข้อมูลทั้งหมดในหน้าจอนี้?")) {
+    if (window.confirm("🏁 สิ้นสุดการทำงานและล้างข้อมูลใหม่?")) {
       setBatchId(null);
       setStepData({});
       setExpandedStep(1);
-      if (onStatusChange) onStatusChange(false);
+      onStatusChange(false);
     }
   };
 
@@ -152,20 +154,20 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onBackToMain,
         body: JSON.stringify({ batchId })
       });
       alert('บันทึก CIP สำเร็จ!');
-      if (onStatusChange) onStatusChange(false);
+      onStatusChange(false);
       setBatchId(null);
       setStepData({});
       onBackToMain();
-    } catch (e) { alert("Error Finish"); } finally { setIsFinishing(false); }
+    } catch (e) { alert("Error"); } finally { setIsFinishing(false); }
   };
 
   const clearHistory = async () => {
-    const pin = window.prompt("รหัสผ่านล้างประวัติ:");
+    const pin = window.prompt("รหัสล้างประวัติ:");
     if (pin === "1234") {
       try {
         await fetch(`${apiUrl}/api/batches/reset`, { method: 'POST' });
         setStepHistory([]);
-        alert("ล้างประวัติเรียบร้อย");
+        alert("ล้างแล้ว");
       } catch (e) { console.error(e); }
     }
   };

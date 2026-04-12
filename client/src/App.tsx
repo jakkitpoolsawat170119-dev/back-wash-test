@@ -32,10 +32,10 @@ const App: React.FC = () => {
     }
   };
 
-  const switchMode = (target: 'cip' | 'production' | 'selection') => {
+  const switchMode = (targetMode: 'cip' | 'production' | 'selection') => {
     setIsFlipping(true);
     setTimeout(() => {
-      setAppMode(target);
+      setAppMode(targetMode);
       setTimeout(() => setIsFlipping(false), 300);
     }, 300);
   };
@@ -59,7 +59,6 @@ const App: React.FC = () => {
         </div>
       ) : (
         <div className={isFlipping ? 'flip-active' : ''}>
-          {/* Dashboard */}
           {appMode === 'selection' && (
             <div style={{ animation: 'fadeIn 0.5s' }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '40px' }}>
@@ -90,27 +89,12 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {/* CIP - ใช้การซ่อนโชว์เพื่อจำค่า */}
           <div style={{ display: appMode === 'cip' ? 'block' : 'none' }}>
-            <Logbook 
-              operatorName={operator} 
-              onLogout={() => switchMode('production')} 
-              onBackToMain={() => switchMode('selection')}
-              onHome={handleLogout} 
-              onStatusChange={handleCipStatus}
-              onViewHistory={() => {}} 
-            />
+            <Logbook operatorName={operator} onLogout={() => switchMode('production')} onBackToMain={() => switchMode('selection')} onHome={handleLogout} onStatusChange={handleCipStatus} />
           </div>
 
-          {/* Production - ใช้การซ่อนโชว์เพื่อจำค่า */}
           <div style={{ display: appMode === 'production' ? 'block' : 'none' }}>
-            <ProductionRecord 
-              operatorName={operator} 
-              onBack={() => switchMode('cip')} 
-              onBackToMain={() => switchMode('selection')}
-              onHome={handleLogout} 
-              onStatusChange={handleProdStatus} 
-            />
+            <ProductionRecord operatorName={operator} onBack={() => switchMode('cip')} onBackToMain={() => switchMode('selection')} onHome={handleLogout} onStatusChange={handleProdStatus} />
           </div>
         </div>
       )}

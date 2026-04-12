@@ -89,7 +89,7 @@ app.post('/api/login', (req, res) => {
 app.get('/api/operators', (req, res) => {
   db.all("SELECT name FROM operators", [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
+    res.json(rows.map(r => r.name));
   });
 });
 
