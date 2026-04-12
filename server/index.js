@@ -123,26 +123,35 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
       image_path = COALESCE(excluded.image_path, image_path)
   `;
 
-  const { operatorName } = req.body;
-
   db.run(query, [batchId, stepNumber, stepDescription, startTime, endTime, pressure, brix, ph, remarks, imagePath], function(err) {
     if (err) return res.status(500).json({ error: err.message });
 
-    // ส่งแจ้งเตือนรายขั้นตอนเข้า LINE
-    sendToN8n({
-      type: 'cip_step_logged',
-      batchId,
-      stepNumber,
-      stepDescription,
-      operatorName,
-      startTime,
-      endTime,
-      pressure,
-      brix,
-      ph,
-      remarks,
-      image: imagePath ? `https://back-wash-test.onrender.com${imagePath}` : null
-    });
+    // ส่งแจ้งเตือนเข้า LINE เฉพาะตอน step เสร็จสมบูรณ์ (มี endTime) เพื่อไม่ให้ยิง API เกินโควต้า
+    if (endTime) {
+      const fullQuery = `
+        SELECT s.*, b.operator_name FROM cip_step_logs s
+        LEFT JOIN cip_batches b ON s.batch_id = b.id
+        WHERE s.batch_id = ? AND s.step_number = ?
+      `;
+      db.get(fullQuery, [batchId, stepNumber], (err2, row) => {
+        if (!err2 && row) {
+          sendToN8n({
+            type: 'cip_step_logged',
+            batchId: row.batch_id,
+            stepNumber: row.step_number,
+            stepDescription: row.step_description,
+            operatorName: row.operator_name,
+            startTime: row.start_time,
+            endTime: row.end_time,
+            pressure: row.pressure,
+            brix: row.brix,
+            ph: row.ph,
+            remarks: row.remarks,
+            image: row.image_path ? `https://back-wash-test.onrender.com${row.image_path}` : null
+          });
+        }
+      });
+    }
 
     res.json({ success: true, imagePath });
   });
