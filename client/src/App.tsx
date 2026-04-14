@@ -60,7 +60,40 @@ const App: React.FC = () => {
           <Login onLogin={handleLogin} />
         </div>
       ) : (
-        <div className={isFlipping ? 'flip-active' : ''}>
+        <>
+        {appMode !== 'selection' && (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, zIndex: 200,
+            background: 'white', borderBottom: '2px solid #eee',
+            padding: '8px 10px',
+            display: 'flex', gap: '6px', overflowX: 'auto',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
+            WebkitOverflowScrolling: 'touch' as any,
+          }}>
+            {([
+              { mode: 'selection', icon: '🏠', label: 'หน้าหลัก', color: '#ff6b00' },
+              { mode: 'cipLine2', icon: '📋', label: 'Line 2&3', color: '#ff6b00' },
+              { mode: 'cipLine1', icon: '📋', label: 'Line 1', color: '#1565c0' },
+              { mode: 'cip',      icon: '🧼', label: 'CIP ทดลอง', color: '#6a1b9a' },
+              { mode: 'production', icon: '🏭', label: 'ผลิต', color: '#2e7d32' },
+            ] as { mode: 'selection'|'cip'|'cipLine2'|'cipLine1'|'production'; icon: string; label: string; color: string }[]).map(({ mode, icon, label, color }) => (
+              <button
+                key={mode}
+                onClick={() => switchMode(mode)}
+                style={{
+                  flex: '0 0 auto', padding: '7px 13px', borderRadius: '20px', border: '2px solid',
+                  borderColor: appMode === mode ? color : '#e0e0e0',
+                  background: appMode === mode ? color : '#f5f5f5',
+                  color: appMode === mode ? 'white' : '#666',
+                  fontWeight: 'bold', fontSize: '0.75rem', cursor: 'pointer', whiteSpace: 'nowrap',
+                }}
+              >
+                {icon} {label}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className={isFlipping ? 'flip-active' : ''} style={{ paddingTop: appMode !== 'selection' ? '58px' : '0' }}>
           {appMode === 'selection' && (
             <div style={{ animation: 'fadeIn 0.5s' }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '40px' }}>
@@ -118,6 +151,7 @@ const App: React.FC = () => {
             <ProductionRecord operatorName={operator} onBack={() => switchMode('cip')} onBackToMain={() => switchMode('selection')} onHome={handleLogout} onStatusChange={handleProdStatus} />
           </div>
         </div>
+        </>
       )}
     </div>
   );
