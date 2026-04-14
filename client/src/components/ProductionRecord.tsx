@@ -41,6 +41,19 @@ const apiUrl = "https://back-wash-test.onrender.com";
 const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBack, onBackToMain, onHome, onStatusChange }) => {
   const batchOptions = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
   const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [currentDate, setCurrentDate] = useState(new Date().toDateString());
+
+  // ── Auto-reset ทุกเที่ยงคืน ────────────────────────────────────────────────
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const todayStr = new Date().toDateString();
+      if (todayStr !== currentDate) {
+        setCurrentDate(todayStr);
+        setLines({ 1: { ...initialLineState }, 2: { ...initialLineState }, 3: { ...initialLineState }, 4: { ...initialLineState } });
+      }
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [currentDate]);
 
   const initialLineState: LineState = {
     flavor: '',
@@ -80,6 +93,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
   ];
 
   const getNextBatch = (currentBatch: string) => {
+    if (!currentBatch) return 'A'; // เริ่มต้นที่ A เสมอเมื่อยังไม่มี batch ก่อนหน้า
     const index = batchOptions.indexOf(currentBatch);
     if (index === -1 || index === batchOptions.length - 1) return "";
     return batchOptions[index + 1];
@@ -88,8 +102,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
   const handleCookingBatchChange = (lineId: number, selectedBatch: string) => {
     const line = lines[lineId];
     const lastBatch = line.history.length > 0 ? line.history[line.history.length - 1].batch : line.shiftBatch;
-    if (!lastBatch) { alert("กรุณาเลือก 'รับช่วงต่อจาก Batch' ก่อนครับ"); return; }
-    const expectedBatch = getNextBatch(lastBatch);
+    const expectedBatch = getNextBatch(lastBatch); // คืนค่า 'A' ถ้าไม่มี batch ก่อนหน้า
     if (selectedBatch !== expectedBatch) { alert(`ลำดับ Batch ไม่ถูกต้อง! ลำดับที่ต้องทำคือ Batch ${expectedBatch}`); return; }
     setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], cookingBatch: selectedBatch } }));
   };
@@ -192,7 +205,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
                     </div>
                     <div className={styles.formGroup} style={{ flex: 1 }}>
                       <label className={styles.formLabel} style={{ fontSize: '0.6rem', textAlign: 'center', display: 'block', color: '#2e7d32', fontWeight: 'bold' }}>🔥 เริ่มต้ม</label>
-                      <select className={styles.formInput} value={line.cookingBatch} onChange={(e) => handleCookingBatchChange(lineId, e.target.value)} disabled={line.isProcessing || !line.shiftBatch} style={{ background: 'rgba(255, 255, 255, 0.9)', border: '2px solid #4caf50', padding: '8px', fontSize: '0.9rem', textAlign: 'center', borderRadius: '10px', fontWeight: 'bold' }}>
+                      <select className={styles.formInput} value={line.cookingBatch} onChange={(e) => handleCookingBatchChange(lineId, e.target.value)} disabled={line.isProcessing} style={{ background: 'rgba(255, 255, 255, 0.9)', border: '2px solid #4caf50', padding: '8px', fontSize: '0.9rem', textAlign: 'center', borderRadius: '10px', fontWeight: 'bold' }}>
                         <option value="">--</option>
                         {batchOptions.map(b => <option key={b} value={b}>{b}</option>)}
                       </select>
