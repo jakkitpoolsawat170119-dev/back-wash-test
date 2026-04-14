@@ -241,10 +241,12 @@ app.post('/api/cip-line1/finish', (req, res) => {
 
 const sendToN8n = async (data) => {
   const webhookUrl = process.env.N8N_WEBHOOK_URL || "https://n8n.m-creation.co/webhook/back-wash-test";
+  console.log(`[n8n] sending type=${data.type} to ${webhookUrl}`);
   try {
-    await axios.post(webhookUrl, data);
+    const res = await axios.post(webhookUrl, data);
+    console.log(`[n8n] success status=${res.status}`);
   } catch (error) {
-    console.error('n8n error:', error.message);
+    console.error(`[n8n] error: ${error.message}`);
   }
 };
 
