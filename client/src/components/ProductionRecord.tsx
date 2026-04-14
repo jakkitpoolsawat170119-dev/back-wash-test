@@ -102,7 +102,11 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
   const handleCookingBatchChange = (lineId: number, selectedBatch: string) => {
     const line = lines[lineId];
     const lastBatch = line.history.length > 0 ? line.history[line.history.length - 1].batch : line.shiftBatch;
-    const expectedBatch = getNextBatch(lastBatch); // คืนค่า 'A' ถ้าไม่มี batch ก่อนหน้า
+
+    // กะแรกของวัน: เลือก A ใน "รับช่วงต่อ" และยังไม่มีประวัติ → เริ่มต้มที่ A (ไม่ใช่ B)
+    const isFirstBatchOfDay = line.history.length === 0 && line.shiftBatch === 'A';
+    const expectedBatch = isFirstBatchOfDay ? 'A' : getNextBatch(lastBatch);
+
     if (selectedBatch !== expectedBatch) { alert(`ลำดับ Batch ไม่ถูกต้อง! ลำดับที่ต้องทำคือ Batch ${expectedBatch}`); return; }
     setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], cookingBatch: selectedBatch } }));
   };
