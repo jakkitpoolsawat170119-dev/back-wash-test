@@ -10,6 +10,10 @@ interface RowData {
   excelerate1: string;
   ph: string;
   brix: string;
+  startTime: string;
+  startRaw: number;
+  endTime: string;
+  duration: number;
   done: boolean;
 }
 
@@ -25,7 +29,9 @@ interface BackData {
 
 const defaultRow = (): RowData => ({
   shift: '', mipLiquid: '', pump1Pressure: '', pump2Pressure: '',
-  excelerate1: '', ph: '', brix: '', done: false,
+  excelerate1: '', ph: '', brix: '',
+  startTime: '', startRaw: 0, endTime: '', duration: 0,
+  done: false,
 });
 
 const defaultBack = (): BackData => ({
@@ -93,8 +99,27 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     }).catch(console.error);
   };
 
-  const updateRow = (rowNo: number, field: keyof RowData, value: string | boolean) => {
+  const updateRow = (rowNo: number, field: keyof RowData, value: string | boolean | number) => {
     const newRow = { ...(rows[rowNo] || defaultRow()), [field]: value };
+    setRows(prev => ({ ...prev, [rowNo]: newRow }));
+    saveRow(rowNo, newRow);
+  };
+
+  const handleRowStart = (rowNo: number) => {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+    const newRow = { ...(rows[rowNo] || defaultRow()), startTime: timeStr, startRaw: now.getTime(), endTime: '', duration: 0 };
+    setRows(prev => ({ ...prev, [rowNo]: newRow }));
+    saveRow(rowNo, newRow);
+  };
+
+  const handleRowStop = (rowNo: number) => {
+    const row = rows[rowNo] || defaultRow();
+    if (!row.startRaw) return;
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+    const duration = Math.round((now.getTime() - row.startRaw) / 60000);
+    const newRow = { ...row, endTime: timeStr, duration };
     setRows(prev => ({ ...prev, [rowNo]: newRow }));
     saveRow(rowNo, newRow);
   };
@@ -239,8 +264,11 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
         {(() => {
           const isComplete = row.shift !== '' && row.mipLiquid !== '' &&
             row.pump1Pressure !== '' && row.pump2Pressure !== '' &&
-            row.excelerate1 !== '' && row.ph !== '' && row.brix !== '';
+            row.excelerate1 !== '' && row.ph !== '' && row.brix !== '' &&
+            row.startTime !== '' && row.endTime !== '';
           const missingFields = [
+            !row.startTime && 'เวลาเริ่ม',
+            !row.endTime && 'เวลาเสร็จ',
             !row.shift && 'กะ/เวลา',
             !row.mipLiquid && 'MIP Liquid',
             !row.pump1Pressure && 'แรงดัน Pump 1',
@@ -260,10 +288,35 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
                 <div style={{ fontSize: '0.8rem', color: '#aaa' }}>{currentNo} / {totalBatches}</div>
               </div>
 
+              {/* ── Start / Stop ── */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '14px' }}>
+                <button
+                  onClick={() => handleRowStart(currentNo)}
+                  disabled={!!row.startTime}
+                  style={{ padding: '12px 8px', borderRadius: '12px', border: 'none', fontWeight: 'bold', fontSize: '0.85rem', cursor: row.startTime ? 'default' : 'pointer', background: row.startTime ? '#e8f5e9' : 'linear-gradient(135deg, #4caf50, #2e7d32)', color: row.startTime ? '#2e7d32' : 'white' }}
+                >
+                  {row.startTime ? `▶ ${row.startTime}` : '▶ Start'}
+                </button>
+                <button
+                  onClick={() => handleRowStop(currentNo)}
+                  disabled={!row.startTime || !!row.endTime}
+                  style={{ padding: '12px 8px', borderRadius: '12px', border: 'none', fontWeight: 'bold', fontSize: '0.85rem', cursor: (!row.startTime || row.endTime) ? 'default' : 'pointer', background: row.endTime ? '#ffebee' : !row.startTime ? '#f5f5f5' : 'linear-gradient(135deg, #f44336, #c62828)', color: row.endTime ? '#c62828' : !row.startTime ? '#ccc' : 'white' }}
+                >
+                  {row.endTime ? `⏹ ${row.endTime}` : '⏹ Stop'}
+                </button>
+              </div>
+
+              {/* รวมเวลา */}
+              {row.duration > 0 && (
+                <div style={{ textAlign: 'center', background: '#fff3e0', borderRadius: '10px', padding: '8px', marginBottom: '12px', fontWeight: 'bold', color: '#e65100', fontSize: '0.9rem' }}>
+                  ⏱ รวมเวลา: {row.duration} นาที
+                </div>
+              )}
+
               {/* กะ/เวลา */}
               <div style={{ marginBottom: '12px' }}>
                 <label style={labelStyle}>กะ / เวลา</label>
-                <input type="text" value={row.shift} onChange={e => updateRow(currentNo, 'shift', e.target.value)} placeholder="เช่น กะเช้า 08:00" style={inputStyle(!row.shift && row.done === false && row.shift === ''  ? false : false)} />
+                <input type="text" value={row.shift} onChange={e => updateRow(currentNo, 'shift', e.target.value)} placeholder="เช่น กะเช้า 08:00" style={inputStyle()} />
               </div>
 
               {/* MIP Liquid */}
