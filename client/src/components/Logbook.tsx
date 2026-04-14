@@ -24,7 +24,7 @@ interface StepData {
 
 const apiUrl = "https://back-wash-test.onrender.com";
 
-const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onBackToMain, onHome, onStatusChange }) => {
+const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, onStatusChange }) => {
   const [batchId, setBatchId] = useState<number | null>(null);
   const [stepData, setStepData] = useState<Record<number, StepData>>({});
   const [expandedStep, setExpandedStep] = useState<number | null>(1);
