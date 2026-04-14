@@ -371,7 +371,7 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
         })()}
 
         {/* ── Prev / Next ── */}
-        <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
           <button
             onClick={() => setCurrentNo(prev => Math.max(1, prev - 1))}
             disabled={currentNo === 1}
@@ -387,6 +387,45 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
             Batch ถัดไป ▶
           </button>
         </div>
+
+        {/* ── สรุปเวลาทุก Batch ── */}
+        {(() => {
+          const recorded = Array.from({ length: totalBatches }, (_, i) => i + 1)
+            .filter(no => rows[no]?.startTime);
+          if (recorded.length === 0) return null;
+          return (
+            <div style={{ background: 'white', borderRadius: '15px', padding: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', marginBottom: '10px' }}>
+              <h4 style={{ margin: '0 0 12px 0', color: '#ff6b00', borderBottom: '2px solid #ff6b00', paddingBottom: '8px', fontSize: '0.95rem' }}>
+                ⏱ สรุปเวลาแต่ละขั้นตอน
+              </h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 60px', gap: '6px 8px', alignItems: 'center' }}>
+                <div style={{ fontSize: '0.7rem', color: '#aaa', fontWeight: 'bold' }}>NO.</div>
+                <div style={{ fontSize: '0.7rem', color: '#aaa', fontWeight: 'bold' }}>เริ่ม</div>
+                <div style={{ fontSize: '0.7rem', color: '#aaa', fontWeight: 'bold' }}>เสร็จ</div>
+                <div style={{ fontSize: '0.7rem', color: '#aaa', fontWeight: 'bold' }}>รวม</div>
+                {recorded.map(no => {
+                  const r = rows[no];
+                  const isActive = no === currentNo;
+                  return (
+                    <React.Fragment key={no}>
+                      <div
+                        onClick={() => setCurrentNo(no)}
+                        style={{ width: '28px', height: '28px', borderRadius: '50%', background: isActive ? '#ff6b00' : r.done ? '#4caf50' : '#fff3e0', color: isActive || r.done ? 'white' : '#ff6b00', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 'bold', cursor: 'pointer', border: `2px solid ${isActive ? '#e65100' : r.done ? '#2e7d32' : '#ffcc80'}` }}
+                      >
+                        {no}
+                      </div>
+                      <div style={{ fontSize: '0.85rem', color: '#333', fontWeight: r.startTime ? 'bold' : 'normal' }}>{r.startTime || '—'}</div>
+                      <div style={{ fontSize: '0.85rem', color: r.endTime ? '#333' : '#bbb' }}>{r.endTime || '—'}</div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: r.duration > 0 ? '#e65100' : '#ccc' }}>
+                        {r.duration > 0 ? `${r.duration} น.` : '—'}
+                      </div>
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
       </div>
     );
   };
