@@ -200,7 +200,17 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
           </div>
           <div>
             <label style={labelStyle}>กลิ่นที่ผลิต</label>
-            <input type="text" value={flavor} onChange={e => setFlavor(e.target.value)} placeholder="กลิ่น..." style={inputStyle()} />
+            <select value={flavor} onChange={e => setFlavor(e.target.value)} style={inputStyle()}>
+              <option value="">-- เลือกกลิ่น --</option>
+              {[
+                "Amazon", "FDS", "Golden", "Freshy Lychee", "Freshy Strawberry",
+                "Senorita Coconut", "Senorita Caramel", "Freshy Blue Hawaii", "Freshy Lime",
+                "CIP", "ว่าง", "Freshy Green Apple", "Freshy Sala", "Senorita Yuzu",
+                "MLH 02", "Freshy Pineapple", "Operator Name", "Freshy Grape",
+                "Freshy Punch", "Freshy blue Lemon", "Senorita Fres Mint",
+                "Freshy Orange", "Signature Rose",
+              ].map(f => <option key={f} value={f}>{f}</option>)}
+            </select>
           </div>
         </SectionCard>
 
