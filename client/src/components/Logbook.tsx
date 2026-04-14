@@ -179,8 +179,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onLogout, onBackToMain,
         ระบบบันทึก CIP
       </h2>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '95%', maxWidth: '500px', margin: '0 auto 25px auto', gap: '10px' }}>
-        <button onClick={onBackToMain} style={{ background: '#f5f5f5', border: '1px solid #ddd', borderRadius: '10px', padding: '10px 15px', fontSize: '0.8rem', cursor: 'pointer', color: '#666', fontWeight: 'bold' }}>🔙 เมนูหลัก</button>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', width: '95%', maxWidth: '500px', margin: '0 auto 25px auto' }}>
         <button onClick={onLogout} style={{ padding: '10px 20px', fontSize: '0.85rem', fontWeight: 'bold', background: 'linear-gradient(135deg, #2e7d32, #4caf50)', color: 'white', border: 'none', borderRadius: '10px', boxShadow: '0 4px 10px rgba(46, 125, 50, 0.2)', cursor: 'pointer' }}>🔄 ไปหน้าผลิต</button>
       </div>
 

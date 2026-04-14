@@ -39,7 +39,7 @@ interface LineState {
 
 const apiUrl = "https://back-wash-test.onrender.com";
 
-const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBack, onBackToMain, onHome, onStatusChange }) => {
+const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHome, onStatusChange }) => {
   const batchOptions = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date().toDateString());
@@ -161,21 +161,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
         Production Control
       </h2>
 
-      {/* 2. แถบปุ่มแยกซ้าย-ขวา */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '95%', maxWidth: '500px', margin: '0 auto 25px auto', gap: '10px' }}>
-        <button 
-          onClick={onBackToMain}
-          style={{ background: '#f5f5f5', border: '1px solid #ddd', borderRadius: '10px', padding: '10px 15px', fontSize: '0.8rem', cursor: 'pointer', color: '#666', fontWeight: 'bold' }}
-        >
-          🔙 เมนูหลัก
-        </button>
-        <button 
-          onClick={onBack} 
-          style={{ padding: '10px 20px', fontSize: '0.85rem', fontWeight: 'bold', background: 'linear-gradient(135deg, #ff6b00, #ff9800)', color: '#000', border: 'none', borderRadius: '10px', boxShadow: '0 4px 10px rgba(255, 107, 0, 0.2)', cursor: 'pointer' }}
-        >
-          🔄 ไปหน้าบันทึก CIP
-        </button>
-      </div>
+
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', padding: '10px' }}>
         {[1, 2, 3, 4].map(lineId => {
