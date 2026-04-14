@@ -24,6 +24,7 @@ interface LineState {
   flavor: string;
   shiftBatch: string;
   cookingBatch: string;
+  isFirstShift: boolean;
   startTime: string | null;
   startRaw: Date | null;
   doneTime: string | null;
@@ -59,6 +60,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
     flavor: '',
     shiftBatch: '',
     cookingBatch: '',
+    isFirstShift: false,
     startTime: null,
     startRaw: null,
     doneTime: null,
@@ -103,9 +105,10 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
     const line = lines[lineId];
     const lastBatch = line.history.length > 0 ? line.history[line.history.length - 1].batch : line.shiftBatch;
 
-    // กะแรกของวัน: เลือก A ใน "รับช่วงต่อ" และยังไม่มีประวัติ → เริ่มต้มที่ A (ไม่ใช่ B)
-    const isFirstBatchOfDay = line.history.length === 0 && line.shiftBatch === 'A';
-    const expectedBatch = isFirstBatchOfDay ? 'A' : getNextBatch(lastBatch);
+    // กะแรก + ยังไม่มีประวัติ → ต้มที่ batch ที่รับมา (เช่น A→A)
+    // ไม่ใช่กะแรก → ต้มที่ batch ถัดไป (เช่น A→B, O→P)
+    const isNewSession = line.history.length === 0;
+    const expectedBatch = (isNewSession && line.isFirstShift) ? line.shiftBatch : getNextBatch(lastBatch);
 
     if (selectedBatch !== expectedBatch) { alert(`ลำดับ Batch ไม่ถูกต้อง! ลำดับที่ต้องทำคือ Batch ${expectedBatch}`); return; }
     setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], cookingBatch: selectedBatch } }));
@@ -194,6 +197,22 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
                       {flavorList.map(f => <option key={f} value={f}>{f}</option>)}
                     </select>
                   </div>
+                  {line.history.length === 0 && !line.isProcessing && (
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                      <button
+                        onClick={() => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], isFirstShift: false, cookingBatch: '' } }))}
+                        style={{ flex: 1, padding: '8px', borderRadius: '10px', border: '2px solid', borderColor: !line.isFirstShift ? '#1565c0' : '#ccc', background: !line.isFirstShift ? '#e3f2fd' : '#f5f5f5', color: !line.isFirstShift ? '#1565c0' : '#999', fontWeight: 'bold', fontSize: '0.75rem', cursor: 'pointer' }}
+                      >
+                        🔄 รับช่วงต่อ
+                      </button>
+                      <button
+                        onClick={() => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], isFirstShift: true, cookingBatch: '' } }))}
+                        style={{ flex: 1, padding: '8px', borderRadius: '10px', border: '2px solid', borderColor: line.isFirstShift ? '#2e7d32' : '#ccc', background: line.isFirstShift ? '#e8f5e9' : '#f5f5f5', color: line.isFirstShift ? '#2e7d32' : '#999', fontWeight: 'bold', fontSize: '0.75rem', cursor: 'pointer' }}
+                      >
+                        🔰 เริ่มกะแรก
+                      </button>
+                    </div>
+                  )}
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '20px', background: 'linear-gradient(90deg, #fff9c4 0%, #e3f2fd 50%, #e8f5e9 100%)', padding: '12px', borderRadius: '18px', boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.05)', border: '1px solid rgba(0,0,0,0.05)', position: 'relative' }}>
                     <div className={styles.formGroup} style={{ flex: 1 }}>
                       <label className={styles.formLabel} style={{ fontSize: '0.6rem', textAlign: 'center', display: 'block', color: '#8d6e63', fontWeight: 'bold' }}>📥 รับช่วงต่อ</label>

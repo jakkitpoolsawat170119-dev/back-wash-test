@@ -78,8 +78,8 @@ const App: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', padding: '0 10px' }}>
                 <div onClick={() => switchMode('cipLine2')} style={{ background: 'linear-gradient(135deg, #ff6b00, #ff9800)', padding: '25px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
                   <div style={{ fontSize: '2rem' }}>📋</div>
-                  <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>CIP Line 2</div>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.85, marginTop: '3px' }}>Flavour Syrup</div>
+                  <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>บันทึก CIP</div>
+                  <div style={{ fontSize: '0.7rem', opacity: 0.85, marginTop: '3px' }}>Line 2&3</div>
                 </div>
                 <div onClick={() => switchMode('cipLine1')} style={{ background: 'linear-gradient(135deg, #1565c0, #1976d2)', padding: '25px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
                   <div style={{ fontSize: '2rem' }}>📋</div>
