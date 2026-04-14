@@ -10,7 +10,9 @@ const App: React.FC = () => {
   const [operator, setOperator] = useState<string | null>(null);
   const [appMode, setAppMode] = useState<'selection' | 'cip' | 'cipLine2' | 'cipLine1' | 'production'>('selection');
   const [isFlipping, setIsFlipping] = useState(false);
-  const [isCipActive, setIsCipActive] = useState(false);
+  const [isCipLine2Active, setIsCipLine2Active] = useState(false);
+  const [isCipLine1Active, setIsCipLine1Active] = useState(false);
+  const [isCipLabActive, setIsCipLabActive] = useState(false);
   const [isProdActive, setIsProdActive] = useState(false);
 
   useEffect(() => {
@@ -29,7 +31,9 @@ const App: React.FC = () => {
       localStorage.removeItem('operator');
       setOperator(null);
       setAppMode('selection');
-      setIsCipActive(false);
+      setIsCipLine2Active(false);
+      setIsCipLine1Active(false);
+      setIsCipLabActive(false);
       setIsProdActive(false);
     }
   };
@@ -42,7 +46,9 @@ const App: React.FC = () => {
     }, 300);
   };
 
-  const handleCipStatus = useCallback((active: boolean) => setIsCipActive(active), []);
+  const handleCipLine2Status = useCallback((active: boolean) => setIsCipLine2Active(active), []);
+  const handleCipLine1Status = useCallback((active: boolean) => setIsCipLine1Active(active), []);
+  const handleCipLabStatus = useCallback((active: boolean) => setIsCipLabActive(active), []);
   const handleProdStatus = useCallback((active: boolean) => setIsProdActive(active), []);
 
   return (
@@ -110,17 +116,19 @@ const App: React.FC = () => {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', padding: '0 10px' }}>
                 <div onClick={() => switchMode('cipLine2')} style={{ background: 'linear-gradient(135deg, #ff6b00, #ff9800)', padding: '25px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
+                  {isCipLine2Active && <div style={{ position: 'absolute', top: '5px', right: '5px', background: '#ff3b30', color: 'white', fontSize: '0.6rem', padding: '4px 8px', borderRadius: '10px', animation: 'pulse 1.5s infinite' }}>🔴 กำลังทำงาน</div>}
                   <div style={{ fontSize: '2rem' }}>📋</div>
                   <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>บันทึก CIP</div>
                   <div style={{ fontSize: '0.7rem', opacity: 0.85, marginTop: '3px' }}>Line 2&3</div>
                 </div>
                 <div onClick={() => switchMode('cipLine1')} style={{ background: 'linear-gradient(135deg, #1565c0, #1976d2)', padding: '25px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
+                  {isCipLine1Active && <div style={{ position: 'absolute', top: '5px', right: '5px', background: '#ff3b30', color: 'white', fontSize: '0.6rem', padding: '4px 8px', borderRadius: '10px', animation: 'pulse 1.5s infinite' }}>🔴 กำลังทำงาน</div>}
                   <div style={{ fontSize: '2rem' }}>📋</div>
                   <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>CIP Line 1</div>
                   <div style={{ fontSize: '0.7rem', opacity: 0.85, marginTop: '3px' }}>Syrup</div>
                 </div>
                 <div onClick={() => switchMode('cip')} style={{ background: 'linear-gradient(135deg, #6a1b9a, #8e24aa)', padding: '25px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
-                  {isCipActive && <div style={{ position: 'absolute', top: '5px', right: '5px', background: '#ff3b30', color: 'white', fontSize: '0.6rem', padding: '4px 8px', borderRadius: '10px', animation: 'pulse 1.5s infinite' }}>🔴 กำลังทำงาน</div>}
+                  {isCipLabActive && <div style={{ position: 'absolute', top: '5px', right: '5px', background: '#ff3b30', color: 'white', fontSize: '0.6rem', padding: '4px 8px', borderRadius: '10px', animation: 'pulse 1.5s infinite' }}>🔴 กำลังทำงาน</div>}
                   <div style={{ fontSize: '2rem' }}>🧼</div>
                   <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>CIP ทดลอง</div>
                   <div style={{ fontSize: '0.7rem', opacity: 0.85, marginTop: '3px' }}>Line 2 (ใหม่)</div>
@@ -136,15 +144,15 @@ const App: React.FC = () => {
           )}
 
           <div style={{ display: appMode === 'cip' ? 'block' : 'none' }}>
-            <Logbook operatorName={operator} onLogout={() => switchMode('production')} onBackToMain={() => switchMode('selection')} onHome={handleLogout} onStatusChange={handleCipStatus} />
+            <Logbook operatorName={operator} onLogout={() => switchMode('production')} onBackToMain={() => switchMode('selection')} onHome={handleLogout} onStatusChange={handleCipLabStatus} />
           </div>
 
           <div style={{ display: appMode === 'cipLine2' ? 'block' : 'none' }}>
-            <CipLine2Form operatorName={operator} onBackToMain={() => switchMode('selection')} onStatusChange={handleCipStatus} />
+            <CipLine2Form operatorName={operator} onBackToMain={() => switchMode('selection')} onStatusChange={handleCipLine2Status} />
           </div>
 
           <div style={{ display: appMode === 'cipLine1' ? 'block' : 'none' }}>
-            <CipLine1Form operatorName={operator} onBackToMain={() => switchMode('selection')} onStatusChange={handleCipStatus} />
+            <CipLine1Form operatorName={operator} onBackToMain={() => switchMode('selection')} onStatusChange={handleCipLine1Status} />
           </div>
 
           <div style={{ display: appMode === 'production' ? 'block' : 'none' }}>
