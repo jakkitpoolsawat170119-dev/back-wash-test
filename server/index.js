@@ -137,6 +137,34 @@ app.post('/api/cip-line2/row', (req, res) => {
     [sessionId, rowNo, JSON.stringify(data)],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
+
+      // ส่งแจ้งเตือนเมื่อกด Stop (มี endTime)
+      if (data.endTime) {
+        db.get(`SELECT * FROM cip_line2_sessions WHERE id = ?`, [sessionId], (err2, session) => {
+          if (!err2 && session) {
+            sendToN8n({
+              type: 'cip_line2_batch_done',
+              batchNo: rowNo,
+              operatorName: session.operator_name,
+              date: session.date,
+              sku: session.sku,
+              line: session.line,
+              flavor: session.flavor,
+              startTime: data.startTime,
+              endTime: data.endTime,
+              duration: data.duration,
+              mipLiquid: data.mipLiquid,
+              pump1Pressure: data.pump1Pressure,
+              pump2Pressure: data.pump2Pressure,
+              excelerate: data.excelerate1,
+              ph: data.ph,
+              brix: data.brix,
+              image: data.imagePath ? `https://back-wash-test.onrender.com${data.imagePath}` : null,
+            });
+          }
+        });
+      }
+
       res.json({ success: true });
     }
   );
