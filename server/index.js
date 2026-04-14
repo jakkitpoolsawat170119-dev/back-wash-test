@@ -251,6 +251,11 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+app.post('/api/upload', upload.single('image'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  res.json({ imagePath: `/uploads/${req.file.filename}` });
+});
+
 app.post('/api/steps/log', upload.single('image'), (req, res) => {
   const { batchId, stepNumber, stepDescription, startTime, endTime, pressure, brix, ph, remarks } = req.body;
   const imagePath = req.file ? `/uploads/${req.file.filename}` : null;

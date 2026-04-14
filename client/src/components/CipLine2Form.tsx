@@ -13,6 +13,7 @@ interface RowData {
   startRaw: number;
   endTime: string;
   duration: number;
+  imagePath: string;
   done: boolean;
 }
 
@@ -30,7 +31,7 @@ const defaultRow = (): RowData => ({
   mipLiquid: '', pump1Pressure: '', pump2Pressure: '',
   excelerate1: '', ph: '', brix: '',
   startTime: '', startRaw: 0, endTime: '', duration: 0,
-  done: false,
+  imagePath: '', done: false,
 });
 
 const defaultBack = (): BackData => ({
@@ -102,6 +103,18 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     const newRow = { ...(rows[rowNo] || defaultRow()), [field]: value };
     setRows(prev => ({ ...prev, [rowNo]: newRow }));
     saveRow(rowNo, newRow);
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, rowNo: number) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('image', file);
+    try {
+      const res = await fetch(`${apiUrl}/api/upload`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.imagePath) updateRow(rowNo, 'imagePath', data.imagePath);
+    } catch (err) { console.error(err); }
   };
 
   const handleRowStart = (rowNo: number) => {
@@ -346,6 +359,22 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
                   <label style={labelStyle}>Brix</label>
                   <input type="number" step="0.1" value={row.brix} onChange={e => updateRow(currentNo, 'brix', e.target.value)} placeholder="Brix" style={inputStyle()} />
                 </div>
+              </div>
+
+              {/* ── รูปภาพ (ไม่บังคับ) ── */}
+              <div style={{ marginBottom: '14px' }}>
+                <label style={labelStyle}>📷 รูปภาพ (ไม่บังคับ)</label>
+                {row.imagePath ? (
+                  <div style={{ position: 'relative' }}>
+                    <img src={`${apiUrl}${row.imagePath}`} alt="batch" style={{ width: '100%', borderRadius: '12px', maxHeight: '200px', objectFit: 'cover' }} />
+                    <button onClick={() => updateRow(currentNo, 'imagePath', '')} style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.5)', color: 'white', border: 'none', borderRadius: '20px', padding: '4px 10px', fontSize: '0.75rem', cursor: 'pointer' }}>✕ ลบ</button>
+                  </div>
+                ) : (
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '14px', background: '#f9f9f9', border: '2px dashed #ddd', borderRadius: '12px', cursor: 'pointer', color: '#888', fontWeight: 'bold', fontSize: '0.85rem' }}>
+                    📷 ถ่ายรูป / เลือกรูปภาพ
+                    <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => handleImageUpload(e, currentNo)} />
+                  </label>
+                )}
               </div>
 
               {/* แสดง field ที่ยังไม่กรอก */}
