@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 const apiUrl = "https://back-wash-test.onrender.com";
 
 interface RowData {
-  shift: string;
   mipLiquid: string;
   pump1Pressure: string;
   pump2Pressure: string;
@@ -28,7 +27,7 @@ interface BackData {
 }
 
 const defaultRow = (): RowData => ({
-  shift: '', mipLiquid: '', pump1Pressure: '', pump2Pressure: '',
+  mipLiquid: '', pump1Pressure: '', pump2Pressure: '',
   excelerate1: '', ph: '', brix: '',
   startTime: '', startRaw: 0, endTime: '', duration: 0,
   done: false,
@@ -262,14 +261,13 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
 
         {/* ── Batch card ── */}
         {(() => {
-          const isComplete = row.shift !== '' && row.mipLiquid !== '' &&
+          const isComplete = row.mipLiquid !== '' &&
             row.pump1Pressure !== '' && row.pump2Pressure !== '' &&
             row.excelerate1 !== '' && row.ph !== '' && row.brix !== '' &&
             row.startTime !== '' && row.endTime !== '';
           const missingFields = [
             !row.startTime && 'เวลาเริ่ม',
             !row.endTime && 'เวลาเสร็จ',
-            !row.shift && 'กะ/เวลา',
             !row.mipLiquid && 'MIP Liquid',
             !row.pump1Pressure && 'แรงดัน Pump 1',
             !row.pump2Pressure && 'แรงดัน Pump 2',
@@ -312,12 +310,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
                   ⏱ รวมเวลา: {row.duration} นาที
                 </div>
               )}
-
-              {/* กะ/เวลา */}
-              <div style={{ marginBottom: '12px' }}>
-                <label style={labelStyle}>กะ / เวลา</label>
-                <input type="text" value={row.shift} onChange={e => updateRow(currentNo, 'shift', e.target.value)} placeholder="เช่น กะเช้า 08:00" style={inputStyle()} />
-              </div>
 
               {/* MIP Liquid */}
               <div style={{ marginBottom: '12px' }}>
