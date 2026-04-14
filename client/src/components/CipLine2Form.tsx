@@ -63,7 +63,7 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
   const [flavor, setFlavor] = useState('');
   const [rows, setRows] = useState<Record<number, RowData>>({});
   const [back, setBack] = useState<BackData>(defaultBack());
-  const [expanded, setExpanded] = useState<number | null>(null);
+  const [currentNo, setCurrentNo] = useState(1);
 
   const getOrCreateSession = async () => {
     if (sessionId) return sessionId;
@@ -176,116 +176,172 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
   );
 
   // ── Front Page ───────────────────────────────────────────────────────────────
-  const renderFront = () => (
-    <div>
-      <SectionCard title="ข้อมูลทั่วไป">
-        <div style={{ marginBottom: '12px' }}>
-          <label style={labelStyle}>วันที่ตรวจสอบ</label>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle()} />
-        </div>
-        <div style={{ marginBottom: '12px' }}>
-          <label style={labelStyle}>SKU</label>
-          <OptionPicker value={sku} onChange={setSku} options={['Freshy', 'Senorita', 'Senorita Signature']} />
-        </div>
-        <div style={{ marginBottom: '12px' }}>
-          <label style={labelStyle}>Line</label>
-          <OptionPicker value={line} onChange={setLine} options={['Line 2', 'Line 3']} />
-        </div>
-        <div>
-          <label style={labelStyle}>กลิ่นที่ผลิต</label>
-          <input type="text" value={flavor} onChange={e => setFlavor(e.target.value)} placeholder="กลิ่น..." style={inputStyle()} />
-        </div>
-      </SectionCard>
+  const renderFront = () => {
+    const row = rows[currentNo] || defaultRow();
+    const phWarn = row.ph !== '' && (parseFloat(row.ph) < 6.5 || parseFloat(row.ph) > 8.5);
+    const totalBatches = 20;
+    const doneCount = Object.values(rows).filter(r => r.done).length;
 
-      {Array.from({ length: 20 }, (_, i) => i + 1).map(no => {
-        const row = rows[no] || defaultRow();
-        const isExp = expanded === no;
-        const phWarn = row.ph !== '' && (parseFloat(row.ph) < 6.5 || parseFloat(row.ph) > 8.5);
-        return (
-          <div key={no} style={{ background: 'white', borderRadius: '15px', marginBottom: '8px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: row.done ? '2px solid #4caf50' : '1px solid #eee' }}>
-            <div onClick={() => setExpanded(isExp ? null : no)} style={{ padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', background: row.done ? '#f1f8e9' : 'white' }}>
-              <span style={{ fontWeight: 'bold', color: row.done ? '#2e7d32' : '#333', fontSize: '0.95rem' }}>
-                {row.done ? '✅ ' : '⬜ '}NO.{no}{row.batch ? ` — ${row.batch}` : ''}
-              </span>
-              <span style={{ color: '#bbb', fontSize: '0.8rem' }}>{isExp ? '▲' : '▼'}</span>
-            </div>
-
-            {isExp && (
-              <div style={{ padding: '15px', borderTop: '1px solid #f5f5f5' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
-                  <div><label style={labelStyle}>กระวล (Batch)</label><input type="text" value={row.batch} onChange={e => updateRow(no, 'batch', e.target.value)} placeholder="Batch" style={inputStyle()} /></div>
-                  <div><label style={labelStyle}>จำนวนรอบ</label><input type="number" value={row.rounds} onChange={e => updateRow(no, 'rounds', e.target.value)} placeholder="รอบ" style={inputStyle()} /></div>
-                </div>
-
-                <div style={{ marginBottom: '12px' }}>
-                  <label style={labelStyle}>MIP LIQUID (kg)</label>
-                  <OptionPicker value={row.mipLiquid} onChange={v => updateRow(no, 'mipLiquid', v)} options={['17.5', '38.5']} />
-                </div>
-
-                <div style={{ marginBottom: '10px' }}>
-                  <label style={labelStyle}>แรงดัน Pump No.1 (Bar)</label>
-                  <input type="number" value={row.pump1Pressure} onChange={e => updateRow(no, 'pump1Pressure', e.target.value)} placeholder="Bar" style={inputStyle()} />
-                </div>
-
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
-                  <Toggle checked={row.temp1Ok} onToggle={() => updateRow(no, 'temp1Ok', !row.temp1Ok)} label="อุณหภูมิ 80-100°C" />
-                  <Toggle checked={row.time15Ok} onToggle={() => updateRow(no, 'time15Ok', !row.time15Ok)} label="เวลา 15 นาที" />
-                </div>
-
-                <div style={{ marginBottom: '12px' }}>
-                  <label style={labelStyle}>EXCELERATE HS-1 รอบ 1 (kg)</label>
-                  <OptionPicker value={row.excelerate1} onChange={v => updateRow(no, 'excelerate1', v)} options={['5', '11']} />
-                </div>
-
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
-                  <Toggle checked={row.circ30Ok} onToggle={() => updateRow(no, 'circ30Ok', !row.circ30Ok)} label="Circulate ถัง 2 + Plate cooling 30 นาที" />
-                </div>
-
-                <div style={{ marginBottom: '10px' }}>
-                  <label style={labelStyle}>แรงดัน Pump No.2 (Bar)</label>
-                  <input type="number" value={row.pump2Pressure} onChange={e => updateRow(no, 'pump2Pressure', e.target.value)} placeholder="Bar" style={inputStyle()} />
-                </div>
-
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
-                  <Toggle checked={row.temp2Ok} onToggle={() => updateRow(no, 'temp2Ok', !row.temp2Ok)} label="อุณหภูมิ 80-100°C" />
-                </div>
-
-                <div style={{ marginBottom: '12px' }}>
-                  <label style={labelStyle}>EXCELERATE HS-1 รอบ 2 (kg)</label>
-                  <OptionPicker value={row.excelerate2} onChange={v => updateRow(no, 'excelerate2', v)} options={['5', '11']} />
-                </div>
-
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
-                  <Toggle checked={row.spray10Ok} onToggle={() => updateRow(no, 'spray10Ok', !row.spray10Ok)} label="Spray ถัง 3 — 10 นาที" />
-                </div>
-
-                <div style={{ marginBottom: '12px' }}>
-                  <label style={labelStyle}>Holorith FL (kg)</label>
-                  <OptionPicker value={row.holorith} onChange={v => updateRow(no, 'holorith', v)} options={['10', '22']} />
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '15px' }}>
-                  <div>
-                    <label style={labelStyle}>pH (6.5–8.5)</label>
-                    <input type="number" step="0.1" value={row.ph} onChange={e => updateRow(no, 'ph', e.target.value)} placeholder="pH" style={inputStyle(phWarn)} />
-                    {phWarn && <div style={{ color: '#d32f2f', fontSize: '0.7rem' }}>⚠️ ค่า pH ผิดปกติ</div>}
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Brix (0)</label>
-                    <input type="number" step="0.1" value={row.brix} onChange={e => updateRow(no, 'brix', e.target.value)} placeholder="Brix" style={inputStyle()} />
-                  </div>
-                </div>
-
-                <button onClick={() => { updateRow(no, 'done', !row.done); setExpanded(null); }} style={{ width: '100%', padding: '12px', borderRadius: '12px', border: 'none', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem', background: row.done ? '#f5f5f5' : 'linear-gradient(135deg, #4caf50, #2e7d32)', color: row.done ? '#666' : 'white' }}>
-                  {row.done ? '↩ ยกเลิก' : '✅ เสร็จสิ้นแถวนี้'}
-                </button>
-              </div>
-            )}
+    return (
+      <div>
+        {/* ── ข้อมูลทั่วไป ── */}
+        <SectionCard title="ข้อมูลทั่วไป">
+          <div style={{ marginBottom: '12px' }}>
+            <label style={labelStyle}>วันที่ตรวจสอบ</label>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle()} />
           </div>
-        );
-      })}
-    </div>
-  );
+          <div style={{ marginBottom: '12px' }}>
+            <label style={labelStyle}>SKU</label>
+            <OptionPicker value={sku} onChange={setSku} options={['Freshy', 'Senorita', 'Senorita Signature']} />
+          </div>
+          <div style={{ marginBottom: '12px' }}>
+            <label style={labelStyle}>Line</label>
+            <OptionPicker value={line} onChange={setLine} options={['Line 2', 'Line 3']} />
+          </div>
+          <div>
+            <label style={labelStyle}>กลิ่นที่ผลิต</label>
+            <input type="text" value={flavor} onChange={e => setFlavor(e.target.value)} placeholder="กลิ่น..." style={inputStyle()} />
+          </div>
+        </SectionCard>
+
+        {/* ── Progress bar ── */}
+        <div style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#888', marginBottom: '6px' }}>
+            <span>เสร็จแล้ว {doneCount}/{totalBatches} Batch</span>
+            <span>{Math.round((doneCount / totalBatches) * 100)}%</span>
+          </div>
+          <div style={{ background: '#eee', borderRadius: '10px', height: '8px', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${(doneCount / totalBatches) * 100}%`, background: 'linear-gradient(90deg, #ff6b00, #ff9800)', borderRadius: '10px', transition: 'width 0.4s' }} />
+          </div>
+          {/* Batch dots */}
+          <div style={{ display: 'flex', gap: '4px', marginTop: '8px', flexWrap: 'wrap' }}>
+            {Array.from({ length: totalBatches }, (_, i) => i + 1).map(no => (
+              <div
+                key={no}
+                onClick={() => setCurrentNo(no)}
+                style={{
+                  width: '28px', height: '28px', borderRadius: '50%', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '0.65rem', fontWeight: 'bold', transition: 'all 0.2s',
+                  background: no === currentNo ? '#ff6b00' : (rows[no]?.done ? '#4caf50' : '#f0f0f0'),
+                  color: no === currentNo || rows[no]?.done ? 'white' : '#999',
+                  border: no === currentNo ? '2px solid #e65100' : '2px solid transparent',
+                  boxShadow: no === currentNo ? '0 2px 8px rgba(255,107,0,0.4)' : 'none',
+                }}
+              >
+                {no}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Batch card ── */}
+        <div style={{ background: 'white', borderRadius: '18px', padding: '18px', boxShadow: '0 4px 15px rgba(0,0,0,0.08)', border: row.done ? '2px solid #4caf50' : '2px solid #ff6b00', marginBottom: '16px' }}>
+          {/* Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div style={{ background: row.done ? '#4caf50' : '#ff6b00', color: 'white', borderRadius: '12px', padding: '6px 16px', fontWeight: 'bold', fontSize: '1rem' }}>
+              {row.done ? '✅' : '🔥'} NO.{currentNo}
+            </div>
+            <div style={{ fontSize: '0.8rem', color: '#aaa' }}>{currentNo} / {totalBatches}</div>
+          </div>
+
+          {/* Fields */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
+            <div><label style={labelStyle}>กระวล (Batch)</label><input type="text" value={row.batch} onChange={e => updateRow(currentNo, 'batch', e.target.value)} placeholder="Batch" style={inputStyle()} /></div>
+            <div><label style={labelStyle}>จำนวนรอบ</label><input type="number" value={row.rounds} onChange={e => updateRow(currentNo, 'rounds', e.target.value)} placeholder="รอบ" style={inputStyle()} /></div>
+          </div>
+
+          <div style={{ marginBottom: '12px' }}>
+            <label style={labelStyle}>MIP LIQUID (kg)</label>
+            <OptionPicker value={row.mipLiquid} onChange={v => updateRow(currentNo, 'mipLiquid', v)} options={['17.5', '38.5']} />
+          </div>
+
+          <div style={{ marginBottom: '10px' }}>
+            <label style={labelStyle}>แรงดัน Pump No.1 (Bar)</label>
+            <input type="number" value={row.pump1Pressure} onChange={e => updateRow(currentNo, 'pump1Pressure', e.target.value)} placeholder="Bar" style={inputStyle()} />
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+            <Toggle checked={row.temp1Ok} onToggle={() => updateRow(currentNo, 'temp1Ok', !row.temp1Ok)} label="อุณหภูมิ 80-100°C" />
+            <Toggle checked={row.time15Ok} onToggle={() => updateRow(currentNo, 'time15Ok', !row.time15Ok)} label="เวลา 15 นาที" />
+          </div>
+
+          <div style={{ marginBottom: '12px' }}>
+            <label style={labelStyle}>EXCELERATE HS-1 รอบ 1 (kg)</label>
+            <OptionPicker value={row.excelerate1} onChange={v => updateRow(currentNo, 'excelerate1', v)} options={['5', '11']} />
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+            <Toggle checked={row.circ30Ok} onToggle={() => updateRow(currentNo, 'circ30Ok', !row.circ30Ok)} label="Circulate ถัง 2 + Plate cooling 30 นาที" />
+          </div>
+
+          <div style={{ marginBottom: '10px' }}>
+            <label style={labelStyle}>แรงดัน Pump No.2 (Bar)</label>
+            <input type="number" value={row.pump2Pressure} onChange={e => updateRow(currentNo, 'pump2Pressure', e.target.value)} placeholder="Bar" style={inputStyle()} />
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+            <Toggle checked={row.temp2Ok} onToggle={() => updateRow(currentNo, 'temp2Ok', !row.temp2Ok)} label="อุณหภูมิ 80-100°C" />
+          </div>
+
+          <div style={{ marginBottom: '12px' }}>
+            <label style={labelStyle}>EXCELERATE HS-1 รอบ 2 (kg)</label>
+            <OptionPicker value={row.excelerate2} onChange={v => updateRow(currentNo, 'excelerate2', v)} options={['5', '11']} />
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+            <Toggle checked={row.spray10Ok} onToggle={() => updateRow(currentNo, 'spray10Ok', !row.spray10Ok)} label="Spray ถัง 3 — 10 นาที" />
+          </div>
+
+          <div style={{ marginBottom: '12px' }}>
+            <label style={labelStyle}>Holorith FL (kg)</label>
+            <OptionPicker value={row.holorith} onChange={v => updateRow(currentNo, 'holorith', v)} options={['10', '22']} />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
+            <div>
+              <label style={labelStyle}>pH (6.5–8.5)</label>
+              <input type="number" step="0.1" value={row.ph} onChange={e => updateRow(currentNo, 'ph', e.target.value)} placeholder="pH" style={inputStyle(phWarn)} />
+              {phWarn && <div style={{ color: '#d32f2f', fontSize: '0.7rem' }}>⚠️ ผิดปกติ</div>}
+            </div>
+            <div>
+              <label style={labelStyle}>Brix (0)</label>
+              <input type="number" step="0.1" value={row.brix} onChange={e => updateRow(currentNo, 'brix', e.target.value)} placeholder="Brix" style={inputStyle()} />
+            </div>
+          </div>
+
+          {/* Done button */}
+          <button
+            onClick={() => {
+              updateRow(currentNo, 'done', !row.done);
+              if (!row.done && currentNo < totalBatches) setCurrentNo(currentNo + 1);
+            }}
+            style={{ width: '100%', padding: '14px', borderRadius: '12px', border: 'none', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.95rem', background: row.done ? '#f5f5f5' : 'linear-gradient(135deg, #4caf50, #2e7d32)', color: row.done ? '#666' : 'white' }}
+          >
+            {row.done ? '↩ ยกเลิก' : '✅ เสร็จสิ้น Batch นี้ →'}
+          </button>
+        </div>
+
+        {/* ── Prev / Next ── */}
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+          <button
+            onClick={() => setCurrentNo(prev => Math.max(1, prev - 1))}
+            disabled={currentNo === 1}
+            style={{ flex: 1, padding: '12px', borderRadius: '12px', border: '2px solid #eee', background: currentNo === 1 ? '#f9f9f9' : 'white', color: currentNo === 1 ? '#ccc' : '#ff6b00', fontWeight: 'bold', cursor: currentNo === 1 ? 'default' : 'pointer', fontSize: '0.9rem' }}
+          >
+            ◀ Batch ก่อนหน้า
+          </button>
+          <button
+            onClick={() => setCurrentNo(prev => Math.min(totalBatches, prev + 1))}
+            disabled={currentNo === totalBatches}
+            style={{ flex: 1, padding: '12px', borderRadius: '12px', border: '2px solid #eee', background: currentNo === totalBatches ? '#f9f9f9' : 'white', color: currentNo === totalBatches ? '#ccc' : '#ff6b00', fontWeight: 'bold', cursor: currentNo === totalBatches ? 'default' : 'pointer', fontSize: '0.9rem' }}
+          >
+            Batch ถัดไป ▶
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   // ── Back Page ────────────────────────────────────────────────────────────────
   const renderBack = () => (
