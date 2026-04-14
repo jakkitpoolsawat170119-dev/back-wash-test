@@ -240,7 +240,7 @@ app.post('/api/cip-line1/finish', (req, res) => {
 });
 
 const sendToN8n = async (data) => {
-  const webhookUrl = process.env.N8N_WEBHOOK_URL || "https://n8n.m-creation.co/webhook/back-wash-test";
+  const webhookUrl = process.env.N8N_WEBHOOK_URL || "https://n8n.srv1267366.hstgr.cloud/webhook/cip-report";
   console.log(`[n8n] sending type=${data.type} to ${webhookUrl}`);
   try {
     const res = await axios.post(webhookUrl, data);
