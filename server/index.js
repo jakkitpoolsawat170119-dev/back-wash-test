@@ -247,18 +247,24 @@ app.post('/api/cip-line1/finish', (req, res) => {
   );
 });
 
+const escapeHtml = (str) => {
+  if (!str && str !== 0) return str;
+  return str.toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+};
+
 const sendToTelegram = async (message) => {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) return;
+  if (!token || !chatId) { console.error('[Telegram] Missing token or chatId'); return; }
   try {
     await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
       chat_id: chatId,
       text: message,
       parse_mode: 'HTML',
     });
+    console.log('[Telegram] Message sent OK');
   } catch (error) {
-    console.error('Telegram error:', error.message);
+    console.error('[Telegram] Error:', error.response?.data || error.message);
   }
 };
 
@@ -333,21 +339,23 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
   db.run(query, [batchId, stepNumber, stepDescription, startTime, endTime, pressure, brix, ph, remarks, imagePath], function(err) {
     if (err) return res.status(500).json({ error: err.message });
 
-    // ส่งแจ้งเตือนเข้า LINE เฉพาะตอน step เสร็จสมบูรณ์ (มี endTime) เพื่อไม่ให้ยิง API เกินโควต้า
+    // ส่งแจ้งเตือน Telegram เฉพาะตอน step เสร็จสมบูรณ์ (มี endTime)
+    console.log(`[steps/log] batchId=${batchId} step=${stepNumber} endTime=${endTime} imagePath=${imagePath}`);
     if (endTime) {
       const operatorName = req.body.operatorName || '-';
       const msg = [
         `📋 <b>CIP Step เสร็จสิ้น</b>`,
-        `Batch #${batchId} | Step ${stepNumber}: ${stepDescription}`,
-        `👤 ผู้ดำเนินการ: ${operatorName}`,
-        startTime ? `⏱ เริ่ม: ${startTime}` : null,
-        `⏱ จบ: ${endTime}`,
-        pressure ? `💨 Pressure: ${pressure}` : null,
-        brix     ? `🍬 Brix: ${brix}` : null,
-        ph       ? `🧪 pH: ${ph}` : null,
-        remarks  ? `💬 หมายเหตุ: ${remarks}` : null,
+        `Batch #${escapeHtml(batchId)} | Step ${escapeHtml(stepNumber)}: ${escapeHtml(stepDescription)}`,
+        `👤 ผู้ดำเนินการ: ${escapeHtml(operatorName)}`,
+        startTime ? `⏱ เริ่ม: ${escapeHtml(startTime)}` : null,
+        `⏱ จบ: ${escapeHtml(endTime)}`,
+        pressure ? `💨 Pressure: ${escapeHtml(pressure)}` : null,
+        brix     ? `🍬 Brix: ${escapeHtml(brix)}` : null,
+        ph       ? `🧪 pH: ${escapeHtml(ph)}` : null,
+        remarks  ? `💬 หมายเหตุ: ${escapeHtml(remarks)}` : null,
       ].filter(Boolean).join('\n');
 
+      console.log(`[steps/log] Sending Telegram notification for step ${stepNumber}`);
       if (imagePath) {
         sendPhotoToTelegram(`https://back-wash-test.onrender.com${imagePath}`, msg);
       } else {
