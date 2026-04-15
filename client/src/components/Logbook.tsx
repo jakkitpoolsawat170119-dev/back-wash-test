@@ -115,7 +115,15 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, o
   const handleStop = async (stepId: number) => {
     if (batchId) {
       const endTime = new Date().toISOString();
-      await saveStepData(stepId, { endTime, status: 'completed' }, batchId);
+      const current = stepData[stepId] || {};
+      await saveStepData(stepId, {
+        endTime,
+        status: 'completed',
+        pressure: current.pressure,
+        brix: current.brix,
+        pH: current.pH,
+        remarks: current.remarks,
+      }, batchId);
       if (stepId < cipSteps.length) setExpandedStep(stepId + 1);
     }
   };

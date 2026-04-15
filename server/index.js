@@ -335,33 +335,24 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
 
     // ส่งแจ้งเตือนเข้า LINE เฉพาะตอน step เสร็จสมบูรณ์ (มี endTime) เพื่อไม่ให้ยิง API เกินโควต้า
     if (endTime) {
-      const fullQuery = `
-        SELECT s.*, b.operator_name FROM cip_step_logs s
-        LEFT JOIN cip_batches b ON s.batch_id = b.id
-        WHERE s.batch_id = ? AND s.step_number = ?
-      `;
-      db.get(fullQuery, [batchId, stepNumber], (err2, row) => {
-        if (!err2 && row) {
-          const msg = [
-            `📋 <b>CIP Step เสร็จสิ้น</b>`,
-            `Batch #${row.batch_id} | Step ${row.step_number}: ${row.step_description}`,
-            `👤 ผู้ดำเนินการ: ${row.operator_name}`,
-            `⏱ เริ่ม: ${row.start_time}`,
-            `⏱ จบ: ${row.end_time}`,
-            row.pressure ? `💨 Pressure: ${row.pressure}` : null,
-            row.brix     ? `🍬 Brix: ${row.brix}` : null,
-            row.ph       ? `🧪 pH: ${row.ph}` : null,
-            row.remarks  ? `💬 หมายเหตุ: ${row.remarks}` : null,
-          ].filter(Boolean).join('\n');
+      const operatorName = req.body.operatorName || '-';
+      const msg = [
+        `📋 <b>CIP Step เสร็จสิ้น</b>`,
+        `Batch #${batchId} | Step ${stepNumber}: ${stepDescription}`,
+        `👤 ผู้ดำเนินการ: ${operatorName}`,
+        startTime ? `⏱ เริ่ม: ${startTime}` : null,
+        `⏱ จบ: ${endTime}`,
+        pressure ? `💨 Pressure: ${pressure}` : null,
+        brix     ? `🍬 Brix: ${brix}` : null,
+        ph       ? `🧪 pH: ${ph}` : null,
+        remarks  ? `💬 หมายเหตุ: ${remarks}` : null,
+      ].filter(Boolean).join('\n');
 
-          if (row.image_path) {
-            const imageUrl = `https://back-wash-test.onrender.com${row.image_path}`;
-            sendPhotoToTelegram(imageUrl, msg);
-          } else {
-            sendToTelegram(msg);
-          }
-        }
-      });
+      if (imagePath) {
+        sendPhotoToTelegram(`https://back-wash-test.onrender.com${imagePath}`, msg);
+      } else {
+        sendToTelegram(msg);
+      }
     }
 
     res.json({ success: true, imagePath });
