@@ -368,6 +368,27 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
   });
 });
 
+// Dedicated JSON endpoint for Telegram notification (bypasses multer/FormData)
+app.post('/api/notify-step', (req, res) => {
+  const { batchId, stepNumber, stepDescription, operatorName, startTime, endTime, pressure, brix, ph, remarks } = req.body;
+  console.log(`[notify-step] HIT step=${stepNumber} endTime=${endTime}`);
+  if (endTime) {
+    const msg = [
+      `📋 <b>CIP Step เสร็จสิ้น</b>`,
+      `Batch #${escapeHtml(batchId)} | Step ${escapeHtml(stepNumber)}: ${escapeHtml(stepDescription)}`,
+      `👤 ผู้ดำเนินการ: ${escapeHtml(operatorName || '-')}`,
+      startTime ? `⏱ เริ่ม: ${escapeHtml(startTime)}` : null,
+      `⏱ จบ: ${escapeHtml(endTime)}`,
+      pressure ? `💨 Pressure: ${escapeHtml(pressure)}` : null,
+      brix     ? `🍬 Brix: ${escapeHtml(brix)}` : null,
+      ph       ? `🧪 pH: ${escapeHtml(ph)}` : null,
+      remarks  ? `💬 หมายเหตุ: ${escapeHtml(remarks)}` : null,
+    ].filter(Boolean).join('\n');
+    sendToTelegram(msg);
+  }
+  res.json({ ok: true });
+});
+
 app.post('/api/batches/finish', (req, res) => {
   const { batchId } = req.body;
   const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
