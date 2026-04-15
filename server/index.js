@@ -142,25 +142,18 @@ app.post('/api/cip-line2/row', (req, res) => {
       if (data.endTime) {
         db.get(`SELECT * FROM cip_line2_sessions WHERE id = ?`, [sessionId], (err2, session) => {
           if (!err2 && session) {
-            sendToN8n({
-              type: 'cip_line2_batch_done',
-              batchNo: rowNo,
-              operatorName: session.operator_name,
-              date: session.date,
-              sku: session.sku,
-              line: session.line,
-              flavor: session.flavor,
-              startTime: data.startTime,
-              endTime: data.endTime,
-              duration: data.duration,
-              mipLiquid: data.mipLiquid,
-              pump1Pressure: data.pump1Pressure,
-              pump2Pressure: data.pump2Pressure,
-              excelerate: data.excelerate1,
-              ph: data.ph,
-              brix: data.brix,
-              image: data.imagePath ? `https://back-wash-test.onrender.com${data.imagePath}` : null,
-            });
+            sendToTelegram([
+              `📋 <b>CIP Line 2 — Batch เสร็จสิ้น</b>`,
+              `NO.${rowNo} | ${session.sku || ''} ${session.flavor || ''}`,
+              `📍 ${session.line || ''} | 👤 ${session.operator_name}`,
+              `📅 ${session.date}`,
+              data.startTime ? `⏱ เริ่ม: ${data.startTime}` : null,
+              data.endTime   ? `⏱ จบ: ${data.endTime}` : null,
+              data.pump1Pressure ? `💨 Pump1: ${data.pump1Pressure} Bar` : null,
+              data.pump2Pressure ? `💨 Pump2: ${data.pump2Pressure} Bar` : null,
+              data.ph   ? `🧪 pH: ${data.ph}` : null,
+              data.brix ? `🍬 Brix: ${data.brix}` : null,
+            ].filter(Boolean).join('\n'));
           }
         });
       }
@@ -239,14 +232,18 @@ app.post('/api/cip-line1/finish', (req, res) => {
   );
 });
 
-const sendToN8n = async (data) => {
-  const webhookUrl = process.env.N8N_WEBHOOK_URL || "https://n8n.srv1267366.hstgr.cloud/webhook/cip-report";
-  console.log(`[n8n] sending type=${data.type} to ${webhookUrl}`);
+const sendToTelegram = async (message) => {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
   try {
-    const res = await axios.post(webhookUrl, data);
-    console.log(`[n8n] success status=${res.status}`);
+    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+      chat_id: chatId,
+      text: message,
+      parse_mode: 'HTML',
+    });
   } catch (error) {
-    console.error(`[n8n] error: ${error.message}`);
+    console.error('Telegram error:', error.message);
   }
 };
 
@@ -314,20 +311,18 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
       `;
       db.get(fullQuery, [batchId, stepNumber], (err2, row) => {
         if (!err2 && row) {
-          sendToN8n({
-            type: 'cip_step_logged',
-            batchId: row.batch_id,
-            stepNumber: row.step_number,
-            stepDescription: row.step_description,
-            operatorName: row.operator_name,
-            startTime: row.start_time,
-            endTime: row.end_time,
-            pressure: row.pressure,
-            brix: row.brix,
-            ph: row.ph,
-            remarks: row.remarks,
-            image: row.image_path ? `https://back-wash-test.onrender.com${row.image_path}` : null
-          });
+          const msg = [
+            `📋 <b>CIP Step เสร็จสิ้น</b>`,
+            `Batch #${row.batch_id} | Step ${row.step_number}: ${row.step_description}`,
+            `👤 ผู้ดำเนินการ: ${row.operator_name}`,
+            `⏱ เริ่ม: ${row.start_time}`,
+            `⏱ จบ: ${row.end_time}`,
+            row.pressure ? `💨 Pressure: ${row.pressure}` : null,
+            row.brix     ? `🍬 Brix: ${row.brix}` : null,
+            row.ph       ? `🧪 pH: ${row.ph}` : null,
+            row.remarks  ? `💬 หมายเหตุ: ${row.remarks}` : null,
+          ].filter(Boolean).join('\n');
+          sendToTelegram(msg);
         }
       });
     }
@@ -342,12 +337,11 @@ app.post('/api/batches/finish', (req, res) => {
   db.run("UPDATE cip_batches SET end_time = ?, status = 'completed' WHERE id = ?", [now, batchId], function(err) {
     if (err) return res.status(500).json({ error: err.message });
     
-    // ส่งแจ้งเตือนจบงานเข้า LINE
-    sendToN8n({
-      type: 'cip_batch_finished',
-      batchId,
-      endTime: now
-    });
+    sendToTelegram([
+      `✅ <b>CIP Batch จบแล้ว</b>`,
+      `Batch #${batchId}`,
+      `⏰ เวลาจบ: ${now}`,
+    ].join('\n'));
 
     res.json({ success: true, endTime: now });
   });
@@ -359,7 +353,14 @@ app.post('/api/production/log', (req, res) => {
   const query = `INSERT INTO production_logs (timestamp, line_name, flavor, batch, operator_name, cip_count) VALUES (?, ?, ?, ?, ?, ?)`;
   db.run(query, [fmtTime, line, flavor, batch, operator, cipCount], function(err) {
     if (err) return res.status(500).json({ error: err.message });
-    sendToN8n({ type: 'production_logged', line, flavor, batch, operator, timestamp: fmtTime, cipCount });
+    sendToTelegram([
+      `🏭 <b>บันทึกการผลิต</b>`,
+      `📍 Line: ${line} | รสชาติ: ${flavor}`,
+      `📦 Batch: ${batch}`,
+      `👤 ผู้ดำเนินการ: ${operator}`,
+      cipCount ? `🧼 CIP: ${cipCount}` : null,
+      `⏰ เวลา: ${fmtTime}`,
+    ].filter(Boolean).join('\n'));
     res.json({ success: true, logId: this.lastID });
   });
 });
