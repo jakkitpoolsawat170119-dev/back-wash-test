@@ -205,6 +205,21 @@ app.post('/api/cip-line1/row', (req, res) => {
     [sessionId, rowNo, JSON.stringify(data)],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
+
+      if (data.done) {
+        db.get(`SELECT * FROM cip_line1_sessions WHERE id = ?`, [sessionId], (err2, session) => {
+          if (!err2 && session) {
+            sendToTelegram([
+              `📋 <b>CIP Line 1 — รอบที่ ${rowNo} เสร็จสิ้น</b>`,
+              `SKU: ${session.sku || '-'} | 📅 ${session.date}`,
+              `👤 ${session.operator_name}`,
+              data.ph   ? `🧪 pH: ${data.ph}` : null,
+              data.brix ? `🍬 Brix: ${data.brix}` : null,
+            ].filter(Boolean).join('\n'));
+          }
+        });
+      }
+
       res.json({ success: true });
     }
   );
@@ -321,6 +336,7 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
             row.brix     ? `🍬 Brix: ${row.brix}` : null,
             row.ph       ? `🧪 pH: ${row.ph}` : null,
             row.remarks  ? `💬 หมายเหตุ: ${row.remarks}` : null,
+            row.image_path ? `📷 รูป: https://back-wash-test.onrender.com${row.image_path}` : null,
           ].filter(Boolean).join('\n');
           sendToTelegram(msg);
         }
@@ -348,7 +364,7 @@ app.post('/api/batches/finish', (req, res) => {
 });
 
 app.post('/api/production/log', (req, res) => {
-  const { line, flavor, batch, operator, timestamp, cipCount } = req.body;
+  const { line, flavor, batch, operator, timestamp, cipCount, brix, ph } = req.body;
   const fmtTime = timestamp ? new Date(timestamp).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T') : null;
   const query = `INSERT INTO production_logs (timestamp, line_name, flavor, batch, operator_name, cip_count) VALUES (?, ?, ?, ?, ?, ?)`;
   db.run(query, [fmtTime, line, flavor, batch, operator, cipCount], function(err) {
@@ -358,7 +374,9 @@ app.post('/api/production/log', (req, res) => {
       `📍 Line: ${line} | รสชาติ: ${flavor}`,
       `📦 Batch: ${batch}`,
       `👤 ผู้ดำเนินการ: ${operator}`,
-      cipCount ? `🧼 CIP: ${cipCount}` : null,
+      brix ? `🍬 Brix: ${brix}` : null,
+      ph   ? `🧪 pH: ${ph}` : null,
+      (cipCount && cipCount !== '-') ? `🧼 CIP: ${cipCount}` : null,
       `⏰ เวลา: ${fmtTime}`,
     ].filter(Boolean).join('\n'));
     res.json({ success: true, logId: this.lastID });

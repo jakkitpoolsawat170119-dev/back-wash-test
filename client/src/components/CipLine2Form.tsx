@@ -384,17 +384,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
                 </div>
               )}
 
-              {/* Done button */}
-              <button
-                disabled={!isComplete && !row.done}
-                onClick={() => {
-                  updateRow(currentNo, 'done', !row.done);
-                  if (!row.done && currentNo < totalBatches) setCurrentNo(currentNo + 1);
-                }}
-                style={{ width: '100%', padding: '14px', borderRadius: '12px', border: 'none', fontWeight: 'bold', fontSize: '0.95rem', cursor: isComplete || row.done ? 'pointer' : 'not-allowed', background: row.done ? '#f5f5f5' : isComplete ? 'linear-gradient(135deg, #4caf50, #2e7d32)' : '#e0e0e0', color: row.done ? '#666' : isComplete ? 'white' : '#aaa' }}
-              >
-                {row.done ? '↩ ยกเลิก' : isComplete ? '✅ เสร็จสิ้น Batch นี้ →' : '🔒 กรอกข้อมูลให้ครบก่อน'}
-              </button>
             </div>
           );
         })()}
