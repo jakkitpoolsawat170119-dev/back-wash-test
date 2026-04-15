@@ -136,7 +136,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     const newCipCount = isCip ? line.cipCount + 1 : line.cipCount;
     setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], doneTime: timeStr, history: newHistory, totalCompleted: newTotalCompleted, cipCount: newCipCount, isProcessing: false, showInputs: false, cookingBatch: '', startTime: null, startRaw: null, brix: '', ph: '' } }));
     try {
-      await fetch(`${apiUrl}/api/production/log`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ line: `Line ${lineId}`, flavor: line.flavor, batch: line.cookingBatch, operator: operatorName, timestamp: new Date().toISOString(), duration: diffMins, brix: line.brix, ph: line.ph, cipCount: isCip ? "1 Batch" : "-" }) });
+      await fetch(`${apiUrl}/api/production/log`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ line: `Line ${lineId}`, flavor: line.flavor, batch: line.cookingBatch, operator: operatorName, timestamp: new Date().toISOString(), startTime: line.startTime, endTime: timeStr, duration: diffMins, brix: line.brix, ph: line.ph, cipCount: isCip ? "1 Batch" : "-" }) });
     } catch (error) { console.error("Failed to log:", error); }
   };
 
@@ -236,7 +236,26 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
               ) : (
                 <div style={{ textAlign: 'center', padding: '10px 0' }}>
                   <div style={{ fontSize: '1.2rem', color: '#2e7d32', fontWeight: 'bold', marginBottom: '10px' }}>✅ บันทึกสำเร็จ!</div>
-                  <div style={{ background: '#fff9c4', padding: '12px', borderRadius: '10px', marginBottom: '20px', border: '1px solid #fbc02d' }}><div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#f57f17' }}>Batch ต่อไปที่คุณต้องผลิตคือ: {nextExpectedBatch || 'จบเซ็ต A-Z'}</div></div>
+                  {(() => {
+                    const last = line.history[line.history.length - 1];
+                    return last ? (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+                        <div style={{ background: '#e8f5e9', borderRadius: '10px', padding: '8px', border: '1px solid #a5d6a7' }}>
+                          <div style={{ fontSize: '0.6rem', color: '#666', fontWeight: 'bold' }}>▶️ เริ่ม</div>
+                          <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#2e7d32' }}>{last.startTime}</div>
+                        </div>
+                        <div style={{ background: '#ffebee', borderRadius: '10px', padding: '8px', border: '1px solid #ef9a9a' }}>
+                          <div style={{ fontSize: '0.6rem', color: '#666', fontWeight: 'bold' }}>⏹️ จบ</div>
+                          <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#c62828' }}>{last.doneTime}</div>
+                        </div>
+                        <div style={{ background: '#fff3e0', borderRadius: '10px', padding: '8px', border: '1px solid #ffcc80' }}>
+                          <div style={{ fontSize: '0.6rem', color: '#666', fontWeight: 'bold' }}>⏱ รวม</div>
+                          <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#e65100' }}>{last.duration} นาที</div>
+                        </div>
+                      </div>
+                    ) : null;
+                  })()}
+                  <div style={{ background: '#fff9c4', padding: '12px', borderRadius: '10px', marginBottom: '12px', border: '1px solid #fbc02d' }}><div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#f57f17' }}>Batch ต่อไปที่คุณต้องผลิตคือ: {nextExpectedBatch || 'จบเซ็ต A-Z'}</div></div>
                   <button onClick={() => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], showInputs: true } }))} style={{ width: '100%', padding: '15px', background: '#2e7d32', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>➕ เตรียมผลิต Batch ถัดไป</button>
                 </div>
               )}

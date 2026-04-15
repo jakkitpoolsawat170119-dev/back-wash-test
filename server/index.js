@@ -262,6 +262,22 @@ const sendToTelegram = async (message) => {
   }
 };
 
+const sendPhotoToTelegram = async (imageUrl, caption) => {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+  try {
+    await axios.post(`https://api.telegram.org/bot${token}/sendPhoto`, {
+      chat_id: chatId,
+      photo: imageUrl,
+      caption: caption,
+      parse_mode: 'HTML',
+    });
+  } catch (error) {
+    console.error('Telegram error:', error.message);
+  }
+};
+
 app.post('/api/login', (req, res) => {
   const { pin } = req.body;
   db.get("SELECT name FROM operators WHERE pin = ?", [pin], (err, row) => {
@@ -336,9 +352,14 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
             row.brix     ? `🍬 Brix: ${row.brix}` : null,
             row.ph       ? `🧪 pH: ${row.ph}` : null,
             row.remarks  ? `💬 หมายเหตุ: ${row.remarks}` : null,
-            row.image_path ? `📷 รูป: https://back-wash-test.onrender.com${row.image_path}` : null,
           ].filter(Boolean).join('\n');
-          sendToTelegram(msg);
+
+          if (row.image_path) {
+            const imageUrl = `https://back-wash-test.onrender.com${row.image_path}`;
+            sendPhotoToTelegram(imageUrl, msg);
+          } else {
+            sendToTelegram(msg);
+          }
         }
       });
     }
@@ -364,7 +385,7 @@ app.post('/api/batches/finish', (req, res) => {
 });
 
 app.post('/api/production/log', (req, res) => {
-  const { line, flavor, batch, operator, timestamp, cipCount, brix, ph } = req.body;
+  const { line, flavor, batch, operator, timestamp, cipCount, brix, ph, startTime, endTime, duration } = req.body;
   const fmtTime = timestamp ? new Date(timestamp).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T') : null;
   const query = `INSERT INTO production_logs (timestamp, line_name, flavor, batch, operator_name, cip_count) VALUES (?, ?, ?, ?, ?, ?)`;
   db.run(query, [fmtTime, line, flavor, batch, operator, cipCount], function(err) {
@@ -374,10 +395,12 @@ app.post('/api/production/log', (req, res) => {
       `📍 Line: ${line} | รสชาติ: ${flavor}`,
       `📦 Batch: ${batch}`,
       `👤 ผู้ดำเนินการ: ${operator}`,
+      startTime ? `▶️ เวลาเริ่ม: ${startTime}` : null,
+      endTime   ? `⏹️ เวลาจบ: ${endTime}` : null,
+      duration  ? `⏱ รวม: ${duration} นาที` : null,
       brix ? `🍬 Brix: ${brix}` : null,
       ph   ? `🧪 pH: ${ph}` : null,
       (cipCount && cipCount !== '-') ? `🧼 CIP: ${cipCount}` : null,
-      `⏰ เวลา: ${fmtTime}`,
     ].filter(Boolean).join('\n'));
     res.json({ success: true, logId: this.lastID });
   });
