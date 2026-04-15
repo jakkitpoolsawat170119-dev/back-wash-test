@@ -324,6 +324,32 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
   const { batchId, stepNumber, stepDescription, startTime, endTime, pressure, brix, ph, remarks } = req.body;
   const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
 
+  // Log immediately when request arrives (before DB)
+  console.log(`[steps/log] HIT batchId=${batchId} step=${stepNumber} endTime=${endTime}`);
+
+  // Send Telegram immediately (do NOT wait for DB callback)
+  if (endTime) {
+    const operatorName = req.body.operatorName || '-';
+    const msg = [
+      `📋 <b>CIP Step เสร็จสิ้น</b>`,
+      `Batch #${escapeHtml(batchId)} | Step ${escapeHtml(stepNumber)}: ${escapeHtml(stepDescription)}`,
+      `👤 ผู้ดำเนินการ: ${escapeHtml(operatorName)}`,
+      startTime ? `⏱ เริ่ม: ${escapeHtml(startTime)}` : null,
+      `⏱ จบ: ${escapeHtml(endTime)}`,
+      pressure ? `💨 Pressure: ${escapeHtml(pressure)}` : null,
+      brix     ? `🍬 Brix: ${escapeHtml(brix)}` : null,
+      ph       ? `🧪 pH: ${escapeHtml(ph)}` : null,
+      remarks  ? `💬 หมายเหตุ: ${escapeHtml(remarks)}` : null,
+    ].filter(Boolean).join('\n');
+
+    console.log(`[steps/log] Sending Telegram for step ${stepNumber}`);
+    if (imagePath) {
+      sendPhotoToTelegram(`https://back-wash-test.onrender.com${imagePath}`, msg);
+    } else {
+      sendToTelegram(msg);
+    }
+  }
+
   const query = `
     INSERT INTO cip_step_logs (batch_id, step_number, step_description, start_time, end_time, pressure, brix, ph, remarks, image_path)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -338,31 +364,6 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
 
   db.run(query, [batchId, stepNumber, stepDescription, startTime, endTime, pressure, brix, ph, remarks, imagePath], function(err) {
     if (err) return res.status(500).json({ error: err.message });
-
-    // ส่งแจ้งเตือน Telegram เฉพาะตอน step เสร็จสมบูรณ์ (มี endTime)
-    console.log(`[steps/log] batchId=${batchId} step=${stepNumber} endTime=${endTime} imagePath=${imagePath}`);
-    if (endTime) {
-      const operatorName = req.body.operatorName || '-';
-      const msg = [
-        `📋 <b>CIP Step เสร็จสิ้น</b>`,
-        `Batch #${escapeHtml(batchId)} | Step ${escapeHtml(stepNumber)}: ${escapeHtml(stepDescription)}`,
-        `👤 ผู้ดำเนินการ: ${escapeHtml(operatorName)}`,
-        startTime ? `⏱ เริ่ม: ${escapeHtml(startTime)}` : null,
-        `⏱ จบ: ${escapeHtml(endTime)}`,
-        pressure ? `💨 Pressure: ${escapeHtml(pressure)}` : null,
-        brix     ? `🍬 Brix: ${escapeHtml(brix)}` : null,
-        ph       ? `🧪 pH: ${escapeHtml(ph)}` : null,
-        remarks  ? `💬 หมายเหตุ: ${escapeHtml(remarks)}` : null,
-      ].filter(Boolean).join('\n');
-
-      console.log(`[steps/log] Sending Telegram notification for step ${stepNumber}`);
-      if (imagePath) {
-        sendPhotoToTelegram(`https://back-wash-test.onrender.com${imagePath}`, msg);
-      } else {
-        sendToTelegram(msg);
-      }
-    }
-
     res.json({ success: true, imagePath });
   });
 });
