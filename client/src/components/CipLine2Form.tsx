@@ -144,6 +144,7 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     const firstStart = withStart[0]?.startTime || '';
     const lastEnd = withEnd[0]?.endTime || '';
     const lastRow = withEnd[0];
+    const totalDuration = Object.values(rows).reduce((sum, r) => sum + (r.duration || 0), 0);
 
     await fetch(`${apiUrl}/api/cip-line2/finish`, {
       method: 'POST',
@@ -151,7 +152,7 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
       body: JSON.stringify({
         sessionId: sid,
         line, date, operatorName,
-        firstStart, lastEnd,
+        firstStart, lastEnd, totalDuration,
         pump1: lastRow?.pump1Pressure || '',
         pump2: lastRow?.pump2Pressure || '',
         ph: lastRow?.ph || '',
@@ -418,6 +419,7 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
           const recorded = Array.from({ length: totalBatches }, (_, i) => i + 1)
             .filter(no => rows[no]?.startTime);
           if (recorded.length === 0) return null;
+          const totalDuration = recorded.reduce((sum, no) => sum + (rows[no]?.duration || 0), 0);
           return (
             <div style={{ background: 'white', borderRadius: '15px', padding: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', marginBottom: '10px' }}>
               <h4 style={{ margin: '0 0 12px 0', color: '#ff6b00', borderBottom: '2px solid #ff6b00', paddingBottom: '8px', fontSize: '0.95rem' }}>
@@ -448,6 +450,12 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
                   );
                 })}
               </div>
+              {totalDuration > 0 && (
+                <div style={{ marginTop: '12px', background: 'linear-gradient(135deg, #fff3e0, #ffe0b2)', borderRadius: '12px', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #ffcc80' }}>
+                  <span style={{ fontWeight: 'bold', color: '#e65100', fontSize: '0.95rem' }}>⏱ เวลารวม CIP</span>
+                  <span style={{ fontWeight: 'bold', color: '#e65100', fontSize: '1.1rem' }}>{totalDuration} นาที</span>
+                </div>
+              )}
             </div>
           );
         })()}
