@@ -131,33 +131,30 @@ app.post('/api/cip-line2/start', (req, res) => {
 });
 
 app.post('/api/cip-line2/row', (req, res) => {
-  const { sessionId, rowNo, data } = req.body;
+  const { sessionId, rowNo, data, sessionInfo } = req.body;
+
+  // ส่ง Telegram ทันทีเมื่อ Stop (มี endTime) โดยใช้ sessionInfo จาก client
+  if (data.endTime) {
+    const info = sessionInfo || {};
+    sendToTelegram([
+      `📋 <b>CIP ${escapeHtml(info.line || 'Line 2')} — Batch เสร็จสิ้น</b>`,
+      `NO.${rowNo} | ${escapeHtml(info.sku || '')} ${escapeHtml(info.flavor || '')}`,
+      `👤 ${escapeHtml(info.operatorName || '')} | 📅 ${escapeHtml(info.date || '')}`,
+      data.startTime     ? `⏱ เริ่ม: ${escapeHtml(data.startTime)}` : null,
+      `⏱ จบ: ${escapeHtml(data.endTime)}`,
+      data.duration      ? `⏱ รวม: ${escapeHtml(String(data.duration))} นาที` : null,
+      data.pump1Pressure ? `💨 Pump1: ${escapeHtml(data.pump1Pressure)} Bar` : null,
+      data.pump2Pressure ? `💨 Pump2: ${escapeHtml(data.pump2Pressure)} Bar` : null,
+      data.ph            ? `🧪 pH: ${escapeHtml(data.ph)}` : null,
+      data.brix          ? `🍬 Brix: ${escapeHtml(data.brix)}` : null,
+    ].filter(Boolean).join('\n'));
+  }
+
   db.run(`INSERT INTO cip_line2_rows (session_id, row_no, data) VALUES (?, ?, ?)
     ON CONFLICT(session_id, row_no) DO UPDATE SET data = excluded.data`,
     [sessionId, rowNo, JSON.stringify(data)],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
-
-      // ส่งแจ้งเตือนเมื่อกด Stop (มี endTime)
-      if (data.endTime) {
-        db.get(`SELECT * FROM cip_line2_sessions WHERE id = ?`, [sessionId], (err2, session) => {
-          if (!err2 && session) {
-            sendToTelegram([
-              `📋 <b>CIP Line 2 — Batch เสร็จสิ้น</b>`,
-              `NO.${rowNo} | ${session.sku || ''} ${session.flavor || ''}`,
-              `📍 ${session.line || ''} | 👤 ${session.operator_name}`,
-              `📅 ${session.date}`,
-              data.startTime ? `⏱ เริ่ม: ${data.startTime}` : null,
-              data.endTime   ? `⏱ จบ: ${data.endTime}` : null,
-              data.pump1Pressure ? `💨 Pump1: ${data.pump1Pressure} Bar` : null,
-              data.pump2Pressure ? `💨 Pump2: ${data.pump2Pressure} Bar` : null,
-              data.ph   ? `🧪 pH: ${data.ph}` : null,
-              data.brix ? `🍬 Brix: ${data.brix}` : null,
-            ].filter(Boolean).join('\n'));
-          }
-        });
-      }
-
       res.json({ success: true });
     }
   );

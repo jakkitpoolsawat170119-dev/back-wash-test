@@ -75,7 +75,7 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     fetch(`${apiUrl}/api/cip-line2/row`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId: sid, rowNo, data: rowData }),
+      body: JSON.stringify({ sessionId: sid, rowNo, data: rowData, sessionInfo: { line, sku, flavor, date, operatorName } }),
     }).catch(console.error);
   };
 
