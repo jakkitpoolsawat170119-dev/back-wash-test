@@ -178,11 +178,15 @@ app.post('/api/cip-line2/finish', (req, res) => {
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
       sendToTelegram([
-        `📋 <b>CIP ${escapeHtml(line || 'Line 2')}</b>`,
-        `📅 วันที่: ${escapeHtml(date || '-')}  |  👤 ${escapeHtml(operatorName || '-')}`,
-        (firstStart || lastEnd) ? `🕐 กะ/เวลา: ${escapeHtml(firstStart || '-')} , ${escapeHtml(lastEnd || '-')}` : null,
-        totalDuration ? `⏱ รวม CIP: ${escapeHtml(String(totalDuration))} นาที` : null,
-        (pump1 || pump2) ? `💨 Pump 1: ${escapeHtml(pump1 || '-')} Bar  |  Pump 2: ${escapeHtml(pump2 || '-')} Bar` : null,
+        `✅ <b>CIP ${escapeHtml(line || 'Line 2')} — เสร็จสิ้น</b>`,
+        `─────────────────────`,
+        `📅 ${escapeHtml(date || '-')}`,
+        `👤 ${escapeHtml(operatorName || '-')}`,
+        `─────────────────────`,
+        (firstStart || lastEnd) ? `🕐 เริ่ม: <b>${escapeHtml(firstStart || '-')}</b>  →  จบ: <b>${escapeHtml(lastEnd || '-')}</b>` : null,
+        totalDuration ? `⏱ รวม CIP: <b>${escapeHtml(String(totalDuration))} นาที</b>` : null,
+        `─────────────────────`,
+        (pump1 || pump2) ? `💨 Pump 1: ${escapeHtml(pump1 || '-')} Bar\n💨 Pump 2: ${escapeHtml(pump2 || '-')} Bar` : null,
         (ph || brix) ? `🧪 pH: ${escapeHtml(ph || '-')}  |  🍬 Brix: ${escapeHtml(brix || '-')}` : null,
       ].filter(Boolean).join('\n'));
       res.json({ success: true });
