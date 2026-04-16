@@ -261,6 +261,21 @@ const escapeHtml = (str) => {
   return str.toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 };
 
+const formatThaiTime = (isoStr) => {
+  if (!isoStr) return null;
+  try {
+    return new Date(isoStr).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' });
+  } catch { return isoStr; }
+};
+
+const calcDuration = (startIso, endIso) => {
+  if (!startIso || !endIso) return null;
+  try {
+    const diff = Math.round((new Date(endIso) - new Date(startIso)) / 60000);
+    return diff > 0 ? diff : null;
+  } catch { return null; }
+};
+
 const sendToTelegram = async (message) => {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -339,12 +354,14 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
   // Send Telegram immediately (do NOT wait for DB callback)
   if (endTime) {
     const operatorName = req.body.operatorName || '-';
+    const tStart = formatThaiTime(startTime);
+    const tEnd   = formatThaiTime(endTime);
+    const dur    = calcDuration(startTime, endTime);
     const msg = [
-      `📋 <b>CIP Step เสร็จสิ้น</b>`,
-      `Batch #${escapeHtml(batchId)} | Step ${escapeHtml(stepNumber)}: ${escapeHtml(stepDescription)}`,
+      `📋 <b>CIP Step ${escapeHtml(stepNumber)}: ${escapeHtml(stepDescription)}</b>`,
       `👤 ผู้ดำเนินการ: ${escapeHtml(operatorName)}`,
-      startTime ? `⏱ เริ่ม: ${escapeHtml(startTime)}` : null,
-      `⏱ จบ: ${escapeHtml(endTime)}`,
+      (tStart || tEnd) ? `⏱ เริ่ม: ${tStart || '-'}  →  จบ: ${tEnd || '-'}` : null,
+      dur              ? `⏱ รวม: ${dur} นาที` : null,
       pressure ? `💨 Pressure: ${escapeHtml(pressure)}` : null,
       brix     ? `🍬 Brix: ${escapeHtml(brix)}` : null,
       ph       ? `🧪 pH: ${escapeHtml(ph)}` : null,
@@ -379,15 +396,17 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
 
 // Dedicated JSON endpoint for Telegram notification (bypasses multer/FormData)
 app.post('/api/notify-step', (req, res) => {
-  const { batchId, stepNumber, stepDescription, operatorName, startTime, endTime, pressure, brix, ph, remarks } = req.body;
+  const { stepNumber, stepDescription, operatorName, startTime, endTime, pressure, brix, ph, remarks } = req.body;
   console.log(`[notify-step] HIT step=${stepNumber} endTime=${endTime}`);
   if (endTime) {
+    const tStart = formatThaiTime(startTime);
+    const tEnd   = formatThaiTime(endTime);
+    const dur    = calcDuration(startTime, endTime);
     const msg = [
-      `📋 <b>CIP Step เสร็จสิ้น</b>`,
-      `Batch #${escapeHtml(batchId)} | Step ${escapeHtml(stepNumber)}: ${escapeHtml(stepDescription)}`,
+      `📋 <b>CIP Step ${escapeHtml(stepNumber)}: ${escapeHtml(stepDescription)}</b>`,
       `👤 ผู้ดำเนินการ: ${escapeHtml(operatorName || '-')}`,
-      startTime ? `⏱ เริ่ม: ${escapeHtml(startTime)}` : null,
-      `⏱ จบ: ${escapeHtml(endTime)}`,
+      (tStart || tEnd) ? `⏱ เริ่ม: ${tStart || '-'}  →  จบ: ${tEnd || '-'}` : null,
+      dur              ? `⏱ รวม: ${dur} นาที` : null,
       pressure ? `💨 Pressure: ${escapeHtml(pressure)}` : null,
       brix     ? `🍬 Brix: ${escapeHtml(brix)}` : null,
       ph       ? `🧪 pH: ${escapeHtml(ph)}` : null,
