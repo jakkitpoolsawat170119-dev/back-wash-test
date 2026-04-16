@@ -20,8 +20,6 @@ interface RowData {
 interface BackData {
   a1_shift: string; a1_ro: boolean; a1_oxonia: boolean; a1_time: boolean; a1_ph: string; a1_normal: boolean;
   a2_shift: string; a2_ro: boolean; a2_oxonia: boolean; a2_time: boolean; a2_ph: string; a2_normal: boolean;
-  mix_shift: string; mix_temp: boolean; mix_time: boolean; mix_pump1: string; mix_circ: boolean;
-  mix_pump2: string; mix_spray: boolean; mix_feed: boolean; mix_ph: string; mix_brix: string;
 }
 
 const defaultRow = (): RowData => ({
@@ -34,8 +32,6 @@ const defaultRow = (): RowData => ({
 const defaultBack = (): BackData => ({
   a1_shift: '', a1_ro: false, a1_oxonia: false, a1_time: false, a1_ph: '', a1_normal: true,
   a2_shift: '', a2_ro: false, a2_oxonia: false, a2_time: false, a2_ph: '', a2_normal: true,
-  mix_shift: '', mix_temp: false, mix_time: false, mix_pump1: '', mix_circ: false,
-  mix_pump2: '', mix_spray: false, mix_feed: false, mix_ph: '', mix_brix: '',
 });
 
 interface Props {
@@ -140,19 +136,26 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     if (!window.confirm('ยืนยันจบงาน CIP Line 2?')) return;
     const sid = await getOrCreateSession();
     if (!sid) return;
+
+    // Aggregate from batch rows
+    const allRows = Object.entries(rows).map(([k, v]) => ({ no: parseInt(k), ...v }));
+    const withStart = allRows.filter(r => r.startTime).sort((a, b) => a.no - b.no);
+    const withEnd = allRows.filter(r => r.endTime).sort((a, b) => b.no - a.no);
+    const firstStart = withStart[0]?.startTime || '';
+    const lastEnd = withEnd[0]?.endTime || '';
+    const lastRow = withEnd[0];
+
     await fetch(`${apiUrl}/api/cip-line2/finish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sessionId: sid,
-        line,
-        date,
-        operatorName,
-        mixShift: back.mix_shift,
-        pump1: back.mix_pump1,
-        pump2: back.mix_pump2,
-        ph: back.mix_ph,
-        brix: back.mix_brix,
+        line, date, operatorName,
+        firstStart, lastEnd,
+        pump1: lastRow?.pump1Pressure || '',
+        pump2: lastRow?.pump2Pressure || '',
+        ph: lastRow?.ph || '',
+        brix: lastRow?.brix || '',
       }),
     });
     alert('บันทึก CIP Line 2 สำเร็จ!');
@@ -479,31 +482,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
           <Toggle checked={back.a2_time} onToggle={() => updateBack('a2_time', !back.a2_time)} label="เวลา 1.5 นาที" />
         </div>
         <NormalToggle normal={back.a2_normal} onChange={v => updateBack('a2_normal', v)} />
-      </SectionCard>
-
-      <SectionCard title="อุณหภูมิและเวลาถัง Mixing (น้ำ RO 1 ถัน / 60°C)">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
-          <div><label style={labelStyle}>กะ/เวลา</label><input type="text" value={back.mix_shift} onChange={e => updateBack('mix_shift', e.target.value)} placeholder="กะ/เวลา" style={inputStyle()} /></div>
-          <div><label style={labelStyle}>แรงดัน Pump 1</label><input type="number" value={back.mix_pump1} onChange={e => updateBack('mix_pump1', e.target.value)} placeholder="Bar" style={inputStyle()} /></div>
-          <div><label style={labelStyle}>แรงดัน Pump 2</label><input type="number" value={back.mix_pump2} onChange={e => updateBack('mix_pump2', e.target.value)} placeholder="Bar" style={inputStyle()} /></div>
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
-          <Toggle checked={back.mix_temp} onToggle={() => updateBack('mix_temp', !back.mix_temp)} label="อุณหภูมิ 60°C" />
-          <Toggle checked={back.mix_time} onToggle={() => updateBack('mix_time', !back.mix_time)} label="เวลา 10 นาที" />
-          <Toggle checked={back.mix_circ} onToggle={() => updateBack('mix_circ', !back.mix_circ)} label="Circulate + Plate cooling 30 นาที" />
-          <Toggle checked={back.mix_spray} onToggle={() => updateBack('mix_spray', !back.mix_spray)} label="Spray ถัง 3 — 10 นาที" />
-          <Toggle checked={back.mix_feed} onToggle={() => updateBack('mix_feed', !back.mix_feed)} label="ผ่านหัวบรรจุ 5 นาที" />
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-          <div>
-            <label style={labelStyle}>pH (6.5–8.5)</label>
-            <input type="number" step="0.1" value={back.mix_ph} onChange={e => updateBack('mix_ph', e.target.value)} placeholder="pH" style={inputStyle(back.mix_ph !== '' && (parseFloat(back.mix_ph) < 6.5 || parseFloat(back.mix_ph) > 8.5))} />
-          </div>
-          <div>
-            <label style={labelStyle}>Brix (0)</label>
-            <input type="number" step="0.1" value={back.mix_brix} onChange={e => updateBack('mix_brix', e.target.value)} placeholder="Brix" style={inputStyle()} />
-          </div>
-        </div>
       </SectionCard>
 
       <button onClick={handleFinish} style={{ width: '100%', padding: '16px', background: 'linear-gradient(135deg, #ff6b00, #ff8c00)', color: 'white', border: 'none', borderRadius: '15px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', boxShadow: '0 6px 15px rgba(255,107,0,0.3)', marginBottom: '20px' }}>

@@ -176,14 +176,14 @@ app.post('/api/cip-line2/back', (req, res) => {
 });
 
 app.post('/api/cip-line2/finish', (req, res) => {
-  const { sessionId, line, date, operatorName, mixShift, pump1, pump2, ph, brix } = req.body;
+  const { sessionId, line, date, operatorName, firstStart, lastEnd, pump1, pump2, ph, brix } = req.body;
   db.run(`UPDATE cip_line2_sessions SET status = 'completed' WHERE id = ?`, [sessionId],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
       sendToTelegram([
         `📋 <b>CIP ${escapeHtml(line || 'Line 2')}</b>`,
         `📅 วันที่: ${escapeHtml(date || '-')}  |  👤 ${escapeHtml(operatorName || '-')}`,
-        mixShift ? `🕐 กะ/เวลา: ${escapeHtml(mixShift)}` : null,
+        (firstStart || lastEnd) ? `🕐 กะ/เวลา: ${escapeHtml(firstStart || '-')} , ${escapeHtml(lastEnd || '-')}` : null,
         (pump1 || pump2) ? `💨 Pump 1: ${escapeHtml(pump1 || '-')} Bar  |  Pump 2: ${escapeHtml(pump2 || '-')} Bar` : null,
         (ph || brix) ? `🧪 pH: ${escapeHtml(ph || '-')}  |  🍬 Brix: ${escapeHtml(brix || '-')}` : null,
       ].filter(Boolean).join('\n'));
