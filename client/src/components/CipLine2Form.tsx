@@ -22,9 +22,6 @@ interface BackData {
   a2_shift: string; a2_ro: boolean; a2_oxonia: boolean; a2_time: boolean; a2_ph: string; a2_normal: boolean;
   mix_shift: string; mix_temp: boolean; mix_time: boolean; mix_pump1: string; mix_circ: boolean;
   mix_pump2: string; mix_spray: boolean; mix_feed: boolean; mix_ph: string; mix_brix: string;
-  hard_boil_shift: string; hard_boil_val: string;
-  hard_cool_shift: string; hard_cool_val: string;
-  hard_stor_shift: string; hard_stor_val: string;
 }
 
 const defaultRow = (): RowData => ({
@@ -39,9 +36,6 @@ const defaultBack = (): BackData => ({
   a2_shift: '', a2_ro: false, a2_oxonia: false, a2_time: false, a2_ph: '', a2_normal: true,
   mix_shift: '', mix_temp: false, mix_time: false, mix_pump1: '', mix_circ: false,
   mix_pump2: '', mix_spray: false, mix_feed: false, mix_ph: '', mix_brix: '',
-  hard_boil_shift: '', hard_boil_val: '',
-  hard_cool_shift: '', hard_cool_val: '',
-  hard_stor_shift: '', hard_stor_val: '',
 });
 
 interface Props {
@@ -149,7 +143,17 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     await fetch(`${apiUrl}/api/cip-line2/finish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId: sid }),
+      body: JSON.stringify({
+        sessionId: sid,
+        line,
+        date,
+        operatorName,
+        mixShift: back.mix_shift,
+        pump1: back.mix_pump1,
+        pump2: back.mix_pump2,
+        ph: back.mix_ph,
+        brix: back.mix_brix,
+      }),
     });
     alert('บันทึก CIP Line 2 สำเร็จ!');
     onStatusChange(false);
@@ -500,21 +504,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
             <input type="number" step="0.1" value={back.mix_brix} onChange={e => updateBack('mix_brix', e.target.value)} placeholder="Brix" style={inputStyle()} />
           </div>
         </div>
-      </SectionCard>
-
-      <SectionCard title="Hardness น้ำ RO (ต้องน้อยกว่า 50 mg/L)">
-        <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr', gap: '8px', marginBottom: '6px' }}>
-          <span style={{ fontSize: '0.75rem', color: '#888', fontWeight: 'bold', alignSelf: 'center' }}>จุด</span>
-          <span style={{ fontSize: '0.75rem', color: '#888' }}>กะ/เวลา</span>
-          <span style={{ fontSize: '0.75rem', color: '#888' }}>Hardness (mg/L)</span>
-        </div>
-        {([['hard_boil', 'ถังต้ม'], ['hard_cool', 'ถัง Cooling'], ['hard_stor', 'ถัง Storage']] as const).map(([key, label]) => (
-          <div key={key} style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#555' }}>{label}</span>
-            <input type="text" value={(back as any)[`${key}_shift`]} onChange={e => updateBack(`${key}_shift` as keyof BackData, e.target.value)} placeholder="กะ/เวลา" style={{ padding: '7px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '0.8rem' }} />
-            <input type="number" step="0.1" value={(back as any)[`${key}_val`]} onChange={e => updateBack(`${key}_val` as keyof BackData, e.target.value)} placeholder="mg/L" style={{ padding: '7px', borderRadius: '8px', border: `1px solid ${(back as any)[`${key}_val`] && parseFloat((back as any)[`${key}_val`]) > 50 ? '#d32f2f' : '#ddd'}`, fontSize: '0.8rem' }} />
-          </div>
-        ))}
       </SectionCard>
 
       <button onClick={handleFinish} style={{ width: '100%', padding: '16px', background: 'linear-gradient(135deg, #ff6b00, #ff8c00)', color: 'white', border: 'none', borderRadius: '15px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', boxShadow: '0 6px 15px rgba(255,107,0,0.3)', marginBottom: '20px' }}>
