@@ -422,19 +422,34 @@ app.post('/api/batches/finish', (req, res) => {
   const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
   db.run("UPDATE cip_batches SET end_time = ?, status = 'completed' WHERE id = ?", [now, batchId], function(err) {
     if (err) return res.status(500).json({ error: err.message });
-
-    const tStart = formatThaiTime(startTime);
-    const tEnd   = formatThaiTime(endTime);
-    const dur    = calcDuration(startTime, endTime);
-
-    sendToTelegram([
-      `✅ <b>CIP Batch จบแล้ว</b>`,
-      operatorName ? `👤 ผู้ดำเนินการ: ${escapeHtml(operatorName)}` : null,
-      (tStart || tEnd) ? `⏰ เริ่ม: ${tStart || '-'}  →  จบ: ${tEnd || '-'}` : null,
-      dur ? `⏱ เวลารวม: ${dur} นาที` : null,
-    ].filter(Boolean).join('\n'));
-
     res.json({ success: true, endTime: now });
+
+    // Query steps for Telegram summary (async, after responding)
+    db.all("SELECT * FROM cip_step_logs WHERE batch_id = ? ORDER BY step_number ASC", [batchId], (err2, steps) => {
+      const tStart = formatThaiTime(startTime);
+      const tEnd   = formatThaiTime(endTime);
+      const dur    = calcDuration(startTime, endTime);
+      const completed = steps ? steps.filter(s => s.end_time).length : 0;
+      const lastDone  = steps ? [...steps].reverse().find(s => s.end_time) : null;
+
+      let thaiDate = null;
+      try { thaiDate = new Date(startTime).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit', year: 'numeric' }); } catch {}
+
+      sendToTelegram([
+        `✅ <b>CIP ทดลอง — จบแล้ว</b>`,
+        `─────────────────────`,
+        thaiDate ? `📅 ${thaiDate}` : null,
+        operatorName ? `👤 ผู้ดำเนินการ: ${escapeHtml(operatorName)}` : null,
+        `─────────────────────`,
+        (tStart || tEnd) ? `⏰ เริ่ม: <b>${tStart || '-'}</b>  →  จบ: <b>${tEnd || '-'}</b>` : null,
+        dur ? `⏱ เวลารวม: <b>${dur} นาที</b>` : null,
+        `─────────────────────`,
+        completed ? `✅ ขั้นตอนเสร็จ: ${completed} ขั้นตอน` : null,
+        lastDone?.pressure ? `💨 Pressure: ${escapeHtml(String(lastDone.pressure))} Bar` : null,
+        lastDone?.brix     ? `🍬 Brix: ${escapeHtml(String(lastDone.brix))}` : null,
+        lastDone?.ph       ? `🧪 pH: ${escapeHtml(String(lastDone.ph))}` : null,
+      ].filter(Boolean).join('\n'));
+    });
   });
 });
 
