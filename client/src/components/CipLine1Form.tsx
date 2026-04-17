@@ -117,7 +117,7 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     setBack(nb); saveExtra('back', nb);
   };
   const updateBackField = (key: keyof BackData, field: keyof BackSectionData, value: string) => setBack(p => ({ ...p, [key]: { ...p[key], [field]: value } }));
-  const blurBack = (key: keyof BackData) => saveExtra('back', back);
+  const blurBack = (_key: keyof BackData) => saveExtra('back', back);
 
   const handleFinish = async () => {
     if (!window.confirm('ยืนยันจบงาน CIP Line 1?')) return;

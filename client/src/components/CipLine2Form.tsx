@@ -168,7 +168,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
   };
 
   // ── History ──────────────────────────────────────────────────────────────────
-  const fmtTime = (iso?: string) => { if (!iso) return '-'; try { return new Date(iso).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' }); } catch { return iso; } };
   const fmtDate = (iso?: string) => { if (!iso) return '-'; try { return new Date(iso).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit', year: '2-digit' }); } catch { return iso; } };
 
   const loadHistory = async () => {
