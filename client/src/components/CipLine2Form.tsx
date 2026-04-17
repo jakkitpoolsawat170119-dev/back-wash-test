@@ -50,6 +50,9 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
   const [rows, setRows] = useState<Record<number, RowData>>({});
   const [back, setBack] = useState<BackData>(defaultBack());
   const [currentNo, setCurrentNo] = useState(1);
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<any[]>([]);
+  const [expandedSessions, setExpandedSessions] = useState<Set<number>>(new Set());
 
   const getOrCreateSession = async () => {
     if (sessionId) return sessionId;
@@ -162,6 +165,24 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     alert('บันทึก CIP Line 2 สำเร็จ!');
     onStatusChange(false);
     onBackToMain();
+  };
+
+  // ── History ──────────────────────────────────────────────────────────────────
+  const fmtTime = (iso?: string) => { if (!iso) return '-'; try { return new Date(iso).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' }); } catch { return iso; } };
+  const fmtDate = (iso?: string) => { if (!iso) return '-'; try { return new Date(iso).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit', year: '2-digit' }); } catch { return iso; } };
+
+  const loadHistory = async () => {
+    try {
+      const res = await fetch(`${apiUrl}/api/cip-line2/sessions`);
+      const data = await res.json();
+      if (Array.isArray(data)) setHistory(data);
+    } catch (e) { console.error(e); }
+  };
+  const toggleSession = (id: number) => setExpandedSessions(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const deleteSession = async (id: number) => {
+    if (!window.confirm(`ลบ Session #${id}?`)) return;
+    await fetch(`${apiUrl}/api/cip-line2/delete-one`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: id }) });
+    setHistory(p => p.filter(s => s.id !== id));
   };
 
   // ── UI helpers ──────────────────────────────────────────────────────────────
@@ -517,6 +538,62 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
       </div>
 
       {tab === 'front' ? renderFront() : renderBack()}
+
+      {/* History button */}
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
+        <button onClick={() => { loadHistory(); setShowHistory(true); }} style={{ background: 'linear-gradient(135deg, #ff6b00, #ff8c00)', color: 'white', border: 'none', borderRadius: '15px', padding: '16px 30px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', boxShadow: '0 6px 15px rgba(255,107,0,0.2)', width: '100%', maxWidth: '400px' }}>
+          📊 ดูประวัติ CIP Line 2&3 ({history.length} ครั้ง)
+        </button>
+      </div>
+
+      {/* History modal */}
+      {showHistory && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(10px)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '15px' }}>
+          <div style={{ backgroundColor: 'white', width: '100%', maxWidth: '700px', maxHeight: '90vh', borderRadius: '25px', padding: '25px', overflowY: 'auto', boxShadow: '0 20px 50px rgba(0,0,0,0.15)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '2px solid #eee', paddingBottom: '15px' }}>
+              <h3 style={{ margin: 0, color: '#ff6b00' }}>📊 ประวัติ CIP Line 2&3</h3>
+              <button onClick={() => setShowHistory(false)} style={{ background: '#f5f5f5', color: '#666', border: '1px solid #ddd', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer' }}>✕</button>
+            </div>
+            {history.length === 0 && <div style={{ textAlign: 'center', color: '#999', padding: '40px' }}>ยังไม่มีประวัติ</div>}
+            {history.map((s: any) => {
+              const doneRows = (s.rows || []).filter((r: any) => r.done).length;
+              return (
+                <div key={s.id} style={{ border: '1px solid #eee', borderRadius: '14px', marginBottom: '12px', overflow: 'hidden' }}>
+                  <div onClick={() => toggleSession(s.id)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: s.status === 'completed' ? '#fff8f0' : '#fff3e0', cursor: 'pointer' }}>
+                    <div>
+                      <div style={{ fontWeight: 'bold', fontSize: '0.95rem', color: '#333' }}>{s.status === 'completed' ? '✅' : '🔄'} {s.line || 'Line 2'} — {s.sku || '-'} {s.flavor || ''}</div>
+                      <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '2px' }}>👤 {s.operator_name} | {fmtDate(s.created_at)} | {doneRows}/{s.rows?.length || 0} รอบ</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <button onClick={e => { e.stopPropagation(); deleteSession(s.id); }} style={{ background: '#ffebee', color: '#d32f2f', border: '1px solid #ffcdd2', borderRadius: '8px', padding: '4px 10px', fontSize: '0.75rem', cursor: 'pointer' }}>🗑️</button>
+                      <span style={{ color: '#999' }}>{expandedSessions.has(s.id) ? '▲' : '▼'}</span>
+                    </div>
+                  </div>
+                  {expandedSessions.has(s.id) && (
+                    <div style={{ padding: '12px 16px', borderTop: '1px solid #eee' }}>
+                      {(s.rows || []).map((r: any, i: number) => (
+                        <div key={i} style={{ padding: '7px 0', borderBottom: i < s.rows.length - 1 ? '1px solid #f5f5f5' : 'none' }}>
+                          <div style={{ fontWeight: '600', fontSize: '0.85rem', color: r.done ? '#ff6b00' : '#888' }}>
+                            {r.done ? '✅' : '⬜'} NO.{r.rowNo}
+                          </div>
+                          <div style={{ fontSize: '0.78rem', color: '#666', marginTop: '2px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                            {r.startTime && <span>⏱ {r.startTime} → {r.endTime}{r.duration ? ` (${r.duration} นาที)` : ''}</span>}
+                            {r.pump1Pressure && <span>💨 Pump1: {r.pump1Pressure}</span>}
+                            {r.pump2Pressure && <span>💨 Pump2: {r.pump2Pressure}</span>}
+                            {r.ph && <span>🧪 pH: {r.ph}</span>}
+                            {r.brix && <span>🍬 Brix: {r.brix}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <button onClick={() => setShowHistory(false)} style={{ width: '100%', padding: '12px', background: '#424242', color: 'white', border: 'none', borderRadius: '10px', marginTop: '10px', cursor: 'pointer' }}>ปิดหน้าต่างนี้</button>
+          </div>
+        </div>
+      )}
 
       <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'white', padding: '12px 15px', borderTop: '2px solid #ff6b00', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 100 }}>
         <button onClick={onBackToMain} style={{ background: '#f5f5f5', border: '1px solid #ddd', borderRadius: '10px', padding: '10px 16px', fontSize: '0.85rem', cursor: 'pointer', color: '#666', fontWeight: 'bold' }}>🔙 เมนูหลัก</button>

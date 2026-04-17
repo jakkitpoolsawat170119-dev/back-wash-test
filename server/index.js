@@ -208,27 +208,29 @@ app.post('/api/cip-line1/start', (req, res) => {
 });
 
 app.post('/api/cip-line1/row', (req, res) => {
-  const { sessionId, rowNo, data } = req.body;
+  const { sessionId, rowNo, data, sessionInfo } = req.body;
+
+  if (data.endTime) {
+    const info = sessionInfo || {};
+    const tStart = formatThaiTime(data.startTime);
+    const tEnd   = formatThaiTime(data.endTime);
+    const dur    = calcDuration(data.startTime, data.endTime);
+    sendToTelegram([
+      `📋 <b>CIP Line 1 — รอบที่ ${rowNo} เสร็จสิ้น</b>`,
+      `📦 SKU: ${escapeHtml(info.sku || '-')} | 📅 ${escapeHtml(info.date || '-')}`,
+      `👤 ${escapeHtml(info.operatorName || '-')}`,
+      (tStart || tEnd) ? `⏱ เริ่ม: ${tStart || '-'}  →  จบ: ${tEnd || '-'}` : null,
+      dur ? `⏱ รวม: ${dur} นาที` : null,
+      data.ph   ? `🧪 pH: ${escapeHtml(String(data.ph))}` : null,
+      data.brix ? `🍬 Brix: ${escapeHtml(String(data.brix))}` : null,
+    ].filter(Boolean).join('\n'));
+  }
+
   db.run(`INSERT INTO cip_line1_rows (session_id, row_no, data) VALUES (?, ?, ?)
     ON CONFLICT(session_id, row_no) DO UPDATE SET data = excluded.data`,
     [sessionId, rowNo, JSON.stringify(data)],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
-
-      if (data.done) {
-        db.get(`SELECT * FROM cip_line1_sessions WHERE id = ?`, [sessionId], (err2, session) => {
-          if (!err2 && session) {
-            sendToTelegram([
-              `📋 <b>CIP Line 1 — รอบที่ ${rowNo} เสร็จสิ้น</b>`,
-              `SKU: ${session.sku || '-'} | 📅 ${session.date}`,
-              `👤 ${session.operator_name}`,
-              data.ph   ? `🧪 pH: ${data.ph}` : null,
-              data.brix ? `🍬 Brix: ${data.brix}` : null,
-            ].filter(Boolean).join('\n'));
-          }
-        });
-      }
-
       res.json({ success: true });
     }
   );
@@ -247,13 +249,87 @@ app.post('/api/cip-line1/extra', (req, res) => {
 });
 
 app.post('/api/cip-line1/finish', (req, res) => {
+  const { sessionId, operatorName, date, sku, startTime, endTime, totalDuration } = req.body;
+  db.run(`UPDATE cip_line1_sessions SET status = 'completed' WHERE id = ?`, [sessionId], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const tStart = formatThaiTime(startTime);
+    const tEnd   = formatThaiTime(endTime);
+    const dur    = calcDuration(startTime, endTime);
+    let thaiDate = null;
+    try { thaiDate = new Date(startTime || endTime).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit', year: 'numeric' }); } catch {}
+
+    sendToTelegram([
+      `✅ <b>CIP Line 1 — จบแล้ว</b>`,
+      `─────────────────────`,
+      (thaiDate || date) ? `📅 ${thaiDate || escapeHtml(date)}` : null,
+      `👤 ผู้ดำเนินการ: ${escapeHtml(operatorName || '-')}`,
+      sku ? `📦 SKU: ${escapeHtml(sku)}` : null,
+      `─────────────────────`,
+      (tStart || tEnd) ? `⏰ เริ่ม: <b>${tStart || '-'}</b>  →  จบ: <b>${tEnd || '-'}</b>` : null,
+      (dur || totalDuration) ? `⏱ เวลารวม: <b>${dur || totalDuration} นาที</b>` : null,
+    ].filter(Boolean).join('\n'));
+
+    res.json({ success: true });
+  });
+});
+
+app.get('/api/cip-line1/sessions', (req, res) => {
+  db.all('SELECT * FROM cip_line1_sessions ORDER BY id DESC LIMIT 30', [], (err, sessions) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!sessions.length) return res.json([]);
+    const ids = sessions.map(s => s.id);
+    db.all(`SELECT session_id, row_no, data FROM cip_line1_rows WHERE session_id IN (${ids.map(() => '?').join(',')}) ORDER BY row_no`, ids, (err2, rows) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      const bySession = {};
+      (rows || []).forEach(r => {
+        if (!bySession[r.session_id]) bySession[r.session_id] = [];
+        try { bySession[r.session_id].push({ rowNo: r.row_no, ...JSON.parse(r.data) }); } catch {}
+      });
+      res.json(sessions.map(s => ({ ...s, rows: bySession[s.id] || [] })));
+    });
+  });
+});
+
+app.post('/api/cip-line1/delete-one', (req, res) => {
   const { sessionId } = req.body;
-  db.run(`UPDATE cip_line1_sessions SET status = 'completed' WHERE id = ?`, [sessionId],
-    function(err) {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ success: true });
-    }
-  );
+  db.run('DELETE FROM cip_line1_rows WHERE session_id = ?', [sessionId], () => {
+    db.run('DELETE FROM cip_line1_extra WHERE session_id = ?', [sessionId], () => {
+      db.run('DELETE FROM cip_line1_sessions WHERE id = ?', [sessionId], (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ success: true });
+      });
+    });
+  });
+});
+
+app.get('/api/cip-line2/sessions', (req, res) => {
+  db.all('SELECT * FROM cip_line2_sessions ORDER BY id DESC LIMIT 30', [], (err, sessions) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!sessions.length) return res.json([]);
+    const ids = sessions.map(s => s.id);
+    db.all(`SELECT session_id, row_no, data FROM cip_line2_rows WHERE session_id IN (${ids.map(() => '?').join(',')}) ORDER BY row_no`, ids, (err2, rows) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      const bySession = {};
+      (rows || []).forEach(r => {
+        if (!bySession[r.session_id]) bySession[r.session_id] = [];
+        try { bySession[r.session_id].push({ rowNo: r.row_no, ...JSON.parse(r.data) }); } catch {}
+      });
+      res.json(sessions.map(s => ({ ...s, rows: bySession[s.id] || [] })));
+    });
+  });
+});
+
+app.post('/api/cip-line2/delete-one', (req, res) => {
+  const { sessionId } = req.body;
+  db.run('DELETE FROM cip_line2_rows WHERE session_id = ?', [sessionId], () => {
+    db.run('DELETE FROM cip_line2_back WHERE session_id = ?', [sessionId], () => {
+      db.run('DELETE FROM cip_line2_sessions WHERE id = ?', [sessionId], (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ success: true });
+      });
+    });
+  });
 });
 
 const escapeHtml = (str) => {
