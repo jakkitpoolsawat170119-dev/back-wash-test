@@ -3,23 +3,23 @@ import React, { useState } from 'react';
 const apiUrl = "https://back-wash-test.onrender.com";
 
 interface MainRowData {
-  batch: string; rounds: string; ph: string; brix: string;
+  ph: string; brix: string;
   startTime: string; endTime: string; duration: number; done: boolean;
 }
-interface RinseData {
-  rounds: string; ph: string; brix: string;
+interface BackRinseData {
+  shift: string; rounds: string; ph: string; brix: string;
   startTime: string; endTime: string; duration: number;
 }
-interface BackSectionData {
-  ph: string; brix: string;
+interface BackMixingData {
+  shift: string; ph: string; normal: boolean;
   startTime: string; endTime: string; duration: number;
 }
-interface BackData { lin134: BackSectionData; ml300: BackSectionData; lin2: BackSectionData; }
+interface BackData { rinse: BackRinseData; mixing: BackMixingData; }
 
-const defaultMainRow = (): MainRowData => ({ batch: '', rounds: '', ph: '', brix: '', startTime: '', endTime: '', duration: 0, done: false });
-const defaultRinse = (): RinseData => ({ rounds: '', ph: '', brix: '', startTime: '', endTime: '', duration: 0 });
-const defaultBackSec = (): BackSectionData => ({ ph: '', brix: '', startTime: '', endTime: '', duration: 0 });
-const defaultBack = (): BackData => ({ lin134: defaultBackSec(), ml300: defaultBackSec(), lin2: defaultBackSec() });
+const defaultMainRow = (): MainRowData => ({ ph: '', brix: '', startTime: '', endTime: '', duration: 0, done: false });
+const defaultRinse = (): BackRinseData => ({ shift: '', rounds: '', ph: '', brix: '', startTime: '', endTime: '', duration: 0 });
+const defaultMixing = (): BackMixingData => ({ shift: '', ph: '', normal: true, startTime: '', endTime: '', duration: 0 });
+const defaultBack = (): BackData => ({ rinse: defaultRinse(), mixing: defaultMixing() });
 
 interface Props { operatorName: string; onBackToMain: () => void; onStatusChange: (active: boolean) => void; }
 
@@ -30,7 +30,6 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [sku, setSku] = useState('');
   const [rows, setRows] = useState<Record<number, MainRowData>>({});
-  const [rinse, setRinse] = useState<RinseData>(defaultRinse());
   const [back, setBack] = useState<BackData>(defaultBack());
   const [expanded, setExpanded] = useState<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -80,44 +79,48 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     const nr = { ...row, endTime: et, duration: dur };
     setRows(p => ({ ...p, [no]: nr })); saveRow(no, nr);
   };
-  const updateRowField = (no: number, field: keyof MainRowData, value: string | boolean) => {
+  const updateRowField = (no: number, field: keyof MainRowData, value: string) => {
     setRows(p => ({ ...p, [no]: { ...(p[no] || defaultMainRow()), [field]: value } }));
   };
   const blurRow = (no: number) => { const r = rows[no]; if (r) saveRow(no, r); };
   const markRowDone = (no: number, done: boolean) => {
-    const nr = { ...(rows[no] || defaultMainRow()), done };
+    const row = rows[no] || defaultMainRow();
+    // auto-set endTime when marking done (triggers Telegram on server)
+    const endTime = done && !row.endTime ? new Date().toISOString() : row.endTime;
+    const duration = done && !row.endTime && row.startTime ? calcDur(row.startTime, endTime) || 0 : row.duration;
+    const nr = { ...row, done, endTime, duration };
     setRows(p => ({ ...p, [no]: nr })); saveRow(no, nr); if (done) setExpanded(null);
   };
 
-  // ── Rinse ──
+  // ── Back: Rinse ──
   const handleRinseStart = () => {
     const st = new Date().toISOString(); markStart(st);
-    const nr = { ...rinse, startTime: st, endTime: '', duration: 0 };
-    setRinse(nr); saveExtra('rinse', nr);
+    const nb = { ...back, rinse: { ...back.rinse, startTime: st, endTime: '', duration: 0 } };
+    setBack(nb); saveExtra('back', nb);
   };
   const handleRinseStop = () => {
-    if (!rinse.startTime) return;
+    if (!back.rinse.startTime) return;
     const et = new Date().toISOString();
-    const nr = { ...rinse, endTime: et, duration: calcDur(rinse.startTime, et) || 0 };
-    setRinse(nr); saveExtra('rinse', nr);
+    const nb = { ...back, rinse: { ...back.rinse, endTime: et, duration: calcDur(back.rinse.startTime, et) || 0 } };
+    setBack(nb); saveExtra('back', nb);
   };
-  const updateRinseField = (field: keyof RinseData, value: string) => setRinse(p => ({ ...p, [field]: value }));
-  const blurRinse = () => saveExtra('rinse', rinse);
+  const updateRinseField = (field: keyof BackRinseData, value: string) => setBack(p => ({ ...p, rinse: { ...p.rinse, [field]: value } }));
+  const blurRinse = () => saveExtra('back', back);
 
-  // ── Back sections ──
-  const handleBackStart = (key: keyof BackData) => {
+  // ── Back: Mixing ──
+  const handleMixingStart = () => {
     const st = new Date().toISOString(); markStart(st);
-    const nb = { ...back, [key]: { ...back[key], startTime: st, endTime: '', duration: 0 } };
+    const nb = { ...back, mixing: { ...back.mixing, startTime: st, endTime: '', duration: 0 } };
     setBack(nb); saveExtra('back', nb);
   };
-  const handleBackStop = (key: keyof BackData) => {
-    const sec = back[key]; if (!sec.startTime) return;
+  const handleMixingStop = () => {
+    if (!back.mixing.startTime) return;
     const et = new Date().toISOString();
-    const nb = { ...back, [key]: { ...sec, endTime: et, duration: calcDur(sec.startTime, et) || 0 } };
+    const nb = { ...back, mixing: { ...back.mixing, endTime: et, duration: calcDur(back.mixing.startTime, et) || 0 } };
     setBack(nb); saveExtra('back', nb);
   };
-  const updateBackField = (key: keyof BackData, field: keyof BackSectionData, value: string) => setBack(p => ({ ...p, [key]: { ...p[key], [field]: value } }));
-  const blurBack = (_key: keyof BackData) => saveExtra('back', back);
+  const updateMixingField = (field: keyof BackMixingData, value: string | boolean) => setBack(p => ({ ...p, mixing: { ...p.mixing, [field]: value } }));
+  const blurMixing = () => saveExtra('back', back);
 
   const handleFinish = async () => {
     if (!window.confirm('ยืนยันจบงาน CIP Line 1?')) return;
@@ -125,8 +128,8 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     const endTime = new Date().toISOString();
     const totalDuration = [
       ...Object.values(rows).map(r => r.duration || 0),
-      rinse.duration || 0,
-      ...Object.values(back).map(b => b.duration || 0),
+      back.rinse.duration || 0,
+      back.mixing.duration || 0,
     ].reduce((s, d) => s + d, 0);
     await fetch(`${apiUrl}/api/cip-line1/finish`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -154,12 +157,17 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
   // ── UI helpers ──
   const inputStyle = (warn?: boolean): React.CSSProperties => ({ width: '100%', padding: '8px', borderRadius: '8px', border: `1px solid ${warn ? '#d32f2f' : '#ddd'}`, marginTop: '4px', fontSize: '0.9rem', boxSizing: 'border-box' });
   const labelStyle: React.CSSProperties = { fontSize: '0.75rem', color: '#888', display: 'block', marginBottom: '2px' };
-  const SectionCard = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <div style={{ background: 'white', borderRadius: '15px', padding: '15px', marginBottom: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-      <h4 style={{ margin: '0 0 12px 0', color: accent, borderBottom: `2px solid ${accent}`, paddingBottom: '8px', fontSize: '0.95rem' }}>{title}</h4>
-      {children}
-    </div>
-  );
+
+  const SectionCard = ({ title, color, children }: { title: string; color?: string; children: React.ReactNode }) => {
+    const c = color || accent;
+    return (
+      <div style={{ background: 'white', borderRadius: '15px', padding: '15px', marginBottom: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+        <h4 style={{ margin: '0 0 12px 0', color: c, borderBottom: `2px solid ${c}`, paddingBottom: '8px', fontSize: '0.95rem' }}>{title}</h4>
+        {children}
+      </div>
+    );
+  };
+
   const OptionPicker = ({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: string[] }) => (
     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
       {options.map(opt => (
@@ -216,7 +224,7 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
             <div onClick={() => setExpanded(isExp ? null : no)} style={{ padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', background: row.done ? '#e3f2fd' : 'white' }}>
               <div>
                 <span style={{ fontWeight: 'bold', color: row.done ? accent : '#333', fontSize: '0.95rem' }}>
-                  {row.done ? '✅ ' : '⬜ '}NO.{no}{row.batch ? ` — ${row.batch}` : ''}
+                  {row.done ? '✅ ' : '⬜ '}NO.{no}
                 </span>
                 {row.startTime && (
                   <div style={{ fontSize: '0.75rem', color: '#888', marginTop: '2px' }}>
@@ -231,8 +239,6 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
               <div style={{ padding: '15px', borderTop: '1px solid #f5f5f5' }}>
                 <StartStopBar startTime={row.startTime} endTime={row.endTime} onStart={() => handleRowStart(no)} onStop={() => handleRowStop(no)} />
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
-                  <div><label style={labelStyle}>กระวล (Batch)</label><input type="text" value={row.batch} onChange={e => updateRowField(no, 'batch', e.target.value)} onBlur={() => blurRow(no)} placeholder="Batch" style={inputStyle()} /></div>
-                  <div><label style={labelStyle}>จำนวนรอบ</label><input type="number" value={row.rounds} onChange={e => updateRowField(no, 'rounds', e.target.value)} onBlur={() => blurRow(no)} placeholder="รอบ" style={inputStyle()} /></div>
                   <div>
                     <label style={labelStyle}>pH (6.5–8.5)</label>
                     <input type="number" step="0.1" value={row.ph} onChange={e => updateRowField(no, 'ph', e.target.value)} onBlur={() => blurRow(no)} placeholder="pH" style={inputStyle(phWarn(row.ph))} />
@@ -248,50 +254,43 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
           </div>
         );
       })}
-
-      <div style={{ background: '#fff3e0', borderRadius: '10px', padding: '8px 12px', margin: '15px 0 10px 0' }}>
-        <span style={{ fontWeight: 'bold', color: '#e65100', fontSize: '0.9rem' }}>ล้างหลังการผลิต (60°C)</span>
-        <div style={{ fontSize: '0.75rem', color: '#666', marginTop: '2px' }}>หากรายที่ 4 ค่าดีแล้ว ให้ต้มน้ำต่อที่ 60°C</div>
-      </div>
-      <div style={{ background: 'white', borderRadius: '15px', padding: '15px', marginBottom: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #ffe0b2' }}>
-        <StartStopBar startTime={rinse.startTime} endTime={rinse.endTime} onStart={handleRinseStart} onStop={handleRinseStop} />
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-          <div><label style={labelStyle}>จำนวนรอบ</label><input type="number" value={rinse.rounds} onChange={e => updateRinseField('rounds', e.target.value)} onBlur={blurRinse} placeholder="รอบ" style={inputStyle()} /></div>
-          <div>
-            <label style={labelStyle}>pH (6.5–8.5)</label>
-            <input type="number" step="0.1" value={rinse.ph} onChange={e => updateRinseField('ph', e.target.value)} onBlur={blurRinse} placeholder="pH" style={inputStyle(phWarn(rinse.ph))} />
-          </div>
-          <div><label style={labelStyle}>Brix (0)</label><input type="number" step="0.1" value={rinse.brix} onChange={e => updateRinseField('brix', e.target.value)} onBlur={blurRinse} placeholder="Brix" style={inputStyle()} /></div>
-        </div>
-      </div>
     </div>
   );
 
   // ── Back Page ──
-  const backSections: { key: keyof BackData; title: string }[] = [
-    { key: 'lin134', title: 'CIP เครื่องบรรจุ Linear 1 / 3 / 4 (RO 120L / Oxonia 240ml)' },
-    { key: 'ml300',  title: 'CIP เครื่องบรรจุ 300 ml (RO 30L / Oxonia 60ml)' },
-    { key: 'lin2',   title: 'CIP เครื่องบรรจุ Linear 2 (RO 80L / Oxonia 160ml)' },
-  ];
   const renderBack = () => (
     <div>
-      {backSections.map(({ key, title }) => {
-        const sec = back[key];
-        return (
-          <div key={key} style={{ background: 'white', borderRadius: '15px', padding: '15px', marginBottom: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-            <h4 style={{ margin: '0 0 12px 0', color: accent, borderBottom: `2px solid ${accent}`, paddingBottom: '8px', fontSize: '0.9rem' }}>{title}</h4>
-            <StartStopBar startTime={sec.startTime} endTime={sec.endTime} onStart={() => handleBackStart(key)} onStop={() => handleBackStop(key)} />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div>
-                <label style={labelStyle}>pH (6.5–8.5)</label>
-                <input type="number" step="0.1" value={sec.ph} onChange={e => updateBackField(key, 'ph', e.target.value)} onBlur={() => blurBack(key)} placeholder="pH" style={inputStyle(phWarn(sec.ph))} />
-                {phWarn(sec.ph) && <div style={{ color: '#d32f2f', fontSize: '0.7rem' }}>⚠️ pH ผิดปกติ</div>}
-              </div>
-              <div><label style={labelStyle}>Brix (0)</label><input type="number" step="0.1" value={sec.brix} onChange={e => updateBackField(key, 'brix', e.target.value)} onBlur={() => blurBack(key)} placeholder="Brix" style={inputStyle()} /></div>
-            </div>
+      {/* ล้างหลังการผลิต 60°C */}
+      <SectionCard title="ล้างหลังการผลิต (60°C)" color="#e65100">
+        <StartStopBar startTime={back.rinse.startTime} endTime={back.rinse.endTime} onStart={handleRinseStart} onStop={handleRinseStop} />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+          <div><label style={labelStyle}>กะ / เวลา</label><input type="text" value={back.rinse.shift} onChange={e => updateRinseField('shift', e.target.value)} onBlur={blurRinse} placeholder="กะ/เวลา" style={inputStyle()} /></div>
+          <div><label style={labelStyle}>จำนวนรอบ</label><input type="number" value={back.rinse.rounds} onChange={e => updateRinseField('rounds', e.target.value)} onBlur={blurRinse} placeholder="รอบ" style={inputStyle()} /></div>
+          <div>
+            <label style={labelStyle}>pH (6.5–8.5)</label>
+            <input type="number" step="0.1" value={back.rinse.ph} onChange={e => updateRinseField('ph', e.target.value)} onBlur={blurRinse} placeholder="pH" style={inputStyle(phWarn(back.rinse.ph))} />
+            {phWarn(back.rinse.ph) && <div style={{ color: '#d32f2f', fontSize: '0.7rem' }}>⚠️ pH ผิดปกติ</div>}
           </div>
-        );
-      })}
+          <div><label style={labelStyle}>Brix (0)</label><input type="number" step="0.1" value={back.rinse.brix} onChange={e => updateRinseField('brix', e.target.value)} onBlur={blurRinse} placeholder="Brix" style={inputStyle()} /></div>
+        </div>
+      </SectionCard>
+
+      {/* ถัง Mixing */}
+      <SectionCard title="CIP ถัง Mixing (น้ำ RO 500L / Oxonia 1000ml)" color="#6a1b9a">
+        <StartStopBar startTime={back.mixing.startTime} endTime={back.mixing.endTime} onStart={handleMixingStart} onStop={handleMixingStop} />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
+          <div><label style={labelStyle}>กะ / เวลา</label><input type="text" value={back.mixing.shift} onChange={e => updateMixingField('shift', e.target.value)} onBlur={blurMixing} placeholder="กะ/เวลา" style={inputStyle()} /></div>
+          <div>
+            <label style={labelStyle}>pH</label>
+            <input type="number" step="0.1" value={back.mixing.ph} onChange={e => updateMixingField('ph', e.target.value)} onBlur={blurMixing} placeholder="pH" style={inputStyle(phWarn(back.mixing.ph))} />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={() => { updateMixingField('normal', true); blurMixing(); }} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: '2px solid', borderColor: back.mixing.normal ? '#4caf50' : '#ddd', background: back.mixing.normal ? '#e8f5e9' : 'white', fontWeight: 'bold', color: back.mixing.normal ? '#2e7d32' : '#666', cursor: 'pointer' }}>✓ ตรวจปกติ</button>
+          <button onClick={() => { updateMixingField('normal', false); blurMixing(); }} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: '2px solid', borderColor: !back.mixing.normal ? '#d32f2f' : '#ddd', background: !back.mixing.normal ? '#ffebee' : 'white', fontWeight: 'bold', color: !back.mixing.normal ? '#d32f2f' : '#666', cursor: 'pointer' }}>✗ ไม่ปกติ</button>
+        </div>
+      </SectionCard>
+
       <button onClick={handleFinish} style={{ width: '100%', padding: '16px', background: `linear-gradient(135deg, ${accent}, #0d47a1)`, color: 'white', border: 'none', borderRadius: '15px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', boxShadow: '0 6px 15px rgba(21,101,192,0.3)', marginBottom: '20px' }}>
         🏁 จบงาน CIP Line 1
       </button>
@@ -301,8 +300,8 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
   const doneCount = Object.values(rows).filter(r => r.done).length;
   const totalDur = [
     ...Object.values(rows).map(r => r.duration || 0),
-    rinse.duration || 0,
-    ...Object.values(back).map(b => b.duration || 0),
+    back.rinse.duration || 0,
+    back.mixing.duration || 0,
   ].reduce((s, d) => s + d, 0);
 
   return (
@@ -317,7 +316,7 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
           หน้าแรก ({doneCount}/7)
         </button>
         <button onClick={() => setTab('back')} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: 'none', fontWeight: 'bold', cursor: 'pointer', background: tab === 'back' ? 'white' : 'transparent', color: tab === 'back' ? accent : '#888', boxShadow: tab === 'back' ? '0 2px 6px rgba(0,0,0,0.1)' : 'none' }}>
-          หน้าหลัง (เครื่องบรรจุ)
+          หน้าหลัง
         </button>
       </div>
 
@@ -330,14 +329,12 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
         </div>
       )}
 
-      {/* History button */}
       <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
         <button onClick={() => { loadHistory(); setShowHistory(true); }} style={{ background: `linear-gradient(135deg, ${accent}, #0d47a1)`, color: 'white', border: 'none', borderRadius: '15px', padding: '16px 30px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', boxShadow: '0 6px 15px rgba(21,101,192,0.2)', width: '100%', maxWidth: '400px' }}>
           📊 ดูประวัติ CIP Line 1 ({history.length} ครั้ง)
         </button>
       </div>
 
-      {/* History modal */}
       {showHistory && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(10px)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '15px' }}>
           <div style={{ backgroundColor: 'white', width: '100%', maxWidth: '700px', maxHeight: '90vh', borderRadius: '25px', padding: '25px', overflowY: 'auto', boxShadow: '0 20px 50px rgba(0,0,0,0.15)' }}>
@@ -364,14 +361,13 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
                     <div style={{ padding: '12px 16px', borderTop: '1px solid #eee' }}>
                       {(s.rows || []).map((r: any, i: number) => (
                         <div key={i} style={{ padding: '7px 0', borderBottom: i < s.rows.length - 1 ? '1px solid #f5f5f5' : 'none' }}>
-                          <div style={{ fontWeight: '600', fontSize: '0.85rem', color: r.done ? '#1565c0' : '#e65100' }}>
-                            {r.done ? '✅' : '⬜'} NO.{r.rowNo}{r.batch ? ` — ${r.batch}` : ''}
+                          <div style={{ fontWeight: '600', fontSize: '0.85rem', color: r.done ? accent : '#e65100' }}>
+                            {r.done ? '✅' : '⬜'} NO.{r.rowNo}
                           </div>
                           <div style={{ fontSize: '0.78rem', color: '#666', marginTop: '2px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                             {r.startTime && <span>⏱ {fmtTime(r.startTime)} → {fmtTime(r.endTime)}{r.duration ? ` (${r.duration} นาที)` : ''}</span>}
                             {r.ph && <span>🧪 pH: {r.ph}</span>}
                             {r.brix && <span>🍬 Brix: {r.brix}</span>}
-                            {r.rounds && <span>🔄 {r.rounds} รอบ</span>}
                           </div>
                         </div>
                       ))}
