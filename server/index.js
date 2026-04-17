@@ -136,7 +136,7 @@ app.post('/api/cip-line2/row', (req, res) => {
   // ส่ง Telegram ทันทีเมื่อ Stop (มี endTime) โดยใช้ sessionInfo จาก client
   if (data.endTime) {
     const info = sessionInfo || {};
-    sendToTelegram([
+    const msg = [
       `📋 <b>CIP ${escapeHtml(info.line || 'Line 2')} — Batch เสร็จสิ้น</b>`,
       `NO.${rowNo} | ${escapeHtml(info.sku || '')} ${escapeHtml(info.flavor || '')}`,
       `👤 ${escapeHtml(info.operatorName || '')} | 📅 ${escapeHtml(info.date || '')}`,
@@ -147,7 +147,10 @@ app.post('/api/cip-line2/row', (req, res) => {
       data.pump2Pressure ? `💨 Pump2: ${escapeHtml(data.pump2Pressure)} Bar` : null,
       data.ph            ? `🧪 pH: ${escapeHtml(data.ph)}` : null,
       data.brix          ? `🍬 Brix: ${escapeHtml(data.brix)}` : null,
-    ].filter(Boolean).join('\n'));
+    ].filter(Boolean).join('\n');
+    const img = data.imagePath ? dataUrlToBuffer(data.imagePath) : null;
+    if (img) sendPhotoBufferToTelegram(img.buffer, img.mimeType, msg);
+    else sendToTelegram(msg);
   }
 
   db.run(`INSERT INTO cip_line2_rows (session_id, row_no, data) VALUES (?, ?, ?)
@@ -215,7 +218,7 @@ app.post('/api/cip-line1/row', (req, res) => {
     const tStart = formatThaiTime(data.startTime);
     const tEnd   = formatThaiTime(data.endTime);
     const dur    = calcDuration(data.startTime, data.endTime);
-    sendToTelegram([
+    const msg = [
       `📋 <b>CIP Line 1 — รอบที่ ${rowNo} เสร็จสิ้น</b>`,
       `📦 SKU: ${escapeHtml(info.sku || '-')} | 📅 ${escapeHtml(info.date || '-')}`,
       `👤 ${escapeHtml(info.operatorName || '-')}`,
@@ -223,7 +226,10 @@ app.post('/api/cip-line1/row', (req, res) => {
       dur ? `⏱ รวม: ${dur} นาที` : null,
       data.ph   ? `🧪 pH: ${escapeHtml(String(data.ph))}` : null,
       data.brix ? `🍬 Brix: ${escapeHtml(String(data.brix))}` : null,
-    ].filter(Boolean).join('\n'));
+    ].filter(Boolean).join('\n');
+    const img = data.imagePath ? dataUrlToBuffer(data.imagePath) : null;
+    if (img) sendPhotoBufferToTelegram(img.buffer, img.mimeType, msg);
+    else sendToTelegram(msg);
   }
 
   db.run(`INSERT INTO cip_line1_rows (session_id, row_no, data) VALUES (?, ?, ?)
@@ -368,19 +374,36 @@ const sendToTelegram = async (message) => {
   }
 };
 
-const sendPhotoToTelegram = async (imageUrl, caption) => {
+const dataUrlToBuffer = (dataUrl) => {
+  if (!dataUrl || !dataUrl.startsWith('data:')) return null;
+  const [header, b64] = dataUrl.split(',');
+  if (!b64) return null;
+  const mime = header.replace('data:', '').replace(';base64', '');
+  return { buffer: Buffer.from(b64, 'base64'), mimeType: mime };
+};
+
+const sendPhotoBufferToTelegram = async (buffer, mimeType, caption) => {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) return;
   try {
-    await axios.post(`https://api.telegram.org/bot${token}/sendPhoto`, {
-      chat_id: chatId,
-      photo: imageUrl,
-      caption: caption,
-      parse_mode: 'HTML',
+    const boundary = '----TGBoundary' + Date.now();
+    const CRLF = '\r\n';
+    const ext = mimeType === 'image/png' ? 'png' : 'jpg';
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="chat_id"${CRLF}${CRLF}${chatId}${CRLF}`),
+      Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="parse_mode"${CRLF}${CRLF}HTML${CRLF}`),
+      Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="caption"${CRLF}${CRLF}${caption}${CRLF}`),
+      Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="photo"; filename="image.${ext}"${CRLF}Content-Type: ${mimeType}${CRLF}${CRLF}`),
+      buffer,
+      Buffer.from(`${CRLF}--${boundary}--${CRLF}`),
+    ]);
+    await axios.post(`https://api.telegram.org/bot${token}/sendPhoto`, body, {
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': body.length },
     });
+    console.log('[Telegram] Photo sent OK');
   } catch (error) {
-    console.error('Telegram error:', error.message);
+    console.error('[Telegram] Photo error:', error.response?.data || error.message);
   }
 };
 
@@ -447,7 +470,11 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
     ].filter(Boolean).join('\n');
 
     console.log(`[steps/log] Sending Telegram for step ${stepNumber}`);
-    sendToTelegram(msg);
+    if (req.file) {
+      sendPhotoBufferToTelegram(req.file.buffer, req.file.mimetype, msg);
+    } else {
+      sendToTelegram(msg);
+    }
   }
 
   const query = `
