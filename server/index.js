@@ -484,13 +484,26 @@ app.get('/api/batches', (req, res) => {
 
 app.get('/api/steps', (req, res) => {
   const query = `
-    SELECT s.*, b.operator_name FROM cip_step_logs s
+    SELECT s.*, b.operator_name, b.start_time as batch_start, b.end_time as batch_end, b.status as batch_status
+    FROM cip_step_logs s
     LEFT JOIN cip_batches b ON s.batch_id = b.id
-    ORDER BY s.id DESC LIMIT 100
+    ORDER BY s.batch_id DESC, s.step_number ASC
+    LIMIT 300
   `;
   db.all(query, [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
+  });
+});
+
+app.post('/api/batches/delete-one', (req, res) => {
+  const { batchId } = req.body;
+  db.run("DELETE FROM cip_step_logs WHERE batch_id = ?", [batchId], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    db.run("DELETE FROM cip_batches WHERE id = ?", [batchId], (err2) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      res.json({ success: true });
+    });
   });
 });
 

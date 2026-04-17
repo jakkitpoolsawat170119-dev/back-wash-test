@@ -34,6 +34,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, o
   
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [stepHistory, setStepHistory] = useState<any[]>([]);
+  const [expandedBatches, setExpandedBatches] = useState<Set<number>>(new Set());
 
   const loadHistory = async () => {
     try {
@@ -195,13 +196,38 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, o
     } catch (e) { alert("Error"); } finally { setIsFinishing(false); }
   };
 
+  const fmtTime = (iso?: string) => {
+    if (!iso) return '-';
+    try { return new Date(iso).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' }); } catch { return iso; }
+  };
+
+  const fmtDate = (iso?: string) => {
+    if (!iso) return '-';
+    try { return new Date(iso).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit', year: '2-digit' }); } catch { return iso; }
+  };
+
+  const toggleBatch = (id: number) => {
+    setExpandedBatches(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const deleteBatch = async (id: number) => {
+    if (!window.confirm(`ลบ Batch #${id} ออกจากประวัติ?`)) return;
+    try {
+      await fetch(`${apiUrl}/api/batches/delete-one`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ batchId: id }) });
+      setStepHistory(prev => prev.filter(s => s.batch_id !== id));
+    } catch (e) { console.error(e); }
+  };
+
   const clearHistory = async () => {
-    const pin = window.prompt("รหัสล้างประวัติ:");
+    const pin = window.prompt("รหัสล้างประวัติทั้งหมด:");
     if (pin === "1234") {
       try {
         await fetch(`${apiUrl}/api/batches/reset`, { method: 'POST' });
         setStepHistory([]);
-        alert("ล้างแล้ว");
       } catch (e) { console.error(e); }
     }
   };
@@ -246,38 +272,84 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, o
 
       {batchId && <div style={{ padding: '20px', textAlign: 'center' }}><button onClick={handleFinishBatch} disabled={isFinishing} style={{ width: '100%', maxWidth: '400px', padding: '15px', background: 'linear-gradient(135deg, #ff6b00, #ff8c00)', color: 'white', border: 'none', borderRadius: '15px', fontWeight: 'bold', boxShadow: '0 10px 25px rgba(255, 107, 0, 0.3)' }}>🏁 จบการทำงาน (Finish Batch)</button></div>}
 
-      <div style={{ display: 'flex', justifyContent: 'center', marginTop: '40px', marginBottom: '20px', padding: '0 15px' }}>
-        <button onClick={handleOpenHistory} style={{ background: 'linear-gradient(135deg, #1565c0, #0d47a1)', color: 'white', border: 'none', borderRadius: '15px', padding: '18px 30px', fontWeight: 'bold', fontSize: '1.1rem', cursor: 'pointer', boxShadow: '0 8px 20px rgba(21, 101, 192, 0.3)', width: '100%', maxWidth: '400px' }}>
-          📊 ดูประวัติ CIP ({stepHistory.length} รายการ)
-        </button>
-      </div>
-
-      {showHistoryModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '15px' }}>
-            <div style={{ backgroundColor: 'white', width: '100%', maxWidth: '900px', maxHeight: '90vh', borderRadius: '25px', padding: '25px', overflowY: 'auto', boxShadow: '0 20px 50px rgba(0,0,0,0.15)', border: '1px solid #eee' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '2px solid #eee', paddingBottom: '15px' }}>
-                    <h3 style={{ margin: 0, color: '#1565c0' }}>📊 ประวัติการทำ CIP</h3>
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                        <button onClick={clearHistory} style={{ background: '#ffebee', color: '#d32f2f', border: '1px solid #ffcdd2', borderRadius: '10px', padding: '8px 15px' }}>🗑️ ล้างประวัติ</button>
-                        <button onClick={() => setShowHistoryModal(false)} style={{ background: '#f5f5f5', color: '#666', border: '1px solid #ddd', borderRadius: '50%', width: '35px', height: '35px' }}>X</button>
-                    </div>
-                </div>
-                <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                        <thead><tr style={{ backgroundColor: '#f5f5f5' }}><th>Batch</th><th>ขั้นตอน</th><th>แรงดัน</th><th>Brix</th><th>PH</th><th>ผู้บันทึก</th></tr></thead>
-                        <tbody>
-                            {stepHistory.map((s, i) => (
-                                <tr key={i} style={{ textAlign: 'center', borderBottom: '1px solid #eee' }}>
-                                    <td>#{s.batch_id}</td><td>{s.step_description}</td><td>{s.pressure}</td><td>{s.brix}</td><td>{s.ph}</td><td>{s.operator_name}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-                <button onClick={() => setShowHistoryModal(false)} style={{ width: '100%', padding: '12px', background: '#424242', color: 'white', border: 'none', borderRadius: '10px', marginTop: '20px' }}>ปิดหน้าต่างนี้</button>
+      {(() => {
+        const batchMap: Record<number, any> = {};
+        stepHistory.forEach(s => {
+          if (!batchMap[s.batch_id]) batchMap[s.batch_id] = { batchId: s.batch_id, operatorName: s.operator_name, batchStart: s.batch_start, batchEnd: s.batch_end, batchStatus: s.batch_status, steps: [] };
+          batchMap[s.batch_id].steps.push(s);
+        });
+        const batchList = Object.values(batchMap).sort((a: any, b: any) => b.batchId - a.batchId);
+        return (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: '40px', marginBottom: '20px', padding: '0 15px' }}>
+              <button onClick={handleOpenHistory} style={{ background: 'linear-gradient(135deg, #1565c0, #0d47a1)', color: 'white', border: 'none', borderRadius: '15px', padding: '18px 30px', fontWeight: 'bold', fontSize: '1.1rem', cursor: 'pointer', boxShadow: '0 8px 20px rgba(21, 101, 192, 0.3)', width: '100%', maxWidth: '400px' }}>
+                📊 ดูประวัติ CIP ({batchList.length} ครั้ง)
+              </button>
             </div>
-        </div>
-      )}
+
+            {showHistoryModal && (
+              <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '15px' }}>
+                <div style={{ backgroundColor: 'white', width: '100%', maxWidth: '700px', maxHeight: '90vh', borderRadius: '25px', padding: '25px', overflowY: 'auto', boxShadow: '0 20px 50px rgba(0,0,0,0.15)', border: '1px solid #eee' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '2px solid #eee', paddingBottom: '15px' }}>
+                    <h3 style={{ margin: 0, color: '#1565c0' }}>📊 ประวัติ CIP ({batchList.length} ครั้ง)</h3>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <button onClick={clearHistory} style={{ background: '#ffebee', color: '#d32f2f', border: '1px solid #ffcdd2', borderRadius: '10px', padding: '8px 12px', fontSize: '0.8rem' }}>🗑️ ล้างทั้งหมด</button>
+                      <button onClick={() => setShowHistoryModal(false)} style={{ background: '#f5f5f5', color: '#666', border: '1px solid #ddd', borderRadius: '50%', width: '35px', height: '35px' }}>✕</button>
+                    </div>
+                  </div>
+
+                  {batchList.length === 0 && <div style={{ textAlign: 'center', color: '#999', padding: '40px' }}>ยังไม่มีประวัติ CIP</div>}
+
+                  {batchList.map((batch: any) => (
+                    <div key={batch.batchId} style={{ border: '1px solid #eee', borderRadius: '14px', marginBottom: '12px', overflow: 'hidden' }}>
+                      <div onClick={() => toggleBatch(batch.batchId)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: batch.batchStatus === 'completed' ? '#f1f8e9' : '#fff3e0', cursor: 'pointer' }}>
+                        <div>
+                          <div style={{ fontWeight: 'bold', fontSize: '0.95rem', color: '#333' }}>
+                            {batch.batchStatus === 'completed' ? '✅' : '🔄'} CIP ครั้งที่ #{batch.batchId}
+                          </div>
+                          <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '2px' }}>
+                            👤 {batch.operatorName || '-'} &nbsp;|&nbsp; {fmtDate(batch.batchStart)} &nbsp;|&nbsp; {batch.steps.length} ขั้นตอน
+                          </div>
+                          {batch.batchStart && (
+                            <div style={{ fontSize: '0.75rem', color: '#888', marginTop: '2px' }}>
+                              🕐 {fmtTime(batch.batchStart)} → {fmtTime(batch.batchEnd)}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <button onClick={(e) => { e.stopPropagation(); deleteBatch(batch.batchId); }} style={{ background: '#ffebee', color: '#d32f2f', border: '1px solid #ffcdd2', borderRadius: '8px', padding: '4px 10px', fontSize: '0.75rem' }}>🗑️</button>
+                          <span style={{ color: '#999', fontSize: '0.9rem' }}>{expandedBatches.has(batch.batchId) ? '▲' : '▼'}</span>
+                        </div>
+                      </div>
+
+                      {expandedBatches.has(batch.batchId) && (
+                        <div style={{ padding: '12px 16px', borderTop: '1px solid #eee' }}>
+                          {batch.steps.map((s: any, i: number) => (
+                            <div key={i} style={{ padding: '8px 0', borderBottom: i < batch.steps.length - 1 ? '1px solid #f5f5f5' : 'none' }}>
+                              <div style={{ fontWeight: '600', fontSize: '0.85rem', color: s.end_time ? '#2e7d32' : '#e65100' }}>
+                                {s.end_time ? '✅' : '▶️'} {s.step_number}. {s.step_description}
+                              </div>
+                              <div style={{ fontSize: '0.78rem', color: '#666', marginTop: '3px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                <span>⏱ {fmtTime(s.start_time)} → {fmtTime(s.end_time)}</span>
+                                {s.pressure && <span>💨 {s.pressure} Bar</span>}
+                                {s.brix && <span>🍬 {s.brix}</span>}
+                                {s.ph && <span>🧪 {s.ph}</span>}
+                                {s.remarks && <span>💬 {s.remarks}</span>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  <button onClick={() => setShowHistoryModal(false)} style={{ width: '100%', padding: '12px', background: '#424242', color: 'white', border: 'none', borderRadius: '10px', marginTop: '10px' }}>ปิดหน้าต่างนี้</button>
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#fff', padding: '15px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '2px solid #ff6b00', zIndex: 100 }}>
         <button onClick={() => { const p = window.prompt("รหัส:"); if (p === "1234") onHome(); }} style={{ background: '#f5f5f5', border: '1px solid #ddd', borderRadius: '10px', padding: '10px 15px' }}>🏠 Home</button>
