@@ -76,21 +76,13 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     const row = rows[no] || defaultMainRow(); if (!row.startTime) return;
     const et = new Date().toISOString();
     const dur = calcDur(row.startTime, et) || 0;
-    const nr = { ...row, endTime: et, duration: dur };
-    setRows(p => ({ ...p, [no]: nr })); saveRow(no, nr);
+    const nr = { ...row, endTime: et, duration: dur, done: true };
+    setRows(p => ({ ...p, [no]: nr })); saveRow(no, nr); setExpanded(null);
   };
   const updateRowField = (no: number, field: keyof MainRowData, value: string) => {
     setRows(p => ({ ...p, [no]: { ...(p[no] || defaultMainRow()), [field]: value } }));
   };
   const blurRow = (no: number) => { const r = rows[no]; if (r) saveRow(no, r); };
-  const markRowDone = (no: number, done: boolean) => {
-    const row = rows[no] || defaultMainRow();
-    // auto-set endTime when marking done (triggers Telegram on server)
-    const endTime = done && !row.endTime ? new Date().toISOString() : row.endTime;
-    const duration = done && !row.endTime && row.startTime ? calcDur(row.startTime, endTime) || 0 : row.duration;
-    const nr = { ...row, done, endTime, duration };
-    setRows(p => ({ ...p, [no]: nr })); saveRow(no, nr); if (done) setExpanded(null);
-  };
 
   // ── Back: Rinse ──
   const handleRinseStart = () => {
@@ -246,9 +238,6 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
                   </div>
                   <div><label style={labelStyle}>Brix (0)</label><input type="number" step="0.1" value={row.brix} onChange={e => updateRowField(no, 'brix', e.target.value)} onBlur={() => blurRow(no)} placeholder="Brix" style={inputStyle()} /></div>
                 </div>
-                <button onClick={() => markRowDone(no, !row.done)} style={{ width: '100%', padding: '12px', borderRadius: '12px', border: 'none', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem', background: row.done ? '#f5f5f5' : `linear-gradient(135deg, ${accent}, #0d47a1)`, color: row.done ? '#666' : 'white' }}>
-                  {row.done ? '↩ ยกเลิก' : '✅ เสร็จสิ้นแถวนี้'}
-                </button>
               </div>
             )}
           </div>
