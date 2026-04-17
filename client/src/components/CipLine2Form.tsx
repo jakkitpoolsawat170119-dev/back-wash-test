@@ -503,7 +503,7 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
   return (
     <div style={{ maxWidth: '600px', margin: '0 auto', padding: '15px 15px 100px 15px' }}>
       <div style={{ background: 'linear-gradient(135deg, #ff6b00, #ff8c00)', borderRadius: '15px', padding: '15px', marginBottom: '15px', color: 'white', textAlign: 'center' }}>
-        <h2 style={{ margin: 0, fontSize: '1.1rem' }}>📋 CIP Line Flavour Syrup (Line 2)</h2>
+        <h2 style={{ margin: 0, fontSize: '1.1rem' }}>📋 CIP Line Flavour Syrup</h2>
         <div style={{ fontSize: '0.85rem', opacity: 0.9, marginTop: '4px' }}>ผู้บันทึก: {operatorName}</div>
       </div>
 
