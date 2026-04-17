@@ -26,6 +26,7 @@ const apiUrl = "https://back-wash-test.onrender.com";
 
 const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, onStatusChange }) => {
   const [batchId, setBatchId] = useState<number | null>(null);
+  const [batchStartTime, setBatchStartTime] = useState<string>('');
   const [stepData, setStepData] = useState<Record<number, StepData>>({});
   const [expandedStep, setExpandedStep] = useState<number | null>(1);
   const [isFinishing, setIsFinishing] = useState(false);
@@ -57,6 +58,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, o
       const data = await res.json();
       if (data.batchId) {
         setBatchId(data.batchId);
+        setBatchStartTime(new Date().toISOString());
         onStatusChange(true);
         return data.batchId;
       }
@@ -166,6 +168,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, o
   const finishSession = () => {
     if (window.confirm("🏁 สิ้นสุดการทำงานและล้างข้อมูลใหม่?")) {
       setBatchId(null);
+      setBatchStartTime('');
       setStepData({});
       setExpandedStep(1);
       onStatusChange(false);
@@ -177,14 +180,16 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, o
     if (!window.confirm('🏁 ยืนยันจบงาน Batch นี้?')) return;
     try {
       setIsFinishing(true);
+      const endTime = new Date().toISOString();
       await fetch(`${apiUrl}/api/batches/finish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batchId })
+        body: JSON.stringify({ batchId, operatorName, startTime: batchStartTime, endTime })
       });
       alert('บันทึก CIP สำเร็จ!');
       onStatusChange(false);
       setBatchId(null);
+      setBatchStartTime('');
       setStepData({});
       onBackToMain();
     } catch (e) { alert("Error"); } finally { setIsFinishing(false); }

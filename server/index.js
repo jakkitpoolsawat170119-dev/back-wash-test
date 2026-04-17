@@ -418,16 +418,21 @@ app.post('/api/notify-step', (req, res) => {
 });
 
 app.post('/api/batches/finish', (req, res) => {
-  const { batchId } = req.body;
+  const { batchId, operatorName, startTime, endTime } = req.body;
   const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
   db.run("UPDATE cip_batches SET end_time = ?, status = 'completed' WHERE id = ?", [now, batchId], function(err) {
     if (err) return res.status(500).json({ error: err.message });
-    
+
+    const tStart = formatThaiTime(startTime);
+    const tEnd   = formatThaiTime(endTime);
+    const dur    = calcDuration(startTime, endTime);
+
     sendToTelegram([
       `✅ <b>CIP Batch จบแล้ว</b>`,
-      `Batch #${batchId}`,
-      `⏰ เวลาจบ: ${now}`,
-    ].join('\n'));
+      operatorName ? `👤 ผู้ดำเนินการ: ${escapeHtml(operatorName)}` : null,
+      (tStart || tEnd) ? `⏰ เริ่ม: ${tStart || '-'}  →  จบ: ${tEnd || '-'}` : null,
+      dur ? `⏱ เวลารวม: ${dur} นาที` : null,
+    ].filter(Boolean).join('\n'));
 
     res.json({ success: true, endTime: now });
   });
