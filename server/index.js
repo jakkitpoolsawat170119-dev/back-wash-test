@@ -562,9 +562,9 @@ app.post('/api/production/log', (req, res) => {
     if (err) return res.status(500).json({ error: err.message });
     sendToTelegram([
       `🏭 <b>บันทึกการผลิต</b>`,
-      lotNo ? `🏷️ Lot No.: <b>${escapeHtml(lotNo)}</b>` : null,
       `📍 Line: ${escapeHtml(line)} | รสชาติ: ${escapeHtml(flavor)}`,
       `📦 Batch: ${escapeHtml(batch)}`,
+      lotNo ? `🏷️ Lot No.: <b>${escapeHtml(lotNo)}</b>` : null,
       `👤 ผู้ดำเนินการ: ${escapeHtml(operator)}`,
       startTime ? `▶️ เวลาเริ่ม: ${escapeHtml(startTime)}` : null,
       endTime   ? `⏹️ เวลาจบ: ${escapeHtml(endTime)}` : null,

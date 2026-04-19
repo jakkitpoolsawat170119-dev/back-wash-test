@@ -158,6 +158,13 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
               {line.showInputs ? (
                 <>
                   <div className={styles.formGroup} style={{ marginBottom: '10px' }}>
+                    <label className={styles.formLabel}>รสชาติ/แบรนด์ (Flavor)</label>
+                    <select className={styles.formInput} value={line.flavor} onChange={(e) => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], flavor: e.target.value } }))} disabled={line.isProcessing}>
+                      <option value="">-- เลือกกลิ่น --</option>
+                      {flavorList.map(f => <option key={f} value={f}>{f}</option>)}
+                    </select>
+                  </div>
+                  <div className={styles.formGroup} style={{ marginBottom: '10px' }}>
                     <label className={styles.formLabel}>🏷️ Lot No. (วันที่ผลิต)</label>
                     <input
                       type="date"
@@ -167,13 +174,6 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
                       disabled={line.isProcessing}
                       style={{ fontWeight: 'bold' }}
                     />
-                  </div>
-                  <div className={styles.formGroup} style={{ marginBottom: '10px' }}>
-                    <label className={styles.formLabel}>รสชาติ/แบรนด์ (Flavor)</label>
-                    <select className={styles.formInput} value={line.flavor} onChange={(e) => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], flavor: e.target.value } }))} disabled={line.isProcessing}>
-                      <option value="">-- เลือกกลิ่น --</option>
-                      {flavorList.map(f => <option key={f} value={f}>{f}</option>)}
-                    </select>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '20px', background: 'linear-gradient(90deg, #fff9c4 0%, #e3f2fd 50%, #e8f5e9 100%)', padding: '12px', borderRadius: '18px', boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.05)', border: '1px solid rgba(0,0,0,0.05)', position: 'relative' }}>
                     <div className={styles.formGroup} style={{ flex: 1 }}>
