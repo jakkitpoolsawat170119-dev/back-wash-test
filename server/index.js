@@ -448,7 +448,7 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
   const { batchId, stepNumber, stepDescription, startTime, endTime, pressure, brix, ph, remarks } = req.body;
   const imagePath = fileToDataUrl(req.file);
 
-  console.log(`[steps/log] HIT batchId=${batchId} step=${stepNumber} endTime=${endTime}`);
+  console.log(`[steps/log] batchId=${batchId} step=${stepNumber} endTime=${!!endTime} hasFile=${!!req.file}`);
 
   const query = `
     INSERT INTO cip_step_logs (batch_id, step_number, step_description, start_time, end_time, pressure, brix, ph, remarks, image_path)
@@ -463,36 +463,36 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
   `;
 
   db.run(query, [batchId, stepNumber, stepDescription, startTime, endTime, pressure, brix, ph, remarks, imagePath], function(err) {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) { console.error('[steps/log] DB error:', err.message); return res.status(500).json({ error: err.message }); }
     res.json({ success: true, imagePath });
 
-    if (!endTime) return;
-    // Query the saved row to get image_path (may have been saved in a previous request)
-    db.get('SELECT image_path FROM cip_step_logs WHERE batch_id = ? AND step_number = ?', [batchId, stepNumber], (err2, row) => {
-      const operatorName = req.body.operatorName || '-';
-      const tStart = formatThaiTime(startTime);
-      const tEnd   = formatThaiTime(endTime);
-      const dur    = calcDuration(startTime, endTime);
-      const msg = [
-        `📋 <b>CIP Step ${escapeHtml(stepNumber)}: ${escapeHtml(stepDescription)}</b>`,
-        `👤 ผู้ดำเนินการ: ${escapeHtml(operatorName)}`,
-        (tStart || tEnd) ? `⏱ เริ่ม: ${tStart || '-'}  →  จบ: ${tEnd || '-'}` : null,
-        dur              ? `⏱ รวม: ${dur} นาที` : null,
-        pressure ? `💨 Pressure: ${escapeHtml(pressure)}` : null,
-        brix     ? `🍬 Brix: ${escapeHtml(brix)}` : null,
-        ph       ? `🧪 pH: ${escapeHtml(ph)}` : null,
-        remarks  ? `💬 หมายเหตุ: ${escapeHtml(remarks)}` : null,
-      ].filter(Boolean).join('\n');
+    if (!endTime) { console.log('[steps/log] no endTime, skip Telegram'); return; }
 
-      const storedImagePath = row?.image_path;
-      console.log(`[steps/log] step=${stepNumber} hasImage=${!!storedImagePath} imageLen=${storedImagePath?.length || 0} err=${err2?.message}`);
-      if (storedImagePath) {
-        const img = dataUrlToBuffer(storedImagePath);
-        console.log(`[steps/log] dataUrlToBuffer ok=${!!img} bufLen=${img?.buffer?.length}`);
+    const operatorName = req.body.operatorName || '-';
+    const tStart = formatThaiTime(startTime);
+    const tEnd   = formatThaiTime(endTime);
+    const dur    = calcDuration(startTime, endTime);
+    const msg = [
+      `📋 <b>CIP Step ${escapeHtml(stepNumber)}: ${escapeHtml(stepDescription)}</b>`,
+      `👤 ผู้ดำเนินการ: ${escapeHtml(operatorName)}`,
+      (tStart || tEnd) ? `⏱ เริ่ม: ${tStart || '-'}  →  จบ: ${tEnd || '-'}` : null,
+      dur              ? `⏱ รวม: ${dur} นาที` : null,
+      pressure ? `💨 Pressure: ${escapeHtml(pressure)}` : null,
+      brix     ? `🍬 Brix: ${escapeHtml(brix)}` : null,
+      ph       ? `🧪 pH: ${escapeHtml(ph)}` : null,
+      remarks  ? `💬 หมายเหตุ: ${escapeHtml(remarks)}` : null,
+    ].filter(Boolean).join('\n');
+
+    // Send text immediately so notification always arrives
+    sendToTelegram(msg);
+
+    // Also look up stored image and send photo separately
+    db.get('SELECT image_path FROM cip_step_logs WHERE batch_id = ? AND step_number = ?', [batchId, stepNumber], (err2, row) => {
+      const stored = row?.image_path;
+      console.log(`[steps/log] image lookup: hasImage=${!!stored} err=${err2?.message}`);
+      if (stored) {
+        const img = dataUrlToBuffer(stored);
         if (img) sendPhotoBufferToTelegram(img.buffer, img.mimeType, msg);
-        else sendToTelegram(msg);
-      } else {
-        sendToTelegram(msg);
       }
     });
   });
