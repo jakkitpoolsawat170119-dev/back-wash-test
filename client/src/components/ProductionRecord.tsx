@@ -15,9 +15,10 @@ interface CompletedBatch {
   flavor: string;
   startTime: string;
   doneTime: string;
-  duration: number; 
+  duration: number;
   brix: string;
   ph: string;
+  lotNo: string;
 }
 
 interface LineState {
@@ -41,6 +42,7 @@ const apiUrl = "https://back-wash-test.onrender.com";
 const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBack, onBackToMain, onHome, onStatusChange }) => {
   const batchOptions = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
   const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [lotNo, setLotNo] = useState('');
 
   const initialLineState: LineState = {
     flavor: '',
@@ -110,13 +112,13 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
     const diffMs = now.getTime() - line.startRaw.getTime();
     const diffMins = Math.round(diffMs / 60000);
     const isCip = line.flavor === "CIP";
-    const newCompletedBatch: CompletedBatch = { line: lineId, batch: line.cookingBatch, flavor: line.flavor, startTime: line.startTime, doneTime: timeStr, duration: diffMins, brix: line.brix, ph: line.ph };
+    const newCompletedBatch: CompletedBatch = { line: lineId, batch: line.cookingBatch, flavor: line.flavor, startTime: line.startTime, doneTime: timeStr, duration: diffMins, brix: line.brix, ph: line.ph, lotNo };
     const newHistory = [...line.history, newCompletedBatch];
     const newTotalCompleted = line.totalCompleted + 1;
     const newCipCount = isCip ? line.cipCount + 1 : line.cipCount;
     setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], doneTime: timeStr, history: newHistory, totalCompleted: newTotalCompleted, cipCount: newCipCount, isProcessing: false, showInputs: false, cookingBatch: '', startTime: null, startRaw: null, brix: '', ph: '' } }));
     try {
-      await fetch(`${apiUrl}/api/production/log`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ line: `Line ${lineId}`, flavor: line.flavor, batch: line.cookingBatch, operator: operatorName, timestamp: new Date().toISOString(), duration: diffMins, brix: line.brix, ph: line.ph, cipCount: isCip ? "1 Batch" : "-" }) });
+      await fetch(`${apiUrl}/api/production/log`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ line: `Line ${lineId}`, flavor: line.flavor, batch: line.cookingBatch, operator: operatorName, timestamp: new Date().toISOString(), duration: diffMins, brix: line.brix, ph: line.ph, cipCount: isCip ? "1 Batch" : "-", lotNo, startTime: line.startTime, endTime: timeStr }) });
     } catch (error) { console.error("Failed to log:", error); }
   };
 
@@ -155,6 +157,18 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
         >
           🔄 ไปหน้าบันทึก CIP
         </button>
+      </div>
+
+      {/* Lot No. */}
+      <div style={{ width: '95%', maxWidth: '500px', margin: '0 auto 20px auto', background: 'white', borderRadius: '15px', padding: '14px 18px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '2px solid #e8f5e9', display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <span style={{ fontWeight: 'bold', color: '#2e7d32', fontSize: '0.95rem', whiteSpace: 'nowrap' }}>🏷️ Lot No.</span>
+        <input
+          type="text"
+          value={lotNo}
+          onChange={e => setLotNo(e.target.value)}
+          placeholder="เช่น 190224"
+          style={{ flex: 1, padding: '8px 12px', borderRadius: '10px', border: '1.5px solid #a5d6a7', fontSize: '1rem', fontWeight: 'bold', letterSpacing: '1px', outline: 'none' }}
+        />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', padding: '10px' }}>
@@ -218,7 +232,8 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
                   <button onClick={() => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], showInputs: true } }))} style={{ width: '100%', padding: '15px', background: '#2e7d32', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>➕ เตรียมผลิต Batch ถัดไป</button>
                 </div>
               )}
-              <div style={{ marginTop: '15px', display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end' }}>
+              <div style={{ marginTop: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                {lotNo ? <div style={{ color: '#2e7d32', fontWeight: 'bold', fontSize: '0.8rem' }}>🏷️ {lotNo}</div> : <div />}
                 <div style={{ color: '#1565c0', fontWeight: 'bold', fontSize: '0.9rem' }}>✅ ผลิตเสร็จแล้ว: {line.totalCompleted} Batch</div>
               </div>
             </div>
@@ -237,7 +252,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
                     <h3 style={{ margin: 0, color: '#1565c0' }}>📊 สรุปรายการผลิตทั้งหมด</h3>
                     <button onClick={() => setShowSummaryModal(false)} style={{ background: '#f5f5f5', color: '#666', border: '1px solid #ddd', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer', fontWeight: 'bold', fontSize: '1.1rem' }}>X</button>
                 </div>
-                <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}><thead><tr style={{ backgroundColor: '#f5f5f5' }}><th style={{ padding: '10px', border: '1px solid #ddd' }}>Line</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>Batch</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>รสชาติ</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>เวลา Start-Done</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>Brix</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>PH</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>รวมเวลา</th></tr></thead><tbody>{allHistory.length > 0 ? allHistory.map((h, i) => (<tr key={i} style={{ textAlign: 'center' }}><td style={{ padding: '10px', border: '1px solid #ddd' }}>Line {h.line}</td><td style={{ padding: '10px', border: '1px solid #ddd', fontWeight: 'bold' }}>{h.batch}</td><td style={{ padding: '10px', border: '1px solid #ddd' }}>{h.flavor}</td><td style={{ padding: '10px', border: '1px solid #ddd' }}>{h.startTime} - {h.doneTime}</td><td style={{ padding: '10px', border: '1px solid #ddd', color: '#1b5e20', fontWeight: 'bold' }}>{h.brix}</td><td style={{ padding: '10px', border: '1px solid #ddd', color: '#1b5e20', fontWeight: 'bold' }}>{h.ph}</td><td style={{ padding: '10px', border: '1px solid #ddd', color: '#d84315', fontWeight: 'bold' }}>{h.duration} นาที</td></tr>)) : (<tr><td colSpan={7} style={{ padding: '20px', textAlign: 'center', color: '#888' }}>ยังไม่มีรายการที่ผลิตเสร็จ</td></tr>)}</tbody></table></div>
+                <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}><thead><tr style={{ backgroundColor: '#f5f5f5' }}><th style={{ padding: '10px', border: '1px solid #ddd' }}>Line</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>Lot No.</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>Batch</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>รสชาติ</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>เวลา Start-Done</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>Brix</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>PH</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>รวมเวลา</th></tr></thead><tbody>{allHistory.length > 0 ? allHistory.map((h, i) => (<tr key={i} style={{ textAlign: 'center' }}><td style={{ padding: '10px', border: '1px solid #ddd' }}>Line {h.line}</td><td style={{ padding: '10px', border: '1px solid #ddd', fontWeight: 'bold', color: '#2e7d32' }}>{h.lotNo || '-'}</td><td style={{ padding: '10px', border: '1px solid #ddd', fontWeight: 'bold' }}>{h.batch}</td><td style={{ padding: '10px', border: '1px solid #ddd' }}>{h.flavor}</td><td style={{ padding: '10px', border: '1px solid #ddd' }}>{h.startTime} - {h.doneTime}</td><td style={{ padding: '10px', border: '1px solid #ddd', color: '#1b5e20', fontWeight: 'bold' }}>{h.brix}</td><td style={{ padding: '10px', border: '1px solid #ddd', color: '#1b5e20', fontWeight: 'bold' }}>{h.ph}</td><td style={{ padding: '10px', border: '1px solid #ddd', color: '#d84315', fontWeight: 'bold' }}>{h.duration} นาที</td></tr>)) : (<tr><td colSpan={8} style={{ padding: '20px', textAlign: 'center', color: '#888' }}>ยังไม่มีรายการที่ผลิตเสร็จ</td></tr>)}</tbody></table></div>
                 <button onClick={() => setShowSummaryModal(false)} style={{ width: '100%', padding: '12px', background: '#424242', color: 'white', border: 'none', borderRadius: '10px', marginTop: '20px', fontWeight: 'bold', cursor: 'pointer' }}>ปิดหน้าต่างนี้</button>
             </div>
         </div>

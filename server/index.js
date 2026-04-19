@@ -555,22 +555,23 @@ app.post('/api/batches/finish', (req, res) => {
 });
 
 app.post('/api/production/log', (req, res) => {
-  const { line, flavor, batch, operator, timestamp, cipCount, brix, ph, startTime, endTime, duration } = req.body;
+  const { line, flavor, batch, operator, timestamp, cipCount, brix, ph, startTime, endTime, duration, lotNo } = req.body;
   const fmtTime = timestamp ? new Date(timestamp).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T') : null;
   const query = `INSERT INTO production_logs (timestamp, line_name, flavor, batch, operator_name, cip_count) VALUES (?, ?, ?, ?, ?, ?)`;
   db.run(query, [fmtTime, line, flavor, batch, operator, cipCount], function(err) {
     if (err) return res.status(500).json({ error: err.message });
     sendToTelegram([
       `🏭 <b>บันทึกการผลิต</b>`,
-      `📍 Line: ${line} | รสชาติ: ${flavor}`,
-      `📦 Batch: ${batch}`,
-      `👤 ผู้ดำเนินการ: ${operator}`,
-      startTime ? `▶️ เวลาเริ่ม: ${startTime}` : null,
-      endTime   ? `⏹️ เวลาจบ: ${endTime}` : null,
+      lotNo ? `🏷️ Lot No.: <b>${escapeHtml(lotNo)}</b>` : null,
+      `📍 Line: ${escapeHtml(line)} | รสชาติ: ${escapeHtml(flavor)}`,
+      `📦 Batch: ${escapeHtml(batch)}`,
+      `👤 ผู้ดำเนินการ: ${escapeHtml(operator)}`,
+      startTime ? `▶️ เวลาเริ่ม: ${escapeHtml(startTime)}` : null,
+      endTime   ? `⏹️ เวลาจบ: ${escapeHtml(endTime)}` : null,
       duration  ? `⏱ รวม: ${duration} นาที` : null,
-      brix ? `🍬 Brix: ${brix}` : null,
-      ph   ? `🧪 pH: ${ph}` : null,
-      (cipCount && cipCount !== '-') ? `🧼 CIP: ${cipCount}` : null,
+      brix ? `🍬 Brix: ${escapeHtml(String(brix))}` : null,
+      ph   ? `🧪 pH: ${escapeHtml(String(ph))}` : null,
+      (cipCount && cipCount !== '-') ? `🧼 CIP: ${escapeHtml(cipCount)}` : null,
     ].filter(Boolean).join('\n'));
     res.json({ success: true, logId: this.lastID });
   });
