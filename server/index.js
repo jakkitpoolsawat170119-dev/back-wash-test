@@ -450,24 +450,8 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
 
   console.log(`[steps/log] batchId=${batchId} step=${stepNumber} endTime=${!!endTime} hasFile=${!!req.file}`);
 
-  const query = `
-    INSERT INTO cip_step_logs (batch_id, step_number, step_description, start_time, end_time, pressure, brix, ph, remarks, image_path)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(batch_id, step_number) DO UPDATE SET
-      end_time = COALESCE(excluded.end_time, end_time),
-      pressure = COALESCE(excluded.pressure, pressure),
-      brix = COALESCE(excluded.brix, brix),
-      ph = COALESCE(excluded.ph, ph),
-      remarks = COALESCE(excluded.remarks, remarks),
-      image_path = COALESCE(excluded.image_path, image_path)
-  `;
-
-  db.run(query, [batchId, stepNumber, stepDescription, startTime, endTime, pressure, brix, ph, remarks, imagePath], function(err) {
-    if (err) { console.error('[steps/log] DB error:', err.message); return res.status(500).json({ error: err.message }); }
-    res.json({ success: true, imagePath });
-
-    if (!endTime) { console.log('[steps/log] no endTime, skip Telegram'); return; }
-
+  // Build and send Telegram BEFORE db.run so it always fires
+  if (endTime) {
     const operatorName = req.body.operatorName || '-';
     const tStart = formatThaiTime(startTime);
     const tEnd   = formatThaiTime(endTime);
@@ -483,18 +467,40 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
       remarks  ? `💬 หมายเหตุ: ${escapeHtml(remarks)}` : null,
     ].filter(Boolean).join('\n');
 
-    // Send text immediately so notification always arrives
-    sendToTelegram(msg);
+    if (req.file) {
+      // Image attached in this request — send photo directly
+      sendPhotoBufferToTelegram(req.file.buffer, req.file.mimetype, msg);
+    } else {
+      // No image in this request — look up previously saved image then send
+      db.get('SELECT image_path FROM cip_step_logs WHERE batch_id = ? AND step_number = ?', [batchId, stepNumber], (err2, row) => {
+        const stored = row?.image_path;
+        console.log(`[steps/log] stored image: ${!!stored}`);
+        if (stored) {
+          const img = dataUrlToBuffer(stored);
+          if (img) sendPhotoBufferToTelegram(img.buffer, img.mimeType, msg);
+          else sendToTelegram(msg);
+        } else {
+          sendToTelegram(msg);
+        }
+      });
+    }
+  }
 
-    // Also look up stored image and send photo separately
-    db.get('SELECT image_path FROM cip_step_logs WHERE batch_id = ? AND step_number = ?', [batchId, stepNumber], (err2, row) => {
-      const stored = row?.image_path;
-      console.log(`[steps/log] image lookup: hasImage=${!!stored} err=${err2?.message}`);
-      if (stored) {
-        const img = dataUrlToBuffer(stored);
-        if (img) sendPhotoBufferToTelegram(img.buffer, img.mimeType, msg);
-      }
-    });
+  const query = `
+    INSERT INTO cip_step_logs (batch_id, step_number, step_description, start_time, end_time, pressure, brix, ph, remarks, image_path)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(batch_id, step_number) DO UPDATE SET
+      end_time = COALESCE(excluded.end_time, end_time),
+      pressure = COALESCE(excluded.pressure, pressure),
+      brix = COALESCE(excluded.brix, brix),
+      ph = COALESCE(excluded.ph, ph),
+      remarks = COALESCE(excluded.remarks, remarks),
+      image_path = COALESCE(excluded.image_path, image_path)
+  `;
+
+  db.run(query, [batchId, stepNumber, stepDescription, startTime, endTime, pressure, brix, ph, remarks, imagePath], function(err) {
+    if (err) { console.error('[steps/log] DB error:', err.message); return res.status(500).json({ error: err.message }); }
+    res.json({ success: true, imagePath });
   });
 });
 
