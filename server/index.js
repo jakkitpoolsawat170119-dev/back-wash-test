@@ -485,9 +485,10 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
       ].filter(Boolean).join('\n');
 
       const storedImagePath = row?.image_path;
-      console.log(`[steps/log] Telegram step=${stepNumber} hasImage=${!!storedImagePath}`);
+      console.log(`[steps/log] step=${stepNumber} hasImage=${!!storedImagePath} imageLen=${storedImagePath?.length || 0} err=${err2?.message}`);
       if (storedImagePath) {
         const img = dataUrlToBuffer(storedImagePath);
+        console.log(`[steps/log] dataUrlToBuffer ok=${!!img} bufLen=${img?.buffer?.length}`);
         if (img) sendPhotoBufferToTelegram(img.buffer, img.mimeType, msg);
         else sendToTelegram(msg);
       } else {
