@@ -22,6 +22,7 @@ interface CompletedBatch {
 }
 
 interface LineState {
+  lotNo: string;
   flavor: string;
   shiftBatch: string;
   cookingBatch: string;
@@ -42,9 +43,9 @@ const apiUrl = "https://back-wash-test.onrender.com";
 const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBack, onBackToMain, onHome, onStatusChange }) => {
   const batchOptions = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
   const [showSummaryModal, setShowSummaryModal] = useState(false);
-  const [lotNo, setLotNo] = useState('');
 
   const initialLineState: LineState = {
+    lotNo: '',
     flavor: '',
     shiftBatch: '',
     cookingBatch: '',
@@ -112,13 +113,13 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
     const diffMs = now.getTime() - line.startRaw.getTime();
     const diffMins = Math.round(diffMs / 60000);
     const isCip = line.flavor === "CIP";
-    const newCompletedBatch: CompletedBatch = { line: lineId, batch: line.cookingBatch, flavor: line.flavor, startTime: line.startTime, doneTime: timeStr, duration: diffMins, brix: line.brix, ph: line.ph, lotNo };
+    const newCompletedBatch: CompletedBatch = { line: lineId, batch: line.cookingBatch, flavor: line.flavor, startTime: line.startTime, doneTime: timeStr, duration: diffMins, brix: line.brix, ph: line.ph, lotNo: line.lotNo };
     const newHistory = [...line.history, newCompletedBatch];
     const newTotalCompleted = line.totalCompleted + 1;
     const newCipCount = isCip ? line.cipCount + 1 : line.cipCount;
     setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], doneTime: timeStr, history: newHistory, totalCompleted: newTotalCompleted, cipCount: newCipCount, isProcessing: false, showInputs: false, cookingBatch: '', startTime: null, startRaw: null, brix: '', ph: '' } }));
     try {
-      await fetch(`${apiUrl}/api/production/log`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ line: `Line ${lineId}`, flavor: line.flavor, batch: line.cookingBatch, operator: operatorName, timestamp: new Date().toISOString(), duration: diffMins, brix: line.brix, ph: line.ph, cipCount: isCip ? "1 Batch" : "-", lotNo, startTime: line.startTime, endTime: timeStr }) });
+      await fetch(`${apiUrl}/api/production/log`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ line: `Line ${lineId}`, flavor: line.flavor, batch: line.cookingBatch, operator: operatorName, timestamp: new Date().toISOString(), duration: diffMins, brix: line.brix, ph: line.ph, cipCount: isCip ? "1 Batch" : "-", lotNo: line.lotNo, startTime: line.startTime, endTime: timeStr }) });
     } catch (error) { console.error("Failed to log:", error); }
   };
 
@@ -159,18 +160,6 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
         </button>
       </div>
 
-      {/* Lot No. */}
-      <div style={{ width: '95%', maxWidth: '500px', margin: '0 auto 20px auto', background: 'white', borderRadius: '15px', padding: '14px 18px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '2px solid #e8f5e9', display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <span style={{ fontWeight: 'bold', color: '#2e7d32', fontSize: '0.95rem', whiteSpace: 'nowrap' }}>🏷️ Lot No.</span>
-        <input
-          type="text"
-          value={lotNo}
-          onChange={e => setLotNo(e.target.value)}
-          placeholder="เช่น 190224"
-          style={{ flex: 1, padding: '8px 12px', borderRadius: '10px', border: '1.5px solid #a5d6a7', fontSize: '1rem', fontWeight: 'bold', letterSpacing: '1px', outline: 'none' }}
-        />
-      </div>
-
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', padding: '10px' }}>
         {[1, 2, 3, 4].map(lineId => {
           const line = lines[lineId];
@@ -184,6 +173,18 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
               </div>
               {line.showInputs ? (
                 <>
+                  <div className={styles.formGroup} style={{ marginBottom: '10px' }}>
+                    <label className={styles.formLabel}>🏷️ Lot No.</label>
+                    <input
+                      type="text"
+                      className={styles.formInput}
+                      value={line.lotNo}
+                      onChange={e => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], lotNo: e.target.value } }))}
+                      placeholder="เช่น 190224"
+                      disabled={line.isProcessing}
+                      style={{ fontWeight: 'bold', letterSpacing: '1px' }}
+                    />
+                  </div>
                   <div className={styles.formGroup} style={{ marginBottom: '10px' }}>
                     <label className={styles.formLabel}>รสชาติ/แบรนด์ (Flavor)</label>
                     <select className={styles.formInput} value={line.flavor} onChange={(e) => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], flavor: e.target.value } }))} disabled={line.isProcessing}>
@@ -228,12 +229,16 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
               ) : (
                 <div style={{ textAlign: 'center', padding: '10px 0' }}>
                   <div style={{ fontSize: '1.2rem', color: '#2e7d32', fontWeight: 'bold', marginBottom: '10px' }}>✅ บันทึกสำเร็จ!</div>
+                  {line.lotNo && (
+                    <div style={{ background: '#e8f5e9', padding: '8px 12px', borderRadius: '10px', marginBottom: '10px', border: '1px solid #a5d6a7', display: 'inline-block' }}>
+                      <span style={{ fontWeight: 'bold', color: '#2e7d32', fontSize: '0.95rem' }}>🏷️ Lot No. {line.lotNo}</span>
+                    </div>
+                  )}
                   <div style={{ background: '#fff9c4', padding: '12px', borderRadius: '10px', marginBottom: '20px', border: '1px solid #fbc02d' }}><div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#f57f17' }}>Batch ต่อไปที่คุณต้องผลิตคือ: {nextExpectedBatch || 'จบเซ็ต A-Z'}</div></div>
                   <button onClick={() => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], showInputs: true } }))} style={{ width: '100%', padding: '15px', background: '#2e7d32', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>➕ เตรียมผลิต Batch ถัดไป</button>
                 </div>
               )}
-              <div style={{ marginTop: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-                {lotNo ? <div style={{ color: '#2e7d32', fontWeight: 'bold', fontSize: '0.8rem' }}>🏷️ {lotNo}</div> : <div />}
+              <div style={{ marginTop: '15px', display: 'flex', justifyContent: 'flex-end' }}>
                 <div style={{ color: '#1565c0', fontWeight: 'bold', fontSize: '0.9rem' }}>✅ ผลิตเสร็จแล้ว: {line.totalCompleted} Batch</div>
               </div>
             </div>
