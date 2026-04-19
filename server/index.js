@@ -5,6 +5,7 @@ const cors = require('cors');
 const path = require('path');
 const multer = require('multer');
 const axios = require('axios');
+const FormData = require('form-data');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -387,19 +388,14 @@ const sendPhotoBufferToTelegram = async (buffer, mimeType, caption) => {
   const chatId = process.env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) return;
   try {
-    const boundary = '----TGBoundary' + Date.now();
-    const CRLF = '\r\n';
     const ext = mimeType === 'image/png' ? 'png' : 'jpg';
-    const body = Buffer.concat([
-      Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="chat_id"${CRLF}${CRLF}${chatId}${CRLF}`),
-      Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="parse_mode"${CRLF}${CRLF}HTML${CRLF}`),
-      Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="caption"${CRLF}${CRLF}${caption}${CRLF}`),
-      Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="photo"; filename="image.${ext}"${CRLF}Content-Type: ${mimeType}${CRLF}${CRLF}`),
-      buffer,
-      Buffer.from(`${CRLF}--${boundary}--${CRLF}`),
-    ]);
-    await axios.post(`https://api.telegram.org/bot${token}/sendPhoto`, body, {
-      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': body.length },
+    const form = new FormData();
+    form.append('chat_id', chatId);
+    form.append('parse_mode', 'HTML');
+    form.append('caption', caption);
+    form.append('photo', buffer, { filename: `image.${ext}`, contentType: mimeType });
+    await axios.post(`https://api.telegram.org/bot${token}/sendPhoto`, form, {
+      headers: form.getHeaders(),
     });
     console.log('[Telegram] Photo sent OK');
   } catch (error) {
