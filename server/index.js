@@ -386,20 +386,23 @@ const dataUrlToBuffer = (dataUrl) => {
 const sendPhotoBufferToTelegram = async (buffer, mimeType, caption) => {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) return;
+  if (!token || !chatId) { console.error('[TG Photo] missing token/chatId'); return; }
+  console.log(`[TG Photo] sending buffer size=${buffer?.length} mime=${mimeType}`);
   try {
     const ext = mimeType === 'image/png' ? 'png' : 'jpg';
     const form = new FormData();
     form.append('chat_id', chatId);
     form.append('parse_mode', 'HTML');
-    form.append('caption', caption);
+    form.append('caption', caption.slice(0, 1024));
     form.append('photo', buffer, { filename: `image.${ext}`, contentType: mimeType });
-    await axios.post(`https://api.telegram.org/bot${token}/sendPhoto`, form, {
+    const res = await axios.post(`https://api.telegram.org/bot${token}/sendPhoto`, form, {
       headers: form.getHeaders(),
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
     });
-    console.log('[Telegram] Photo sent OK');
+    console.log('[TG Photo] sent OK', res.data?.ok);
   } catch (error) {
-    console.error('[Telegram] Photo error:', error.response?.data || error.message);
+    console.error('[TG Photo] error:', JSON.stringify(error.response?.data) || error.message);
   }
 };
 

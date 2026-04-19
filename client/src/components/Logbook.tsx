@@ -119,26 +119,6 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, o
     if (batchId) {
       const endTime = new Date().toISOString();
       const current = stepData[stepId] || {};
-      const step = cipSteps.find(s => s.id === stepId);
-
-      // Send Telegram via JSON endpoint (bypasses FormData/multer issues)
-      fetch(`${apiUrl}/api/notify-step`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          batchId,
-          stepNumber: stepId,
-          stepDescription: step?.description || '',
-          operatorName,
-          startTime: current.startTime,
-          endTime,
-          pressure: current.pressure,
-          brix: current.brix,
-          ph: current.pH,
-          remarks: current.remarks,
-        })
-      });
-
       await saveStepData(stepId, {
         endTime,
         status: 'completed',
