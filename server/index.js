@@ -486,21 +486,33 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
     }
   }
 
-  const query = `
-    INSERT INTO cip_step_logs (batch_id, step_number, step_description, start_time, end_time, pressure, brix, ph, remarks, image_path)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(batch_id, step_number) DO UPDATE SET
-      end_time = COALESCE(excluded.end_time, end_time),
-      pressure = COALESCE(excluded.pressure, pressure),
-      brix = COALESCE(excluded.brix, brix),
-      ph = COALESCE(excluded.ph, ph),
-      remarks = COALESCE(excluded.remarks, remarks),
-      image_path = COALESCE(excluded.image_path, image_path)
-  `;
-
-  db.run(query, [batchId, stepNumber, stepDescription, startTime, endTime, pressure, brix, ph, remarks, imagePath], function(err) {
-    if (err) { console.error('[steps/log] DB error:', err.message); return res.status(500).json({ error: err.message }); }
-    res.json({ success: true, imagePath });
+  db.get('SELECT id FROM cip_step_logs WHERE batch_id = ? AND step_number = ?', [batchId, stepNumber], (err, existing) => {
+    if (existing) {
+      db.run(`UPDATE cip_step_logs SET
+        step_description = COALESCE(?, step_description),
+        start_time = COALESCE(?, start_time),
+        end_time = COALESCE(?, end_time),
+        pressure = COALESCE(?, pressure),
+        brix = COALESCE(?, brix),
+        ph = COALESCE(?, ph),
+        remarks = COALESCE(?, remarks),
+        image_path = COALESCE(?, image_path)
+        WHERE batch_id = ? AND step_number = ?`,
+        [stepDescription || null, startTime || null, endTime || null, pressure || null, brix || null, ph || null, remarks || null, imagePath || null, batchId, stepNumber],
+        function(err2) {
+          if (err2) { console.error('[steps/log] UPDATE error:', err2.message); return res.status(500).json({ error: err2.message }); }
+          res.json({ success: true, imagePath });
+        }
+      );
+    } else {
+      db.run(`INSERT INTO cip_step_logs (batch_id, step_number, step_description, start_time, end_time, pressure, brix, ph, remarks, image_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [batchId, stepNumber, stepDescription, startTime, endTime, pressure, brix, ph, remarks, imagePath],
+        function(err2) {
+          if (err2) { console.error('[steps/log] INSERT error:', err2.message); return res.status(500).json({ error: err2.message }); }
+          res.json({ success: true, imagePath });
+        }
+      );
+    }
   });
 });
 
