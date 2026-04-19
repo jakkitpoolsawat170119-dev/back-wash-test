@@ -394,7 +394,7 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
                 <label style={labelStyle}>📷 รูปภาพ (ไม่บังคับ)</label>
                 {row.imagePath ? (
                   <div style={{ position: 'relative' }}>
-                    <img src={`${apiUrl}${row.imagePath}`} alt="batch" style={{ width: '100%', borderRadius: '12px', maxHeight: '200px', objectFit: 'cover' }} />
+                    <img src={row.imagePath.startsWith('data:') ? row.imagePath : `${apiUrl}${row.imagePath}`} alt="batch" style={{ width: '100%', borderRadius: '12px', maxHeight: '200px', objectFit: 'cover' }} />
                     <button onClick={() => updateRow(currentNo, 'imagePath', '')} style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.5)', color: 'white', border: 'none', borderRadius: '20px', padding: '4px 10px', fontSize: '0.75rem', cursor: 'pointer' }}>✕ ลบ</button>
                   </div>
                 ) : (
@@ -582,6 +582,7 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
                             {r.ph && <span>🧪 pH: {r.ph}</span>}
                             {r.brix && <span>🍬 Brix: {r.brix}</span>}
                           </div>
+                          {r.imagePath && <img src={r.imagePath.startsWith('data:') ? r.imagePath : `${apiUrl}${r.imagePath}`} alt="batch" style={{ marginTop: '6px', width: '100%', maxWidth: '200px', borderRadius: '8px', border: '1px solid #ffcc80' }} />}
                         </div>
                       ))}
                     </div>

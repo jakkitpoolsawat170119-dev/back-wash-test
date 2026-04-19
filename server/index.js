@@ -136,7 +136,7 @@ app.post('/api/cip-line2/row', (req, res) => {
   // ส่ง Telegram ทันทีเมื่อ Stop (มี endTime) โดยใช้ sessionInfo จาก client
   if (data.endTime) {
     const info = sessionInfo || {};
-    sendToTelegram([
+    const msg = [
       `📋 <b>CIP ${escapeHtml(info.line || 'Line 2')} — Batch เสร็จสิ้น</b>`,
       `NO.${rowNo} | ${escapeHtml(info.sku || '')} ${escapeHtml(info.flavor || '')}`,
       `👤 ${escapeHtml(info.operatorName || '')} | 📅 ${escapeHtml(info.date || '')}`,
@@ -147,7 +147,10 @@ app.post('/api/cip-line2/row', (req, res) => {
       data.pump2Pressure ? `💨 Pump2: ${escapeHtml(data.pump2Pressure)} Bar` : null,
       data.ph            ? `🧪 pH: ${escapeHtml(data.ph)}` : null,
       data.brix          ? `🍬 Brix: ${escapeHtml(data.brix)}` : null,
-    ].filter(Boolean).join('\n'));
+    ].filter(Boolean).join('\n');
+    const img = data.imagePath ? dataUrlToBuffer(data.imagePath) : null;
+    if (img) sendPhotoBufferToTelegram(img.buffer, img.mimeType, msg);
+    else sendToTelegram(msg);
   }
 
   db.run(`INSERT INTO cip_line2_rows (session_id, row_no, data) VALUES (?, ?, ?)
@@ -215,7 +218,7 @@ app.post('/api/cip-line1/row', (req, res) => {
     const tStart = formatThaiTime(data.startTime);
     const tEnd   = formatThaiTime(data.endTime);
     const dur    = calcDuration(data.startTime, data.endTime);
-    sendToTelegram([
+    const msg = [
       `📋 <b>CIP Line 1 — รอบที่ ${rowNo} เสร็จสิ้น</b>`,
       `📦 SKU: ${escapeHtml(info.sku || '-')} | 📅 ${escapeHtml(info.date || '-')}`,
       `👤 ${escapeHtml(info.operatorName || '-')}`,
@@ -223,7 +226,10 @@ app.post('/api/cip-line1/row', (req, res) => {
       dur ? `⏱ รวม: ${dur} นาที` : null,
       data.ph   ? `🧪 pH: ${escapeHtml(String(data.ph))}` : null,
       data.brix ? `🍬 Brix: ${escapeHtml(String(data.brix))}` : null,
-    ].filter(Boolean).join('\n'));
+    ].filter(Boolean).join('\n');
+    const img = data.imagePath ? dataUrlToBuffer(data.imagePath) : null;
+    if (img) sendPhotoBufferToTelegram(img.buffer, img.mimeType, msg);
+    else sendToTelegram(msg);
   }
 
   db.run(`INSERT INTO cip_line1_rows (session_id, row_no, data) VALUES (?, ?, ?)
@@ -368,19 +374,36 @@ const sendToTelegram = async (message) => {
   }
 };
 
-const sendPhotoToTelegram = async (imageUrl, caption) => {
+const dataUrlToBuffer = (dataUrl) => {
+  if (!dataUrl || !dataUrl.startsWith('data:')) return null;
+  const [header, b64] = dataUrl.split(',');
+  if (!b64) return null;
+  const mime = header.replace('data:', '').replace(';base64', '');
+  return { buffer: Buffer.from(b64, 'base64'), mimeType: mime };
+};
+
+const sendPhotoBufferToTelegram = async (buffer, mimeType, caption) => {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) return;
   try {
-    await axios.post(`https://api.telegram.org/bot${token}/sendPhoto`, {
-      chat_id: chatId,
-      photo: imageUrl,
-      caption: caption,
-      parse_mode: 'HTML',
+    const boundary = '----TGBoundary' + Date.now();
+    const CRLF = '\r\n';
+    const ext = mimeType === 'image/png' ? 'png' : 'jpg';
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="chat_id"${CRLF}${CRLF}${chatId}${CRLF}`),
+      Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="parse_mode"${CRLF}${CRLF}HTML${CRLF}`),
+      Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="caption"${CRLF}${CRLF}${caption}${CRLF}`),
+      Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="photo"; filename="image.${ext}"${CRLF}Content-Type: ${mimeType}${CRLF}${CRLF}`),
+      buffer,
+      Buffer.from(`${CRLF}--${boundary}--${CRLF}`),
+    ]);
+    await axios.post(`https://api.telegram.org/bot${token}/sendPhoto`, body, {
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': body.length },
     });
+    console.log('[Telegram] Photo sent OK');
   } catch (error) {
-    console.error('Telegram error:', error.message);
+    console.error('[Telegram] Photo error:', error.response?.data || error.message);
   }
 };
 
@@ -409,20 +432,22 @@ app.post('/api/batches/start', (req, res) => {
   });
 });
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads/'),
-  filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
-});
-const upload = multer({ storage });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+
+function fileToDataUrl(file) {
+  if (!file) return null;
+  const mime = file.mimetype || 'image/jpeg';
+  return `data:${mime};base64,${file.buffer.toString('base64')}`;
+}
 
 app.post('/api/upload', upload.single('image'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  res.json({ imagePath: `/uploads/${req.file.filename}` });
+  res.json({ imagePath: fileToDataUrl(req.file) });
 });
 
 app.post('/api/steps/log', upload.single('image'), (req, res) => {
   const { batchId, stepNumber, stepDescription, startTime, endTime, pressure, brix, ph, remarks } = req.body;
-  const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
+  const imagePath = fileToDataUrl(req.file);
 
   // Log immediately when request arrives (before DB)
   console.log(`[steps/log] HIT batchId=${batchId} step=${stepNumber} endTime=${endTime}`);
@@ -445,8 +470,8 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
     ].filter(Boolean).join('\n');
 
     console.log(`[steps/log] Sending Telegram for step ${stepNumber}`);
-    if (imagePath) {
-      sendPhotoToTelegram(`https://back-wash-test.onrender.com${imagePath}`, msg);
+    if (req.file) {
+      sendPhotoBufferToTelegram(req.file.buffer, req.file.mimetype, msg);
     } else {
       sendToTelegram(msg);
     }
@@ -530,22 +555,23 @@ app.post('/api/batches/finish', (req, res) => {
 });
 
 app.post('/api/production/log', (req, res) => {
-  const { line, flavor, batch, operator, timestamp, cipCount, brix, ph, startTime, endTime, duration } = req.body;
+  const { line, flavor, batch, operator, timestamp, cipCount, brix, ph, startTime, endTime, duration, lotNo } = req.body;
   const fmtTime = timestamp ? new Date(timestamp).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T') : null;
   const query = `INSERT INTO production_logs (timestamp, line_name, flavor, batch, operator_name, cip_count) VALUES (?, ?, ?, ?, ?, ?)`;
   db.run(query, [fmtTime, line, flavor, batch, operator, cipCount], function(err) {
     if (err) return res.status(500).json({ error: err.message });
     sendToTelegram([
       `🏭 <b>บันทึกการผลิต</b>`,
-      `📍 Line: ${line} | รสชาติ: ${flavor}`,
-      `📦 Batch: ${batch}`,
-      `👤 ผู้ดำเนินการ: ${operator}`,
-      startTime ? `▶️ เวลาเริ่ม: ${startTime}` : null,
-      endTime   ? `⏹️ เวลาจบ: ${endTime}` : null,
+      lotNo ? `🏷️ Lot No.: <b>${escapeHtml(lotNo)}</b>` : null,
+      `📍 Line: ${escapeHtml(line)} | รสชาติ: ${escapeHtml(flavor)}`,
+      `📦 Batch: ${escapeHtml(batch)}`,
+      `👤 ผู้ดำเนินการ: ${escapeHtml(operator)}`,
+      startTime ? `▶️ เวลาเริ่ม: ${escapeHtml(startTime)}` : null,
+      endTime   ? `⏹️ เวลาจบ: ${escapeHtml(endTime)}` : null,
       duration  ? `⏱ รวม: ${duration} นาที` : null,
-      brix ? `🍬 Brix: ${brix}` : null,
-      ph   ? `🧪 pH: ${ph}` : null,
-      (cipCount && cipCount !== '-') ? `🧼 CIP: ${cipCount}` : null,
+      brix ? `🍬 Brix: ${escapeHtml(String(brix))}` : null,
+      ph   ? `🧪 pH: ${escapeHtml(String(ph))}` : null,
+      (cipCount && cipCount !== '-') ? `🧼 CIP: ${escapeHtml(cipCount)}` : null,
     ].filter(Boolean).join('\n'));
     res.json({ success: true, logId: this.lastID });
   });

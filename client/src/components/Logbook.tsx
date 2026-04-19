@@ -263,7 +263,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, o
                   <label className={styles.formLabel}>📷 รูปถ่ายหน้างาน</label>
                   <input type="file" accept="image/*" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileChange(step.id, file); }} className={styles.formInput} />
                   {uploadingStep === step.id && <div style={{ color: '#ff6b00', fontSize: '0.8rem', marginTop: '5px' }}>⏳ กำลังอัปโหลด...</div>}
-                  {(data.image || data.imagePath) && <div style={{ marginTop: '10px' }}><img src={data.image ? URL.createObjectURL(data.image) : `${apiUrl}${data.imagePath}`} alt="Preview" style={{ width: '100%', maxWidth: '250px', borderRadius: '12px', border: '2px solid #ff6b00' }} /></div>}
+                  {(data.image || data.imagePath) && <div style={{ marginTop: '10px' }}><img src={data.image ? URL.createObjectURL(data.image) : (data.imagePath!.startsWith('data:') ? data.imagePath : `${apiUrl}${data.imagePath}`)} alt="Preview" style={{ width: '100%', maxWidth: '250px', borderRadius: '12px', border: '2px solid #ff6b00' }} /></div>}
                 </div>
             </div>
           </div>
@@ -336,6 +336,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, o
                                 {s.ph && <span>🧪 {s.ph}</span>}
                                 {s.remarks && <span>💬 {s.remarks}</span>}
                               </div>
+                              {s.image_path && <img src={s.image_path.startsWith('data:') ? s.image_path : `${apiUrl}${s.image_path}`} alt="step" style={{ marginTop: '6px', width: '100%', maxWidth: '200px', borderRadius: '8px', border: '1px solid #ffcc80' }} />}
                             </div>
                           ))}
                         </div>
