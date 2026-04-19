@@ -97,6 +97,13 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], cookingBatch: selectedBatch } }));
   };
 
+  const fmtLotNo = (dateStr: string) => {
+    if (!dateStr) return '';
+    const [y, m, d] = dateStr.split('-');
+    if (!y || !m || !d) return dateStr;
+    return `${d}${m}${y.slice(2)}`;
+  };
+
   const handleStart = (lineId: number) => {
     const line = lines[lineId];
     if (!line.flavor || !line.cookingBatch) { alert("กรุณาเลือก รสชาติ และ Batch เริ่มต้ม ก่อนกด Start"); return; }
@@ -113,13 +120,14 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     const diffMs = now.getTime() - line.startRaw.getTime();
     const diffMins = Math.round(diffMs / 60000);
     const isCip = line.flavor === "CIP";
-    const newCompletedBatch: CompletedBatch = { line: lineId, batch: line.cookingBatch, flavor: line.flavor, startTime: line.startTime, doneTime: timeStr, duration: diffMins, brix: line.brix, ph: line.ph, lotNo: line.lotNo };
+    const formattedLotNo = fmtLotNo(line.lotNo);
+    const newCompletedBatch: CompletedBatch = { line: lineId, batch: line.cookingBatch, flavor: line.flavor, startTime: line.startTime, doneTime: timeStr, duration: diffMins, brix: line.brix, ph: line.ph, lotNo: formattedLotNo };
     const newHistory = [...line.history, newCompletedBatch];
     const newTotalCompleted = line.totalCompleted + 1;
     const newCipCount = isCip ? line.cipCount + 1 : line.cipCount;
     setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], doneTime: timeStr, history: newHistory, totalCompleted: newTotalCompleted, cipCount: newCipCount, isProcessing: false, showInputs: false, cookingBatch: '', startTime: null, startRaw: null, brix: '', ph: '' } }));
     try {
-      await fetch(`${apiUrl}/api/production/log`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ line: `Line ${lineId}`, flavor: line.flavor, batch: line.cookingBatch, operator: operatorName, timestamp: new Date().toISOString(), duration: diffMins, brix: line.brix, ph: line.ph, cipCount: isCip ? "1 Batch" : "-", lotNo: line.lotNo, startTime: line.startTime, endTime: timeStr }) });
+      await fetch(`${apiUrl}/api/production/log`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ line: `Line ${lineId}`, flavor: line.flavor, batch: line.cookingBatch, operator: operatorName, timestamp: new Date().toISOString(), duration: diffMins, brix: line.brix, ph: line.ph, cipCount: isCip ? "1 Batch" : "-", lotNo: formattedLotNo, startTime: line.startTime, endTime: timeStr }) });
     } catch (error) { console.error("Failed to log:", error); }
   };
 
@@ -174,6 +182,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
                       disabled={line.isProcessing}
                       style={{ fontWeight: 'bold' }}
                     />
+                    {line.lotNo && <div style={{ marginTop: '5px', fontWeight: 'bold', fontSize: '1.1rem', color: '#2e7d32', letterSpacing: '2px' }}>→ {fmtLotNo(line.lotNo)}</div>}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '20px', background: 'linear-gradient(90deg, #fff9c4 0%, #e3f2fd 50%, #e8f5e9 100%)', padding: '12px', borderRadius: '18px', boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.05)', border: '1px solid rgba(0,0,0,0.05)', position: 'relative' }}>
                     <div className={styles.formGroup} style={{ flex: 1 }}>
