@@ -40,7 +40,7 @@ interface LineState {
 
 const apiUrl = "https://back-wash-test.onrender.com";
 
-const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBack, onBackToMain, onHome, onStatusChange }) => {
+const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHome, onStatusChange }) => {
   const batchOptions = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
   const [showSummaryModal, setShowSummaryModal] = useState(false);
 
@@ -144,22 +144,6 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
         Production Control
       </h2>
 
-      {/* 2. แถบปุ่มแยกซ้าย-ขวา */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '95%', maxWidth: '500px', margin: '0 auto 25px auto', gap: '10px' }}>
-        <button 
-          onClick={onBackToMain}
-          style={{ background: '#f5f5f5', border: '1px solid #ddd', borderRadius: '10px', padding: '10px 15px', fontSize: '0.8rem', cursor: 'pointer', color: '#666', fontWeight: 'bold' }}
-        >
-          🔙 เมนูหลัก
-        </button>
-        <button 
-          onClick={onBack} 
-          style={{ padding: '10px 20px', fontSize: '0.85rem', fontWeight: 'bold', background: 'linear-gradient(135deg, #ff6b00, #ff9800)', color: '#000', border: 'none', borderRadius: '10px', boxShadow: '0 4px 10px rgba(255, 107, 0, 0.2)', cursor: 'pointer' }}
-        >
-          🔄 ไปหน้าบันทึก CIP
-        </button>
-      </div>
-
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', padding: '10px' }}>
         {[1, 2, 3, 4].map(lineId => {
           const line = lines[lineId];
@@ -174,15 +158,14 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onBac
               {line.showInputs ? (
                 <>
                   <div className={styles.formGroup} style={{ marginBottom: '10px' }}>
-                    <label className={styles.formLabel}>🏷️ Lot No.</label>
+                    <label className={styles.formLabel}>🏷️ Lot No. (วันที่ผลิต)</label>
                     <input
-                      type="text"
+                      type="date"
                       className={styles.formInput}
                       value={line.lotNo}
                       onChange={e => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], lotNo: e.target.value } }))}
-                      placeholder="เช่น 190224"
                       disabled={line.isProcessing}
-                      style={{ fontWeight: 'bold', letterSpacing: '1px' }}
+                      style={{ fontWeight: 'bold' }}
                     />
                   </div>
                   <div className={styles.formGroup} style={{ marginBottom: '10px' }}>
