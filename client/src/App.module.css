@@ -40,9 +40,11 @@
   transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s ease;
 }
 
-.loginCard:hover {
-  transform: scale(1.01);
-  box-shadow: 0 30px 60px rgba(255, 107, 0, 0.15), 0 15px 30px rgba(0, 0, 0, 0.08);
+@media (hover: hover) {
+  .loginCard:hover {
+    transform: scale(1.01);
+    box-shadow: 0 30px 60px rgba(255, 107, 0, 0.15), 0 15px 30px rgba(0, 0, 0, 0.08);
+  }
 }
 
 .btnPrimary {
@@ -61,10 +63,12 @@
   margin-top: 10px;
 }
 
-.btnPrimary:hover {
-  transform: translateY(-3px) scale(1.03);
-  box-shadow: 0 10px 20px rgba(255, 107, 0, 0.4);
-  background: linear-gradient(135deg, #ff8c00, #ff6b00);
+@media (hover: hover) {
+  .btnPrimary:hover {
+    transform: translateY(-3px) scale(1.03);
+    box-shadow: 0 10px 20px rgba(255, 107, 0, 0.4);
+    background: linear-gradient(135deg, #ff8c00, #ff6b00);
+  }
 }
 
 .btnPrimary:active {
@@ -102,7 +106,6 @@
   box-shadow: 0 10px 20px rgba(255, 215, 0, 0.4);
   position: relative;
   overflow: hidden;
-  transform: scale(1.05);
 }
 
 /* 🏆 Golden Shine Animation */
