@@ -154,7 +154,6 @@ app.post('/api/cip-line2/row', (req, res) => {
     if (img) sendPhotoBufferToTelegram(img.buffer, img.mimeType, msg);
     else sendToTelegram(msg);
 
-    const info = sessionInfo || {};
     sendToN8n({
       type: 'cip_line2',
       sessionId, rowNo,
@@ -251,7 +250,6 @@ app.post('/api/cip-line1/row', (req, res) => {
     if (img) sendPhotoBufferToTelegram(img.buffer, img.mimeType, msg);
     else sendToTelegram(msg);
 
-    const info = sessionInfo || {};
     sendToN8n({
       type: 'cip_line1',
       sessionId, rowNo,
