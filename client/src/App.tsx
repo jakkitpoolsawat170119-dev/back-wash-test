@@ -52,7 +52,7 @@ const App: React.FC = () => {
   const handleProdStatus = useCallback((active: boolean) => setIsProdActive(active), []);
 
   return (
-    <div className={styles.container} style={{ perspective: '1000px' }}>
+    <div className={styles.container}>
       <style>{`
         @keyframes flipPaper { 0% { transform: rotateY(0deg); opacity: 1; } 50% { transform: rotateY(90deg); opacity: 0.5; } 100% { transform: rotateY(0deg); opacity: 1; } }
         .flip-active { animation: flipPaper 0.6s ease-in-out; }
