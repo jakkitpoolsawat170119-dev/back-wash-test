@@ -153,6 +153,24 @@ app.post('/api/cip-line2/row', (req, res) => {
     const img = data.imagePath ? dataUrlToBuffer(data.imagePath) : null;
     if (img) sendPhotoBufferToTelegram(img.buffer, img.mimeType, msg);
     else sendToTelegram(msg);
+
+    const info = sessionInfo || {};
+    sendToN8n({
+      type: 'cip_line2',
+      sessionId, rowNo,
+      line: info.line || 'Line 2',
+      sku: info.sku || '',
+      flavor: info.flavor || '',
+      operator: info.operatorName || '',
+      date: info.date || '',
+      startTime: data.startTime || '',
+      endTime: data.endTime || '',
+      duration: data.duration || '',
+      pump1Pressure: data.pump1Pressure || '',
+      pump2Pressure: data.pump2Pressure || '',
+      ph: data.ph || '',
+      brix: data.brix || '',
+    });
   }
 
   db.run(`INSERT INTO cip_line2_rows (session_id, row_no, data) VALUES (?, ?, ?)
@@ -232,6 +250,20 @@ app.post('/api/cip-line1/row', (req, res) => {
     const img = data.imagePath ? dataUrlToBuffer(data.imagePath) : null;
     if (img) sendPhotoBufferToTelegram(img.buffer, img.mimeType, msg);
     else sendToTelegram(msg);
+
+    const info = sessionInfo || {};
+    sendToN8n({
+      type: 'cip_line1',
+      sessionId, rowNo,
+      sku: info.sku || '',
+      operator: info.operatorName || '',
+      date: info.date || '',
+      startTime: data.startTime || '',
+      endTime: data.endTime || '',
+      duration: calcDuration(data.startTime, data.endTime) || '',
+      ph: data.ph || '',
+      brix: data.brix || '',
+    });
   }
 
   db.run(`INSERT INTO cip_line1_rows (session_id, row_no, data) VALUES (?, ?, ?)
@@ -360,6 +392,20 @@ const calcDuration = (startIso, endIso) => {
   } catch { return null; }
 };
 
+const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || 'https://n8n.srv1267366.hstgr.cloud/webhook/cip-report';
+
+const sendToN8n = async (data) => {
+  try {
+    await axios.post(N8N_WEBHOOK_URL, data, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 10000,
+    });
+    console.log('[N8N] sent OK type=' + data.type);
+  } catch (error) {
+    console.error('[N8N] error:', error.response?.data || error.message);
+  }
+};
+
 const sendToTelegram = async (message) => {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -469,10 +515,8 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
     ].filter(Boolean).join('\n');
 
     if (req.file) {
-      // Image attached in this request — send photo directly
       sendPhotoBufferToTelegram(req.file.buffer, req.file.mimetype, msg);
     } else {
-      // No image in this request — look up previously saved image then send
       db.get('SELECT image_path FROM cip_step_logs WHERE batch_id = ? AND step_number = ?', [batchId, stepNumber], (err2, row) => {
         const stored = row?.image_path;
         console.log(`[steps/log] stored image: ${!!stored}`);
@@ -485,6 +529,20 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
         }
       });
     }
+
+    sendToN8n({
+      type: 'cip_step',
+      batchId, stepNumber,
+      stepDescription,
+      operator: req.body.operatorName || '',
+      startTime: startTime || '',
+      endTime: endTime || '',
+      duration: calcDuration(startTime, endTime) || '',
+      pressure: pressure || '',
+      brix: brix || '',
+      ph: ph || '',
+      remarks: remarks || '',
+    });
   }
 
   db.get('SELECT id FROM cip_step_logs WHERE batch_id = ? AND step_number = ?', [batchId, stepNumber], (err, existing) => {
@@ -595,6 +653,21 @@ app.post('/api/production/log', (req, res) => {
       ph   ? `🧪 pH: ${escapeHtml(String(ph))}` : null,
       (cipCount && cipCount !== '-') ? `🧼 CIP: ${escapeHtml(cipCount)}` : null,
     ].filter(Boolean).join('\n'));
+    sendToN8n({
+      type: 'production',
+      timestamp: fmtTime || '',
+      line: line || '',
+      flavor: flavor || '',
+      batch: batch || '',
+      lotNo: lotNo || '',
+      operator: operator || '',
+      startTime: startTime || '',
+      endTime: endTime || '',
+      duration: duration || '',
+      brix: brix || '',
+      ph: ph || '',
+      cipCount: cipCount || '',
+    });
     res.json({ success: true, logId: this.lastID });
   });
 });
