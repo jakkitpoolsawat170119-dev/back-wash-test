@@ -120,6 +120,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, o
       const endTime = new Date().toISOString();
       const current = stepData[stepId] || {};
       await saveStepData(stepId, {
+        startTime: current.startTime,
         endTime,
         status: 'completed',
         pressure: current.pressure,
