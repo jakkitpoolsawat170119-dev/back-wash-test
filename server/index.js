@@ -496,53 +496,53 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
 
   console.log(`[steps/log] batchId=${batchId} step=${stepNumber} endTime=${!!endTime} hasFile=${!!req.file}`);
 
-  // Build and send Telegram BEFORE db.run so it always fires
-  console.log(`[steps/log] endTime value: "${endTime}" (truthy=${!!endTime})`);
+  // Build and send Telegram/n8n BEFORE db.run
+  console.log(`[steps/log] endTime="${endTime}" startTime="${startTime}"`);
   if (endTime) {
     const operatorName = req.body.operatorName || '-';
-    console.log(`[steps/log] Telegram path entered. operator=${operatorName} hasFile=${!!req.file}`);
-    const tStart = formatThaiTime(startTime);
-    const tEnd   = formatThaiTime(endTime);
-    const dur    = calcDuration(startTime, endTime);
-    const msg = [
-      `📋 <b>CIP Step ${escapeHtml(stepNumber)}: ${escapeHtml(stepDescription)}</b>`,
-      `👤 ผู้ดำเนินการ: ${escapeHtml(operatorName)}`,
-      (tStart || tEnd) ? `⏱ เริ่ม: ${tStart || '-'}  →  จบ: ${tEnd || '-'}` : null,
-      dur              ? `⏱ รวม: ${dur} นาที` : null,
-      pressure ? `💨 Pressure: ${escapeHtml(pressure)}` : null,
-      brix     ? `🍬 Brix: ${escapeHtml(brix)}` : null,
-      ph       ? `🧪 pH: ${escapeHtml(ph)}` : null,
-      remarks  ? `💬 หมายเหตุ: ${escapeHtml(remarks)}` : null,
-    ].filter(Boolean).join('\n');
+    // Look up stored start_time from DB if client didn't send it
+    db.get('SELECT start_time, image_path FROM cip_step_logs WHERE batch_id = ? AND step_number = ?', [batchId, stepNumber], (err2, row) => {
+      const resolvedStart = startTime || row?.start_time || '';
+      const tStart = formatThaiTime(resolvedStart);
+      const tEnd   = formatThaiTime(endTime);
+      const dur    = calcDuration(resolvedStart, endTime);
+      console.log(`[steps/log] resolvedStart="${resolvedStart}" dur=${dur}`);
 
-    if (req.file) {
-      sendPhotoBufferToTelegram(req.file.buffer, req.file.mimetype, msg);
-    } else {
-      db.get('SELECT image_path FROM cip_step_logs WHERE batch_id = ? AND step_number = ?', [batchId, stepNumber], (err2, row) => {
-        const stored = row?.image_path;
-        console.log(`[steps/log] stored image: ${!!stored}`);
-        if (stored) {
-          const img = dataUrlToBuffer(stored);
-          if (img) sendPhotoBufferToTelegram(img.buffer, img.mimeType, msg);
-          else sendToTelegram(msg);
-        } else {
-          sendToTelegram(msg);
-        }
+      const msg = [
+        `📋 <b>CIP Step ${escapeHtml(stepNumber)}: ${escapeHtml(stepDescription)}</b>`,
+        `👤 ผู้ดำเนินการ: ${escapeHtml(operatorName)}`,
+        (tStart || tEnd) ? `⏱ เริ่ม: ${tStart || '-'}  →  จบ: ${tEnd || '-'}` : null,
+        dur              ? `⏱ รวม: ${dur} นาที` : null,
+        pressure ? `💨 Pressure: ${escapeHtml(pressure)}` : null,
+        brix     ? `🍬 Brix: ${escapeHtml(brix)}` : null,
+        ph       ? `🧪 pH: ${escapeHtml(ph)}` : null,
+        remarks  ? `💬 หมายเหตุ: ${escapeHtml(remarks)}` : null,
+      ].filter(Boolean).join('\n');
+
+      const stored = row?.image_path;
+      if (req.file) {
+        sendPhotoBufferToTelegram(req.file.buffer, req.file.mimetype, msg);
+      } else if (stored) {
+        const img = dataUrlToBuffer(stored);
+        if (img) sendPhotoBufferToTelegram(img.buffer, img.mimeType, msg);
+        else sendToTelegram(msg);
+      } else {
+        sendToTelegram(msg);
+      }
+
+      sendToN8n({
+        type: 'cip_step',
+        batchId, stepNumber,
+        stepDescription,
+        operator: operatorName,
+        startTime: formatThaiTime(resolvedStart) || resolvedStart || '',
+        endTime: formatThaiTime(endTime) || endTime || '',
+        duration: dur !== null ? String(dur) : '',
+        pressure: pressure || '',
+        brix: brix || '',
+        ph: ph || '',
+        remarks: remarks || '',
       });
-    }
-
-    sendToN8n({
-      type: 'cip_step',
-      batchId, stepNumber,
-      stepDescription,
-      operator: req.body.operatorName || '',
-      startTime: formatThaiTime(startTime) || startTime || '',
-      endTime: formatThaiTime(endTime) || endTime || '',
-      duration: calcDuration(startTime, endTime) || '',
-      pressure: pressure || '',
-      brix: brix || '',
-      ph: ph || '',
-      remarks: remarks || '',
     });
   }
 
