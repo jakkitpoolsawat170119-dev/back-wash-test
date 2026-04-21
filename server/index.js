@@ -20,6 +20,9 @@ const db = new sqlite3.Database('./cip_database.sqlite', (err) => {
   console.log('Connected to the SQLite database.');
 });
 
+// In-memory cache for step start times (handles out-of-order handleStart/handleStop requests)
+const stepStartCache = {};
+
 db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS operators (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -491,59 +494,70 @@ app.post('/api/upload', upload.single('image'), (req, res) => {
 });
 
 app.post('/api/steps/log', upload.single('image'), (req, res) => {
-  const { batchId, stepNumber, stepDescription, startTime, endTime, pressure, brix, ph, remarks } = req.body;
+  const { batchId, stepNumber, stepDescription, pressure, brix, ph, remarks } = req.body;
   const imagePath = fileToDataUrl(req.file);
 
-  console.log(`[steps/log] batchId=${batchId} step=${stepNumber} endTime=${!!endTime} hasFile=${!!req.file}`);
+  // Filter out literal "undefined" strings sent by old client build
+  const cleanStart = (req.body.startTime && req.body.startTime !== 'undefined') ? req.body.startTime : null;
+  const cleanEnd   = (req.body.endTime   && req.body.endTime   !== 'undefined') ? req.body.endTime   : null;
+  const cacheKey   = `${batchId}_${stepNumber}`;
 
-  // Build and send Telegram/n8n BEFORE db.run
-  console.log(`[steps/log] endTime="${endTime}" startTime="${startTime}"`);
-  if (endTime) {
+  console.log(`[steps/log] batchId=${batchId} step=${stepNumber} endTime=${!!cleanEnd} hasFile=${!!req.file}`);
+  console.log(`[steps/log] endTime="${cleanEnd}" startTime="${cleanStart}"`);
+
+  // Cache start time immediately so it's available when stop arrives (even out-of-order)
+  if (cleanStart) {
+    stepStartCache[cacheKey] = cleanStart;
+  }
+
+  if (cleanEnd) {
     const operatorName = req.body.operatorName || '-';
-    // Look up stored start_time from DB if client didn't send it
-    db.get('SELECT start_time, image_path FROM cip_step_logs WHERE batch_id = ? AND step_number = ?', [batchId, stepNumber], (err2, row) => {
-      const resolvedStart = startTime || row?.start_time || '';
-      const tStart = formatThaiTime(resolvedStart);
-      const tEnd   = formatThaiTime(endTime);
-      const dur    = calcDuration(resolvedStart, endTime);
-      console.log(`[steps/log] resolvedStart="${resolvedStart}" dur=${dur}`);
+    // Delay 1.5s: handles race where handleStop arrives before handleStart's DB write
+    setTimeout(() => {
+      db.get('SELECT start_time, image_path FROM cip_step_logs WHERE batch_id = ? AND step_number = ?', [batchId, stepNumber], (err2, row) => {
+        const resolvedStart = cleanStart || stepStartCache[cacheKey] || row?.start_time || '';
+        const tStart = formatThaiTime(resolvedStart);
+        const tEnd   = formatThaiTime(cleanEnd);
+        const dur    = calcDuration(resolvedStart, cleanEnd);
+        console.log(`[steps/log] resolvedStart="${resolvedStart}" dur=${dur}`);
 
-      const msg = [
-        `📋 <b>CIP Step ${escapeHtml(stepNumber)}: ${escapeHtml(stepDescription)}</b>`,
-        `👤 ผู้ดำเนินการ: ${escapeHtml(operatorName)}`,
-        (tStart || tEnd) ? `⏱ เริ่ม: ${tStart || '-'}  →  จบ: ${tEnd || '-'}` : null,
-        dur              ? `⏱ รวม: ${dur} นาที` : null,
-        pressure ? `💨 Pressure: ${escapeHtml(pressure)}` : null,
-        brix     ? `🍬 Brix: ${escapeHtml(brix)}` : null,
-        ph       ? `🧪 pH: ${escapeHtml(ph)}` : null,
-        remarks  ? `💬 หมายเหตุ: ${escapeHtml(remarks)}` : null,
-      ].filter(Boolean).join('\n');
+        const msg = [
+          `📋 <b>CIP Step ${escapeHtml(stepNumber)}: ${escapeHtml(stepDescription)}</b>`,
+          `👤 ผู้ดำเนินการ: ${escapeHtml(operatorName)}`,
+          (tStart || tEnd) ? `⏱ เริ่ม: ${tStart || '-'}  →  จบ: ${tEnd || '-'}` : null,
+          dur              ? `⏱ รวม: ${dur} นาที` : null,
+          pressure ? `💨 Pressure: ${escapeHtml(pressure)}` : null,
+          brix     ? `🍬 Brix: ${escapeHtml(brix)}` : null,
+          ph       ? `🧪 pH: ${escapeHtml(ph)}` : null,
+          remarks  ? `💬 หมายเหตุ: ${escapeHtml(remarks)}` : null,
+        ].filter(Boolean).join('\n');
 
-      const stored = row?.image_path;
-      if (req.file) {
-        sendPhotoBufferToTelegram(req.file.buffer, req.file.mimetype, msg);
-      } else if (stored) {
-        const img = dataUrlToBuffer(stored);
-        if (img) sendPhotoBufferToTelegram(img.buffer, img.mimeType, msg);
-        else sendToTelegram(msg);
-      } else {
-        sendToTelegram(msg);
-      }
+        const stored = row?.image_path;
+        if (req.file) {
+          sendPhotoBufferToTelegram(req.file.buffer, req.file.mimetype, msg);
+        } else if (stored) {
+          const img = dataUrlToBuffer(stored);
+          if (img) sendPhotoBufferToTelegram(img.buffer, img.mimeType, msg);
+          else sendToTelegram(msg);
+        } else {
+          sendToTelegram(msg);
+        }
 
-      sendToN8n({
-        type: 'cip_step',
-        batchId, stepNumber,
-        stepDescription,
-        operator: operatorName,
-        startTime: formatThaiTime(resolvedStart) || resolvedStart || '',
-        endTime: formatThaiTime(endTime) || endTime || '',
-        duration: dur !== null ? String(dur) : '',
-        pressure: pressure || '',
-        brix: brix || '',
-        ph: ph || '',
-        remarks: remarks || '',
+        sendToN8n({
+          type: 'cip_step',
+          batchId, stepNumber,
+          stepDescription,
+          operator: operatorName,
+          startTime: formatThaiTime(resolvedStart) || resolvedStart || '',
+          endTime: formatThaiTime(cleanEnd) || cleanEnd || '',
+          duration: dur !== null ? String(dur) : '',
+          pressure: pressure || '',
+          brix: brix || '',
+          ph: ph || '',
+          remarks: remarks || '',
+        });
       });
-    });
+    }, 1500);
   }
 
   db.get('SELECT id FROM cip_step_logs WHERE batch_id = ? AND step_number = ?', [batchId, stepNumber], (err, existing) => {
@@ -558,7 +572,7 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
         remarks = COALESCE(?, remarks),
         image_path = COALESCE(?, image_path)
         WHERE batch_id = ? AND step_number = ?`,
-        [stepDescription || null, startTime || null, endTime || null, pressure || null, brix || null, ph || null, remarks || null, imagePath || null, batchId, stepNumber],
+        [stepDescription || null, cleanStart || null, cleanEnd || null, pressure || null, brix || null, ph || null, remarks || null, imagePath || null, batchId, stepNumber],
         function(err2) {
           if (err2) { console.error('[steps/log] UPDATE error:', err2.message); return res.status(500).json({ error: err2.message }); }
           res.json({ success: true, imagePath });
@@ -566,7 +580,7 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
       );
     } else {
       db.run(`INSERT INTO cip_step_logs (batch_id, step_number, step_description, start_time, end_time, pressure, brix, ph, remarks, image_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [batchId, stepNumber, stepDescription, startTime, endTime, pressure, brix, ph, remarks, imagePath],
+        [batchId, stepNumber, stepDescription, cleanStart, cleanEnd, pressure, brix, ph, remarks, imagePath],
         function(err2) {
           if (err2) { console.error('[steps/log] INSERT error:', err2.message); return res.status(500).json({ error: err2.message }); }
           res.json({ success: true, imagePath });
