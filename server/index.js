@@ -407,6 +407,7 @@ const sendToN8n = async (data) => {
 const sendToTelegram = async (message) => {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
+  console.log(`[Telegram] sendToTelegram called. hasToken=${!!token} hasChatId=${!!chatId} msgLen=${message?.length}`);
   if (!token || !chatId) { console.error('[Telegram] Missing token or chatId'); return; }
   try {
     await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -496,8 +497,10 @@ app.post('/api/steps/log', upload.single('image'), (req, res) => {
   console.log(`[steps/log] batchId=${batchId} step=${stepNumber} endTime=${!!endTime} hasFile=${!!req.file}`);
 
   // Build and send Telegram BEFORE db.run so it always fires
+  console.log(`[steps/log] endTime value: "${endTime}" (truthy=${!!endTime})`);
   if (endTime) {
     const operatorName = req.body.operatorName || '-';
+    console.log(`[steps/log] Telegram path entered. operator=${operatorName} hasFile=${!!req.file}`);
     const tStart = formatThaiTime(startTime);
     const tEnd   = formatThaiTime(endTime);
     const dur    = calcDuration(startTime, endTime);
