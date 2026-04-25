@@ -81,7 +81,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     "CIP", "ว่าง", "Freshy Green Apple", "Freshy Sala", "Senorita Yuzu",
     "MLH 02", "Freshy Pineapple", "Operator Name", "Freshy Grape",
     "Freshy Punch", "Freshy blue Lemon", "Senorita Fres Mint",
-    "Freshy Orange", "Signature Rose"
+    "Freshy Orange", "Signature Rose", "Freshy Shine Muscat Grape"
   ];
 
   const getNextBatch = (currentBatch: string) => {
