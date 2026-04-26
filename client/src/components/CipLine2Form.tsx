@@ -52,6 +52,10 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
   const [currentNo, setCurrentNo] = useState(1);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
+  const [filterDate2, setFilterDate2] = useState('');
+  const [filterOperator2, setFilterOperator2] = useState('');
+  const [filterFlavor2, setFilterFlavor2] = useState('');
+  const [filterLine2, setFilterLine2] = useState('');
   const [expandedSessions, setExpandedSessions] = useState<Set<number>>(new Set());
 
   const getOrCreateSession = async () => {
@@ -553,8 +557,26 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
               <h3 style={{ margin: 0, color: '#ff6b00' }}>📊 ประวัติ CIP Line 2&3</h3>
               <button onClick={() => setShowHistory(false)} style={{ background: '#f5f5f5', color: '#666', border: '1px solid #ddd', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer' }}>✕</button>
             </div>
+            {/* ตัวกรอง */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '15px', flexWrap: 'wrap' }}>
+              <input type="date" value={filterDate2} onChange={e => setFilterDate2(e.target.value)} style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '0.85rem', flex: 1, minWidth: '130px' }} />
+              <input type="text" placeholder="🔍 ผู้ปฏิบัติงาน" value={filterOperator2} onChange={e => setFilterOperator2(e.target.value)} style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '0.85rem', flex: 1, minWidth: '130px' }} />
+              <input type="text" placeholder="🔍 กลิ่น" value={filterFlavor2} onChange={e => setFilterFlavor2(e.target.value)} style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '0.85rem', flex: 1, minWidth: '100px' }} />
+              <select value={filterLine2} onChange={e => setFilterLine2(e.target.value)} style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '0.85rem', flex: 1, minWidth: '100px' }}>
+                <option value="">ทุก Line</option>
+                <option value="Line 2">Line 2</option>
+                <option value="Line 3">Line 3</option>
+              </select>
+              {(filterDate2 || filterOperator2 || filterFlavor2 || filterLine2) && <button onClick={() => { setFilterDate2(''); setFilterOperator2(''); setFilterFlavor2(''); setFilterLine2(''); }} style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid #ddd', background: '#f5f5f5', cursor: 'pointer', fontSize: '0.85rem' }}>✕ ล้าง</button>}
+            </div>
             {history.length === 0 && <div style={{ textAlign: 'center', color: '#999', padding: '40px' }}>ยังไม่มีประวัติ</div>}
-            {history.map((s: any) => {
+            {history.filter((s: any) => {
+              if (filterDate2 && !(s.created_at || '').startsWith(filterDate2)) return false;
+              if (filterOperator2 && !(s.operator_name || '').toLowerCase().includes(filterOperator2.toLowerCase())) return false;
+              if (filterFlavor2 && !(s.flavor || '').toLowerCase().includes(filterFlavor2.toLowerCase())) return false;
+              if (filterLine2 && (s.line || '') !== filterLine2) return false;
+              return true;
+            }).map((s: any) => {
               const doneRows = (s.rows || []).filter((r: any) => r.done).length;
               return (
                 <div key={s.id} style={{ border: '1px solid #eee', borderRadius: '14px', marginBottom: '12px', overflow: 'hidden' }}>

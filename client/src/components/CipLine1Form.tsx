@@ -35,6 +35,9 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [expandedSessions, setExpandedSessions] = useState<Set<number>>(new Set());
+  const [filterDate1, setFilterDate1] = useState('');
+  const [filterOperator1, setFilterOperator1] = useState('');
+  const [filterSku1, setFilterSku1] = useState('');
 
   const accent = '#1565c0';
   const fmtTime = (iso?: string) => { if (!iso) return '-'; try { return new Date(iso).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' }); } catch { return iso; } };
@@ -331,8 +334,20 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
               <h3 style={{ margin: 0, color: accent }}>📊 ประวัติ CIP Line 1</h3>
               <button onClick={() => setShowHistory(false)} style={{ background: '#f5f5f5', color: '#666', border: '1px solid #ddd', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer' }}>✕</button>
             </div>
+            {/* ตัวกรอง */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '15px', flexWrap: 'wrap' }}>
+              <input type="date" value={filterDate1} onChange={e => setFilterDate1(e.target.value)} style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '0.85rem', flex: 1, minWidth: '130px' }} />
+              <input type="text" placeholder="🔍 ผู้ปฏิบัติงาน" value={filterOperator1} onChange={e => setFilterOperator1(e.target.value)} style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '0.85rem', flex: 1, minWidth: '130px' }} />
+              <input type="text" placeholder="🔍 SKU" value={filterSku1} onChange={e => setFilterSku1(e.target.value)} style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '0.85rem', flex: 1, minWidth: '100px' }} />
+              {(filterDate1 || filterOperator1 || filterSku1) && <button onClick={() => { setFilterDate1(''); setFilterOperator1(''); setFilterSku1(''); }} style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid #ddd', background: '#f5f5f5', cursor: 'pointer', fontSize: '0.85rem' }}>✕ ล้าง</button>}
+            </div>
             {history.length === 0 && <div style={{ textAlign: 'center', color: '#999', padding: '40px' }}>ยังไม่มีประวัติ</div>}
-            {history.map((s: any) => {
+            {history.filter((s: any) => {
+              if (filterDate1 && !(s.created_at || '').startsWith(filterDate1)) return false;
+              if (filterOperator1 && !(s.operator_name || '').toLowerCase().includes(filterOperator1.toLowerCase())) return false;
+              if (filterSku1 && !(s.sku || '').toLowerCase().includes(filterSku1.toLowerCase())) return false;
+              return true;
+            }).map((s: any) => {
               const doneRows = (s.rows || []).filter((r: any) => r.done).length;
               return (
                 <div key={s.id} style={{ border: '1px solid #eee', borderRadius: '14px', marginBottom: '12px', overflow: 'hidden' }}>

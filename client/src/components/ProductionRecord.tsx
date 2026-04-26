@@ -44,6 +44,8 @@ const apiUrl = "https://back-wash-test.onrender.com";
 const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHome, onStatusChange }) => {
   const batchOptions = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
   const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [filterFlavorP, setFilterFlavorP] = useState('');
+  const [filterLineP, setFilterLineP] = useState('');
 
   const initialLineState: LineState = {
     lotNo: '',
@@ -306,11 +308,28 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
       {showSummaryModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '15px' }}>
             <div style={{ backgroundColor: 'white', width: '100%', maxWidth: '800px', maxHeight: '90vh', borderRadius: '25px', padding: '25px', overflowY: 'auto', boxShadow: '0 20px 50px rgba(0,0,0,0.15)', border: '1px solid #eee' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '2px solid #eee', paddingBottom: '15px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', borderBottom: '2px solid #eee', paddingBottom: '15px' }}>
                     <h3 style={{ margin: 0, color: '#1565c0' }}>📊 สรุปรายการผลิตทั้งหมด</h3>
                     <button onClick={() => setShowSummaryModal(false)} style={{ background: '#f5f5f5', color: '#666', border: '1px solid #ddd', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer', fontWeight: 'bold', fontSize: '1.1rem' }}>X</button>
                 </div>
-                <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}><thead><tr style={{ backgroundColor: '#f5f5f5' }}><th style={{ padding: '10px', border: '1px solid #ddd' }}>Line</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>Lot No.</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>Batch</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>รสชาติ</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>เวลา Start-Done</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>Brix</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>PH</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>รวมเวลา</th></tr></thead><tbody>{allHistory.length > 0 ? allHistory.map((h, i) => (<tr key={i} style={{ textAlign: 'center' }}><td style={{ padding: '10px', border: '1px solid #ddd' }}>Line {h.line}</td><td style={{ padding: '10px', border: '1px solid #ddd', fontWeight: 'bold', color: '#2e7d32' }}>{h.lotNo || '-'}</td><td style={{ padding: '10px', border: '1px solid #ddd', fontWeight: 'bold' }}>{h.batch}</td><td style={{ padding: '10px', border: '1px solid #ddd' }}>{h.flavor}</td><td style={{ padding: '10px', border: '1px solid #ddd' }}>{h.startTime} - {h.doneTime}</td><td style={{ padding: '10px', border: '1px solid #ddd', color: '#1b5e20', fontWeight: 'bold' }}>{h.brix}</td><td style={{ padding: '10px', border: '1px solid #ddd', color: '#1b5e20', fontWeight: 'bold' }}>{h.ph}</td><td style={{ padding: '10px', border: '1px solid #ddd', color: '#d84315', fontWeight: 'bold' }}>{h.duration} นาที</td></tr>)) : (<tr><td colSpan={8} style={{ padding: '20px', textAlign: 'center', color: '#888' }}>ยังไม่มีรายการที่ผลิตเสร็จ</td></tr>)}</tbody></table></div>
+                {/* ตัวกรอง */}
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '15px', flexWrap: 'wrap' }}>
+                  <input type="text" placeholder="🔍 กลิ่น" value={filterFlavorP} onChange={e => setFilterFlavorP(e.target.value)} style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '0.85rem', flex: 1, minWidth: '120px' }} />
+                  <select value={filterLineP} onChange={e => setFilterLineP(e.target.value)} style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '0.85rem', flex: 1, minWidth: '100px' }}>
+                    <option value="">ทุก Line</option>
+                    {[1,2,3,4].map(l => <option key={l} value={String(l)}>Line {l}</option>)}
+                  </select>
+                  {(filterFlavorP || filterLineP) && <button onClick={() => { setFilterFlavorP(''); setFilterLineP(''); }} style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid #ddd', background: '#f5f5f5', cursor: 'pointer', fontSize: '0.85rem' }}>✕ ล้าง</button>}
+                </div>
+                <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}><thead><tr style={{ backgroundColor: '#f5f5f5' }}><th style={{ padding: '10px', border: '1px solid #ddd' }}>Line</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>Lot No.</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>Batch</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>รสชาติ</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>เวลา Start-Done</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>Brix</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>PH</th><th style={{ padding: '10px', border: '1px solid #ddd' }}>รวมเวลา</th></tr></thead><tbody>{allHistory.filter(h => {
+                  if (filterFlavorP && !(h.flavor || '').toLowerCase().includes(filterFlavorP.toLowerCase())) return false;
+                  if (filterLineP && String(h.line) !== filterLineP) return false;
+                  return true;
+                }).length > 0 ? allHistory.filter(h => {
+                  if (filterFlavorP && !(h.flavor || '').toLowerCase().includes(filterFlavorP.toLowerCase())) return false;
+                  if (filterLineP && String(h.line) !== filterLineP) return false;
+                  return true;
+                }).map((h, i) => (<tr key={i} style={{ textAlign: 'center' }}><td style={{ padding: '10px', border: '1px solid #ddd' }}>Line {h.line}</td><td style={{ padding: '10px', border: '1px solid #ddd', fontWeight: 'bold', color: '#2e7d32' }}>{h.lotNo || '-'}</td><td style={{ padding: '10px', border: '1px solid #ddd', fontWeight: 'bold' }}>{h.batch}</td><td style={{ padding: '10px', border: '1px solid #ddd' }}>{h.flavor}</td><td style={{ padding: '10px', border: '1px solid #ddd' }}>{h.startTime} - {h.doneTime}</td><td style={{ padding: '10px', border: '1px solid #ddd', color: '#1b5e20', fontWeight: 'bold' }}>{h.brix}</td><td style={{ padding: '10px', border: '1px solid #ddd', color: '#1b5e20', fontWeight: 'bold' }}>{h.ph}</td><td style={{ padding: '10px', border: '1px solid #ddd', color: '#d84315', fontWeight: 'bold' }}>{h.duration} นาที</td></tr>)) : (<tr><td colSpan={8} style={{ padding: '20px', textAlign: 'center', color: '#888' }}>ไม่พบรายการที่ตรงกับตัวกรอง</td></tr>)}</tbody></table></div>
                 <button onClick={() => setShowSummaryModal(false)} style={{ width: '100%', padding: '12px', background: '#424242', color: 'white', border: 'none', borderRadius: '10px', marginTop: '20px', fontWeight: 'bold', cursor: 'pointer' }}>ปิดหน้าต่างนี้</button>
             </div>
         </div>

@@ -13,6 +13,8 @@ const apiUrl = "https://back-wash-test.onrender.com";
 const History: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [selectedBatch, setSelectedBatch] = useState<any | null>(null);
+  const [filterDate, setFilterDate] = useState('');
+  const [filterOperator, setFilterOperator] = useState('');
 
   const fetchBatches = () => {
     fetch(`${apiUrl}/api/batches`)
@@ -124,7 +126,14 @@ const History: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         </button>
       </div>
       <h2 className={styles.header}>ประวัติการทำ CIP ย้อนหลัง</h2>
-      
+
+      {/* ตัวกรอง */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '15px', flexWrap: 'wrap', padding: '0 4px' }}>
+        <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '0.85rem', flex: 1, minWidth: '140px' }} />
+        <input type="text" placeholder="🔍 ผู้ปฏิบัติงาน" value={filterOperator} onChange={e => setFilterOperator(e.target.value)} style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '0.85rem', flex: 1, minWidth: '140px' }} />
+        {(filterDate || filterOperator) && <button onClick={() => { setFilterDate(''); setFilterOperator(''); }} style={{ padding: '8px 14px', borderRadius: '10px', border: '1px solid #ddd', background: '#f5f5f5', cursor: 'pointer', fontSize: '0.85rem' }}>✕ ล้าง</button>}
+      </div>
+
       <table className={styles.historyTable}>
         <thead>
           <tr>
@@ -135,7 +144,11 @@ const History: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           </tr>
         </thead>
         <tbody>
-          {batches.map(batch => (
+          {batches.filter(b => {
+            if (filterDate && !(b.start_time || '').startsWith(filterDate)) return false;
+            if (filterOperator && !(b.operator_name || '').toLowerCase().includes(filterOperator.toLowerCase())) return false;
+            return true;
+          }).map(batch => (
             <tr key={batch.id} className={styles.historyRow} onClick={() => fetchBatchDetail(batch.id)}>
               <td>{formatDate(batch.start_time)}</td>
               <td>{batch.operator_name}</td>
