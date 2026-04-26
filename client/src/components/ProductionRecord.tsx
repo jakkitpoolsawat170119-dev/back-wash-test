@@ -106,8 +106,9 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     "Freshy Punch":      { bg: '#fce4ec', border: '#ff4081' },
     "Freshy blue Lemon": { bg: '#e3f2fd', border: '#42a5f5' },
     "Senorita Fres Mint":{ bg: '#e0f7fa', border: '#00bcd4' },
-    "Freshy Orange":     { bg: '#fff3e0', border: '#ff9800' },
-    "Signature Rose":    { bg: '#fce4ec', border: '#f06292' },
+    "Freshy Orange":          { bg: '#fff3e0', border: '#ff9800' },
+    "Signature Rose":         { bg: '#fce4ec', border: '#f06292' },
+    "Freshy Shine Muscat Grape": { bg: '#f0fce4', border: '#76b82a' },
   };
 
   const getNextBatch = (currentBatch: string) => {
