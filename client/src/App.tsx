@@ -4,11 +4,12 @@ import Logbook from './components/Logbook';
 import CipLine2Form from './components/CipLine2Form';
 import CipLine1Form from './components/CipLine1Form';
 import ProductionRecord from './components/ProductionRecord';
+import Line4Manual from './components/Line4Manual';
 import styles from './App.module.css';
 
 const App: React.FC = () => {
   const [operator, setOperator] = useState<string | null>(null);
-  const [appMode, setAppMode] = useState<'selection' | 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production'>('selection');
+  const [appMode, setAppMode] = useState<'selection' | 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'line4manual'>('selection');
   const [isFlipping, setIsFlipping] = useState(false);
   const [isCipLine2Active, setIsCipLine2Active] = useState(false);
   const [isCipLine3Active, setIsCipLine3Active] = useState(false);
@@ -40,7 +41,7 @@ const App: React.FC = () => {
     }
   };
 
-  const switchMode = (targetMode: 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'selection') => {
+  const switchMode = (targetMode: 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'selection' | 'line4manual') => {
     setIsFlipping(true);
     setTimeout(() => {
       setAppMode(targetMode);
@@ -114,7 +115,8 @@ const App: React.FC = () => {
               { mode: 'cipLine3', icon: '💧', label: 'Line 3', color: '#006064' },
               { mode: 'cip',      icon: '⚗️', label: 'CIP ทดลอง', color: '#546e7a' },
               { mode: 'production', icon: '🏭', label: 'ผลิต', color: '#1b5e20' },
-            ] as { mode: 'selection'|'cip'|'cipLine2'|'cipLine3'|'cipLine1'|'production'; icon: string; label: string; color: string }[]).map(({ mode, icon, label, color }) => (
+              { mode: 'line4manual', icon: '📋', label: 'Line 4', color: '#4a7c59' },
+            ] as { mode: 'selection'|'cip'|'cipLine2'|'cipLine3'|'cipLine1'|'production'|'line4manual'; icon: string; label: string; color: string }[]).map(({ mode, icon, label, color }) => (
               <button
                 key={mode}
                 onClick={() => switchMode(mode)}
@@ -135,7 +137,6 @@ const App: React.FC = () => {
           {appMode === 'selection' && (
             <div style={{ animation: 'fadeIn 0.5s', position: 'relative', minHeight: '100vh', overflow: 'hidden' }}>
 
-              {/* Factory watermark background */}
               <svg viewBox="0 0 400 320" xmlns="http://www.w3.org/2000/svg"
                 style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '110%', maxWidth: '600px', opacity: 0.055, pointerEvents: 'none', zIndex: 0 }}
                 fill="none" stroke="#1a3a5c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -196,7 +197,6 @@ const App: React.FC = () => {
                 <line x1="340" y1="60" x2="340" y2="80" strokeWidth="1.5" strokeDasharray="4 3"/>
               </svg>
 
-              {/* All content above watermark */}
               <div style={{ position: 'relative', zIndex: 1 }}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '32px' }}>
                   <div style={{ width: '72px', height: '72px', backgroundColor: '#fff', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '2.2rem', boxShadow: '0 4px 16px rgba(0,0,0,0.1)', marginBottom: '12px', border: '2px solid #e0e0e0' }}>👤</div>
@@ -210,7 +210,6 @@ const App: React.FC = () => {
                   })()}
                 </div>
 
-                {/* บันทึกการผลิต */}
                 <div style={{ padding: '0 14px', marginBottom: '10px' }}>
                   <div onClick={() => switchMode('production')} style={{ background: '#1b5e20', borderRadius: '18px', padding: '18px 16px', color: 'white', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center', gap: '14px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
                     {isProdActive && <div style={{ position: 'absolute', top: '8px', right: '10px', background: '#ff3b30', color: 'white', fontSize: '0.6rem', padding: '3px 8px', borderRadius: '8px', animation: 'pulse 1.5s infinite' }}>● กำลังทำงาน</div>}
@@ -222,7 +221,21 @@ const App: React.FC = () => {
                   </div>
                 </div>
 
-                {/* CIP Lines */}
+                <div style={{ padding: '0 14px', marginBottom: '10px' }}>
+                  <div onClick={() => switchMode('line4manual')} style={{ background: '#4a7c59', borderRadius: '18px', padding: '14px 16px', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '14px', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
+                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="5" y="3" width="22" height="26" rx="2"/>
+                      <line x1="9" y1="10" x2="23" y2="10"/>
+                      <line x1="9" y1="15" x2="23" y2="15"/>
+                      <line x1="9" y1="20" x2="17" y2="20"/>
+                    </svg>
+                    <div>
+                      <div style={{ fontWeight: '700', fontSize: '0.95rem', letterSpacing: '0.02em' }}>คู่มือระบบผลิต Line 4</div>
+                      <div style={{ fontSize: '0.72rem', opacity: 0.75, marginTop: '2px' }}>Mixing · Pasteurizer · Storage · CIP Kitchen</div>
+                    </div>
+                  </div>
+                </div>
+
                 <div style={{ padding: '0 14px', marginBottom: '10px' }}>
                   <div style={{ fontSize: '0.7rem', color: '#999', fontWeight: '600', letterSpacing: '0.08em', marginBottom: '6px', textTransform: 'uppercase' }}>CIP — ทำความสะอาด</div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
@@ -247,7 +260,6 @@ const App: React.FC = () => {
                   </div>
                 </div>
 
-                {/* CIP ทดลอง */}
                 <div style={{ padding: '0 14px' }}>
                   <div onClick={() => switchMode('cip')} style={{ background: '#f5f5f5', border: '1.5px solid #e0e0e0', borderRadius: '14px', padding: '12px 16px', color: '#555', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center', gap: '12px' }}>
                     {isCipLabActive && <div style={{ position: 'absolute', top: '8px', right: '10px', width: '8px', height: '8px', background: '#ff3b30', borderRadius: '50%', animation: 'pulse 1.5s infinite' }} />}
@@ -282,6 +294,10 @@ const App: React.FC = () => {
 
           <div style={{ display: appMode === 'production' ? 'block' : 'none' }}>
             <ProductionRecord operatorName={operator} onBack={() => switchMode('cip')} onBackToMain={() => switchMode('selection')} onHome={handleLogout} onStatusChange={handleProdStatus} />
+          </div>
+
+          <div style={{ display: appMode === 'line4manual' ? 'block' : 'none' }}>
+            <Line4Manual operatorName={operator} onBackToMain={() => switchMode('selection')} />
           </div>
         </div>
         </>

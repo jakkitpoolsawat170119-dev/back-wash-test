@@ -145,7 +145,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     const sid = await getOrCreateSession();
     if (!sid) return;
 
-    // Aggregate from batch rows
     const allRows = Object.entries(rows).map(([k, v]) => ({ no: parseInt(k), ...v }));
     const withStart = allRows.filter(r => r.startTime).sort((a, b) => a.no - b.no);
     const withEnd = allRows.filter(r => r.endTime).sort((a, b) => b.no - a.no);
@@ -172,7 +171,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     onBackToMain();
   };
 
-  // ── History ──────────────────────────────────────────────────────────────────
   const fmtDate = (iso?: string) => { if (!iso) return '-'; try { return new Date(iso).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit', year: '2-digit' }); } catch { return iso; } };
 
   const loadHistory = async () => {
@@ -189,7 +187,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     setHistory(p => p.filter(s => s.id !== id));
   };
 
-  // ── UI helpers ──────────────────────────────────────────────────────────────
   const Toggle = ({ checked, onToggle, label }: { checked: boolean; onToggle: () => void; label: string }) => (
     <button onClick={onToggle} style={{
       padding: '8px 12px', borderRadius: '20px', border: 'none', cursor: 'pointer',
@@ -235,7 +232,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     </div>
   );
 
-  // ── Front Page ───────────────────────────────────────────────────────────────
   const renderFront = () => {
     const row = rows[currentNo] || defaultRow();
     const phWarn = row.ph !== '' && (parseFloat(row.ph) < 6.5 || parseFloat(row.ph) > 8.5);
@@ -244,7 +240,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
 
     return (
       <div>
-        {/* ── ข้อมูลทั่วไป ── */}
         <SectionCard title="ข้อมูลทั่วไป">
           <div style={{ marginBottom: '12px' }}>
             <label style={labelStyle}>วันที่ตรวจสอบ</label>
@@ -274,7 +269,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
           </div>
         </SectionCard>
 
-        {/* ── Progress bar ── */}
         <div style={{ marginBottom: '16px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#888', marginBottom: '6px' }}>
             <span>เสร็จแล้ว {doneCount}/{totalBatches} Batch</span>
@@ -283,7 +277,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
           <div style={{ background: '#eee', borderRadius: '10px', height: '8px', overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${(doneCount / totalBatches) * 100}%`, background: 'linear-gradient(90deg, #ff6b00, #ff9800)', borderRadius: '10px', transition: 'width 0.4s' }} />
           </div>
-          {/* Batch dots */}
           <div style={{ display: 'flex', gap: '4px', marginTop: '8px', flexWrap: 'wrap' }}>
             {Array.from({ length: totalBatches }, (_, i) => i + 1).map(no => (
               <div
@@ -305,7 +298,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
           </div>
         </div>
 
-        {/* ── Batch card ── */}
         {(() => {
           const isComplete = row.mipLiquid !== '' &&
             row.pump1Pressure !== '' && row.pump2Pressure !== '' &&
@@ -324,7 +316,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
 
           return (
             <div style={{ background: 'white', borderRadius: '18px', padding: '18px', boxShadow: '0 4px 15px rgba(0,0,0,0.08)', border: row.done ? '2px solid #4caf50' : '2px solid #ff6b00', marginBottom: '16px' }}>
-              {/* Header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <div style={{ background: row.done ? '#4caf50' : '#ff6b00', color: 'white', borderRadius: '12px', padding: '6px 16px', fontWeight: 'bold', fontSize: '1rem' }}>
                   {row.done ? '✅' : '🔥'} NO.{currentNo}
@@ -332,7 +323,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
                 <div style={{ fontSize: '0.8rem', color: '#aaa' }}>{currentNo} / {totalBatches}</div>
               </div>
 
-              {/* ── Start / Stop ── */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '14px' }}>
                 <button
                   onClick={() => handleRowStart(currentNo)}
@@ -350,20 +340,17 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
                 </button>
               </div>
 
-              {/* รวมเวลา */}
               {row.duration > 0 && (
                 <div style={{ textAlign: 'center', background: '#fff3e0', borderRadius: '10px', padding: '8px', marginBottom: '12px', fontWeight: 'bold', color: '#e65100', fontSize: '0.9rem' }}>
                   ⏱ รวมเวลา: {row.duration} นาที
                 </div>
               )}
 
-              {/* MIP Liquid */}
               <div style={{ marginBottom: '12px' }}>
                 <label style={labelStyle}>MIP LIQUID (kg)</label>
                 <OptionPicker value={row.mipLiquid} onChange={v => updateRow(currentNo, 'mipLiquid', v)} options={['17.5', '38.5']} />
               </div>
 
-              {/* แรงดันปั๊ม */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
                 <div>
                   <label style={labelStyle}>แรงดัน Pump No.1 (Bar)</label>
@@ -375,13 +362,11 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
                 </div>
               </div>
 
-              {/* Excelerate */}
               <div style={{ marginBottom: '12px' }}>
                 <label style={labelStyle}>EXCELERATE HS-1 (kg)</label>
                 <OptionPicker value={row.excelerate1} onChange={v => updateRow(currentNo, 'excelerate1', v)} options={['5', '11']} />
               </div>
 
-              {/* Brix & pH */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
                 <div>
                   <label style={labelStyle}>pH (6.5–8.5)</label>
@@ -394,7 +379,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
                 </div>
               </div>
 
-              {/* ── รูปภาพ (ไม่บังคับ) ── */}
               <div style={{ marginBottom: '14px' }}>
                 <label style={labelStyle}>📷 รูปภาพ (ไม่บังคับ)</label>
                 {row.imagePath ? (
@@ -410,18 +394,15 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
                 )}
               </div>
 
-              {/* แสดง field ที่ยังไม่กรอก */}
               {!isComplete && !row.done && (
                 <div style={{ background: '#fff8e1', border: '1px solid #ffe082', borderRadius: '10px', padding: '10px 12px', marginBottom: '12px', fontSize: '0.78rem', color: '#f57f17' }}>
                   ⚠️ กรุณากรอกให้ครบ: <strong>{missingFields.join(', ')}</strong>
                 </div>
               )}
-
             </div>
           );
         })()}
 
-        {/* ── Prev / Next ── */}
         <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
           <button
             onClick={() => setCurrentNo(prev => Math.max(1, prev - 1))}
@@ -439,7 +420,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
           </button>
         </div>
 
-        {/* ── สรุปเวลาทุก Batch ── */}
         {(() => {
           const recorded = Array.from({ length: totalBatches }, (_, i) => i + 1)
             .filter(no => rows[no]?.startTime);
@@ -488,7 +468,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     );
   };
 
-  // ── Back Page ────────────────────────────────────────────────────────────────
   const renderBack = () => (
     <div>
       <SectionCard title="เครื่องบรรจุแต่งชิ้น A1 (น้ำ RO 200L / Oxonia 400ml)">
@@ -543,14 +522,12 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
 
       {tab === 'front' ? renderFront() : renderBack()}
 
-      {/* History button */}
       <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
         <button onClick={() => { loadHistory(); setShowHistory(true); }} style={{ background: 'linear-gradient(135deg, #ff6b00, #ff8c00)', color: 'white', border: 'none', borderRadius: '15px', padding: '16px 30px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', boxShadow: '0 6px 15px rgba(255,107,0,0.2)', width: '100%', maxWidth: '400px' }}>
           📊 ดูประวัติ CIP Line 2&3 ({history.length} ครั้ง)
         </button>
       </div>
 
-      {/* History modal */}
       {showHistory && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(10px)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '15px' }}>
           <div style={{ backgroundColor: 'white', width: '100%', maxWidth: '700px', maxHeight: '90vh', borderRadius: '25px', padding: '25px', overflowY: 'auto', boxShadow: '0 20px 50px rgba(0,0,0,0.15)' }}>
@@ -558,7 +535,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
               <h3 style={{ margin: 0, color: '#ff6b00' }}>📊 ประวัติ CIP Line 2&3</h3>
               <button onClick={() => setShowHistory(false)} style={{ background: '#f5f5f5', color: '#666', border: '1px solid #ddd', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer' }}>✕</button>
             </div>
-            {/* ตัวกรอง */}
             <div style={{ display: 'flex', gap: '8px', marginBottom: '15px', flexWrap: 'wrap' }}>
               <input type="date" value={filterDate2} onChange={e => setFilterDate2(e.target.value)} style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '0.85rem', flex: 1, minWidth: '130px' }} />
               <input type="text" placeholder="🔍 ผู้ปฏิบัติงาน" value={filterOperator2} onChange={e => setFilterOperator2(e.target.value)} style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '0.85rem', flex: 1, minWidth: '130px' }} />
