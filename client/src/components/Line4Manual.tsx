@@ -459,7 +459,7 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
               }}>
                 📹 อัปโหลดวีดีโอจากเครื่อง / ถ่ายวีดีโอ (สูงสุด 100MB)
               </button>
-              <input ref={videoFileRef} type="file" accept="video/*" capture="environment" onChange={handleVideoFile} style={{ display: 'none' }} />
+              <input ref={videoFileRef} type="file" accept="video/*" onChange={handleVideoFile} style={{ display: 'none' }} />
               {uploading && uploadProgress && (
                 <div style={{ marginTop: '8px', fontSize: '0.75rem', color: '#e65100', fontWeight: '600', textAlign: 'center' }}>
                   ⏳ {uploadProgress}
