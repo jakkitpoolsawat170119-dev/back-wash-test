@@ -54,6 +54,34 @@ const App: React.FC = () => {
   const handleCipLabStatus = useCallback((active: boolean) => setIsCipLabActive(active), []);
   const handleProdStatus = useCallback((active: boolean) => setIsProdActive(active), []);
 
+  const IconFactory = ({ size = 36, color = 'white' }: { size?: number; color?: string }) => (
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="22" width="36" height="16" rx="1.5"/>
+      <path d="M2 22 L10 13 L10 22"/>
+      <path d="M10 22 L20 13 L20 22"/>
+      <path d="M20 22 L28 13 L28 22"/>
+      <rect x="28" y="5" width="10" height="17" rx="1"/>
+      <rect x="5" y="27" width="5" height="7"/>
+      <rect x="14" y="27" width="5" height="7"/>
+      <rect x="23" y="27" width="5" height="7"/>
+      <line x1="30" y1="9" x2="36" y2="9"/>
+    </svg>
+  );
+  const IconWater = ({ size = 34, color = 'white' }: { size?: number; color?: string }) => (
+    <svg width={size} height={size} viewBox="0 0 40 44" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 3 C20 3 4 18 4 28 C4 36 11.2 41 20 41 C28.8 41 36 36 36 28 C36 18 20 3 20 3Z"/>
+      <path d="M12 31 C12 27 16 24 20 24" strokeOpacity="0.45"/>
+    </svg>
+  );
+  const IconFlask = ({ size = 34, color = '#555' }: { size?: number; color?: string }) => (
+    <svg width={size} height={size} viewBox="0 0 40 44" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13 5 L13 19 L3 34 C2 37 4 41 8 41 L32 41 C36 41 38 37 37 34 L27 19 L27 5"/>
+      <line x1="9" y1="5" x2="31" y2="5" strokeWidth="2.2"/>
+      <path d="M9 33 L24 33" strokeOpacity="0.35"/>
+      <circle cx="28" cy="36" r="2" fill={color} stroke="none" opacity="0.4"/>
+    </svg>
+  );
+
   return (
     <div className={styles.container}>
       <style>{`
@@ -84,7 +112,7 @@ const App: React.FC = () => {
               { mode: 'cipLine1', icon: '💧', label: 'Line 1', color: '#0d47a1' },
               { mode: 'cipLine2', icon: '💧', label: 'Line 2', color: '#01579b' },
               { mode: 'cipLine3', icon: '💧', label: 'Line 3', color: '#006064' },
-              { mode: 'cip',      icon: '🔬', label: 'CIP ทดลอง', color: '#546e7a' },
+              { mode: 'cip',      icon: '⚗️', label: 'CIP ทดลอง', color: '#546e7a' },
               { mode: 'production', icon: '🏭', label: 'ผลิต', color: '#1b5e20' },
             ] as { mode: 'selection'|'cip'|'cipLine2'|'cipLine3'|'cipLine1'|'production'; icon: string; label: string; color: string }[]).map(({ mode, icon, label, color }) => (
               <button
@@ -122,7 +150,7 @@ const App: React.FC = () => {
               <div style={{ padding: '0 14px', marginBottom: '10px' }}>
                 <div onClick={() => switchMode('production')} style={{ background: '#1b5e20', borderRadius: '18px', padding: '18px 16px', color: 'white', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center', gap: '14px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
                   {isProdActive && <div style={{ position: 'absolute', top: '8px', right: '10px', background: '#ff3b30', color: 'white', fontSize: '0.6rem', padding: '3px 8px', borderRadius: '8px', animation: 'pulse 1.5s infinite' }}>● กำลังทำงาน</div>}
-                  <div style={{ fontSize: '2.2rem', lineHeight: 1 }}>🏭</div>
+                  <IconFactory size={38} color="white" />
                   <div>
                     <div style={{ fontWeight: '700', fontSize: '1rem', letterSpacing: '0.02em' }}>บันทึกการผลิต</div>
                     <div style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '2px' }}>Production Control</div>
@@ -130,25 +158,25 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* CIP Lines — น้ำ = ล้าง = น้ำเงิน */}
+              {/* CIP Lines */}
               <div style={{ padding: '0 14px', marginBottom: '10px' }}>
                 <div style={{ fontSize: '0.7rem', color: '#999', fontWeight: '600', letterSpacing: '0.08em', marginBottom: '6px', textTransform: 'uppercase' }}>CIP — ทำความสะอาด</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
                   <div onClick={() => switchMode('cipLine1')} style={{ background: '#0d47a1', borderRadius: '16px', padding: '18px 6px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
                     {isCipLine1Active && <div style={{ position: 'absolute', top: '6px', right: '6px', width: '8px', height: '8px', background: '#ff3b30', borderRadius: '50%', animation: 'pulse 1.5s infinite' }} />}
-                    <div style={{ fontSize: '1.5rem', lineHeight: 1, marginBottom: '6px' }}>💧</div>
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '6px' }}><IconWater size={32} color="white" /></div>
                     <div style={{ fontWeight: '700', fontSize: '0.8rem' }}>Line 1</div>
                     <div style={{ fontSize: '0.6rem', opacity: 0.7, marginTop: '2px' }}>Syrup</div>
                   </div>
                   <div onClick={() => switchMode('cipLine2')} style={{ background: '#01579b', borderRadius: '16px', padding: '18px 6px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
                     {isCipLine2Active && <div style={{ position: 'absolute', top: '6px', right: '6px', width: '8px', height: '8px', background: '#ff3b30', borderRadius: '50%', animation: 'pulse 1.5s infinite' }} />}
-                    <div style={{ fontSize: '1.5rem', lineHeight: 1, marginBottom: '6px' }}>💧</div>
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '6px' }}><IconWater size={32} color="white" /></div>
                     <div style={{ fontWeight: '700', fontSize: '0.8rem' }}>Line 2</div>
                     <div style={{ fontSize: '0.6rem', opacity: 0.7, marginTop: '2px' }}>Flavour</div>
                   </div>
                   <div onClick={() => switchMode('cipLine3')} style={{ background: '#006064', borderRadius: '16px', padding: '18px 6px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
                     {isCipLine3Active && <div style={{ position: 'absolute', top: '6px', right: '6px', width: '8px', height: '8px', background: '#ff3b30', borderRadius: '50%', animation: 'pulse 1.5s infinite' }} />}
-                    <div style={{ fontSize: '1.5rem', lineHeight: 1, marginBottom: '6px' }}>💧</div>
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '6px' }}><IconWater size={32} color="white" /></div>
                     <div style={{ fontWeight: '700', fontSize: '0.8rem' }}>Line 3</div>
                     <div style={{ fontSize: '0.6rem', opacity: 0.7, marginTop: '2px' }}>Flavour</div>
                   </div>
@@ -159,7 +187,7 @@ const App: React.FC = () => {
               <div style={{ padding: '0 14px' }}>
                 <div onClick={() => switchMode('cip')} style={{ background: '#f5f5f5', border: '1.5px solid #e0e0e0', borderRadius: '14px', padding: '12px 16px', color: '#555', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center', gap: '12px' }}>
                   {isCipLabActive && <div style={{ position: 'absolute', top: '8px', right: '10px', width: '8px', height: '8px', background: '#ff3b30', borderRadius: '50%', animation: 'pulse 1.5s infinite' }} />}
-                  <div style={{ fontSize: '1.3rem', lineHeight: 1 }}>🔬</div>
+                  <IconFlask size={30} color="#555" />
                   <div>
                     <div style={{ fontWeight: '600', fontSize: '0.85rem' }}>CIP ทดลอง</div>
                     <div style={{ fontSize: '0.65rem', color: '#999', marginTop: '1px' }}>Line 2 (ใหม่)</div>
