@@ -731,11 +731,17 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
                   )}
 
                   {sBlocks.length > 0 && (
-                    <div style={{ marginTop: '14px' }}>
+                    <div style={{ marginTop: '16px' }}>
                       <div style={{
-                        fontSize: '0.65rem', color: '#4caf50', fontWeight: '700',
-                        letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '8px',
-                      }}>📌 บันทึกการเรียนรู้</div>
+                        display: 'flex', alignItems: 'center', gap: '8px',
+                        background: 'linear-gradient(90deg, #e8f5e9, #f1f8e9)',
+                        border: '1.5px solid #a5d6a7',
+                        borderRadius: '10px', padding: '10px 14px', marginBottom: '10px',
+                      }}>
+                        <span style={{ fontSize: '1.1rem' }}>📌</span>
+                        <span style={{ fontWeight: '800', fontSize: '0.95rem', color: '#2e7d32', letterSpacing: '0.01em' }}>บันทึกการเรียนรู้</span>
+                        <span style={{ marginLeft: 'auto', background: '#2e7d32', color: 'white', fontSize: '0.65rem', fontWeight: '700', borderRadius: '20px', padding: '2px 8px' }}>{sBlocks.length}</span>
+                      </div>
                       {sBlocks.map(block => (
                         <BlockDisplay
                           key={block.id}
@@ -769,8 +775,17 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
       </div>
 
       <div style={{ padding: '4px 14px 0' }}>
-        <div style={{ fontSize: '0.7rem', color: '#999', fontWeight: '600', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px' }}>
-          แหล่งเรียนรู้เพิ่มเติม
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '8px',
+          background: 'linear-gradient(90deg, #e8f5e9, #f1f8e9)',
+          border: '1.5px solid #a5d6a7',
+          borderRadius: '12px', padding: '12px 16px', marginBottom: '12px',
+        }}>
+          <span style={{ fontSize: '1.2rem' }}>📚</span>
+          <span style={{ fontWeight: '800', fontSize: '1rem', color: '#2e7d32' }}>แหล่งเรียนรู้เพิ่มเติม</span>
+          {globalBlocks.length > 0 && (
+            <span style={{ marginLeft: 'auto', background: '#2e7d32', color: 'white', fontSize: '0.65rem', fontWeight: '700', borderRadius: '20px', padding: '2px 8px' }}>{globalBlocks.length}</span>
+          )}
         </div>
 
         {globalBlocks.length === 0 && !editMode && (
