@@ -81,9 +81,9 @@ const App: React.FC = () => {
           }}>
             {([
               { mode: 'selection', icon: '🏠', label: 'หน้าหลัก', color: '#ff6b00' },
+              { mode: 'cipLine1', icon: '📋', label: 'Line 1', color: '#1565c0' },
               { mode: 'cipLine2', icon: '📋', label: 'Line 2', color: '#ff6b00' },
               { mode: 'cipLine3', icon: '📋', label: 'Line 3', color: '#e65100' },
-              { mode: 'cipLine1', icon: '📋', label: 'Line 1', color: '#1565c0' },
               { mode: 'cip',      icon: '🧼', label: 'CIP ทดลอง', color: '#6a1b9a' },
               { mode: 'production', icon: '🏭', label: 'ผลิต', color: '#2e7d32' },
             ] as { mode: 'selection'|'cip'|'cipLine2'|'cipLine3'|'cipLine1'|'production'; icon: string; label: string; color: string }[]).map(({ mode, icon, label, color }) => (
@@ -118,37 +118,51 @@ const App: React.FC = () => {
                   return <div style={{ background: c, color: 'white', padding: '8px 20px', borderRadius: '50px', fontWeight: 'bold' }}>{s}</div>;
                 })()}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', padding: '0 10px' }}>
-                <div onClick={() => switchMode('cipLine2')} style={{ background: 'linear-gradient(135deg, #ff6b00, #ff9800)', padding: '25px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
-                  {isCipLine2Active && <div style={{ position: 'absolute', top: '5px', right: '5px', background: '#ff3b30', color: 'white', fontSize: '0.6rem', padding: '4px 8px', borderRadius: '10px', animation: 'pulse 1.5s infinite' }}>🔴 กำลังทำงาน</div>}
-                  <div style={{ fontSize: '2rem' }}>📋</div>
-                  <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>CIP Line 2</div>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.85, marginTop: '3px' }}>Flavour Syrup</div>
-                </div>
-                <div onClick={() => switchMode('cipLine3')} style={{ background: 'linear-gradient(135deg, #e65100, #ff7043)', padding: '25px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
-                  {isCipLine3Active && <div style={{ position: 'absolute', top: '5px', right: '5px', background: '#ff3b30', color: 'white', fontSize: '0.6rem', padding: '4px 8px', borderRadius: '10px', animation: 'pulse 1.5s infinite' }}>🔴 กำลังทำงาน</div>}
-                  <div style={{ fontSize: '2rem' }}>📋</div>
-                  <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>CIP Line 3</div>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.85, marginTop: '3px' }}>Flavour Syrup</div>
-                </div>
-                <div onClick={() => switchMode('cipLine1')} style={{ background: 'linear-gradient(135deg, #1565c0, #1976d2)', padding: '25px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
-                  {isCipLine1Active && <div style={{ position: 'absolute', top: '5px', right: '5px', background: '#ff3b30', color: 'white', fontSize: '0.6rem', padding: '4px 8px', borderRadius: '10px', animation: 'pulse 1.5s infinite' }}>🔴 กำลังทำงาน</div>}
-                  <div style={{ fontSize: '2rem' }}>📋</div>
-                  <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>CIP Line 1</div>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.85, marginTop: '3px' }}>Syrup</div>
-                </div>
-                <div onClick={() => switchMode('cip')} style={{ background: 'linear-gradient(135deg, #6a1b9a, #8e24aa)', padding: '25px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
-                  {isCipLabActive && <div style={{ position: 'absolute', top: '5px', right: '5px', background: '#ff3b30', color: 'white', fontSize: '0.6rem', padding: '4px 8px', borderRadius: '10px', animation: 'pulse 1.5s infinite' }}>🔴 กำลังทำงาน</div>}
-                  <div style={{ fontSize: '2rem' }}>🧼</div>
-                  <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>CIP ทดลอง</div>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.85, marginTop: '3px' }}>Line 2 (ใหม่)</div>
-                </div>
-                <div onClick={() => switchMode('production')} style={{ background: 'linear-gradient(135deg, #2e7d32, #4caf50)', padding: '25px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
+
+              {/* บันทึกการผลิต — เด่นสุด เต็มแถว */}
+              <div style={{ padding: '0 10px', marginBottom: '12px' }}>
+                <div onClick={() => switchMode('production')} style={{ background: 'linear-gradient(135deg, #2e7d32, #4caf50)', padding: '22px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
                   {isProdActive && <div style={{ position: 'absolute', top: '5px', right: '5px', background: '#ff3b30', color: 'white', fontSize: '0.6rem', padding: '4px 8px', borderRadius: '10px', animation: 'pulse 1.5s infinite' }}>🔴 กำลังทำงาน</div>}
                   <div style={{ fontSize: '2rem' }}>🏭</div>
-                  <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>บันทึกการผลิต</div>
+                  <div style={{ fontWeight: 'bold', fontSize: '1rem' }}>บันทึกการผลิต</div>
+                  <div style={{ fontSize: '0.75rem', opacity: 0.85, marginTop: '3px' }}>Production Control</div>
                 </div>
               </div>
+
+              {/* CIP Lines — 3 คอลัมน์ */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', padding: '0 10px', marginBottom: '10px' }}>
+                <div onClick={() => switchMode('cipLine1')} style={{ background: 'linear-gradient(135deg, #1565c0, #1976d2)', padding: '20px 6px', borderRadius: '20px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
+                  {isCipLine1Active && <div style={{ position: 'absolute', top: '4px', right: '4px', background: '#ff3b30', color: 'white', fontSize: '0.5rem', padding: '3px 6px', borderRadius: '8px', animation: 'pulse 1.5s infinite' }}>🔴</div>}
+                  <div style={{ fontSize: '1.6rem' }}>📋</div>
+                  <div style={{ fontWeight: 'bold', fontSize: '0.8rem' }}>CIP Line 1</div>
+                  <div style={{ fontSize: '0.65rem', opacity: 0.85, marginTop: '2px' }}>Syrup</div>
+                </div>
+                <div onClick={() => switchMode('cipLine2')} style={{ background: 'linear-gradient(135deg, #ff6b00, #ff9800)', padding: '20px 6px', borderRadius: '20px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
+                  {isCipLine2Active && <div style={{ position: 'absolute', top: '4px', right: '4px', background: '#ff3b30', color: 'white', fontSize: '0.5rem', padding: '3px 6px', borderRadius: '8px', animation: 'pulse 1.5s infinite' }}>🔴</div>}
+                  <div style={{ fontSize: '1.6rem' }}>📋</div>
+                  <div style={{ fontWeight: 'bold', fontSize: '0.8rem' }}>CIP Line 2</div>
+                  <div style={{ fontSize: '0.65rem', opacity: 0.85, marginTop: '2px' }}>Flavour</div>
+                </div>
+                <div onClick={() => switchMode('cipLine3')} style={{ background: 'linear-gradient(135deg, #e65100, #ff7043)', padding: '20px 6px', borderRadius: '20px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
+                  {isCipLine3Active && <div style={{ position: 'absolute', top: '4px', right: '4px', background: '#ff3b30', color: 'white', fontSize: '0.5rem', padding: '3px 6px', borderRadius: '8px', animation: 'pulse 1.5s infinite' }}>🔴</div>}
+                  <div style={{ fontSize: '1.6rem' }}>📋</div>
+                  <div style={{ fontWeight: 'bold', fontSize: '0.8rem' }}>CIP Line 3</div>
+                  <div style={{ fontSize: '0.65rem', opacity: 0.85, marginTop: '2px' }}>Flavour</div>
+                </div>
+              </div>
+
+              {/* CIP ทดลอง — แถวสุดท้าย เล็กลง */}
+              <div style={{ padding: '0 10px' }}>
+                <div onClick={() => switchMode('cip')} style={{ background: 'linear-gradient(135deg, #6a1b9a, #8e24aa)', padding: '14px 10px', borderRadius: '18px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+                  {isCipLabActive && <div style={{ position: 'absolute', top: '5px', right: '5px', background: '#ff3b30', color: 'white', fontSize: '0.5rem', padding: '3px 6px', borderRadius: '8px', animation: 'pulse 1.5s infinite' }}>🔴</div>}
+                  <div style={{ fontSize: '1.3rem' }}>🧼</div>
+                  <div>
+                    <div style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>CIP ทดลอง</div>
+                    <div style={{ fontSize: '0.65rem', opacity: 0.85 }}>Line 2 (ใหม่)</div>
+                  </div>
+                </div>
+              </div>
+
               <div style={{ textAlign: 'center', marginTop: '50px' }}><button onClick={handleLogout} style={{ background: 'none', border: 'none', color: '#888', textDecoration: 'underline', cursor: 'pointer' }}>ออกจากระบบ</button></div>
             </div>
           )}
