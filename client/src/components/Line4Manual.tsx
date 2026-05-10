@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { supabase } from '../lib/supabase';
 
 interface Props {
   operatorName: string;
@@ -11,6 +12,35 @@ interface LearningBlock {
   type: 'text' | 'image' | 'video';
   title: string;
   content: string;
+}
+
+function fromDb(row: Record<string, unknown>): LearningBlock {
+  return {
+    id: row.id as string,
+    stepId: row.step_id as number | null,
+    type: row.type as LearningBlock['type'],
+    title: (row.title as string) ?? '',
+    content: row.content as string,
+  };
+}
+
+function toDb(block: LearningBlock): Record<string, unknown> {
+  return {
+    id: block.id,
+    step_id: block.stepId,
+    type: block.type,
+    title: block.title,
+    content: block.content,
+  };
+}
+
+async function uploadImageToStorage(file: File): Promise<string | null> {
+  if (!supabase) return null;
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
+  const path = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
+  const { error } = await supabase.storage.from('learning-images').upload(path, file, { cacheControl: '3600', upsert: false });
+  if (error) { console.error('Upload error:', error); return null; }
+  return supabase.storage.from('learning-images').getPublicUrl(path).data.publicUrl;
 }
 
 const STEPS = [
@@ -233,18 +263,24 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
   const [type, setType] = useState<LearningBlock['type']>(initial?.type ?? 'text');
   const [title, setTitle] = useState(initial?.title ?? '');
   const [content, setContent] = useState(initial?.content ?? '');
+  const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 3 * 1024 * 1024) {
-      alert('รูปขนาดใหญ่เกิน 3MB — กรุณาใช้ URL แทน หรือบีบอัดรูปก่อน');
-      return;
+    if (supabase) {
+      setUploading(true);
+      const url = await uploadImageToStorage(file);
+      setUploading(false);
+      if (url) { setContent(url); }
+      else { alert('อัปโหลดไม่สำเร็จ กรุณาลองใหม่หรือใช้ URL แทน'); }
+    } else {
+      if (file.size > 3 * 1024 * 1024) { alert('รูปขนาดใหญ่เกิน 3MB — กรุณาใช้ URL แทน'); return; }
+      const reader = new FileReader();
+      reader.onload = (ev) => setContent(ev.target?.result as string);
+      reader.readAsDataURL(file);
     }
-    const reader = new FileReader();
-    reader.onload = (ev) => setContent(ev.target?.result as string);
-    reader.readAsDataURL(file);
   };
 
   const handleSave = () => {
@@ -393,13 +429,13 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
           )}
         </div>
 
-        <button onClick={handleSave} style={{
+        <button onClick={handleSave} disabled={uploading} style={{
           width: '100%', padding: '14px', borderRadius: '12px',
-          background: '#2e7d32', color: 'white', border: 'none',
-          fontSize: '0.92rem', fontWeight: '700', cursor: 'pointer',
+          background: uploading ? '#a5d6a7' : '#2e7d32', color: 'white', border: 'none',
+          fontSize: '0.92rem', fontWeight: '700', cursor: uploading ? 'not-allowed' : 'pointer',
           boxShadow: '0 2px 8px rgba(46,125,50,0.3)',
         }}>
-          บันทึก
+          {uploading ? '⏳ กำลังอัปโหลดรูป...' : 'บันทึก'}
         </button>
       </div>
     </>
@@ -490,32 +526,71 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
   const [expanded, setExpanded] = useState<number | null>(null);
   const [showParams, setShowParams] = useState<number | null>(null);
   const [editMode, setEditMode] = useState(false);
-  const [blocks, setBlocks] = useState<LearningBlock[]>(() => {
-    try { return JSON.parse(localStorage.getItem('line4-blocks') ?? '[]'); }
-    catch { return []; }
-  });
+  const [blocks, setBlocks] = useState<LearningBlock[]>([]);
+  const [syncing, setSyncing] = useState(false);
   const [editForm, setEditForm] = useState<{ stepId: number | null; block: LearningBlock | null } | null>(null);
 
   useEffect(() => {
-    localStorage.setItem('line4-blocks', JSON.stringify(blocks));
-  }, [blocks]);
+    if (!supabase) {
+      // localStorage fallback
+      try { setBlocks(JSON.parse(localStorage.getItem('line4-blocks') ?? '[]')); }
+      catch { setBlocks([]); }
+      return;
+    }
 
-  const saveBlock = (block: LearningBlock) => {
+    // Initial fetch from Supabase
+    supabase.from('learning_blocks').select('*').order('created_at').then(({ data }) => {
+      if (data) setBlocks(data.map(fromDb));
+    });
+
+    // Real-time subscription — see changes from all users instantly
+    const channel = supabase
+      .channel('line4_blocks')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'learning_blocks' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setBlocks(prev => prev.find(b => b.id === (payload.new as Record<string, unknown>).id as string)
+            ? prev
+            : [...prev, fromDb(payload.new as Record<string, unknown>)]);
+        } else if (payload.eventType === 'UPDATE') {
+          setBlocks(prev => prev.map(b => b.id === (payload.new as Record<string, unknown>).id as string ? fromDb(payload.new as Record<string, unknown>) : b));
+        } else if (payload.eventType === 'DELETE') {
+          setBlocks(prev => prev.filter(b => b.id !== (payload.old as Record<string, unknown>).id as string));
+        }
+      })
+      .subscribe();
+
+    return () => { supabase!.removeChannel(channel); };
+  }, []);
+
+  const saveBlock = async (block: LearningBlock) => {
+    // Optimistic update
     setBlocks(prev => {
       const idx = prev.findIndex(b => b.id === block.id);
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = block;
-        return next;
-      }
+      if (idx >= 0) { const next = [...prev]; next[idx] = block; return next; }
       return [...prev, block];
     });
     setEditForm(null);
+
+    if (supabase) {
+      setSyncing(true);
+      await supabase.from('learning_blocks').upsert(toDb(block));
+      setSyncing(false);
+    } else {
+      setBlocks(prev => { localStorage.setItem('line4-blocks', JSON.stringify(prev)); return prev; });
+    }
   };
 
-  const deleteBlock = (id: string) => {
-    if (window.confirm('ลบเนื้อหานี้?')) {
-      setBlocks(prev => prev.filter(b => b.id !== id));
+  const deleteBlock = async (id: string) => {
+    if (!window.confirm('ลบเนื้อหานี้?')) return;
+    setBlocks(prev => {
+      const next = prev.filter(b => b.id !== id);
+      if (!supabase) localStorage.setItem('line4-blocks', JSON.stringify(next));
+      return next;
+    });
+    if (supabase) {
+      setSyncing(true);
+      await supabase.from('learning_blocks').delete().eq('id', id);
+      setSyncing(false);
     }
   };
 
@@ -539,6 +614,8 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
             <div style={{ fontWeight: '700', fontSize: '1.1rem', letterSpacing: '0.02em' }}>คู่มือระบบผลิต Line 4</div>
             <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>GEA Syrup Processing · Mitr Phol Thailand</div>
           </div>
+          {syncing && <span style={{ fontSize: '0.65rem', opacity: 0.8 }}>⏳</span>}
+          {supabase && !syncing && <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>☁️</span>}
           <button
             onClick={() => setEditMode(e => !e)}
             style={{
