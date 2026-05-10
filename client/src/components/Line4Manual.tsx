@@ -34,9 +34,9 @@ function toDb(block: LearningBlock): Record<string, unknown> {
   };
 }
 
-async function uploadImageToStorage(file: File): Promise<string | null> {
+async function uploadToStorage(file: File): Promise<string | null> {
   if (!supabase) return null;
-  const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? 'bin';
   const path = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
   const { error } = await supabase.storage.from('learning-images').upload(path, file, { cacheControl: '3600', upsert: false });
   if (error) { console.error('Upload error:', error); return null; }
@@ -264,15 +264,19 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
   const [title, setTitle] = useState(initial?.title ?? '');
   const [content, setContent] = useState(initial?.content ?? '');
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const videoFileRef = useRef<HTMLInputElement>(null);
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (supabase) {
       setUploading(true);
-      const url = await uploadImageToStorage(file);
+      setUploadProgress('กำลังอัปโหลดรูป...');
+      const url = await uploadToStorage(file);
       setUploading(false);
+      setUploadProgress('');
       if (url) { setContent(url); }
       else { alert('อัปโหลดไม่สำเร็จ กรุณาลองใหม่หรือใช้ URL แทน'); }
     } else {
@@ -281,6 +285,24 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
       reader.onload = (ev) => setContent(ev.target?.result as string);
       reader.readAsDataURL(file);
     }
+  };
+
+  const handleVideoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!supabase) { alert('ต้องเชื่อมต่อ Supabase ก่อนอัปโหลดวีดีโอ'); return; }
+    if (file.size > 100 * 1024 * 1024) {
+      alert('วีดีโอขนาดใหญ่เกิน 100MB\nกรุณาตัดให้สั้นลง หรืออัปโหลดไป YouTube แล้วใช้ URL แทน');
+      return;
+    }
+    setUploading(true);
+    const mb = (file.size / 1024 / 1024).toFixed(1);
+    setUploadProgress(`กำลังอัปโหลดวีดีโอ (${mb} MB) — อาจใช้เวลาสักครู่...`);
+    const url = await uploadToStorage(file);
+    setUploading(false);
+    setUploadProgress('');
+    if (url) { setContent(url); }
+    else { alert('อัปโหลดวีดีโอไม่สำเร็จ กรุณาลองใหม่'); }
   };
 
   const handleSave = () => {
@@ -422,13 +444,36 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
               )}
               {content && !ytId && content.startsWith('http') && (
                 <div style={{ marginTop: '6px', fontSize: '0.72rem', color: '#666' }}>
-                  จะใช้เป็น direct video link
+                  ✓ direct video link
+                </div>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '10px 0' }}>
+                <div style={{ flex: 1, height: '1px', background: '#eee' }} />
+                <span style={{ fontSize: '0.7rem', color: '#aaa' }}>หรืออัปโหลดจากเครื่อง</span>
+                <div style={{ flex: 1, height: '1px', background: '#eee' }} />
+              </div>
+              <button onClick={() => videoFileRef.current?.click()} disabled={uploading} style={{
+                width: '100%', padding: '12px', borderRadius: '10px',
+                border: '2px dashed #ccc', background: '#fafafa',
+                color: '#666', fontSize: '0.8rem', cursor: uploading ? 'not-allowed' : 'pointer',
+              }}>
+                📹 อัปโหลดวีดีโอจากเครื่อง / ถ่ายวีดีโอ (สูงสุด 100MB)
+              </button>
+              <input ref={videoFileRef} type="file" accept="video/*" capture="environment" onChange={handleVideoFile} style={{ display: 'none' }} />
+              {uploading && uploadProgress && (
+                <div style={{ marginTop: '8px', fontSize: '0.75rem', color: '#e65100', fontWeight: '600', textAlign: 'center' }}>
+                  ⏳ {uploadProgress}
                 </div>
               )}
             </div>
           )}
         </div>
 
+        {uploading && uploadProgress && type !== 'video' && (
+          <div style={{ marginBottom: '10px', fontSize: '0.75rem', color: '#e65100', fontWeight: '600', textAlign: 'center' }}>
+            ⏳ {uploadProgress}
+          </div>
+        )}
         <button onClick={handleSave} disabled={uploading} style={{
           width: '100%', padding: '14px', borderRadius: '12px',
           background: uploading ? '#a5d6a7' : '#2e7d32', color: 'white', border: 'none',
