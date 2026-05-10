@@ -8,30 +8,44 @@ interface Props {
 const STEPS = [
   {
     id: 1,
-    code: 'RM',
-    title: 'วัตถุดิบ (Raw Materials)',
-    color: '#4a7c59',
-    bgLight: '#e8f5e9',
+    code: 'MIX-T',
+    title: 'Mixing Tanks (ถังผสม 2 × 3m³)',
+    subtitle: 'Syrup Processing → Mixing Tanks',
+    color: '#01579b',
+    bgLight: '#e1f5fe',
     icon: (
       <svg width="28" height="28" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="4" y="18" width="10" height="12" rx="1"/>
-        <rect x="18" y="18" width="10" height="12" rx="1"/>
-        <path d="M9 18 L9 12 L14 8 L14 3 L18 3 L18 8 L23 12 L23 18"/>
-        <line x1="6" y1="24" x2="12" y2="24"/>
+        <rect x="6" y="8" width="8" height="18" rx="1"/>
+        <rect x="18" y="8" width="8" height="18" rx="1"/>
+        <line x1="7" y1="12" x2="13" y2="12"/>
+        <line x1="19" y1="12" x2="25" y2="12"/>
+        <path d="M10 26 L10 29 M22 26 L22 29"/>
+        <circle cx="10" cy="5" r="1.5" fill="currentColor" stroke="none" opacity="0.4"/>
+        <circle cx="22" cy="5" r="1.5" fill="currentColor" stroke="none" opacity="0.4"/>
       </svg>
     ),
-    items: [
-      { name: 'Process Water', desc: 'น้ำกระบวนการผลิต — จ่ายจากระบบน้ำหลัก (W-1603, W-1813)', tag: 'น้ำ' },
-      { name: 'Granulate Sugar', desc: 'น้ำตาลทราย — ป้อนเข้า GEA Formula Mini Mixer โดยตรง (QR08)', tag: 'น้ำตาล' },
-      { name: 'IBC / Liquid Ingredients', desc: 'วัตถุดิบเหลวจาก IBC — ต่อเข้าระบบผสม (Syrup Conc. Level 3)', tag: 'เหลว' },
-      { name: 'Seal Water', desc: 'น้ำซีล — ใช้กับปั๊ม GP21, GP11, P-3033 (W-1701, W-1702, W-1704)', tag: 'ซีล' },
+    params: [
+      { label: 'Mixing Tank 1 Temp', value: '~38.8 °C', note: 'ค่าจาก SCADA (ขณะ Empty)' },
+      { label: 'Mixing Tank 2 Temp', value: '~34.8 °C', note: '' },
+      { label: 'MIS Setpoint', value: '1,165 ltr', note: 'Main Ingredient Supply' },
+      { label: 'WIS Setpoint', value: '1,470 ltr', note: 'Water/Wash Ingredient Supply' },
     ],
-    note: '',
+    items: [
+      { name: 'Mixing Tank 1 & 2 (3m³ each)', desc: 'ถังผสมหลัก 2 ใบ — สลับกันใช้งาน ใบหนึ่งผสม อีกใบรอส่งต่อ มี Hot Water Jacket และ Agitator', tag: 'ถัง' },
+      { name: 'Recipe System', desc: 'ระบบสูตรการผลิต — แต่ละ batch มีชื่อสูตร (Recipe) กำกับ ควบคุมปริมาณส่วนผสมอัตโนมัติ', tag: 'สูตร' },
+      { name: 'Ingredient Quantity', desc: 'วัดปริมาณส่วนผสม 4 ประเภท: MIS (Main Ingredient), IBC (จาก IBC Tank), LS (Liquid Sugar), WIS (Water)', tag: 'ส่วนผสม' },
+      { name: 'Pump: Mixing Tank 1/2', desc: 'ปั๊มประจำถังแต่ละใบ — จ่ายผลิตภัณฑ์ออกไป Pasteurizer Transfer Line', tag: 'ปั๊ม' },
+      { name: 'Circulation Line with Mixer (P)', desc: 'ท่อหมุนเวียนพร้อม Inline Mixer — ใช้เมื่อต้องการ Homogenize ส่วนผสมในถัง', tag: 'หมุนเวียน' },
+      { name: 'Pasteurizer Transfer Line (P)', desc: 'ปั๊มส่งต่อไป Pasteurizer — ผ่าน Source Tank ก่อนเข้าสาย Pasteurizer หลัก', tag: 'ส่งต่อ' },
+      { name: 'Storage Tk (บนหน้าจอซ้าย)', desc: 'แสดงสถานะ Storage Tank ที่เชื่อมกับ Mixing Tanks ด้านซ้าย (CIP return loop)', tag: 'เก็บ' },
+    ],
+    note: 'Process Water เข้า 3 สาย (บนซ้าย) / CIP Kitchen เชื่อมทั้งด้านบนและล่าง / Air + Seal Water สำหรับปั๊ม',
   },
   {
     id: 2,
     code: 'MIX-S',
     title: 'Mixing Station (สถานีผสม)',
+    subtitle: 'Syrup Processing → Mixing Station',
     color: '#1565c0',
     bgLight: '#e3f2fd',
     icon: (
@@ -43,44 +57,27 @@ const STEPS = [
         <circle cx="16" cy="16" r="2.5" fill="currentColor" stroke="none" opacity="0.4"/>
       </svg>
     ),
-    items: [
-      { name: 'GEA Formula Mini Mixer (CM01)', desc: 'เครื่องผสมสูตร — ผสมน้ำตาลทรายกับ Process Water ก่อนส่งเข้า Mixing Tank', tag: 'ผสม' },
-      { name: 'Heater EG21', desc: 'ให้ความร้อนน้ำด้วยไอน้ำ (Steam H-1913) — เตรียมน้ำอุ่นก่อนผสม', tag: 'ร้อน' },
-      { name: 'Pump GP11 (8,000 LPH)', desc: 'ปั๊มจ่ายจาก Mixing Station ไป Mixing Tank (P-3009)', tag: 'ปั๊ม' },
-      { name: 'Pump GP21 (8,000 LPH)', desc: 'ปั๊มสำรอง/จ่ายทิศทางอื่น (P-3032)', tag: 'ปั๊ม' },
+    params: [
+      { label: 'IBC Sugar Weight', value: '393.20 kg', note: 'ตัวอย่างค่าจาก SCADA' },
+      { label: 'Mixer Temp', value: '31.1 °C', note: 'ขณะ Empty' },
+      { label: 'Flow Setpoint', value: '8.0 m³/h', note: 'อัตราการไหลหลัก' },
+      { label: 'Process Water Flow', value: '100 ltr SP', note: '' },
     ],
-    note: 'Steam: H-1912-HEATING-STEA-DN85-SS07 / H-1913-HEATING-STEA-DN40-SS07',
+    items: [
+      { name: 'IBC Sugar (วัดน้ำหนัก kg)', desc: 'น้ำตาล IBC — แสดงน้ำหนักเป็น kg บนหน้าจอ (เช่น 393.20 kg) จ่ายเข้า Mixer โดยตรง', tag: 'น้ำตาล' },
+      { name: 'Mixer (GEA Formula Mini Mixer)', desc: 'เครื่องผสมสูตร — ผสม IBC Sugar กับ Process Water ก่อนส่งเข้า Mixing Tank, แสดง Level% และ Temp°C', tag: 'ผสม' },
+      { name: 'Heater EG21', desc: 'เครื่องทำความร้อนน้ำด้วยไอน้ำ — อยู่ใน Mixing Station ใช้เตรียมน้ำอุ่นก่อนผสม, มี Condensate return', tag: 'ร้อน' },
+      { name: 'Steam + Condensate', desc: 'ไอน้ำเข้า Heater EG21 → Condensate กลับไปใช้ใหม่', tag: 'ไอน้ำ' },
+      { name: 'Process Water (ทางขวา)', desc: 'น้ำกระบวนการผลิตเข้า Mixing Station — ควบคุมอัตราการไหล SP 8.0 m³/h', tag: 'น้ำ' },
+      { name: 'Seal Water + Air', desc: 'น้ำซีลและอากาศอัด — ใช้กับปั๊มและวาล์วใน Mixing Station', tag: 'ซีล' },
+    ],
+    note: 'Mixing Station เชื่อมกับ Mixing Tanks ด้วยหลายสาย — ส่วนผสมจาก Mixer ไหลลงสู่ถังผสมหลัก',
   },
   {
     id: 3,
-    code: 'MIX-T',
-    title: 'Mixing Tanks (ถังผสม 2 × 3m³)',
-    color: '#01579b',
-    bgLight: '#e1f5fe',
-    icon: (
-      <svg width="28" height="28" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="6" y="8" width="8" height="18" rx="1"/>
-        <rect x="18" y="8" width="8" height="18" rx="1"/>
-        <line x1="7" y1="12" x2="13" y2="12"/>
-        <line x1="19" y1="12" x2="25" y2="12"/>
-        <path d="M10 26 L10 29 M22 26 L22 29"/>
-        <path d="M10 8 L10 5 M22 8 L22 5"/>
-        <circle cx="10" cy="5" r="1.5" fill="currentColor" stroke="none" opacity="0.4"/>
-        <circle cx="22" cy="5" r="1.5" fill="currentColor" stroke="none" opacity="0.4"/>
-      </svg>
-    ),
-    items: [
-      { name: 'Mixing Tank 1 (3m³) + HW01', desc: 'ถังผสมใบที่ 1 — มีระบบ Hot Water Jacket (HW01) ควบคุมอุณหภูมิ, Agitator RND01', tag: 'Tank 1' },
-      { name: 'Mixing Tank 2 (3m³) + HW02', desc: 'ถังผสมใบที่ 2 — มีระบบ Hot Water Jacket (HW02) ควบคุมอุณหภูมิ, Agitator RND02', tag: 'Tank 2' },
-      { name: 'Valve Matrix', desc: 'ชุดวาล์วกลาง — สลับทิศทางการไหลระหว่างถัง/ปั๊ม/CIP', tag: 'วาล์ว' },
-      { name: 'Pump RM01 × 2', desc: 'ปั๊มหมุนเวียนภายในถัง (Recirculation)', tag: 'ปั๊ม' },
-    ],
-    note: 'ทั้ง 2 ถังสลับกันใช้งาน ถังหนึ่งผสม ถังหนึ่งรอส่งต่อ',
-  },
-  {
-    id: 4,
     code: 'PAST',
-    title: 'Pasteurizer (เครื่องพาสเจอไรซ์)',
+    title: 'Pasteurizer and Storage',
+    subtitle: 'Syrup Processing → Pasteurizer and Storage',
     color: '#b71c1c',
     bgLight: '#ffebee',
     icon: (
@@ -91,19 +88,31 @@ const STEPS = [
         <path d="M10 22 L22 22" opacity="0.4"/>
       </svg>
     ),
-    items: [
-      { name: 'Balance Tank + Pump GP01 (2,500 LPH)', desc: 'ถังสมดุลก่อนเข้า PHE — ปั๊ม P-3034 จ่ายเข้า Pasteurizer (P-3035)', tag: 'บัฟเฟอร์' },
-      { name: 'PHE Heating (Steam)', desc: 'แลกเปลี่ยนความร้อนด้วยไอน้ำ (H-1911-HEATING-STEA-DN85) — อุณหภูมิสูง', tag: 'ร้อน' },
-      { name: 'Holding Tube (10 Length, 300 sec)', desc: 'ท่อ Holding ระยะทางเทียบเท่า 10 ช่วง เวลา 300 วินาที — รักษาอุณหภูมิเพื่อฆ่าเชื้อ', tag: 'ฆ่าเชื้อ' },
-      { name: 'PHE Cooling (Chilled Water)', desc: 'ลดอุณหภูมิด้วยน้ำเย็น (V-2601-COOLING-CHWS-2 1/2") — Chilled Water Return/Supply', tag: 'เย็น' },
-      { name: 'Condensate System', desc: 'รวบรวม Condensate จาก Steam กลับไปใช้ใหม่ (EG01)', tag: 'ไอน้ำ' },
+    params: [
+      { label: 'Pasteurizer Temp SP', value: '70.0 °C', note: 'อุณหภูมิพาสเจอไรซ์' },
+      { label: 'Flow Rate SP', value: '2.5 m³/h', note: 'อัตราการไหลผ่าน PHE' },
+      { label: 'Chilled Water SP', value: '40.0 °C', note: 'อุณหภูมิน้ำเย็น' },
+      { label: 'Chilled Water Return', value: '30.3 °C', note: 'ค่าจาก SCADA' },
+      { label: 'Balance Tank Level', value: '11.6 %', note: 'ตัวอย่างขณะ Standby' },
     ],
-    note: 'กระบวนการ: Heat → Hold (300s) → Cool → ส่งต่อ',
+    items: [
+      { name: 'Balance Tank (Bal. Tank)', desc: 'ถังสมดุลก่อน Pasteurizer — มี LSL (Low Switch Level) คุม, Level แสดงเป็น % บนหน้าจอ', tag: 'บัฟเฟอร์' },
+      { name: 'Pasteurizer Main (P)', desc: 'ปั๊มหลักของ Pasteurizer — ใช้ในโหมด Production, แยกจาก Pasteurizer CIP', tag: 'ปั๊ม' },
+      { name: 'Pasteurizer Production (P)', desc: 'โปรแกรมผลิตหลัก — ควบคุม sequence การ Heat, Hold, Cool อัตโนมัติ', tag: 'โปรแกรม' },
+      { name: 'Heater EG51 (Pasteurizer)', desc: 'เครื่องทำความร้อนของ Pasteurizer (ไม่ใช่ EG21 ของ Mixing Station) — ใช้ Steam ให้ความร้อน PHE', tag: 'ร้อน' },
+      { name: 'Holding Section (PHE)', desc: 'แผ่น PHE สำหรับ Hold อุณหภูมิ — SP 70.0°C, ผลิตภัณฑ์อยู่ที่อุณหภูมินี้ก่อน Cool', tag: 'ฆ่าเชื้อ' },
+      { name: 'Chilled Water Cooling', desc: 'ระบบน้ำเย็น — Chilled Water S (Supply) SP 40.0°C, Return 30.3°C ลดอุณหภูมิหลัง Hold', tag: 'เย็น' },
+      { name: 'Pasteurizer Recirculation (P)', desc: 'โหมด Standby/Recirculate — เมื่อไม่มีการผลิต ผลิตภัณฑ์หมุนเวียนกลับ', tag: 'หมุนเวียน' },
+      { name: 'Dosing Unit (P)', desc: 'หน่วย Dosing — อยู่ที่ Standby ระหว่างรอคำสั่งจาก Filler', tag: 'โดส' },
+      { name: 'Acid / Lye Inputs', desc: 'น้ำยากรดและด่างสำหรับ CIP ของ Pasteurizer — เชื่อมจาก CIP Kitchen', tag: 'CIP' },
+    ],
+    note: 'Current Recipe แสดงบนหน้าจอ (เช่น "CIP Bypass Homo") · E-Stop สีเขียว = ปกติ · ปริมาณ Product Quantity = 2918 ltr ที่ผ่านมาแล้ว',
   },
   {
-    id: 5,
+    id: 4,
     code: 'STOR',
     title: 'Storage Tank (ถังเก็บ 1 × 3m³)',
+    subtitle: 'อยู่ในหน้า Pasteurizer and Storage (ด้านขวา)',
     color: '#004d40',
     bgLight: '#e0f2f1',
     icon: (
@@ -115,17 +124,25 @@ const STEPS = [
         <circle cx="16" cy="5" r="1.5" fill="currentColor" stroke="none" opacity="0.35"/>
       </svg>
     ),
-    items: [
-      { name: 'Storage Tank (3m³)', desc: 'ถังเก็บผลิตภัณฑ์พาสเจอไรซ์แล้ว — รอส่งไปไลน์บรรจุ (RND01, RND02)', tag: 'เก็บ' },
-      { name: 'Pump GP11 (8,000 LPH)', desc: 'ปั๊มจ่ายจาก Storage Tank ไปไลน์บรรจุ (P-3080)', tag: 'ปั๊ม' },
-      { name: 'Level Control', desc: 'ตรวจวัดระดับในถัง — ควบคุมการจ่าย', tag: 'ระดับ' },
+    params: [
+      { label: 'Storage Tank Temp', value: '34.1 °C', note: 'ตัวอย่างค่าขณะรอ Filler' },
+      { label: 'Level (SL)', value: '36.6 %', note: '' },
+      { label: 'Level (M)', value: '42.4 %', note: 'เซ็นเซอร์ระดับที่ 2' },
+      { label: 'State', value: 'Wait For Filler Request', note: 'State 150 — รอสัญญาณจากเครื่องบรรจุ' },
     ],
-    note: 'Transfer to Filling Line (ลูกศรขวาล่างในแบบ)',
+    items: [
+      { name: 'Storage Tank (3m³)', desc: 'ถังเก็บผลิตภัณฑ์ที่ผ่านพาสเจอไรซ์แล้ว — แสดง Temp, Level (SL), Level (M) และ State', tag: 'เก็บ' },
+      { name: 'State: "Wait For Filler Request"', desc: 'State 150 — ถังพร้อม รอสัญญาณ (Filler Signal) จากเครื่องบรรจุก่อนจ่ายออก', tag: 'รอ' },
+      { name: 'Filler Signal', desc: 'สัญญาณจากเครื่องบรรจุ — เมื่อ Filler พร้อม จะส่งสัญญาณให้ Storage Tank จ่ายผลิตภัณฑ์', tag: 'สัญญาณ' },
+      { name: 'SL + M Level Sensors', desc: 'เซ็นเซอร์วัดระดับ 2 ชุด (SL = Switch Level, M = Measurement) — ใช้ cross-check', tag: 'ระดับ' },
+    ],
+    note: 'ผลิตภัณฑ์ใน Storage Tank = "Product" · ต่อตรงไปไลน์บรรจุ (Filling Line)',
   },
   {
-    id: 6,
-    code: 'CIP',
+    id: 5,
+    code: 'CIP-K',
     title: 'CIP Kitchen (ห้องเตรียมน้ำยาล้าง)',
+    subtitle: 'CIP Station → CIP Kitchen',
     color: '#6a1b9a',
     bgLight: '#f3e5f5',
     icon: (
@@ -136,41 +153,59 @@ const STEPS = [
         <line x1="10" y1="15" x2="22" y2="15" opacity="0.4"/>
       </svg>
     ),
-    items: [
-      { name: 'Acid Tank (3m³)', desc: 'ถังน้ำยากรด — Acid Concentrate (C-1001)', tag: 'กรด' },
-      { name: 'Caustic Tank (3m³)', desc: 'ถังน้ำยาด่าง — Caustic Concentrate (C-1101)', tag: 'ด่าง' },
-      { name: 'Recovery Tank (3m³)', desc: 'ถังรับน้ำยาล้างกลับ — นำกลับมาใช้ใหม่ (RN01)', tag: 'รีไซเคิล' },
-      { name: 'CIP Pump GP01 (16,000–18,000 LPH)', desc: 'ปั๊มหลัก CIP — จ่ายน้ำยาแรงดันสูงล้างอุปกรณ์ทั้งระบบ', tag: 'ปั๊ม' },
-      { name: 'Steam Heater (H-1901, DN50)', desc: 'ให้ความร้อนน้ำยา CIP ด้วยไอน้ำ', tag: 'ร้อน' },
+    params: [
+      { label: 'Acid Tank Temp', value: '58.9 °C', note: 'Ready' },
+      { label: 'Acid Tank Level', value: '59.2 %', note: '' },
+      { label: 'Caustic Tank Temp', value: '71.2 °C', note: 'Ready' },
+      { label: 'Caustic Tank Level', value: '58.8 %', note: '' },
+      { label: 'Recovery Tank Temp', value: '36.9 °C', note: 'Ready' },
+      { label: 'CIP Pump SP', value: '17.5 m³/h', note: 'อัตราการไหล CIP' },
     ],
-    note: 'CIP ล้างทุก Equipment: Mixing Station → Mixing Tanks → Pasteurizer → Storage Tank',
+    items: [
+      { name: 'Water Tank', desc: 'ถังน้ำ CIP — มี LSH (High Level) และ LSL (Low Level) ควบคุม, State: "30. Stop Fill" เมื่อเต็ม', tag: 'น้ำ' },
+      { name: 'Acid Tank (3m³) — Ready', desc: 'ถังน้ำยากรด — Acid Concentrate (C-1001), Temp ~58.9°C, Level ~59%, Status: Ready', tag: 'กรด' },
+      { name: 'Caustic Tank (3m³) — Ready', desc: 'ถังน้ำยาด่าง — Caustic Concentrate (C-1101), Temp ~71.2°C (ร้อนกว่ากรด), Level ~59%, Status: Ready', tag: 'ด่าง' },
+      { name: 'Recovery Tank (3m³) — Ready', desc: 'ถังรับน้ำยาล้างกลับ — Temp ~36.9°C, Level อาจเกิน 100% เมื่อเต็ม, นำกลับใช้ใหม่', tag: 'รีไซเคิล' },
+      { name: 'CIP Master (P)', desc: 'โปรแกรม CIP หลัก — ควบคุม sequence ทั้งหมด, แสดง "CIP Object" ที่กำลังล้างอยู่', tag: 'โปรแกรม' },
+      { name: 'CIP Programs', desc: 'โปรแกรมแยกต่างหาก: CIP Caustic Tank / CIP Acid Tank / CIP Recovery Tank — ล้างถัง CIP เอง', tag: 'CIP' },
+      { name: 'CIP Pump (17.5 m³/h)', desc: 'ปั๊มหลัก CIP — จ่ายน้ำยาแรงดันสูงล้างอุปกรณ์ทั้งระบบ (Mixing → Pasteurizer → Storage)', tag: 'ปั๊ม' },
+      { name: 'Steam S + Caustic/Acid Concentrate', desc: 'ไอน้ำให้ความร้อนน้ำยา / น้ำยาเข้มข้นจ่ายเพิ่มอัตโนมัติ', tag: 'ร้อน' },
+    ],
+    note: 'CIP Object แสดงว่ากำลังล้างอุปกรณ์ใดอยู่ · Compressed Air + Process Water ใช้ผสมทำความเข้มข้น',
   },
 ];
 
 const TAG_COLORS: Record<string, { bg: string; color: string }> = {
-  น้ำ: { bg: '#e3f2fd', color: '#0d47a1' },
-  น้ำตาล: { bg: '#fff8e1', color: '#e65100' },
-  เหลว: { bg: '#fce4ec', color: '#880e4f' },
-  ซีล: { bg: '#f3e5f5', color: '#6a1b9a' },
-  ผสม: { bg: '#e8f5e9', color: '#1b5e20' },
-  ร้อน: { bg: '#fff3e0', color: '#bf360c' },
+  ถัง: { bg: '#e3f2fd', color: '#0d47a1' },
+  สูตร: { bg: '#fff8e1', color: '#e65100' },
+  ส่วนผสม: { bg: '#fce4ec', color: '#880e4f' },
   ปั๊ม: { bg: '#eceff1', color: '#37474f' },
-  วาล์ว: { bg: '#e0f2f1', color: '#004d40' },
+  หมุนเวียน: { bg: '#e8f5e9', color: '#1b5e20' },
+  ส่งต่อ: { bg: '#e0f2f1', color: '#004d40' },
+  เก็บ: { bg: '#e0f7fa', color: '#00695c' },
+  น้ำตาล: { bg: '#fff8e1', color: '#e65100' },
+  ผสม: { bg: '#e8f5e9', color: '#2e7d32' },
+  ร้อน: { bg: '#fff3e0', color: '#bf360c' },
+  ไอน้ำ: { bg: '#f5f5f5', color: '#424242' },
+  น้ำ: { bg: '#e3f2fd', color: '#01579b' },
+  ซีล: { bg: '#f3e5f5', color: '#6a1b9a' },
   บัฟเฟอร์: { bg: '#ede7f6', color: '#4527a0' },
+  โปรแกรม: { bg: '#e8eaf6', color: '#283593' },
   ฆ่าเชื้อ: { bg: '#ffebee', color: '#b71c1c' },
   เย็น: { bg: '#e1f5fe', color: '#01579b' },
-  ไอน้ำ: { bg: '#fafafa', color: '#424242' },
-  เก็บ: { bg: '#e0f7fa', color: '#00695c' },
+  CIP: { bg: '#f3e5f5', color: '#6a1b9a' },
+  โดส: { bg: '#fce4ec', color: '#880e4f' },
+  รอ: { bg: '#fff9c4', color: '#f57f17' },
+  สัญญาณ: { bg: '#e8f5e9', color: '#2e7d32' },
   ระดับ: { bg: '#f1f8e9', color: '#33691e' },
   กรด: { bg: '#fff9c4', color: '#f57f17' },
   ด่าง: { bg: '#e8eaf6', color: '#283593' },
   รีไซเคิล: { bg: '#e8f5e9', color: '#2e7d32' },
-  'Tank 1': { bg: '#e3f2fd', color: '#1565c0' },
-  'Tank 2': { bg: '#e8eaf6', color: '#1a237e' },
 };
 
 const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [showParams, setShowParams] = useState<number | null>(null);
 
   return (
     <div style={{ background: '#f4f6f9', minHeight: '100vh', paddingBottom: '40px' }}>
@@ -188,58 +223,77 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
           }}>← หลัก</button>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: '700', fontSize: '1.1rem', letterSpacing: '0.02em' }}>คู่มือระบบผลิต Line 4</div>
-            <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>Mixing → Pasteurizer → Storage → Filling</div>
+            <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>GEA Syrup Processing · Mitr Phol Thailand</div>
           </div>
         </div>
         <div style={{
           background: 'rgba(255,255,255,0.15)', borderRadius: '10px',
           padding: '8px 12px', fontSize: '0.72rem', opacity: 0.9,
         }}>
-          ผู้ดู: {operatorName} · อ้างอิง P&amp;ID: MIXING TANKS / MIXING STATION / CIP KITCHEN / PASTEURIZER
+          ผู้ดู: {operatorName} · อ้างอิง GEA HMI — Mixing Tanks / Mixing Station / Pasteurizer and Storage / CIP Kitchen
         </div>
       </div>
 
-      {/* Flow Overview */}
+      {/* System Map */}
       <div style={{ padding: '16px 14px 0' }}>
-        <div style={{ fontSize: '0.7rem', color: '#999', fontWeight: '600', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px' }}>ภาพรวมกระบวนการผลิต</div>
+        <div style={{ fontSize: '0.7rem', color: '#999', fontWeight: '600', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px' }}>แผนผังระบบผลิต (Syrup Processing)</div>
+
+        <div style={{ background: '#263238', borderRadius: '10px', padding: '10px 12px', marginBottom: '10px' }}>
+          <div style={{ fontSize: '0.6rem', color: '#78909c', marginBottom: '6px', letterSpacing: '0.06em' }}>GEA HMI TABS</div>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            {[
+              { tab: 'Mixing Tanks', color: '#01579b' },
+              { tab: 'Mixing Station', color: '#1565c0' },
+              { tab: 'Pasteurizer and Storage', color: '#b71c1c' },
+              { tab: 'CIP Kitchen', color: '#6a1b9a', note: '(CIP Station)' },
+            ].map((t) => (
+              <div key={t.tab} style={{
+                background: t.color, color: 'white', borderRadius: '6px',
+                padding: '4px 10px', fontSize: '0.62rem', fontWeight: '600',
+              }}>
+                {t.tab}{t.note ? <span style={{ opacity: 0.7, marginLeft: '3px' }}>{t.note}</span> : ''}
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div style={{ display: 'flex', alignItems: 'center', overflowX: 'auto', gap: '0', paddingBottom: '6px', WebkitOverflowScrolling: 'touch' as any }}>
           {[
-            { label: 'วัตถุดิบ', sub: 'RM', color: '#4a7c59' },
-            { label: 'Mixing\nStation', sub: '2', color: '#1565c0' },
-            { label: 'Mixing\nTanks', sub: '2×3m³', color: '#01579b' },
-            { label: 'Pasteur-\nizer', sub: '4', color: '#b71c1c' },
-            { label: 'Storage\nTank', sub: '1×3m³', color: '#004d40' },
-            { label: 'Filling\nLine', sub: '→', color: '#37474f' },
+            { label: 'IBC Sugar\n+ Process\nWater', color: '#4a7c59' },
+            { label: 'Mixing\nStation', color: '#1565c0' },
+            { label: 'Mixing\nTanks\n2×3m³', color: '#01579b' },
+            { label: 'Bal.\nTank', color: '#7b1fa2' },
+            { label: 'Pasteur-\nizer\n70°C', color: '#b71c1c' },
+            { label: 'Storage\nTank\n3m³', color: '#004d40' },
+            { label: 'Filling\nLine', color: '#37474f' },
           ].map((s, i) => (
             <React.Fragment key={i}>
               <div style={{
                 flex: '0 0 auto', textAlign: 'center',
                 background: s.color, color: 'white',
-                borderRadius: '10px', padding: '8px 10px', minWidth: '58px',
-                fontSize: '0.62rem', fontWeight: '700', lineHeight: '1.3',
+                borderRadius: '8px', padding: '6px 8px', minWidth: '52px',
+                fontSize: '0.58rem', fontWeight: '700', lineHeight: '1.4',
                 whiteSpace: 'pre-line',
               }}>
                 {s.label}
-                <div style={{ fontSize: '0.55rem', opacity: 0.75, marginTop: '2px' }}>{s.sub}</div>
               </div>
-              {i < 5 && (
-                <div style={{ color: '#aaa', fontSize: '1rem', flex: '0 0 auto', padding: '0 3px' }}>›</div>
-              )}
+              {i < 6 && <div style={{ color: '#aaa', fontSize: '0.9rem', flex: '0 0 auto', padding: '0 2px' }}>›</div>}
             </React.Fragment>
           ))}
-          <div style={{ flex: '0 0 8px' }}/>
+          <div style={{ flex: '0 0 8px' }} />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' }}>
-          <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#6a1b9a' }}/>
-          <div style={{ fontSize: '0.65rem', color: '#888' }}>CIP Kitchen — ล้างทุกส่วนของระบบหลังเสร็จงาน</div>
+          <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#6a1b9a' }} />
+          <div style={{ fontSize: '0.63rem', color: '#888' }}>CIP Kitchen (CIP Station) — ล้างทุกส่วนหลังเสร็จงาน: Mixing → Pasteurizer → Storage</div>
         </div>
       </div>
 
       {/* Step Cards */}
       <div style={{ padding: '12px 14px 0' }}>
-        <div style={{ fontSize: '0.7rem', color: '#999', fontWeight: '600', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px' }}>รายละเอียดแต่ละขั้นตอน</div>
+        <div style={{ fontSize: '0.7rem', color: '#999', fontWeight: '600', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px' }}>รายละเอียดแต่ละส่วน</div>
         {STEPS.map((step) => {
           const isOpen = expanded === step.id;
+          const isParam = showParams === step.id;
           return (
             <div key={step.id} style={{
               background: 'white', borderRadius: '14px', marginBottom: '10px',
@@ -247,9 +301,8 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
               border: `1.5px solid ${isOpen ? step.color : '#eee'}`,
               overflow: 'hidden',
             }}>
-              {/* Card Header */}
               <div
-                onClick={() => setExpanded(isOpen ? null : step.id)}
+                onClick={() => { setExpanded(isOpen ? null : step.id); if (!isOpen) setShowParams(null); }}
                 style={{
                   display: 'flex', alignItems: 'center', gap: '12px',
                   padding: '13px 14px', cursor: 'pointer',
@@ -266,9 +319,7 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: '700', fontSize: '0.88rem', color: '#222' }}>{step.title}</div>
-                  <div style={{ fontSize: '0.65rem', color: '#999', marginTop: '2px' }}>
-                    {step.items.length} รายการ · แตะเพื่อดูรายละเอียด
-                  </div>
+                  <div style={{ fontSize: '0.6rem', color: '#999', marginTop: '2px' }}>{step.subtitle}</div>
                 </div>
                 <div style={{
                   color: step.color, fontSize: '1rem', fontWeight: '700',
@@ -276,31 +327,58 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
                 }}>▾</div>
               </div>
 
-              {/* Expanded Details */}
               {isOpen && (
-                <div style={{ borderTop: `1px solid ${step.bgLight}`, padding: '0 14px 14px' }}>
+                <div style={{ borderTop: `1px solid ${step.bgLight}`, padding: '12px 14px 14px' }}>
+                  <div
+                    onClick={() => setShowParams(isParam ? null : step.id)}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '5px',
+                      background: isParam ? step.color : step.bgLight,
+                      color: isParam ? 'white' : step.color,
+                      borderRadius: '8px', padding: '5px 12px', marginBottom: '12px',
+                      cursor: 'pointer', fontSize: '0.7rem', fontWeight: '600',
+                    }}
+                  >
+                    📊 ค่า Setpoint จาก SCADA {isParam ? '▴' : '▾'}
+                  </div>
+
+                  {isParam && (
+                    <div style={{
+                      display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px',
+                      marginBottom: '14px', padding: '10px', background: step.bgLight, borderRadius: '10px',
+                    }}>
+                      {step.params.map((p, i) => (
+                        <div key={i} style={{ background: 'white', borderRadius: '8px', padding: '8px 10px' }}>
+                          <div style={{ fontSize: '0.6rem', color: '#999', marginBottom: '2px' }}>{p.label}</div>
+                          <div style={{ fontWeight: '700', fontSize: '0.85rem', color: step.color }}>{p.value}</div>
+                          {p.note && <div style={{ fontSize: '0.58rem', color: '#aaa', marginTop: '2px' }}>{p.note}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   {step.items.map((item, idx) => {
                     const tagStyle = TAG_COLORS[item.tag] || { bg: '#f5f5f5', color: '#555' };
                     return (
                       <div key={idx} style={{
-                        paddingTop: '12px',
+                        paddingTop: '10px',
                         borderTop: idx > 0 ? '1px solid #f0f0f0' : 'none',
-                        marginTop: idx > 0 ? '0' : '12px',
                       }}>
                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                           <span style={{
                             flex: '0 0 auto', background: tagStyle.bg, color: tagStyle.color,
                             fontSize: '0.58rem', fontWeight: '700', padding: '2px 7px',
-                            borderRadius: '6px', marginTop: '2px', letterSpacing: '0.04em',
+                            borderRadius: '6px', marginTop: '2px',
                           }}>{item.tag}</span>
                           <div>
                             <div style={{ fontWeight: '600', fontSize: '0.82rem', color: '#333', lineHeight: 1.3 }}>{item.name}</div>
-                            <div style={{ fontSize: '0.73rem', color: '#666', marginTop: '3px', lineHeight: 1.5 }}>{item.desc}</div>
+                            <div style={{ fontSize: '0.72rem', color: '#666', marginTop: '3px', lineHeight: 1.5 }}>{item.desc}</div>
                           </div>
                         </div>
                       </div>
                     );
                   })}
+
                   {step.note && (
                     <div style={{
                       marginTop: '12px', background: '#fffde7', borderLeft: `3px solid ${step.color}`,
@@ -317,14 +395,13 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
         })}
       </div>
 
-      {/* Footer Note */}
       <div style={{ padding: '0 14px', marginTop: '8px' }}>
         <div style={{
           background: '#fff3e0', border: '1px solid #ffe0b2', borderRadius: '12px',
           padding: '12px 14px', fontSize: '0.72rem', color: '#e65100', lineHeight: '1.6',
         }}>
           <div style={{ fontWeight: '700', marginBottom: '4px' }}>⚠️ หน้านี้อยู่ระหว่างการเรียนรู้ระบบ</div>
-          ข้อมูลอ้างอิงจาก P&amp;ID ของโรงงาน (Mitr Phol Thailand) — สามารถแก้ไขเพิ่มเติมได้เมื่อเข้าใจกระบวนการมากขึ้น
+          ค่าที่แสดงอ้างอิงจาก GEA HMI จริง (Mitr Phol, 10/05/2026) — สามารถแก้ไขเพิ่มเติมได้เมื่อเข้าใจกระบวนการมากขึ้น
         </div>
       </div>
     </div>
