@@ -8,9 +8,10 @@ import styles from './App.module.css';
 
 const App: React.FC = () => {
   const [operator, setOperator] = useState<string | null>(null);
-  const [appMode, setAppMode] = useState<'selection' | 'cip' | 'cipLine2' | 'cipLine1' | 'production'>('selection');
+  const [appMode, setAppMode] = useState<'selection' | 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production'>('selection');
   const [isFlipping, setIsFlipping] = useState(false);
   const [isCipLine2Active, setIsCipLine2Active] = useState(false);
+  const [isCipLine3Active, setIsCipLine3Active] = useState(false);
   const [isCipLine1Active, setIsCipLine1Active] = useState(false);
   const [isCipLabActive, setIsCipLabActive] = useState(false);
   const [isProdActive, setIsProdActive] = useState(false);
@@ -32,13 +33,14 @@ const App: React.FC = () => {
       setOperator(null);
       setAppMode('selection');
       setIsCipLine2Active(false);
+      setIsCipLine3Active(false);
       setIsCipLine1Active(false);
       setIsCipLabActive(false);
       setIsProdActive(false);
     }
   };
 
-  const switchMode = (targetMode: 'cip' | 'cipLine2' | 'cipLine1' | 'production' | 'selection') => {
+  const switchMode = (targetMode: 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'selection') => {
     setIsFlipping(true);
     setTimeout(() => {
       setAppMode(targetMode);
@@ -47,6 +49,7 @@ const App: React.FC = () => {
   };
 
   const handleCipLine2Status = useCallback((active: boolean) => setIsCipLine2Active(active), []);
+  const handleCipLine3Status = useCallback((active: boolean) => setIsCipLine3Active(active), []);
   const handleCipLine1Status = useCallback((active: boolean) => setIsCipLine1Active(active), []);
   const handleCipLabStatus = useCallback((active: boolean) => setIsCipLabActive(active), []);
   const handleProdStatus = useCallback((active: boolean) => setIsProdActive(active), []);
@@ -78,11 +81,12 @@ const App: React.FC = () => {
           }}>
             {([
               { mode: 'selection', icon: '🏠', label: 'หน้าหลัก', color: '#ff6b00' },
-              { mode: 'cipLine2', icon: '📋', label: 'Line 2&3', color: '#ff6b00' },
+              { mode: 'cipLine2', icon: '📋', label: 'Line 2', color: '#ff6b00' },
+              { mode: 'cipLine3', icon: '📋', label: 'Line 3', color: '#e65100' },
               { mode: 'cipLine1', icon: '📋', label: 'Line 1', color: '#1565c0' },
               { mode: 'cip',      icon: '🧼', label: 'CIP ทดลอง', color: '#6a1b9a' },
               { mode: 'production', icon: '🏭', label: 'ผลิต', color: '#2e7d32' },
-            ] as { mode: 'selection'|'cip'|'cipLine2'|'cipLine1'|'production'; icon: string; label: string; color: string }[]).map(({ mode, icon, label, color }) => (
+            ] as { mode: 'selection'|'cip'|'cipLine2'|'cipLine3'|'cipLine1'|'production'; icon: string; label: string; color: string }[]).map(({ mode, icon, label, color }) => (
               <button
                 key={mode}
                 onClick={() => switchMode(mode)}
@@ -118,8 +122,14 @@ const App: React.FC = () => {
                 <div onClick={() => switchMode('cipLine2')} style={{ background: 'linear-gradient(135deg, #ff6b00, #ff9800)', padding: '25px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
                   {isCipLine2Active && <div style={{ position: 'absolute', top: '5px', right: '5px', background: '#ff3b30', color: 'white', fontSize: '0.6rem', padding: '4px 8px', borderRadius: '10px', animation: 'pulse 1.5s infinite' }}>🔴 กำลังทำงาน</div>}
                   <div style={{ fontSize: '2rem' }}>📋</div>
-                  <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>บันทึก CIP</div>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.85, marginTop: '3px' }}>Line 2&3</div>
+                  <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>CIP Line 2</div>
+                  <div style={{ fontSize: '0.7rem', opacity: 0.85, marginTop: '3px' }}>Flavour Syrup</div>
+                </div>
+                <div onClick={() => switchMode('cipLine3')} style={{ background: 'linear-gradient(135deg, #e65100, #ff7043)', padding: '25px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
+                  {isCipLine3Active && <div style={{ position: 'absolute', top: '5px', right: '5px', background: '#ff3b30', color: 'white', fontSize: '0.6rem', padding: '4px 8px', borderRadius: '10px', animation: 'pulse 1.5s infinite' }}>🔴 กำลังทำงาน</div>}
+                  <div style={{ fontSize: '2rem' }}>📋</div>
+                  <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>CIP Line 3</div>
+                  <div style={{ fontSize: '0.7rem', opacity: 0.85, marginTop: '3px' }}>Flavour Syrup</div>
                 </div>
                 <div onClick={() => switchMode('cipLine1')} style={{ background: 'linear-gradient(135deg, #1565c0, #1976d2)', padding: '25px 10px', borderRadius: '25px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative' }}>
                   {isCipLine1Active && <div style={{ position: 'absolute', top: '5px', right: '5px', background: '#ff3b30', color: 'white', fontSize: '0.6rem', padding: '4px 8px', borderRadius: '10px', animation: 'pulse 1.5s infinite' }}>🔴 กำลังทำงาน</div>}
@@ -148,7 +158,11 @@ const App: React.FC = () => {
           </div>
 
           <div style={{ display: appMode === 'cipLine2' ? 'block' : 'none' }}>
-            <CipLine2Form operatorName={operator} onBackToMain={() => switchMode('selection')} onStatusChange={handleCipLine2Status} />
+            <CipLine2Form operatorName={operator} onBackToMain={() => switchMode('selection')} onStatusChange={handleCipLine2Status} defaultLine="Line 2" />
+          </div>
+
+          <div style={{ display: appMode === 'cipLine3' ? 'block' : 'none' }}>
+            <CipLine2Form operatorName={operator} onBackToMain={() => switchMode('selection')} onStatusChange={handleCipLine3Status} defaultLine="Line 3" />
           </div>
 
           <div style={{ display: appMode === 'cipLine1' ? 'block' : 'none' }}>

@@ -38,14 +38,15 @@ interface Props {
   operatorName: string;
   onBackToMain: () => void;
   onStatusChange: (active: boolean) => void;
+  defaultLine: 'Line 2' | 'Line 3';
 }
 
-const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusChange }) => {
+const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusChange, defaultLine }) => {
   const [tab, setTab] = useState<'front' | 'back'>('front');
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [sku, setSku] = useState('');
-  const [line, setLine] = useState('');
+  const [line] = useState(defaultLine);
   const [flavor, setFlavor] = useState('');
   const [rows, setRows] = useState<Record<number, RowData>>({});
   const [back, setBack] = useState<BackData>(defaultBack());
@@ -140,7 +141,7 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
   };
 
   const handleFinish = async () => {
-    if (!window.confirm('ยืนยันจบงาน CIP Line 2?')) return;
+    if (!window.confirm(`ยืนยันจบงาน CIP ${line}?`)) return;
     const sid = await getOrCreateSession();
     if (!sid) return;
 
@@ -166,7 +167,7 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
         brix: lastRow?.brix || '',
       }),
     });
-    alert('บันทึก CIP Line 2 สำเร็จ!');
+    alert(`บันทึก CIP ${line} สำเร็จ!`);
     onStatusChange(false);
     onBackToMain();
   };
@@ -255,7 +256,7 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
           </div>
           <div style={{ marginBottom: '12px' }}>
             <label style={labelStyle}>Line</label>
-            <OptionPicker value={line} onChange={setLine} options={['Line 2', 'Line 3']} />
+            <div style={{ padding: '10px 16px', background: '#e3f2fd', borderRadius: '10px', fontWeight: 'bold', color: '#1565c0' }}>{line}</div>
           </div>
           <div>
             <label style={labelStyle}>กลิ่นที่ผลิต</label>
@@ -517,7 +518,7 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
       </SectionCard>
 
       <button onClick={handleFinish} style={{ width: '100%', padding: '16px', background: 'linear-gradient(135deg, #ff6b00, #ff8c00)', color: 'white', border: 'none', borderRadius: '15px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', boxShadow: '0 6px 15px rgba(255,107,0,0.3)', marginBottom: '20px' }}>
-        🏁 จบงาน CIP Line 2
+        🏁 จบงาน CIP {line}
       </button>
     </div>
   );
