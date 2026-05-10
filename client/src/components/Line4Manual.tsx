@@ -1,8 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 interface Props {
   operatorName: string;
   onBackToMain: () => void;
+}
+
+interface LearningBlock {
+  id: string;
+  stepId: number | null;
+  type: 'text' | 'image' | 'video';
+  title: string;
+  content: string;
 }
 
 const STEPS = [
@@ -203,9 +211,316 @@ const TAG_COLORS: Record<string, { bg: string; color: string }> = {
   รีไซเคิล: { bg: '#e8f5e9', color: '#2e7d32' },
 };
 
+function genId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function getYouTubeId(url: string): string | null {
+  const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([^&?\s]{11})/);
+  return m ? m[1] : null;
+}
+
+// ---- EditForm (bottom sheet) ----
+
+interface EditFormProps {
+  initial: LearningBlock | null;
+  stepId: number | null;
+  onSave: (block: LearningBlock) => void;
+  onClose: () => void;
+}
+
+function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
+  const [type, setType] = useState<LearningBlock['type']>(initial?.type ?? 'text');
+  const [title, setTitle] = useState(initial?.title ?? '');
+  const [content, setContent] = useState(initial?.content ?? '');
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 3 * 1024 * 1024) {
+      alert('รูปขนาดใหญ่เกิน 3MB — กรุณาใช้ URL แทน หรือบีบอัดรูปก่อน');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => setContent(ev.target?.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleSave = () => {
+    if (!content.trim()) { alert('กรุณาใส่เนื้อหา'); return; }
+    onSave({
+      id: initial?.id ?? genId(),
+      stepId,
+      type,
+      title: title.trim(),
+      content: content.trim(),
+    });
+  };
+
+  const ytId = type === 'video' ? getYouTubeId(content) : null;
+
+  return (
+    <>
+      <div
+        onClick={onClose}
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200 }}
+      />
+      <div style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 201,
+        background: 'white', borderTopLeftRadius: '20px', borderTopRightRadius: '20px',
+        padding: '20px 16px 36px', maxHeight: '88vh', overflowY: 'auto',
+        boxShadow: '0 -4px 24px rgba(0,0,0,0.18)',
+      }}>
+        <div style={{ width: '40px', height: '4px', background: '#ddd', borderRadius: '2px', margin: '0 auto 16px' }} />
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div style={{ fontWeight: '700', fontSize: '1rem', color: '#222' }}>
+            {initial ? 'แก้ไขเนื้อหา' : 'เพิ่มเนื้อหา'}
+          </div>
+          <button onClick={onClose} style={{
+            background: '#f5f5f5', border: 'none', borderRadius: '8px',
+            padding: '6px 14px', cursor: 'pointer', color: '#555', fontSize: '0.8rem',
+          }}>ยกเลิก</button>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+          {(['text', 'image', 'video'] as const).map((t) => (
+            <button key={t} onClick={() => { setType(t); if (t !== initial?.type) setContent(''); }} style={{
+              flex: 1, padding: '10px 4px', borderRadius: '10px', border: '2px solid',
+              borderColor: type === t ? '#2e7d32' : '#eee',
+              background: type === t ? '#e8f5e9' : '#fafafa',
+              color: type === t ? '#1b5e20' : '#777',
+              fontWeight: type === t ? '700' : '400',
+              fontSize: '0.75rem', cursor: 'pointer',
+            }}>
+              {t === 'text' ? '📝 ข้อความ' : t === 'image' ? '🖼 รูปภาพ' : '🎬 วีดีโอ'}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ marginBottom: '12px' }}>
+          <div style={{ fontSize: '0.72rem', color: '#666', marginBottom: '5px', fontWeight: '600' }}>หัวข้อ (ไม่บังคับ)</div>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="เช่น ขั้นตอนการ CIP..."
+            style={{
+              width: '100%', padding: '10px 12px', borderRadius: '10px',
+              border: '1.5px solid #ddd', fontSize: '0.88rem',
+              boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit',
+            }}
+          />
+        </div>
+
+        <div style={{ marginBottom: '18px' }}>
+          <div style={{ fontSize: '0.72rem', color: '#666', marginBottom: '5px', fontWeight: '600' }}>
+            {type === 'text' ? 'เนื้อหา' : type === 'image' ? 'URL รูปภาพ หรืออัปโหลดจากเครื่อง' : 'URL วีดีโอ (YouTube หรือลิงก์ตรง)'}
+          </div>
+
+          {type === 'text' && (
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="พิมพ์เนื้อหา หรือบันทึกขั้นตอนการทำงาน..."
+              rows={6}
+              style={{
+                width: '100%', padding: '10px 12px', borderRadius: '10px',
+                border: '1.5px solid #ddd', fontSize: '0.88rem',
+                boxSizing: 'border-box', resize: 'vertical', outline: 'none',
+                fontFamily: 'inherit', lineHeight: '1.65',
+              }}
+            />
+          )}
+
+          {type === 'image' && (
+            <div>
+              <input
+                value={content.startsWith('data:') ? '' : content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder="https://example.com/image.jpg"
+                style={{
+                  width: '100%', padding: '10px 12px', borderRadius: '10px',
+                  border: '1.5px solid #ddd', fontSize: '0.88rem',
+                  boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit',
+                  marginBottom: '8px',
+                }}
+              />
+              <button onClick={() => fileRef.current?.click()} style={{
+                width: '100%', padding: '12px', borderRadius: '10px',
+                border: '2px dashed #ccc', background: '#fafafa',
+                color: '#666', fontSize: '0.8rem', cursor: 'pointer',
+              }}>
+                📁 อัปโหลดรูปจากเครื่อง (สูงสุด 3MB)
+              </button>
+              <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: 'none' }} />
+              {content && (
+                <img
+                  src={content}
+                  alt="preview"
+                  style={{
+                    width: '100%', borderRadius: '10px', marginTop: '10px',
+                    maxHeight: '220px', objectFit: 'contain', background: '#f5f5f5',
+                  }}
+                />
+              )}
+            </div>
+          )}
+
+          {type === 'video' && (
+            <div>
+              <input
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder="https://youtube.com/watch?v=... หรือ https://..."
+                style={{
+                  width: '100%', padding: '10px 12px', borderRadius: '10px',
+                  border: '1.5px solid #ddd', fontSize: '0.88rem',
+                  boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit',
+                }}
+              />
+              {content && ytId && (
+                <div style={{ marginTop: '6px', fontSize: '0.72rem', color: '#2e7d32', fontWeight: '600' }}>
+                  ✓ ตรวจพบ YouTube — ID: {ytId}
+                </div>
+              )}
+              {content && !ytId && content.startsWith('http') && (
+                <div style={{ marginTop: '6px', fontSize: '0.72rem', color: '#666' }}>
+                  จะใช้เป็น direct video link
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <button onClick={handleSave} style={{
+          width: '100%', padding: '14px', borderRadius: '12px',
+          background: '#2e7d32', color: 'white', border: 'none',
+          fontSize: '0.92rem', fontWeight: '700', cursor: 'pointer',
+          boxShadow: '0 2px 8px rgba(46,125,50,0.3)',
+        }}>
+          บันทึก
+        </button>
+      </div>
+    </>
+  );
+}
+
+// ---- BlockDisplay ----
+
+interface BlockDisplayProps {
+  block: LearningBlock;
+  editMode: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}
+
+function BlockDisplay({ block, editMode, onEdit, onDelete }: BlockDisplayProps) {
+  const ytId = block.type === 'video' ? getYouTubeId(block.content) : null;
+
+  return (
+    <div style={{
+      background: 'white', borderRadius: '12px', overflow: 'hidden',
+      border: '1.5px solid #e8f5e9', marginBottom: '8px',
+      boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '9px 12px', background: '#f9fafb', borderBottom: '1px solid #f0f0f0',
+      }}>
+        <div style={{ fontWeight: '600', fontSize: '0.8rem', color: '#333', flex: 1, minWidth: 0 }}>
+          <span style={{ marginRight: '5px' }}>
+            {block.type === 'text' ? '📝' : block.type === 'image' ? '🖼' : '🎬'}
+          </span>
+          {block.title || (block.type === 'text' ? 'บันทึก' : block.type === 'image' ? 'รูปภาพ' : 'วีดีโอ')}
+        </div>
+        {editMode && (
+          <div style={{ display: 'flex', gap: '5px', flex: '0 0 auto' }}>
+            <button onClick={onEdit} style={{
+              background: '#e3f2fd', color: '#1565c0', border: 'none',
+              borderRadius: '6px', padding: '4px 10px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: '600',
+            }}>แก้ไข</button>
+            <button onClick={onDelete} style={{
+              background: '#ffebee', color: '#c62828', border: 'none',
+              borderRadius: '6px', padding: '4px 10px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: '600',
+            }}>ลบ</button>
+          </div>
+        )}
+      </div>
+
+      {block.type === 'text' && (
+        <div style={{ padding: '12px', fontSize: '0.82rem', color: '#444', lineHeight: '1.7', whiteSpace: 'pre-wrap' }}>
+          {block.content}
+        </div>
+      )}
+
+      {block.type === 'image' && (
+        <img
+          src={block.content}
+          alt={block.title}
+          style={{ width: '100%', display: 'block', maxHeight: '320px', objectFit: 'contain', background: '#f5f5f5' }}
+        />
+      )}
+
+      {block.type === 'video' && ytId && (
+        <div style={{ position: 'relative', paddingTop: '56.25%' }}>
+          <iframe
+            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
+            src={`https://www.youtube.com/embed/${ytId}`}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            title={block.title || 'Video'}
+          />
+        </div>
+      )}
+
+      {block.type === 'video' && !ytId && (
+        <video controls style={{ width: '100%', display: 'block', background: '#000' }}>
+          <source src={block.content} />
+          วีดีโอไม่รองรับในเบราว์เซอร์นี้
+        </video>
+      )}
+    </div>
+  );
+}
+
+// ---- Main Component ----
+
 const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
   const [expanded, setExpanded] = useState<number | null>(null);
   const [showParams, setShowParams] = useState<number | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [blocks, setBlocks] = useState<LearningBlock[]>(() => {
+    try { return JSON.parse(localStorage.getItem('line4-blocks') ?? '[]'); }
+    catch { return []; }
+  });
+  const [editForm, setEditForm] = useState<{ stepId: number | null; block: LearningBlock | null } | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem('line4-blocks', JSON.stringify(blocks));
+  }, [blocks]);
+
+  const saveBlock = (block: LearningBlock) => {
+    setBlocks(prev => {
+      const idx = prev.findIndex(b => b.id === block.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = block;
+        return next;
+      }
+      return [...prev, block];
+    });
+    setEditForm(null);
+  };
+
+  const deleteBlock = (id: string) => {
+    if (window.confirm('ลบเนื้อหานี้?')) {
+      setBlocks(prev => prev.filter(b => b.id !== id));
+    }
+  };
+
+  const stepBlocks = (stepId: number) => blocks.filter(b => b.stepId === stepId);
+  const globalBlocks = blocks.filter(b => b.stepId === null);
 
   return (
     <div style={{ background: '#f4f6f9', minHeight: '100vh', paddingBottom: '40px' }}>
@@ -224,6 +539,18 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
             <div style={{ fontWeight: '700', fontSize: '1.1rem', letterSpacing: '0.02em' }}>คู่มือระบบผลิต Line 4</div>
             <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>GEA Syrup Processing · Mitr Phol Thailand</div>
           </div>
+          <button
+            onClick={() => setEditMode(e => !e)}
+            style={{
+              background: editMode ? '#fff3e0' : 'rgba(255,255,255,0.2)',
+              border: 'none', color: editMode ? '#e65100' : 'white',
+              borderRadius: '8px', padding: '5px 12px', cursor: 'pointer',
+              fontSize: '0.78rem', fontWeight: editMode ? '700' : '400',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {editMode ? '✏️ แก้ไข' : '✏️'}
+          </button>
         </div>
         <div style={{
           background: 'rgba(255,255,255,0.15)', borderRadius: '10px',
@@ -232,6 +559,17 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
           ผู้ดู: {operatorName} · อ้างอิง GEA HMI — Mixing Tanks / Mixing Station / Pasteurizer and Storage / CIP Kitchen
         </div>
       </div>
+
+      {editMode && (
+        <div style={{
+          background: '#fff3e0', borderBottom: '2px solid #ffb74d',
+          padding: '8px 16px', fontSize: '0.75rem', color: '#e65100',
+          display: 'flex', alignItems: 'center', gap: '8px',
+        }}>
+          <span style={{ fontSize: '1rem' }}>✏️</span>
+          <span>โหมดแก้ไข — กด <strong>+ เพิ่ม</strong> ใต้แต่ละหัวข้อ หรือที่ "แหล่งเรียนรู้" ด้านล่าง · กด ✏️ อีกครั้งเพื่อออก</span>
+        </div>
+      )}
 
       <div style={{ padding: '16px 14px 0' }}>
         <div style={{ fontSize: '0.7rem', color: '#999', fontWeight: '600', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px' }}>แผนผังระบบผลิต (Syrup Processing)</div>
@@ -255,7 +593,7 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', overflowX: 'auto', gap: '0', paddingBottom: '6px', WebkitOverflowScrolling: 'touch' as any }}>
+        <div style={{ display: 'flex', alignItems: 'center', overflowX: 'auto', gap: '0', paddingBottom: '6px', WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'] }}>
           {[
             { label: 'IBC Sugar\n+ Process\nWater', color: '#4a7c59' },
             { label: 'Mixing\nStation', color: '#1565c0' },
@@ -291,6 +629,7 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
         {STEPS.map((step) => {
           const isOpen = expanded === step.id;
           const isParam = showParams === step.id;
+          const sBlocks = stepBlocks(step.id);
           return (
             <div key={step.id} style={{
               background: 'white', borderRadius: '14px', marginBottom: '10px',
@@ -317,6 +656,11 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: '700', fontSize: '0.88rem', color: '#222' }}>{step.title}</div>
                   <div style={{ fontSize: '0.6rem', color: '#999', marginTop: '2px' }}>{step.subtitle}</div>
+                  {sBlocks.length > 0 && !isOpen && (
+                    <div style={{ fontSize: '0.6rem', color: '#4caf50', marginTop: '3px' }}>
+                      📌 {sBlocks.length} บันทึก
+                    </div>
+                  )}
                 </div>
                 <div style={{
                   color: step.color, fontSize: '1rem', fontWeight: '700',
@@ -385,6 +729,38 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
                       {step.note}
                     </div>
                   )}
+
+                  {sBlocks.length > 0 && (
+                    <div style={{ marginTop: '14px' }}>
+                      <div style={{
+                        fontSize: '0.65rem', color: '#4caf50', fontWeight: '700',
+                        letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '8px',
+                      }}>📌 บันทึกการเรียนรู้</div>
+                      {sBlocks.map(block => (
+                        <BlockDisplay
+                          key={block.id}
+                          block={block}
+                          editMode={editMode}
+                          onEdit={() => setEditForm({ stepId: step.id, block })}
+                          onDelete={() => deleteBlock(block.id)}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {editMode && (
+                    <button
+                      onClick={() => setEditForm({ stepId: step.id, block: null })}
+                      style={{
+                        width: '100%', marginTop: '10px', padding: '10px',
+                        borderRadius: '10px', border: '2px dashed #a5d6a7',
+                        background: '#f1f8e9', color: '#2e7d32',
+                        fontSize: '0.78rem', fontWeight: '600', cursor: 'pointer',
+                      }}
+                    >
+                      + เพิ่มบันทึก / รูป / วีดีโอ ใน {step.code}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -392,7 +768,47 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
         })}
       </div>
 
-      <div style={{ padding: '0 14px', marginTop: '8px' }}>
+      <div style={{ padding: '4px 14px 0' }}>
+        <div style={{ fontSize: '0.7rem', color: '#999', fontWeight: '600', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px' }}>
+          แหล่งเรียนรู้เพิ่มเติม
+        </div>
+
+        {globalBlocks.length === 0 && !editMode && (
+          <div style={{
+            textAlign: 'center', color: '#bbb', fontSize: '0.75rem',
+            padding: '24px 16px', background: 'white', borderRadius: '12px',
+            border: '1.5px dashed #e0e0e0',
+          }}>
+            กด ✏️ ที่มุมขวาบน เพื่อเพิ่มรูป วีดีโอ หรือบันทึกสำหรับเรียนรู้
+          </div>
+        )}
+
+        {globalBlocks.map(block => (
+          <BlockDisplay
+            key={block.id}
+            block={block}
+            editMode={editMode}
+            onEdit={() => setEditForm({ stepId: null, block })}
+            onDelete={() => deleteBlock(block.id)}
+          />
+        ))}
+
+        {editMode && (
+          <button
+            onClick={() => setEditForm({ stepId: null, block: null })}
+            style={{
+              width: '100%', padding: '14px', borderRadius: '12px',
+              border: '2px dashed #a5d6a7', background: '#f1f8e9',
+              color: '#2e7d32', fontSize: '0.82rem', fontWeight: '600', cursor: 'pointer',
+              marginBottom: '4px',
+            }}
+          >
+            + เพิ่มเนื้อหา / รูปภาพ / วีดีโอ สำหรับเรียนรู้
+          </button>
+        )}
+      </div>
+
+      <div style={{ padding: '12px 14px 0' }}>
         <div style={{
           background: '#fff3e0', border: '1px solid #ffe0b2', borderRadius: '12px',
           padding: '12px 14px', fontSize: '0.72rem', color: '#e65100', lineHeight: '1.6',
@@ -401,6 +817,15 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
           ค่าที่แสดงอ้างอิงจาก GEA HMI จริง (Mitr Phol, 10/05/2026) — สามารถแก้ไขเพิ่มเติมได้เมื่อเข้าใจกระบวนการมากขึ้น
         </div>
       </div>
+
+      {editForm !== null && (
+        <EditForm
+          initial={editForm.block}
+          stepId={editForm.stepId}
+          onSave={saveBlock}
+          onClose={() => setEditForm(null)}
+        />
+      )}
     </div>
   );
 };
