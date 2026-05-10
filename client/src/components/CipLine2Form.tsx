@@ -38,14 +38,15 @@ interface Props {
   operatorName: string;
   onBackToMain: () => void;
   onStatusChange: (active: boolean) => void;
+  defaultLine: 'Line 2' | 'Line 3';
 }
 
-const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusChange }) => {
+const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusChange, defaultLine }) => {
   const [tab, setTab] = useState<'front' | 'back'>('front');
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [sku, setSku] = useState('');
-  const [line, setLine] = useState('');
+  const [line, setLine] = useState<string>(defaultLine);
   const [flavor, setFlavor] = useState('');
   const [rows, setRows] = useState<Record<number, RowData>>({});
   const [back, setBack] = useState<BackData>(defaultBack());
