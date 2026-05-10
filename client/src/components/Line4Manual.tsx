@@ -641,6 +641,7 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
 
   const stepBlocks = (stepId: number) => blocks.filter(b => b.stepId === stepId);
   const globalBlocks = blocks.filter(b => b.stepId === null);
+  const [showGlobal, setShowGlobal] = useState(true);
 
   return (
     <div style={{ background: '#f4f6f9', minHeight: '100vh', paddingBottom: '40px' }}>
@@ -856,13 +857,26 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
                     <div style={{ marginTop: '16px' }}>
                       <div style={{
                         display: 'flex', alignItems: 'center', gap: '8px',
-                        background: 'linear-gradient(90deg, #e8f5e9, #f1f8e9)',
-                        border: '1.5px solid #a5d6a7',
-                        borderRadius: '10px', padding: '10px 14px', marginBottom: '10px',
+                        background: 'white', border: '1.5px solid #c8e6c9',
+                        borderRadius: '10px', padding: '9px 12px', marginBottom: '10px',
+                        boxShadow: '0 1px 3px rgba(46,125,50,0.06)',
                       }}>
-                        <span style={{ fontSize: '1.1rem' }}>📌</span>
-                        <span style={{ fontWeight: '800', fontSize: '0.95rem', color: '#2e7d32', letterSpacing: '0.01em' }}>บันทึกการเรียนรู้</span>
-                        <span style={{ marginLeft: 'auto', background: '#2e7d32', color: 'white', fontSize: '0.65rem', fontWeight: '700', borderRadius: '20px', padding: '2px 8px' }}>{sBlocks.length}</span>
+                        <div style={{
+                          width: '24px', height: '24px', borderRadius: '6px',
+                          background: '#388e3c', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          flexShrink: 0,
+                        }}>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="8" y1="6" x2="21" y2="6"/>
+                            <line x1="8" y1="12" x2="21" y2="12"/>
+                            <line x1="8" y1="18" x2="21" y2="18"/>
+                            <line x1="3" y1="6" x2="3.01" y2="6"/>
+                            <line x1="3" y1="12" x2="3.01" y2="12"/>
+                            <line x1="3" y1="18" x2="3.01" y2="18"/>
+                          </svg>
+                        </div>
+                        <span style={{ fontWeight: '700', fontSize: '0.88rem', color: '#1b5e20' }}>บันทึกการเรียนรู้</span>
+                        <span style={{ marginLeft: 'auto', background: '#e8f5e9', color: '#2e7d32', fontSize: '0.65rem', fontWeight: '700', borderRadius: '20px', padding: '2px 8px', border: '1px solid #a5d6a7' }}>{sBlocks.length}</span>
                       </div>
                       {sBlocks.map(block => (
                         <BlockDisplay
@@ -897,51 +911,74 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
       </div>
 
       <div style={{ padding: '4px 14px 0' }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: '8px',
-          background: 'linear-gradient(90deg, #e8f5e9, #f1f8e9)',
-          border: '1.5px solid #a5d6a7',
-          borderRadius: '12px', padding: '12px 16px', marginBottom: '12px',
-        }}>
-          <span style={{ fontSize: '1.2rem' }}>📚</span>
-          <span style={{ fontWeight: '800', fontSize: '1rem', color: '#2e7d32' }}>แหล่งเรียนรู้เพิ่มเติม</span>
-          {globalBlocks.length > 0 && (
-            <span style={{ marginLeft: 'auto', background: '#2e7d32', color: 'white', fontSize: '0.65rem', fontWeight: '700', borderRadius: '20px', padding: '2px 8px' }}>{globalBlocks.length}</span>
-          )}
-        </div>
-
-        {globalBlocks.length === 0 && !editMode && (
+        <button
+          onClick={() => setShowGlobal(v => !v)}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
+            background: 'white', border: '1.5px solid #c8e6c9',
+            borderRadius: '12px', padding: '11px 14px', marginBottom: '12px',
+            cursor: 'pointer', textAlign: 'left', boxShadow: '0 1px 4px rgba(46,125,50,0.07)',
+          }}
+        >
           <div style={{
-            textAlign: 'center', color: '#bbb', fontSize: '0.75rem',
-            padding: '24px 16px', background: 'white', borderRadius: '12px',
-            border: '1.5px dashed #e0e0e0',
+            width: '30px', height: '30px', borderRadius: '8px',
+            background: '#2e7d32', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
           }}>
-            กด ✏️ ที่มุมขวาบน เพื่อเพิ่มรูป วีดีโอ หรือบันทึกสำหรับเรียนรู้
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+            </svg>
           </div>
-        )}
-
-        {globalBlocks.map(block => (
-          <BlockDisplay
-            key={block.id}
-            block={block}
-            editMode={editMode}
-            onEdit={() => setEditForm({ stepId: null, block })}
-            onDelete={() => deleteBlock(block.id)}
-          />
-        ))}
-
-        {editMode && (
-          <button
-            onClick={() => setEditForm({ stepId: null, block: null })}
-            style={{
-              width: '100%', padding: '14px', borderRadius: '12px',
-              border: '2px dashed #a5d6a7', background: '#f1f8e9',
-              color: '#2e7d32', fontSize: '0.82rem', fontWeight: '600', cursor: 'pointer',
-              marginBottom: '4px',
-            }}
+          <span style={{ fontWeight: '700', fontSize: '0.95rem', color: '#1b5e20', flex: 1 }}>แหล่งเรียนรู้เพิ่มเติม</span>
+          {globalBlocks.length > 0 && (
+            <span style={{ background: '#e8f5e9', color: '#2e7d32', fontSize: '0.65rem', fontWeight: '700', borderRadius: '20px', padding: '2px 8px', border: '1px solid #a5d6a7' }}>{globalBlocks.length}</span>
+          )}
+          <svg
+            width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="#4caf50" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+            style={{ flexShrink: 0, transform: showGlobal ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.2s ease' }}
           >
-            + เพิ่มเนื้อหา / รูปภาพ / วีดีโอ สำหรับเรียนรู้
-          </button>
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+
+        {showGlobal && (
+          <>
+            {globalBlocks.length === 0 && !editMode && (
+              <div style={{
+                textAlign: 'center', color: '#bbb', fontSize: '0.75rem',
+                padding: '24px 16px', background: 'white', borderRadius: '12px',
+                border: '1.5px dashed #e0e0e0',
+              }}>
+                กด ✏️ ที่มุมขวาบน เพื่อเพิ่มรูป วีดีโอ หรือบันทึกสำหรับเรียนรู้
+              </div>
+            )}
+
+            {globalBlocks.map(block => (
+              <BlockDisplay
+                key={block.id}
+                block={block}
+                editMode={editMode}
+                onEdit={() => setEditForm({ stepId: null, block })}
+                onDelete={() => deleteBlock(block.id)}
+              />
+            ))}
+
+            {editMode && (
+              <button
+                onClick={() => setEditForm({ stepId: null, block: null })}
+                style={{
+                  width: '100%', padding: '14px', borderRadius: '12px',
+                  border: '2px dashed #a5d6a7', background: '#f1f8e9',
+                  color: '#2e7d32', fontSize: '0.82rem', fontWeight: '600', cursor: 'pointer',
+                  marginBottom: '4px',
+                }}
+              >
+                + เพิ่มเนื้อหา / รูปภาพ / วีดีโอ สำหรับเรียนรู้
+              </button>
+            )}
+          </>
         )}
       </div>
 
