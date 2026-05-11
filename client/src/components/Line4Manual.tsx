@@ -1,8 +1,46 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { supabase } from '../lib/supabase';
 
 interface Props {
   operatorName: string;
   onBackToMain: () => void;
+}
+
+interface LearningBlock {
+  id: string;
+  stepId: number | null;
+  type: 'text' | 'image' | 'video';
+  title: string;
+  content: string;
+}
+
+function fromDb(row: Record<string, unknown>): LearningBlock {
+  return {
+    id: row.id as string,
+    stepId: row.step_id as number | null,
+    type: row.type as LearningBlock['type'],
+    title: (row.title as string) ?? '',
+    content: row.content as string,
+  };
+}
+
+function toDb(block: LearningBlock): Record<string, unknown> {
+  return {
+    id: block.id,
+    step_id: block.stepId,
+    type: block.type,
+    title: block.title,
+    content: block.content,
+  };
+}
+
+async function uploadToStorage(file: File): Promise<string | null> {
+  if (!supabase) return null;
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? 'bin';
+  const path = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
+  const { error } = await supabase.storage.from('learning-images').upload(path, file, { cacheControl: '3600', upsert: false });
+  if (error) { console.error('Upload error:', error); return null; }
+  return supabase.storage.from('learning-images').getPublicUrl(path).data.publicUrl;
 }
 
 const STEPS = [
@@ -203,13 +241,444 @@ const TAG_COLORS: Record<string, { bg: string; color: string }> = {
   รีไซเคิล: { bg: '#e8f5e9', color: '#2e7d32' },
 };
 
+function genId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function getYouTubeId(url: string): string | null {
+  const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([^&?\s]{11})/);
+  return m ? m[1] : null;
+}
+
+// ---- Rich content parser ----
+
+function parseInline(text: string): React.ReactNode[] {
+  const result: React.ReactNode[] = [];
+  let s = text, k = 0;
+  while (s.length > 0) {
+    if (s.startsWith('**')) {
+      const e = s.indexOf('**', 2);
+      if (e !== -1) { result.push(<strong key={k++} style={{ fontWeight: '700' }}>{s.slice(2, e)}</strong>); s = s.slice(e + 2); continue; }
+    }
+    if (s.startsWith('==')) {
+      const e = s.indexOf('==', 2);
+      if (e !== -1) { result.push(<mark key={k++} style={{ background: '#fff176', padding: '0 3px', borderRadius: '3px', color: '#333' }}>{s.slice(2, e)}</mark>); s = s.slice(e + 2); continue; }
+    }
+    if (s.startsWith('*')) {
+      const e = s.indexOf('*', 1);
+      if (e !== -1) { result.push(<em key={k++} style={{ fontStyle: 'italic' }}>{s.slice(1, e)}</em>); s = s.slice(e + 1); continue; }
+    }
+    const nxt = Math.min(
+      s.indexOf('**', 1) >= 0 ? s.indexOf('**', 1) : Infinity,
+      s.indexOf('==', 1) >= 0 ? s.indexOf('==', 1) : Infinity,
+      s.indexOf('*', 1) >= 0 ? s.indexOf('*', 1) : Infinity,
+    );
+    result.push(s.slice(0, nxt === Infinity ? undefined : nxt));
+    if (nxt === Infinity) break;
+    s = s.slice(nxt);
+  }
+  return result;
+}
+
+function parseRichContent(content: string): React.ReactNode {
+  const lines = content.split('\n');
+  const nodes: React.ReactNode[] = [];
+  let bullets: string[] = [];
+  let k = 0;
+  const flushBullets = () => {
+    if (!bullets.length) return;
+    nodes.push(
+      <ul key={k++} style={{ margin: '2px 0 8px 18px', padding: 0 }}>
+        {bullets.map((item, i) => (
+          <li key={i} style={{ fontSize: '0.84rem', color: '#444', lineHeight: '1.75', marginBottom: '2px' }}>{parseInline(item)}</li>
+        ))}
+      </ul>
+    );
+    bullets = [];
+  };
+  for (const line of lines) {
+    if (line.startsWith('# ')) {
+      flushBullets();
+      nodes.push(<div key={k++} style={{ fontWeight: '800', fontSize: '1.05rem', color: '#1b5e20', margin: '10px 0 4px', lineHeight: '1.3', borderBottom: '1.5px solid #e8f5e9', paddingBottom: '3px' }}>{parseInline(line.slice(2))}</div>);
+    } else if (line.startsWith('## ')) {
+      flushBullets();
+      nodes.push(<div key={k++} style={{ fontWeight: '700', fontSize: '0.92rem', color: '#2e7d32', margin: '8px 0 3px', lineHeight: '1.3' }}>{parseInline(line.slice(3))}</div>);
+    } else if (line.startsWith('- ')) {
+      bullets.push(line.slice(2));
+    } else if (line.startsWith('> ')) {
+      flushBullets();
+      nodes.push(<div key={k++} style={{ background: '#fff9c4', borderLeft: '3px solid #f9a825', padding: '6px 10px', borderRadius: '4px', fontSize: '0.82rem', color: '#555', margin: '4px 0', lineHeight: '1.6' }}>{parseInline(line.slice(2))}</div>);
+    } else if (line.startsWith('!img[') && line.endsWith(']')) {
+      flushBullets();
+      nodes.push(<img key={k++} src={line.slice(5, -1)} alt="" style={{ width: '100%', borderRadius: '8px', margin: '6px 0', display: 'block', maxHeight: '300px', objectFit: 'contain', background: '#f5f5f5' }} />);
+    } else if (line.startsWith('!video[') && line.endsWith(']')) {
+      flushBullets();
+      const url = line.slice(7, -1);
+      const ytId = getYouTubeId(url);
+      nodes.push(ytId ? (
+        <div key={k++} style={{ position: 'relative', paddingTop: '56.25%', margin: '6px 0', borderRadius: '8px', overflow: 'hidden' }}>
+          <iframe style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
+            src={`https://www.youtube.com/embed/${ytId}`}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen title="video" />
+        </div>
+      ) : (
+        <video key={k++} controls style={{ width: '100%', borderRadius: '8px', margin: '6px 0', background: '#000', display: 'block' }}><source src={url} /></video>
+      ));
+    } else if (line.trim() === '') {
+      flushBullets();
+      if (nodes.length > 0) nodes.push(<div key={k++} style={{ height: '5px' }} />);
+    } else {
+      flushBullets();
+      nodes.push(<div key={k++} style={{ fontSize: '0.84rem', color: '#444', lineHeight: '1.75' }}>{parseInline(line)}</div>);
+    }
+  }
+  flushBullets();
+  return nodes;
+}
+
+// ---- EditForm (bottom sheet) ----
+
+interface EditFormProps {
+  initial: LearningBlock | null;
+  stepId: number | null;
+  onSave: (block: LearningBlock) => void;
+  onClose: () => void;
+}
+
+function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
+  const getInitialContent = () => {
+    if (!initial) return '';
+    if (initial.type === 'image') return `!img[${initial.content}]`;
+    if (initial.type === 'video') return `!video[${initial.content}]`;
+    return initial.content;
+  };
+
+  const [title, setTitle] = useState(initial?.title ?? '');
+  const [content, setContent] = useState<string>(getInitialContent);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState('');
+  const [showVideoInput, setShowVideoInput] = useState(false);
+  const [videoUrl, setVideoUrl] = useState('');
+  const [preview, setPreview] = useState(false);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const videoFileRef = useRef<HTMLInputElement>(null);
+
+  const insertWrap = (before: string, after: string, placeholder: string) => {
+    const ta = taRef.current;
+    if (!ta) return;
+    const s = ta.selectionStart, e = ta.selectionEnd;
+    const sel = content.slice(s, e) || placeholder;
+    const next = content.slice(0, s) + before + sel + after + content.slice(e);
+    setContent(next);
+    setTimeout(() => { ta.focus(); ta.setSelectionRange(s + before.length, s + before.length + sel.length); }, 10);
+  };
+
+  const insertLinePrefix = (prefix: string) => {
+    const ta = taRef.current;
+    if (!ta) return;
+    const pos = ta.selectionStart;
+    const lineStart = content.lastIndexOf('\n', pos - 1) + 1;
+    const lineEnd = content.indexOf('\n', pos);
+    const line = content.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
+    const clean = line.replace(/^(#{1,2} |> |- )/, '');
+    const newLine = prefix + clean;
+    const after = lineEnd === -1 ? '' : content.slice(lineEnd);
+    setContent(content.slice(0, lineStart) + newLine + after);
+    setTimeout(() => { ta.focus(); ta.setSelectionRange(lineStart + prefix.length, lineStart + newLine.length); }, 10);
+  };
+
+  const insertBlock = (text: string) => {
+    const ta = taRef.current;
+    if (!ta) return;
+    const pos = ta.selectionStart;
+    const before = content.slice(0, pos);
+    const after = content.slice(pos);
+    const nl1 = before.endsWith('\n') || before === '' ? '' : '\n';
+    const nl2 = after.startsWith('\n') || after === '' ? '' : '\n';
+    const next = before + nl1 + text + nl2 + after;
+    setContent(next);
+    const newPos = before.length + nl1.length + text.length;
+    setTimeout(() => { ta.focus(); ta.setSelectionRange(newPos, newPos); }, 10);
+  };
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (supabase) {
+      setUploading(true); setUploadMsg('กำลังอัปโหลดรูป...');
+      const url = await uploadToStorage(file);
+      setUploading(false); setUploadMsg('');
+      if (url) insertBlock(`!img[${url}]`);
+      else alert('อัปโหลดไม่สำเร็จ');
+    } else {
+      if (file.size > 3 * 1024 * 1024) { alert('รูปขนาดใหญ่เกิน 3MB'); return; }
+      const reader = new FileReader();
+      reader.onload = (ev) => insertBlock(`!img[${ev.target?.result}]`);
+      reader.readAsDataURL(file);
+    }
+    e.target.value = '';
+  };
+
+  const handleVideoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!supabase) { alert('ต้องเชื่อมต่อ Supabase ก่อนอัปโหลดวีดีโอ'); return; }
+    if (file.size > 100 * 1024 * 1024) { alert('วีดีโอขนาดใหญ่เกิน 100MB'); return; }
+    setUploading(true);
+    setUploadMsg(`กำลังอัปโหลดวีดีโอ (${(file.size / 1024 / 1024).toFixed(1)} MB)...`);
+    const url = await uploadToStorage(file);
+    setUploading(false); setUploadMsg('');
+    if (url) insertBlock(`!video[${url}]`);
+    else alert('อัปโหลดวีดีโอไม่สำเร็จ');
+    e.target.value = '';
+  };
+
+  const handleVideoUrl = () => {
+    if (!videoUrl.trim()) return;
+    insertBlock(`!video[${videoUrl.trim()}]`);
+    setVideoUrl(''); setShowVideoInput(false);
+  };
+
+  const handleSave = () => {
+    if (!content.trim()) { alert('กรุณาใส่เนื้อหา'); return; }
+    onSave({ id: initial?.id ?? genId(), stepId, type: 'text', title: title.trim(), content: content.trim() });
+  };
+
+  const toolbarBtns = [
+    { label: 'H1', action: () => insertLinePrefix('# '), title: 'หัวข้อใหญ่', style: {} },
+    { label: 'H2', action: () => insertLinePrefix('## '), title: 'หัวข้อรอง', style: {} },
+    { label: 'B', action: () => insertWrap('**', '**', 'ข้อความหนา'), title: 'ตัวหนา', style: { fontWeight: 900 as const } },
+    { label: 'I', action: () => insertWrap('*', '*', 'ข้อความเอียง'), title: 'ตัวเอียง', style: { fontStyle: 'italic' as const } },
+    { label: '•', action: () => insertLinePrefix('- '), title: 'Bullet list', style: {} },
+    { label: '>', action: () => insertLinePrefix('> '), title: 'Highlight block', style: { color: '#f9a825', fontWeight: 700 as const } },
+    { label: '==', action: () => insertWrap('==', '==', 'ข้อความสำคัญ'), title: 'ไฮไลท์ข้อความ', style: { fontSize: '0.72rem' as const } },
+  ];
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 200 }} />
+      <div style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 201,
+        background: 'white', borderTopLeftRadius: '20px', borderTopRightRadius: '20px',
+        padding: '16px 16px 32px', maxHeight: '92vh', overflowY: 'auto',
+        boxShadow: '0 -4px 24px rgba(0,0,0,0.18)',
+      }}>
+        <div style={{ width: '40px', height: '4px', background: '#ddd', borderRadius: '2px', margin: '0 auto 14px' }} />
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <div style={{ fontWeight: '700', fontSize: '1rem', color: '#222' }}>{initial ? 'แก้ไขเนื้อหา' : 'เพิ่มเนื้อหา'}</div>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button onClick={() => setPreview(v => !v)} style={{
+              background: preview ? '#e8f5e9' : '#f5f5f5', border: 'none', borderRadius: '8px',
+              padding: '6px 12px', cursor: 'pointer', color: preview ? '#2e7d32' : '#555',
+              fontSize: '0.75rem', fontWeight: preview ? '700' : '400',
+            }}>{preview ? '✎ แก้ไข' : '👁 Preview'}</button>
+            <button onClick={onClose} style={{ background: '#f5f5f5', border: 'none', borderRadius: '8px', padding: '6px 12px', cursor: 'pointer', color: '#555', fontSize: '0.75rem' }}>ยกเลิก</button>
+          </div>
+        </div>
+
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="หัวข้อบทความ (ไม่บังคับ)"
+          style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1.5px solid #ddd', fontSize: '0.88rem', boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit', marginBottom: '10px' }} />
+
+        {!preview ? (
+          <>
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '8px', overflowX: 'auto', paddingBottom: '2px', WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'] }}>
+              {toolbarBtns.map(btn => (
+                <button key={btn.label} onClick={btn.action} title={btn.title} style={{
+                  flex: '0 0 auto', padding: '6px 10px', borderRadius: '7px', border: '1.5px solid #e0e0e0',
+                  background: '#fafafa', fontSize: '0.82rem', cursor: 'pointer', color: '#333', ...btn.style,
+                }}>{btn.label}</button>
+              ))}
+              <div style={{ width: '1px', background: '#e0e0e0', margin: '0 2px', flexShrink: 0 }} />
+              <button onClick={() => fileRef.current?.click()} disabled={uploading} title="แทรกรูปภาพ" style={{ flex: '0 0 auto', padding: '6px 10px', borderRadius: '7px', border: '1.5px solid #e0e0e0', background: '#fafafa', fontSize: '0.82rem', cursor: 'pointer' }}>📷</button>
+              <button onClick={() => setShowVideoInput(v => !v)} disabled={uploading} title="แทรกวีดีโอ URL" style={{ flex: '0 0 auto', padding: '6px 10px', borderRadius: '7px', border: '1.5px solid #e0e0e0', background: showVideoInput ? '#e8f5e9' : '#fafafa', fontSize: '0.82rem', cursor: 'pointer' }}>🎬</button>
+              <button onClick={() => videoFileRef.current?.click()} disabled={uploading} title="อัปโหลดวีดีโอจากเครื่อง" style={{ flex: '0 0 auto', padding: '6px 10px', borderRadius: '7px', border: '1.5px solid #e0e0e0', background: '#fafafa', fontSize: '0.82rem', cursor: 'pointer' }}>📹</button>
+            </div>
+
+            {showVideoInput && (
+              <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+                <input value={videoUrl} onChange={(e) => setVideoUrl(e.target.value)}
+                  placeholder="วาง YouTube URL หรือ URL วีดีโอ..."
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleVideoUrl(); } }}
+                  style={{ flex: 1, padding: '8px 10px', borderRadius: '8px', border: '1.5px solid #a5d6a7', fontSize: '0.82rem', outline: 'none', fontFamily: 'inherit' }} />
+                <button onClick={handleVideoUrl} style={{ padding: '8px 14px', borderRadius: '8px', background: '#2e7d32', color: 'white', border: 'none', fontSize: '0.78rem', fontWeight: '600', cursor: 'pointer' }}>แทรก</button>
+              </div>
+            )}
+
+            {uploading && <div style={{ fontSize: '0.75rem', color: '#e65100', fontWeight: '600', marginBottom: '6px', textAlign: 'center' }}>⏳ {uploadMsg}</div>}
+
+            <textarea ref={taRef} value={content} onChange={(e) => setContent(e.target.value)} rows={10}
+              placeholder={'พิมพ์เนื้อหา หรือใช้ปุ่มด้านบนเพื่อจัดรูปแบบ...\n\n# หัวข้อใหญ่\n## หัวข้อรอง\n- รายการ\n> Highlight block\n**ตัวหนา**  *ตัวเอียง*  ==ไฮไลท์=='}
+              style={{
+                width: '100%', padding: '12px', borderRadius: '10px', border: '1.5px solid #ddd',
+                fontSize: '0.88rem', boxSizing: 'border-box', resize: 'vertical', outline: 'none',
+                fontFamily: 'monospace', lineHeight: '1.7', minHeight: '200px',
+              }} />
+            <div style={{ fontSize: '0.65rem', color: '#bbb', marginTop: '3px', textAlign: 'right' }}>{content.length} ตัวอักษร</div>
+          </>
+        ) : (
+          <div style={{ minHeight: '180px', padding: '14px', borderRadius: '10px', border: '1.5px solid #e8f5e9', background: '#fafffe' }}>
+            {title && <div style={{ fontWeight: '700', fontSize: '1rem', color: '#1b5e20', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid #e8f5e9' }}>{title}</div>}
+            {parseRichContent(content)}
+          </div>
+        )}
+
+        <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: 'none' }} />
+        <input ref={videoFileRef} type="file" accept="video/*" onChange={handleVideoFile} style={{ display: 'none' }} />
+
+        <button onClick={handleSave} disabled={uploading} style={{
+          width: '100%', marginTop: '14px', padding: '14px', borderRadius: '12px',
+          background: uploading ? '#a5d6a7' : '#2e7d32', color: 'white', border: 'none',
+          fontSize: '0.92rem', fontWeight: '700', cursor: uploading ? 'not-allowed' : 'pointer',
+          boxShadow: '0 2px 8px rgba(46,125,50,0.3)',
+        }}>{uploading ? '⏳ กำลังอัปโหลด...' : 'บันทึก'}</button>
+      </div>
+    </>
+  );
+}
+
+// ---- BlockDisplay ----
+
+interface BlockDisplayProps {
+  block: LearningBlock;
+  editMode: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}
+
+function BlockDisplay({ block, editMode, onEdit, onDelete }: BlockDisplayProps) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  const icon = block.type === 'image' ? '🖼' : block.type === 'video' ? '🎬' : '📝';
+  const displayTitle = block.title || (block.type === 'image' ? 'รูปภาพ' : block.type === 'video' ? 'วีดีโอ' : 'บันทึก');
+
+  const renderBody = () => {
+    if (block.type === 'image') {
+      return <img src={block.content} alt={block.title} style={{ width: '100%', display: 'block', maxHeight: '320px', objectFit: 'contain', background: '#f5f5f5' }} />;
+    }
+    if (block.type === 'video') {
+      const ytId = getYouTubeId(block.content);
+      return ytId ? (
+        <div style={{ position: 'relative', paddingTop: '56.25%' }}>
+          <iframe style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
+            src={`https://www.youtube.com/embed/${ytId}`}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen title={block.title || 'Video'} />
+        </div>
+      ) : (
+        <video controls style={{ width: '100%', display: 'block', background: '#000' }}>
+          <source src={block.content} />วีดีโอไม่รองรับในเบราว์เซอร์นี้
+        </video>
+      );
+    }
+    return <div style={{ padding: '12px 14px' }}>{parseRichContent(block.content)}</div>;
+  };
+
+  return (
+    <div style={{ background: 'white', borderRadius: '12px', overflow: 'hidden', border: '1.5px solid #e8f5e9', marginBottom: '8px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', padding: '9px 12px', background: '#f9fafb', borderBottom: collapsed ? 'none' : '1px solid #f0f0f0' }}>
+        <button onClick={() => setCollapsed(v => !v)} style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, minWidth: 0 }}>
+          <span style={{ fontSize: '0.85rem', flexShrink: 0 }}>{icon}</span>
+          <span style={{ fontWeight: '600', fontSize: '0.8rem', color: '#333', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{displayTitle}</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#bbb" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+            style={{ flexShrink: 0, transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+        {editMode && (
+          <div style={{ display: 'flex', gap: '5px', marginLeft: '8px', flexShrink: 0 }}>
+            <button onClick={onEdit} style={{ background: '#e3f2fd', color: '#1565c0', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: '600' }}>แก้ไข</button>
+            <button onClick={onDelete} style={{ background: '#ffebee', color: '#c62828', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: '600' }}>ลบ</button>
+          </div>
+        )}
+      </div>
+      {!collapsed && renderBody()}
+    </div>
+  );
+}
+
+// ---- Main Component ----
+
 const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
   const [expanded, setExpanded] = useState<number | null>(null);
   const [showParams, setShowParams] = useState<number | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [blocks, setBlocks] = useState<LearningBlock[]>([]);
+  const [syncing, setSyncing] = useState(false);
+  const [editForm, setEditForm] = useState<{ stepId: number | null; block: LearningBlock | null } | null>(null);
+
+  useEffect(() => {
+    if (!supabase) {
+      // localStorage fallback
+      try { setBlocks(JSON.parse(localStorage.getItem('line4-blocks') ?? '[]')); }
+      catch { setBlocks([]); }
+      return;
+    }
+
+    // Initial fetch from Supabase
+    supabase.from('learning_blocks').select('*').order('created_at').then(({ data }) => {
+      if (data) setBlocks(data.map(fromDb));
+    });
+
+    // Real-time subscription — see changes from all users instantly
+    const channel = supabase
+      .channel('line4_blocks')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'learning_blocks' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setBlocks(prev => prev.find(b => b.id === (payload.new as Record<string, unknown>).id as string)
+            ? prev
+            : [...prev, fromDb(payload.new as Record<string, unknown>)]);
+        } else if (payload.eventType === 'UPDATE') {
+          setBlocks(prev => prev.map(b => b.id === (payload.new as Record<string, unknown>).id as string ? fromDb(payload.new as Record<string, unknown>) : b));
+        } else if (payload.eventType === 'DELETE') {
+          setBlocks(prev => prev.filter(b => b.id !== (payload.old as Record<string, unknown>).id as string));
+        }
+      })
+      .subscribe();
+
+    return () => { supabase!.removeChannel(channel); };
+  }, []);
+
+  const saveBlock = async (block: LearningBlock) => {
+    // Optimistic update
+    setBlocks(prev => {
+      const idx = prev.findIndex(b => b.id === block.id);
+      if (idx >= 0) { const next = [...prev]; next[idx] = block; return next; }
+      return [...prev, block];
+    });
+    setEditForm(null);
+
+    if (supabase) {
+      setSyncing(true);
+      await supabase.from('learning_blocks').upsert(toDb(block));
+      setSyncing(false);
+    } else {
+      setBlocks(prev => { localStorage.setItem('line4-blocks', JSON.stringify(prev)); return prev; });
+    }
+  };
+
+  const deleteBlock = async (id: string) => {
+    if (!window.confirm('ลบเนื้อหานี้?')) return;
+    setBlocks(prev => {
+      const next = prev.filter(b => b.id !== id);
+      if (!supabase) localStorage.setItem('line4-blocks', JSON.stringify(next));
+      return next;
+    });
+    if (supabase) {
+      setSyncing(true);
+      await supabase.from('learning_blocks').delete().eq('id', id);
+      setSyncing(false);
+    }
+  };
+
+  const stepBlocks = (stepId: number) => blocks.filter(b => b.stepId === stepId);
+  const globalBlocks = blocks.filter(b => b.stepId === null);
+  const [showGlobal, setShowGlobal] = useState(true);
 
   return (
     <div style={{ background: '#f4f6f9', minHeight: '100vh', paddingBottom: '40px' }}>
-      {/* Header */}
       <div style={{
         background: 'linear-gradient(135deg, #1b5e20, #2e7d32)',
         color: 'white', padding: '20px 16px 16px',
@@ -225,6 +694,20 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
             <div style={{ fontWeight: '700', fontSize: '1.1rem', letterSpacing: '0.02em' }}>คู่มือระบบผลิต Line 4</div>
             <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>GEA Syrup Processing · Mitr Phol Thailand</div>
           </div>
+          {syncing && <span style={{ fontSize: '0.65rem', opacity: 0.8 }}>⏳</span>}
+          {supabase && !syncing && <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>☁️</span>}
+          <button
+            onClick={() => setEditMode(e => !e)}
+            style={{
+              background: editMode ? '#fff3e0' : 'rgba(255,255,255,0.2)',
+              border: 'none', color: editMode ? '#e65100' : 'white',
+              borderRadius: '8px', padding: '5px 12px', cursor: 'pointer',
+              fontSize: '0.78rem', fontWeight: editMode ? '700' : '400',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {editMode ? '✏️ แก้ไข' : '✏️'}
+          </button>
         </div>
         <div style={{
           background: 'rgba(255,255,255,0.15)', borderRadius: '10px',
@@ -234,7 +717,17 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
         </div>
       </div>
 
-      {/* System Map */}
+      {editMode && (
+        <div style={{
+          background: '#fff3e0', borderBottom: '2px solid #ffb74d',
+          padding: '8px 16px', fontSize: '0.75rem', color: '#e65100',
+          display: 'flex', alignItems: 'center', gap: '8px',
+        }}>
+          <span style={{ fontSize: '1rem' }}>✏️</span>
+          <span>โหมดแก้ไข — กด <strong>+ เพิ่ม</strong> ใต้แต่ละหัวข้อ หรือที่ "แหล่งเรียนรู้" ด้านล่าง · กด ✏️ อีกครั้งเพื่อออก</span>
+        </div>
+      )}
+
       <div style={{ padding: '16px 14px 0' }}>
         <div style={{ fontSize: '0.7rem', color: '#999', fontWeight: '600', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px' }}>แผนผังระบบผลิต (Syrup Processing)</div>
 
@@ -257,7 +750,7 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', overflowX: 'auto', gap: '0', paddingBottom: '6px', WebkitOverflowScrolling: 'touch' as any }}>
+        <div style={{ display: 'flex', alignItems: 'center', overflowX: 'auto', gap: '0', paddingBottom: '6px', WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'] }}>
           {[
             { label: 'IBC Sugar\n+ Process\nWater', color: '#4a7c59' },
             { label: 'Mixing\nStation', color: '#1565c0' },
@@ -288,12 +781,12 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
         </div>
       </div>
 
-      {/* Step Cards */}
       <div style={{ padding: '12px 14px 0' }}>
         <div style={{ fontSize: '0.7rem', color: '#999', fontWeight: '600', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px' }}>รายละเอียดแต่ละส่วน</div>
         {STEPS.map((step) => {
           const isOpen = expanded === step.id;
           const isParam = showParams === step.id;
+          const sBlocks = stepBlocks(step.id);
           return (
             <div key={step.id} style={{
               background: 'white', borderRadius: '14px', marginBottom: '10px',
@@ -320,6 +813,11 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: '700', fontSize: '0.88rem', color: '#222' }}>{step.title}</div>
                   <div style={{ fontSize: '0.6rem', color: '#999', marginTop: '2px' }}>{step.subtitle}</div>
+                  {sBlocks.length > 0 && !isOpen && (
+                    <div style={{ fontSize: '0.6rem', color: '#4caf50', marginTop: '3px' }}>
+                      📌 {sBlocks.length} บันทึก
+                    </div>
+                  )}
                 </div>
                 <div style={{
                   color: step.color, fontSize: '1rem', fontWeight: '700',
@@ -388,6 +886,57 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
                       {step.note}
                     </div>
                   )}
+
+                  {sBlocks.length > 0 && (
+                    <div style={{ marginTop: '16px' }}>
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: '8px',
+                        background: 'white', border: '1.5px solid #c8e6c9',
+                        borderRadius: '10px', padding: '9px 12px', marginBottom: '10px',
+                        boxShadow: '0 1px 3px rgba(46,125,50,0.06)',
+                      }}>
+                        <div style={{
+                          width: '24px', height: '24px', borderRadius: '6px',
+                          background: '#388e3c', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          flexShrink: 0,
+                        }}>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="8" y1="6" x2="21" y2="6"/>
+                            <line x1="8" y1="12" x2="21" y2="12"/>
+                            <line x1="8" y1="18" x2="21" y2="18"/>
+                            <line x1="3" y1="6" x2="3.01" y2="6"/>
+                            <line x1="3" y1="12" x2="3.01" y2="12"/>
+                            <line x1="3" y1="18" x2="3.01" y2="18"/>
+                          </svg>
+                        </div>
+                        <span style={{ fontWeight: '700', fontSize: '0.88rem', color: '#1b5e20' }}>บันทึกการเรียนรู้</span>
+                        <span style={{ marginLeft: 'auto', background: '#e8f5e9', color: '#2e7d32', fontSize: '0.65rem', fontWeight: '700', borderRadius: '20px', padding: '2px 8px', border: '1px solid #a5d6a7' }}>{sBlocks.length}</span>
+                      </div>
+                      {sBlocks.map(block => (
+                        <BlockDisplay
+                          key={block.id}
+                          block={block}
+                          editMode={editMode}
+                          onEdit={() => setEditForm({ stepId: step.id, block })}
+                          onDelete={() => deleteBlock(block.id)}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {editMode && (
+                    <button
+                      onClick={() => setEditForm({ stepId: step.id, block: null })}
+                      style={{
+                        width: '100%', marginTop: '10px', padding: '10px',
+                        borderRadius: '10px', border: '2px dashed #a5d6a7',
+                        background: '#f1f8e9', color: '#2e7d32',
+                        fontSize: '0.78rem', fontWeight: '600', cursor: 'pointer',
+                      }}
+                    >
+                      + เพิ่มบันทึก / รูป / วีดีโอ ใน {step.code}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -395,7 +944,79 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
         })}
       </div>
 
-      <div style={{ padding: '0 14px', marginTop: '8px' }}>
+      <div style={{ padding: '4px 14px 0' }}>
+        <button
+          onClick={() => setShowGlobal(v => !v)}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
+            background: 'white', border: '1.5px solid #c8e6c9',
+            borderRadius: '12px', padding: '11px 14px', marginBottom: '12px',
+            cursor: 'pointer', textAlign: 'left', boxShadow: '0 1px 4px rgba(46,125,50,0.07)',
+          }}
+        >
+          <div style={{
+            width: '30px', height: '30px', borderRadius: '8px',
+            background: '#2e7d32', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
+          }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+            </svg>
+          </div>
+          <span style={{ fontWeight: '700', fontSize: '0.95rem', color: '#1b5e20', flex: 1 }}>แหล่งเรียนรู้เพิ่มเติม</span>
+          {globalBlocks.length > 0 && (
+            <span style={{ background: '#e8f5e9', color: '#2e7d32', fontSize: '0.65rem', fontWeight: '700', borderRadius: '20px', padding: '2px 8px', border: '1px solid #a5d6a7' }}>{globalBlocks.length}</span>
+          )}
+          <svg
+            width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="#4caf50" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+            style={{ flexShrink: 0, transform: showGlobal ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.2s ease' }}
+          >
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+
+        {showGlobal && (
+          <>
+            {globalBlocks.length === 0 && !editMode && (
+              <div style={{
+                textAlign: 'center', color: '#bbb', fontSize: '0.75rem',
+                padding: '24px 16px', background: 'white', borderRadius: '12px',
+                border: '1.5px dashed #e0e0e0',
+              }}>
+                กด ✏️ ที่มุมขวาบน เพื่อเพิ่มรูป วีดีโอ หรือบันทึกสำหรับเรียนรู้
+              </div>
+            )}
+
+            {globalBlocks.map(block => (
+              <BlockDisplay
+                key={block.id}
+                block={block}
+                editMode={editMode}
+                onEdit={() => setEditForm({ stepId: null, block })}
+                onDelete={() => deleteBlock(block.id)}
+              />
+            ))}
+
+            {editMode && (
+              <button
+                onClick={() => setEditForm({ stepId: null, block: null })}
+                style={{
+                  width: '100%', padding: '14px', borderRadius: '12px',
+                  border: '2px dashed #a5d6a7', background: '#f1f8e9',
+                  color: '#2e7d32', fontSize: '0.82rem', fontWeight: '600', cursor: 'pointer',
+                  marginBottom: '4px',
+                }}
+              >
+                + เพิ่มเนื้อหา / รูปภาพ / วีดีโอ สำหรับเรียนรู้
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      <div style={{ padding: '12px 14px 0' }}>
         <div style={{
           background: '#fff3e0', border: '1px solid #ffe0b2', borderRadius: '12px',
           padding: '12px 14px', fontSize: '0.72rem', color: '#e65100', lineHeight: '1.6',
@@ -404,6 +1025,15 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
           ค่าที่แสดงอ้างอิงจาก GEA HMI จริง (Mitr Phol, 10/05/2026) — สามารถแก้ไขเพิ่มเติมได้เมื่อเข้าใจกระบวนการมากขึ้น
         </div>
       </div>
+
+      {editForm !== null && (
+        <EditForm
+          initial={editForm.block}
+          stepId={editForm.stepId}
+          onSave={saveBlock}
+          onClose={() => setEditForm(null)}
+        />
+      )}
     </div>
   );
 };
