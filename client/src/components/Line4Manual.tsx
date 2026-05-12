@@ -250,6 +250,37 @@ function getYouTubeId(url: string): string | null {
   return m ? m[1] : null;
 }
 
+// ---- Toast System ----
+
+interface Toast { id: string; msg: string; type: 'success' | 'info' | 'warning'; }
+
+function ToastContainer({ toasts }: { toasts: Toast[] }) {
+  return (
+    <div style={{
+      position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)',
+      zIndex: 400, display: 'flex', flexDirection: 'column', alignItems: 'center',
+      gap: '8px', pointerEvents: 'none', width: '92%', maxWidth: '340px',
+    }}>
+      {toasts.map(t => (
+        <div key={t.id} style={{
+          width: '100%',
+          background: t.type === 'success' ? '#1b5e20' : t.type === 'warning' ? '#b71c1c' : '#1a237e',
+          color: 'white', borderRadius: '14px', padding: '12px 16px',
+          fontSize: '0.8rem', fontWeight: '600',
+          boxShadow: '0 8px 28px rgba(0,0,0,0.35)',
+          animation: 'toastIn 0.35s cubic-bezier(0.34,1.56,0.64,1)',
+          display: 'flex', alignItems: 'center', gap: '10px',
+        }}>
+          <span style={{ fontSize: '1rem', flexShrink: 0 }}>
+            {t.type === 'success' ? '✅' : t.type === 'warning' ? '⚠️' : '🔔'}
+          </span>
+          {t.msg}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ---- EditForm (bottom sheet) ----
 
 interface EditFormProps {
@@ -782,75 +813,197 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
 interface BlockDisplayProps {
   block: LearningBlock;
   editMode: boolean;
+  dark: boolean;
+  reactions: Record<string, number>;
+  myReactions: string[];
   onEdit: () => void;
   onDelete: () => void;
+  onReact: (emoji: string) => void;
+  onShare: () => void;
 }
 
-function BlockDisplay({ block, editMode, onEdit, onDelete }: BlockDisplayProps) {
+const REACTION_EMOJIS = ['👍', '✅', '🔥'];
+
+function BlockDisplay({ block, editMode, dark, reactions, myReactions, onEdit, onDelete, onReact, onShare }: BlockDisplayProps) {
   const ytId = block.type === 'video' ? getYouTubeId(block.content) : null;
+  const [textExpanded, setTextExpanded] = useState(false);
+  const isLongText = block.type === 'text' && block.content.length > 220;
+  const displayContent = isLongText && !textExpanded ? block.content.slice(0, 220) + '…' : block.content;
+
+  // Swipe-to-delete
+  const touchStartX = useRef(0);
+  const [swipeX, setSwipeX] = useState(0);
+  const [isSwiping, setIsSwiping] = useState(false);
+
+  const bg = dark ? '#1e293b' : 'white';
+  const headerBg = dark ? '#0f172a' : '#f8fafb';
+  const dividerColor = dark ? '#0f172a' : '#f0f0f0';
+  const textColor = dark ? '#e2e8f0' : '#333';
+  const bodyColor = dark ? '#cbd5e1' : '#444';
+  const mutedColor = dark ? '#64748b' : '#aaa';
+  const borderColor = dark ? '#334155' : '#e8f5e9';
 
   return (
-    <div style={{
-      background: 'white', borderRadius: '12px', overflow: 'hidden',
-      border: '1.5px solid #e8f5e9', marginBottom: '8px',
-      boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
-    }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '9px 12px', background: '#f9fafb', borderBottom: '1px solid #f0f0f0',
-      }}>
-        <div style={{ fontWeight: '600', fontSize: '0.8rem', color: '#333', flex: 1, minWidth: 0 }}>
-          <span style={{ marginRight: '5px' }}>
-            {block.type === 'text' ? '📝' : block.type === 'image' ? '🖼' : '🎬'}
-          </span>
-          {block.title || (block.type === 'text' ? 'บันทึก' : block.type === 'image' ? 'รูปภาพ' : 'วีดีโอ')}
-        </div>
-        {editMode && (
-          <div style={{ display: 'flex', gap: '5px', flex: '0 0 auto' }}>
-            <button onClick={onEdit} style={{
-              background: '#e3f2fd', color: '#1565c0', border: 'none',
-              borderRadius: '6px', padding: '4px 10px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: '600',
-            }}>แก้ไข</button>
-            <button onClick={onDelete} style={{
-              background: '#ffebee', color: '#c62828', border: 'none',
-              borderRadius: '6px', padding: '4px 10px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: '600',
-            }}>ลบ</button>
-          </div>
-        )}
+    <div
+      id={`block-${block.id}`}
+      style={{ position: 'relative', marginBottom: '8px' }}
+      onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX; setIsSwiping(true); }}
+      onTouchMove={(e) => {
+        if (!isSwiping) return;
+        const dx = e.touches[0].clientX - touchStartX.current;
+        if (dx < 0) setSwipeX(Math.max(dx, -76));
+      }}
+      onTouchEnd={() => {
+        setIsSwiping(false);
+        if (swipeX < -38) setSwipeX(-76); else setSwipeX(0);
+      }}
+    >
+      {/* Red delete layer revealed on swipe */}
+      <div
+        onClick={onDelete}
+        style={{
+          position: 'absolute', right: 0, top: 0, bottom: 0, width: '76px',
+          background: 'linear-gradient(135deg,#c62828,#b71c1c)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          borderRadius: '12px', cursor: 'pointer', gap: '3px',
+        }}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+        </svg>
+        <span style={{ color: 'white', fontSize: '0.6rem', fontWeight: '700' }}>ลบ</span>
       </div>
 
-      {block.type === 'text' && (
-        <div style={{ padding: '12px', fontSize: '0.82rem', color: '#444', lineHeight: '1.7', whiteSpace: 'pre-wrap' }}>
-          {block.content}
+      {/* Main card */}
+      <div style={{
+        background: bg, borderRadius: '12px', overflow: 'hidden',
+        border: `1.5px solid ${borderColor}`,
+        boxShadow: dark ? '0 2px 14px rgba(0,0,0,0.4)' : '0 2px 10px rgba(0,0,0,0.06)',
+        transform: `translateX(${swipeX}px)`,
+        transition: isSwiping ? 'none' : 'transform 0.22s cubic-bezier(0.25,0.46,0.45,0.94)',
+      }}>
+        {/* Header */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '8px',
+          padding: '9px 12px', background: headerBg, borderBottom: `1px solid ${dividerColor}`,
+        }}>
+          <div style={{
+            width: '22px', height: '22px', borderRadius: '6px', flexShrink: 0,
+            background: block.type === 'text' ? '#e3f2fd' : block.type === 'image' ? '#f3e5f5' : '#ffebee',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            {block.type === 'text'
+              ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#1565c0" strokeWidth="2.5" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              : block.type === 'image'
+              ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6a1b9a" strokeWidth="2.5" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="21 15 16 10 5 21"/></svg>
+              : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#b71c1c" strokeWidth="2.5" strokeLinecap="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+            }
+          </div>
+          <span style={{ fontWeight: '700', fontSize: '0.8rem', color: textColor, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {block.title || (block.type === 'text' ? 'บันทึก' : block.type === 'image' ? 'รูปภาพ' : 'วีดีโอ')}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '3px', flexShrink: 0 }}>
+            <button
+              onClick={onShare}
+              title="แชร์ / คัดลอก link"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px 5px', color: mutedColor, display: 'flex', alignItems: 'center', borderRadius: '6px' }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+              </svg>
+            </button>
+            {editMode && (
+              <>
+                <button onClick={onEdit} style={{ background: '#e3f2fd', color: '#1565c0', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: '700' }}>แก้ไข</button>
+                <button onClick={onDelete} style={{ background: '#ffebee', color: '#c62828', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: '700' }}>ลบ</button>
+              </>
+            )}
+          </div>
         </div>
-      )}
 
-      {block.type === 'image' && (
-        <img
-          src={block.content}
-          alt={block.title}
-          style={{ width: '100%', display: 'block', maxHeight: '320px', objectFit: 'contain', background: '#f5f5f5' }}
-        />
-      )}
+        {/* Content */}
+        {block.type === 'text' && (
+          <div style={{ padding: '12px 13px' }}>
+            <div style={{ fontSize: '0.83rem', color: bodyColor, lineHeight: '1.72', whiteSpace: 'pre-wrap' }}>
+              {displayContent}
+            </div>
+            {isLongText && (
+              <button
+                onClick={() => setTextExpanded(e => !e)}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer', padding: '5px 0 0',
+                  color: '#2e7d32', fontSize: '0.72rem', fontWeight: '700',
+                  display: 'inline-flex', alignItems: 'center', gap: '4px',
+                }}
+              >
+                {textExpanded
+                  ? <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="18 15 12 9 6 15"/></svg>ย่อ</>
+                  : <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>อ่านต่อ ({block.content.length - 220} ตัวอักษร)</>
+                }
+              </button>
+            )}
+          </div>
+        )}
 
-      {block.type === 'video' && ytId && (
-        <div style={{ position: 'relative', paddingTop: '56.25%' }}>
-          <iframe
-            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
-            src={`https://www.youtube.com/embed/${ytId}`}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-            title={block.title || 'Video'}
+        {block.type === 'image' && (
+          <img src={block.content} alt={block.title}
+            style={{ width: '100%', display: 'block', maxHeight: '320px', objectFit: 'contain', background: dark ? '#0f172a' : '#f5f5f5' }}
           />
-        </div>
-      )}
+        )}
 
-      {block.type === 'video' && !ytId && (
-        <video controls style={{ width: '100%', display: 'block', background: '#000' }}>
-          <source src={block.content} />
-          วีดีโอไม่รองรับในเบราว์เซอร์นี้
-        </video>
-      )}
+        {block.type === 'video' && ytId && (
+          <div style={{ position: 'relative', paddingTop: '56.25%' }}>
+            <iframe
+              style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
+              src={`https://www.youtube.com/embed/${ytId}`}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen title={block.title || 'Video'}
+            />
+          </div>
+        )}
+
+        {block.type === 'video' && !ytId && (
+          <video controls style={{ width: '100%', display: 'block', background: '#000' }}>
+            <source src={block.content} />
+          </video>
+        )}
+
+        {/* Reactions bar */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '5px',
+          padding: '7px 12px', borderTop: `1px solid ${dividerColor}`,
+        }}>
+          {REACTION_EMOJIS.map(emoji => {
+            const count = reactions[emoji] ?? 0;
+            const mine = myReactions.includes(emoji);
+            return (
+              <button
+                key={emoji}
+                onClick={() => onReact(emoji)}
+                style={{
+                  background: mine ? (dark ? '#14532d' : '#e8f5e9') : 'transparent',
+                  border: `1.5px solid ${mine ? '#4caf50' : (dark ? '#334155' : '#e8e8e8')}`,
+                  borderRadius: '20px', padding: '3px 10px', cursor: 'pointer',
+                  fontSize: '0.72rem', fontWeight: '700',
+                  display: 'inline-flex', alignItems: 'center', gap: '4px',
+                  color: mine ? '#2e7d32' : mutedColor,
+                  transition: 'all 0.15s ease',
+                  transform: mine ? 'scale(1.05)' : 'scale(1)',
+                }}
+              >
+                {emoji}
+                {count > 0 && <span style={{ fontSize: '0.65rem' }}>{count}</span>}
+              </button>
+            );
+          })}
+          <div style={{ flex: 1 }} />
+          {block.type === 'text' && (
+            <span style={{ fontSize: '0.6rem', color: mutedColor }}>{block.content.length} ตัว</span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -864,48 +1017,105 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
   const [blocks, setBlocks] = useState<LearningBlock[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [editForm, setEditForm] = useState<{ stepId: number | null; block: LearningBlock | null } | null>(null);
+  const [showGlobal, setShowGlobal] = useState(true);
 
+  // New feature states
+  const [dark, setDark] = useState(() => localStorage.getItem('l4-dark') === '1');
+  const [search, setSearch] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+  const [reactions, setReactions] = useState<Record<string, Record<string, number>>>(() => {
+    try { return JSON.parse(localStorage.getItem('l4-reactions') ?? '{}'); } catch { return {}; }
+  });
+  const [myReactions, setMyReactions] = useState<Record<string, string[]>>(() => {
+    try { return JSON.parse(localStorage.getItem('l4-my-reactions') ?? '{}'); } catch { return {}; }
+  });
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const localIds = useRef<Set<string>>(new Set());
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Helpers
+  const addToast = (msg: string, type: Toast['type'] = 'info') => {
+    const id = genId();
+    setToasts(prev => [...prev, { id, msg, type }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3200);
+  };
+
+  const toggleDark = () => {
+    setDark(d => { localStorage.setItem('l4-dark', d ? '0' : '1'); return !d; });
+  };
+
+  const handleReact = (blockId: string, emoji: string) => {
+    const mine = myReactions[blockId]?.includes(emoji) ?? false;
+    setReactions(prev => {
+      const blockR = { ...(prev[blockId] ?? {}) };
+      blockR[emoji] = Math.max((blockR[emoji] ?? 0) + (mine ? -1 : 1), 0);
+      const next = { ...prev, [blockId]: blockR };
+      localStorage.setItem('l4-reactions', JSON.stringify(next));
+      return next;
+    });
+    setMyReactions(prev => {
+      const cur = prev[blockId] ?? [];
+      const next = { ...prev, [blockId]: mine ? cur.filter(e => e !== emoji) : [...cur, emoji] };
+      localStorage.setItem('l4-my-reactions', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const handleShare = (block: LearningBlock) => {
+    const url = `${window.location.href.split('#')[0]}#block-${block.id}`;
+    if (navigator.share) {
+      navigator.share({ title: block.title || 'เนื้อหาการเรียนรู้', url }).catch(() => null);
+    } else {
+      navigator.clipboard.writeText(url).then(() => addToast('คัดลอก link แล้ว!', 'success'));
+    }
+  };
+
+  // Supabase / localStorage
   useEffect(() => {
     if (!supabase) {
-      // localStorage fallback
-      try { setBlocks(JSON.parse(localStorage.getItem('line4-blocks') ?? '[]')); }
-      catch { setBlocks([]); }
+      try { setBlocks(JSON.parse(localStorage.getItem('line4-blocks') ?? '[]')); } catch { setBlocks([]); }
       return;
     }
-
-    // Initial fetch from Supabase
     supabase.from('learning_blocks').select('*').order('created_at').then(({ data }) => {
       if (data) setBlocks(data.map(fromDb));
     });
-
-    // Real-time subscription — see changes from all users instantly
     const channel = supabase
       .channel('line4_blocks')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'learning_blocks' }, (payload) => {
+        const newId = (payload.new as Record<string, unknown>)?.id as string;
         if (payload.eventType === 'INSERT') {
-          setBlocks(prev => prev.find(b => b.id === (payload.new as Record<string, unknown>).id as string)
-            ? prev
-            : [...prev, fromDb(payload.new as Record<string, unknown>)]);
+          if (!localIds.current.has(newId)) {
+            addToast('มีเนื้อหาใหม่จากผู้ใช้อื่น!', 'info');
+          }
+          setBlocks(prev => prev.find(b => b.id === newId) ? prev : [...prev, fromDb(payload.new as Record<string, unknown>)]);
         } else if (payload.eventType === 'UPDATE') {
-          setBlocks(prev => prev.map(b => b.id === (payload.new as Record<string, unknown>).id as string ? fromDb(payload.new as Record<string, unknown>) : b));
+          setBlocks(prev => prev.map(b => b.id === newId ? fromDb(payload.new as Record<string, unknown>) : b));
         } else if (payload.eventType === 'DELETE') {
           setBlocks(prev => prev.filter(b => b.id !== (payload.old as Record<string, unknown>).id as string));
         }
       })
       .subscribe();
-
     return () => { supabase!.removeChannel(channel); };
   }, []);
 
+  // Scroll to block from URL hash
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash.startsWith('#block-')) {
+      const id = hash.slice(7);
+      setTimeout(() => document.getElementById(`block-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 600);
+    }
+  }, []);
+
   const saveBlock = async (block: LearningBlock) => {
-    // Optimistic update
+    localIds.current.add(block.id);
     setBlocks(prev => {
       const idx = prev.findIndex(b => b.id === block.id);
       if (idx >= 0) { const next = [...prev]; next[idx] = block; return next; }
       return [...prev, block];
     });
     setEditForm(null);
-
+    addToast('บันทึกแล้ว!', 'success');
     if (supabase) {
       setSyncing(true);
       await supabase.from('learning_blocks').upsert(toDb(block));
@@ -929,48 +1139,125 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
     }
   };
 
+  // Computed
   const stepBlocks = (stepId: number) => blocks.filter(b => b.stepId === stepId);
   const globalBlocks = blocks.filter(b => b.stepId === null);
-  const [showGlobal, setShowGlobal] = useState(true);
+  const q = search.trim().toLowerCase();
+  const searchResults = q
+    ? blocks.filter(b => b.title.toLowerCase().includes(q) || b.content.toLowerCase().includes(q))
+    : null;
+
+  // Dark mode colors
+  const pageBg = dark ? '#0f172a' : '#f4f6f9';
+  const cardBg = dark ? '#1e293b' : 'white';
+  const cardBorder = dark ? '#334155' : '#eee';
+  const headingColor = dark ? '#f1f5f9' : '#222';
+  const mutedColor = dark ? '#64748b' : '#999';
+  const sectionLabelColor = dark ? '#475569' : '#999';
+
+  const blockDisplayProps = (block: LearningBlock, stepId: number | null) => ({
+    block,
+    editMode,
+    dark,
+    reactions: reactions[block.id] ?? {},
+    myReactions: myReactions[block.id] ?? [],
+    onEdit: () => setEditForm({ stepId, block }),
+    onDelete: () => deleteBlock(block.id),
+    onReact: (emoji: string) => handleReact(block.id, emoji),
+    onShare: () => handleShare(block),
+  });
 
   return (
-    <div style={{ background: '#f4f6f9', minHeight: '100vh', paddingBottom: '40px' }}>
+    <div style={{ background: pageBg, minHeight: '100vh', paddingBottom: '80px', transition: 'background 0.3s' }}>
+      <style>{`
+        @keyframes toastIn { from { transform: translateY(-20px) scale(0.92); opacity: 0; } to { transform: none; opacity: 1; } }
+        @media print {
+          body * { visibility: hidden; }
+          #l4-print-area, #l4-print-area * { visibility: visible; }
+          #l4-print-area { position: fixed; inset: 0; padding: 20px; background: white; font-family: sans-serif; }
+        }
+      `}</style>
+
+      <ToastContainer toasts={toasts} />
+
+      {/* Header */}
       <div style={{
         background: 'linear-gradient(135deg, #1b5e20, #2e7d32)',
         color: 'white', padding: '20px 16px 16px',
         borderBottomLeftRadius: '20px', borderBottomRightRadius: '20px',
-        boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
           <button onClick={onBackToMain} style={{
             background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white',
-            borderRadius: '8px', padding: '5px 12px', cursor: 'pointer', fontSize: '0.8rem',
+            borderRadius: '8px', padding: '5px 12px', cursor: 'pointer', fontSize: '0.8rem', flexShrink: 0,
           }}>← หลัก</button>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: '700', fontSize: '1.1rem', letterSpacing: '0.02em' }}>คู่มือระบบผลิต Line 4</div>
-            <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>GEA Syrup Processing · Mitr Phol Thailand</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: '700', fontSize: '1.05rem', letterSpacing: '0.02em' }}>คู่มือระบบผลิต Line 4</div>
+            <div style={{ fontSize: '0.65rem', opacity: 0.75 }}>GEA Syrup Processing · Mitr Phol Thailand</div>
           </div>
-          {syncing && <span style={{ fontSize: '0.65rem', opacity: 0.8 }}>⏳</span>}
-          {supabase && !syncing && <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>☁️</span>}
-          <button
-            onClick={() => setEditMode(e => !e)}
-            style={{
-              background: editMode ? '#fff3e0' : 'rgba(255,255,255,0.2)',
-              border: 'none', color: editMode ? '#e65100' : 'white',
-              borderRadius: '8px', padding: '5px 12px', cursor: 'pointer',
-              fontSize: '0.78rem', fontWeight: editMode ? '700' : '400',
-              whiteSpace: 'nowrap',
-            }}
-          >
+          {syncing && <span style={{ fontSize: '0.65rem', opacity: 0.8, flexShrink: 0 }}>⏳</span>}
+          {supabase && !syncing && <span style={{ fontSize: '0.65rem', opacity: 0.7, flexShrink: 0 }}>☁️</span>}
+          {/* Search toggle */}
+          <button onClick={() => { setShowSearch(s => !s); setTimeout(() => searchRef.current?.focus(), 80); }} style={{
+            background: showSearch ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.2)',
+            border: 'none', color: 'white', borderRadius: '8px', padding: '6px 8px',
+            cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0,
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </button>
+          {/* Dark mode toggle */}
+          <button onClick={toggleDark} style={{
+            background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white',
+            borderRadius: '8px', padding: '6px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0,
+          }} title={dark ? 'โหมดสว่าง' : 'โหมดมืด'}>
+            {dark
+              ? <svg width="14" height="14" viewBox="0 0 24 24" fill="white" stroke="white" strokeWidth="1.5"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+              : <svg width="14" height="14" viewBox="0 0 24 24" fill="white" stroke="white" strokeWidth="1.5"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            }
+          </button>
+          {/* Edit mode */}
+          <button onClick={() => setEditMode(e => !e)} style={{
+            background: editMode ? '#fff3e0' : 'rgba(255,255,255,0.2)',
+            border: 'none', color: editMode ? '#e65100' : 'white',
+            borderRadius: '8px', padding: '5px 10px', cursor: 'pointer',
+            fontSize: '0.78rem', fontWeight: editMode ? '700' : '400', flexShrink: 0,
+          }}>
             {editMode ? '✏️ แก้ไข' : '✏️'}
           </button>
         </div>
-        <div style={{
-          background: 'rgba(255,255,255,0.15)', borderRadius: '10px',
-          padding: '8px 12px', fontSize: '0.72rem', opacity: 0.9,
-        }}>
-          ผู้ดู: {operatorName} · อ้างอิง GEA HMI — Mixing Tanks / Mixing Station / Pasteurizer and Storage / CIP Kitchen
-        </div>
+        {/* Search bar */}
+        {showSearch && (
+          <div style={{ animation: 'fadeIn 0.2s ease' }}>
+            <div style={{ position: 'relative' }}>
+              <input
+                ref={searchRef}
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="ค้นหาเนื้อหา, หัวข้อ..."
+                style={{
+                  width: '100%', padding: '10px 14px 10px 36px', borderRadius: '12px',
+                  border: 'none', fontSize: '0.88rem', boxSizing: 'border-box',
+                  background: 'rgba(255,255,255,0.18)', color: 'white', outline: 'none',
+                  fontFamily: 'inherit',
+                }}
+              />
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" strokeWidth="2.5" strokeLinecap="round" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }}>
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              {search && (
+                <button onClick={() => setSearch('')} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: '0.9rem' }}>✕</button>
+              )}
+            </div>
+          </div>
+        )}
+        {!showSearch && (
+          <div style={{ background: 'rgba(255,255,255,0.12)', borderRadius: '10px', padding: '8px 12px', fontSize: '0.7rem', opacity: 0.85 }}>
+            ผู้ดู: {operatorName} · {blocks.length} เนื้อหา · GEA HMI Line 4
+          </div>
+        )}
       </div>
 
       {editMode && (
@@ -979,307 +1266,248 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
           padding: '8px 16px', fontSize: '0.75rem', color: '#e65100',
           display: 'flex', alignItems: 'center', gap: '8px',
         }}>
-          <span style={{ fontSize: '1rem' }}>✏️</span>
-          <span>โหมดแก้ไข — กด <strong>+ เพิ่ม</strong> ใต้แต่ละหัวข้อ หรือที่ "แหล่งเรียนรู้" ด้านล่าง · กด ✏️ อีกครั้งเพื่อออก</span>
+          <span>✏️</span>
+          <span>โหมดแก้ไข — กด <strong>+ เพิ่ม</strong> ใต้แต่ละหัวข้อ หรือที่ "แหล่งเรียนรู้" ด้านล่าง</span>
         </div>
       )}
 
-      <div style={{ padding: '16px 14px 0' }}>
-        <div style={{ fontSize: '0.7rem', color: '#999', fontWeight: '600', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px' }}>แผนผังระบบผลิต (Syrup Processing)</div>
-
-        <div style={{ background: '#263238', borderRadius: '10px', padding: '10px 12px', marginBottom: '10px' }}>
-          <div style={{ fontSize: '0.6rem', color: '#78909c', marginBottom: '6px', letterSpacing: '0.06em' }}>GEA HMI TABS</div>
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-            {[
-              { tab: 'Mixing Tanks', color: '#01579b' },
-              { tab: 'Mixing Station', color: '#1565c0' },
-              { tab: 'Pasteurizer and Storage', color: '#b71c1c' },
-              { tab: 'CIP Kitchen', color: '#6a1b9a', note: '(CIP Station)' },
-            ].map((t) => (
-              <div key={t.tab} style={{
-                background: t.color, color: 'white', borderRadius: '6px',
-                padding: '4px 10px', fontSize: '0.62rem', fontWeight: '600',
-              }}>
-                {t.tab}{t.note ? <span style={{ opacity: 0.7, marginLeft: '3px' }}>{t.note}</span> : ''}
-              </div>
-            ))}
+      {/* Search results mode */}
+      {searchResults !== null && (
+        <div style={{ padding: '12px 14px 0' }}>
+          <div style={{ fontSize: '0.7rem', color: sectionLabelColor, fontWeight: '700', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '10px' }}>
+            ผลการค้นหา "{search}" — {searchResults.length} รายการ
           </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', overflowX: 'auto', gap: '0', paddingBottom: '6px', WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'] }}>
-          {[
-            { label: 'IBC Sugar\n+ Process\nWater', color: '#4a7c59' },
-            { label: 'Mixing\nStation', color: '#1565c0' },
-            { label: 'Mixing\nTanks\n2×3m³', color: '#01579b' },
-            { label: 'Bal.\nTank', color: '#7b1fa2' },
-            { label: 'Pasteur-\nizer\n70°C', color: '#b71c1c' },
-            { label: 'Storage\nTank\n3m³', color: '#004d40' },
-            { label: 'Filling\nLine', color: '#37474f' },
-          ].map((s, i) => (
-            <React.Fragment key={i}>
-              <div style={{
-                flex: '0 0 auto', textAlign: 'center',
-                background: s.color, color: 'white',
-                borderRadius: '8px', padding: '6px 8px', minWidth: '52px',
-                fontSize: '0.58rem', fontWeight: '700', lineHeight: '1.4',
-                whiteSpace: 'pre-line',
-              }}>
-                {s.label}
-              </div>
-              {i < 6 && <div style={{ color: '#aaa', fontSize: '0.9rem', flex: '0 0 auto', padding: '0 2px' }}>›</div>}
-            </React.Fragment>
+          {searchResults.length === 0 && (
+            <div style={{ textAlign: 'center', color: mutedColor, fontSize: '0.8rem', padding: '32px 16px', background: cardBg, borderRadius: '14px', border: `1.5px dashed ${cardBorder}` }}>
+              ไม่พบเนื้อหาที่ตรงกัน
+            </div>
+          )}
+          {searchResults.map(block => (
+            <BlockDisplay key={block.id} {...blockDisplayProps(block, block.stepId)} />
           ))}
-          <div style={{ flex: '0 0 8px' }} />
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' }}>
-          <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#6a1b9a' }} />
-          <div style={{ fontSize: '0.63rem', color: '#888' }}>CIP Kitchen (CIP Station) — ล้างทุกส่วนหลังเสร็จงาน: Mixing → Pasteurizer → Storage</div>
-        </div>
-      </div>
+      )}
 
-      <div style={{ padding: '12px 14px 0' }}>
-        <div style={{ fontSize: '0.7rem', color: '#999', fontWeight: '600', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px' }}>รายละเอียดแต่ละส่วน</div>
-        {STEPS.map((step) => {
-          const isOpen = expanded === step.id;
-          const isParam = showParams === step.id;
-          const sBlocks = stepBlocks(step.id);
-          return (
-            <div key={step.id} style={{
-              background: 'white', borderRadius: '14px', marginBottom: '10px',
-              boxShadow: '0 1px 6px rgba(0,0,0,0.07)',
-              border: `1.5px solid ${isOpen ? step.color : '#eee'}`,
-              overflow: 'hidden',
-            }}>
-              <div
-                onClick={() => { setExpanded(isOpen ? null : step.id); if (!isOpen) setShowParams(null); }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '12px',
-                  padding: '13px 14px', cursor: 'pointer',
-                  background: isOpen ? step.bgLight : 'white',
-                }}
-              >
-                <div style={{
-                  width: '40px', height: '40px', borderRadius: '10px',
-                  background: step.color, color: 'white',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  flex: '0 0 auto',
-                }}>
-                  {step.icon}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: '700', fontSize: '0.88rem', color: '#222' }}>{step.title}</div>
-                  <div style={{ fontSize: '0.6rem', color: '#999', marginTop: '2px' }}>{step.subtitle}</div>
-                  {sBlocks.length > 0 && !isOpen && (
-                    <div style={{ fontSize: '0.6rem', color: '#4caf50', marginTop: '3px' }}>
-                      📌 {sBlocks.length} บันทึก
-                    </div>
-                  )}
-                </div>
-                <div style={{
-                  color: step.color, fontSize: '1rem', fontWeight: '700',
-                  transition: 'transform 0.25s', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                }}>▾</div>
+      {/* Normal view (hidden when searching) */}
+      {searchResults === null && (
+        <>
+          {/* Flow diagram */}
+          <div style={{ padding: '14px 14px 0' }}>
+            <div style={{ fontSize: '0.7rem', color: sectionLabelColor, fontWeight: '600', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px' }}>แผนผังระบบผลิต</div>
+            <div style={{ background: dark ? '#1e293b' : '#263238', borderRadius: '10px', padding: '10px 12px', marginBottom: '10px' }}>
+              <div style={{ fontSize: '0.6rem', color: '#78909c', marginBottom: '6px', letterSpacing: '0.06em' }}>GEA HMI TABS</div>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                {[
+                  { tab: 'Mixing Tanks', color: '#01579b' },
+                  { tab: 'Mixing Station', color: '#1565c0' },
+                  { tab: 'Pasteurizer and Storage', color: '#b71c1c' },
+                  { tab: 'CIP Kitchen', color: '#6a1b9a', note: '(CIP Station)' },
+                ].map((t) => (
+                  <div key={t.tab} style={{ background: t.color, color: 'white', borderRadius: '6px', padding: '4px 10px', fontSize: '0.62rem', fontWeight: '600' }}>
+                    {t.tab}{t.note ? <span style={{ opacity: 0.7, marginLeft: '3px' }}>{t.note}</span> : ''}
+                  </div>
+                ))}
               </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', overflowX: 'auto', gap: '0', paddingBottom: '6px', WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'] }}>
+              {[
+                { label: 'IBC Sugar\n+ Process\nWater', color: '#4a7c59' },
+                { label: 'Mixing\nStation', color: '#1565c0' },
+                { label: 'Mixing\nTanks\n2×3m³', color: '#01579b' },
+                { label: 'Bal.\nTank', color: '#7b1fa2' },
+                { label: 'Pasteur-\nizer\n70°C', color: '#b71c1c' },
+                { label: 'Storage\nTank\n3m³', color: '#004d40' },
+                { label: 'Filling\nLine', color: '#37474f' },
+              ].map((s, i) => (
+                <React.Fragment key={i}>
+                  <div style={{ flex: '0 0 auto', textAlign: 'center', background: s.color, color: 'white', borderRadius: '8px', padding: '6px 8px', minWidth: '52px', fontSize: '0.58rem', fontWeight: '700', lineHeight: '1.4', whiteSpace: 'pre-line' }}>
+                    {s.label}
+                  </div>
+                  {i < 6 && <div style={{ color: '#aaa', fontSize: '0.9rem', flex: '0 0 auto', padding: '0 2px' }}>›</div>}
+                </React.Fragment>
+              ))}
+              <div style={{ flex: '0 0 8px' }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' }}>
+              <div style={{ width: '9px', height: '9px', borderRadius: '50%', background: '#6a1b9a', flexShrink: 0 }} />
+              <div style={{ fontSize: '0.62rem', color: mutedColor }}>CIP Kitchen — ล้างทุกส่วนหลังเสร็จงาน: Mixing → Pasteurizer → Storage</div>
+            </div>
+          </div>
 
-              {isOpen && (
-                <div style={{ borderTop: `1px solid ${step.bgLight}`, padding: '12px 14px 14px' }}>
+          {/* Step cards */}
+          <div style={{ padding: '12px 14px 0' }}>
+            <div style={{ fontSize: '0.7rem', color: sectionLabelColor, fontWeight: '600', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px' }}>รายละเอียดแต่ละส่วน</div>
+            {STEPS.map((step) => {
+              const isOpen = expanded === step.id;
+              const isParam = showParams === step.id;
+              const sBlocks = stepBlocks(step.id);
+              return (
+                <div key={step.id} style={{
+                  background: cardBg, borderRadius: '14px', marginBottom: '10px',
+                  boxShadow: dark ? '0 2px 12px rgba(0,0,0,0.3)' : '0 1px 6px rgba(0,0,0,0.07)',
+                  border: `1.5px solid ${isOpen ? step.color : cardBorder}`,
+                  overflow: 'hidden', transition: 'border-color 0.2s',
+                }}>
                   <div
-                    onClick={() => setShowParams(isParam ? null : step.id)}
-                    style={{
-                      display: 'inline-flex', alignItems: 'center', gap: '5px',
-                      background: isParam ? step.color : step.bgLight,
-                      color: isParam ? 'white' : step.color,
-                      borderRadius: '8px', padding: '5px 12px', marginBottom: '12px',
-                      cursor: 'pointer', fontSize: '0.7rem', fontWeight: '600',
-                    }}
+                    onClick={() => { setExpanded(isOpen ? null : step.id); if (!isOpen) setShowParams(null); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 14px', cursor: 'pointer', background: isOpen ? (dark ? step.color + '22' : step.bgLight) : cardBg }}
                   >
-                    📊 ค่า Setpoint จาก SCADA {isParam ? '▴' : '▾'}
+                    <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: step.color, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>
+                      {step.icon}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: '700', fontSize: '0.88rem', color: headingColor }}>{step.title}</div>
+                      <div style={{ fontSize: '0.6rem', color: mutedColor, marginTop: '2px' }}>{step.subtitle}</div>
+                      {sBlocks.length > 0 && !isOpen && (
+                        <div style={{ fontSize: '0.6rem', color: '#4caf50', marginTop: '3px' }}>📌 {sBlocks.length} บันทึก</div>
+                      )}
+                    </div>
+                    <div style={{ color: step.color, fontSize: '1rem', fontWeight: '700', transition: 'transform 0.25s', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</div>
                   </div>
 
-                  {isParam && (
-                    <div style={{
-                      display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px',
-                      marginBottom: '14px', padding: '10px', background: step.bgLight, borderRadius: '10px',
-                    }}>
-                      {step.params.map((p, i) => (
-                        <div key={i} style={{ background: 'white', borderRadius: '8px', padding: '8px 10px' }}>
-                          <div style={{ fontSize: '0.6rem', color: '#999', marginBottom: '2px' }}>{p.label}</div>
-                          <div style={{ fontWeight: '700', fontSize: '0.85rem', color: step.color }}>{p.value}</div>
-                          {p.note && <div style={{ fontSize: '0.58rem', color: '#aaa', marginTop: '2px' }}>{p.note}</div>}
+                  {isOpen && (
+                    <div style={{ borderTop: `1px solid ${dark ? step.color + '33' : step.bgLight}`, padding: '12px 14px 14px' }}>
+                      <div
+                        onClick={() => setShowParams(isParam ? null : step.id)}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '5px',
+                          background: isParam ? step.color : (dark ? step.color + '22' : step.bgLight),
+                          color: isParam ? 'white' : step.color,
+                          borderRadius: '8px', padding: '5px 12px', marginBottom: '12px',
+                          cursor: 'pointer', fontSize: '0.7rem', fontWeight: '600',
+                        }}
+                      >
+                        📊 ค่า Setpoint จาก SCADA {isParam ? '▴' : '▾'}
+                      </div>
+                      {isParam && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '14px', padding: '10px', background: dark ? step.color + '18' : step.bgLight, borderRadius: '10px' }}>
+                          {step.params.map((p, i) => (
+                            <div key={i} style={{ background: cardBg, borderRadius: '8px', padding: '8px 10px' }}>
+                              <div style={{ fontSize: '0.6rem', color: mutedColor, marginBottom: '2px' }}>{p.label}</div>
+                              <div style={{ fontWeight: '700', fontSize: '0.85rem', color: step.color }}>{p.value}</div>
+                              {p.note && <div style={{ fontSize: '0.58rem', color: mutedColor, marginTop: '2px' }}>{p.note}</div>}
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {step.items.map((item, idx) => {
-                    const tagStyle = TAG_COLORS[item.tag] || { bg: '#f5f5f5', color: '#555' };
-                    return (
-                      <div key={idx} style={{
-                        paddingTop: '10px',
-                        borderTop: idx > 0 ? '1px solid #f0f0f0' : 'none',
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                          <span style={{
-                            flex: '0 0 auto', background: tagStyle.bg, color: tagStyle.color,
-                            fontSize: '0.58rem', fontWeight: '700', padding: '2px 7px',
-                            borderRadius: '6px', marginTop: '2px',
-                          }}>{item.tag}</span>
-                          <div>
-                            <div style={{ fontWeight: '600', fontSize: '0.82rem', color: '#333', lineHeight: 1.3 }}>{item.name}</div>
-                            <div style={{ fontSize: '0.72rem', color: '#666', marginTop: '3px', lineHeight: 1.5 }}>{item.desc}</div>
+                      )}
+                      {step.items.map((item, idx) => {
+                        const tagStyle = TAG_COLORS[item.tag] || { bg: '#f5f5f5', color: '#555' };
+                        return (
+                          <div key={idx} style={{ paddingTop: '10px', borderTop: idx > 0 ? `1px solid ${dark ? '#1e293b' : '#f0f0f0'}` : 'none' }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                              <span style={{ flex: '0 0 auto', background: tagStyle.bg, color: tagStyle.color, fontSize: '0.58rem', fontWeight: '700', padding: '2px 7px', borderRadius: '6px', marginTop: '2px' }}>{item.tag}</span>
+                              <div>
+                                <div style={{ fontWeight: '600', fontSize: '0.82rem', color: headingColor, lineHeight: 1.3 }}>{item.name}</div>
+                                <div style={{ fontSize: '0.72rem', color: dark ? '#94a3b8' : '#666', marginTop: '3px', lineHeight: 1.5 }}>{item.desc}</div>
+                              </div>
+                            </div>
                           </div>
+                        );
+                      })}
+                      {step.note && (
+                        <div style={{ marginTop: '12px', background: dark ? '#1e293b' : '#fffde7', borderLeft: `3px solid ${step.color}`, padding: '8px 10px', borderRadius: '4px', fontSize: '0.7rem', color: dark ? '#94a3b8' : '#555' }}>
+                          <span style={{ fontWeight: '700', color: step.color }}>หมายเหตุ: </span>{step.note}
                         </div>
-                      </div>
-                    );
-                  })}
-
-                  {step.note && (
-                    <div style={{
-                      marginTop: '12px', background: '#fffde7', borderLeft: `3px solid ${step.color}`,
-                      padding: '8px 10px', borderRadius: '4px', fontSize: '0.7rem', color: '#555',
-                    }}>
-                      <span style={{ fontWeight: '700', color: step.color }}>หมายเหตุ: </span>
-                      {step.note}
-                    </div>
-                  )}
-
-                  {sBlocks.length > 0 && (
-                    <div style={{ marginTop: '16px' }}>
-                      <div style={{
-                        display: 'flex', alignItems: 'center', gap: '8px',
-                        background: 'white', border: '1.5px solid #c8e6c9',
-                        borderRadius: '10px', padding: '9px 12px', marginBottom: '10px',
-                        boxShadow: '0 1px 3px rgba(46,125,50,0.06)',
-                      }}>
-                        <div style={{
-                          width: '24px', height: '24px', borderRadius: '6px',
-                          background: '#388e3c', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          flexShrink: 0,
-                        }}>
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="8" y1="6" x2="21" y2="6"/>
-                            <line x1="8" y1="12" x2="21" y2="12"/>
-                            <line x1="8" y1="18" x2="21" y2="18"/>
-                            <line x1="3" y1="6" x2="3.01" y2="6"/>
-                            <line x1="3" y1="12" x2="3.01" y2="12"/>
-                            <line x1="3" y1="18" x2="3.01" y2="18"/>
-                          </svg>
+                      )}
+                      {sBlocks.length > 0 && (
+                        <div style={{ marginTop: '16px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: cardBg, border: `1.5px solid ${dark ? '#1e3a1e' : '#c8e6c9'}`, borderRadius: '10px', padding: '9px 12px', marginBottom: '10px', boxShadow: '0 1px 3px rgba(46,125,50,0.06)' }}>
+                            <div style={{ width: '24px', height: '24px', borderRadius: '6px', background: '#388e3c', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                            </div>
+                            <span style={{ fontWeight: '700', fontSize: '0.88rem', color: '#1b5e20' }}>บันทึกการเรียนรู้</span>
+                            <span style={{ marginLeft: 'auto', background: '#e8f5e9', color: '#2e7d32', fontSize: '0.65rem', fontWeight: '700', borderRadius: '20px', padding: '2px 8px', border: '1px solid #a5d6a7' }}>{sBlocks.length}</span>
+                          </div>
+                          {sBlocks.map(block => <BlockDisplay key={block.id} {...blockDisplayProps(block, step.id)} />)}
                         </div>
-                        <span style={{ fontWeight: '700', fontSize: '0.88rem', color: '#1b5e20' }}>บันทึกการเรียนรู้</span>
-                        <span style={{ marginLeft: 'auto', background: '#e8f5e9', color: '#2e7d32', fontSize: '0.65rem', fontWeight: '700', borderRadius: '20px', padding: '2px 8px', border: '1px solid #a5d6a7' }}>{sBlocks.length}</span>
-                      </div>
-                      {sBlocks.map(block => (
-                        <BlockDisplay
-                          key={block.id}
-                          block={block}
-                          editMode={editMode}
-                          onEdit={() => setEditForm({ stepId: step.id, block })}
-                          onDelete={() => deleteBlock(block.id)}
-                        />
-                      ))}
+                      )}
+                      {editMode && (
+                        <button onClick={() => setEditForm({ stepId: step.id, block: null })} style={{ width: '100%', marginTop: '10px', padding: '10px', borderRadius: '10px', border: '2px dashed #a5d6a7', background: dark ? '#0f172a' : '#f1f8e9', color: '#2e7d32', fontSize: '0.78rem', fontWeight: '600', cursor: 'pointer' }}>
+                          + เพิ่มบันทึก / รูป / วีดีโอ ใน {step.code}
+                        </button>
+                      )}
                     </div>
-                  )}
-
-                  {editMode && (
-                    <button
-                      onClick={() => setEditForm({ stepId: step.id, block: null })}
-                      style={{
-                        width: '100%', marginTop: '10px', padding: '10px',
-                        borderRadius: '10px', border: '2px dashed #a5d6a7',
-                        background: '#f1f8e9', color: '#2e7d32',
-                        fontSize: '0.78rem', fontWeight: '600', cursor: 'pointer',
-                      }}
-                    >
-                      + เพิ่มบันทึก / รูป / วีดีโอ ใน {step.code}
-                    </button>
                   )}
                 </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
 
-      <div style={{ padding: '4px 14px 0' }}>
+          {/* Global learning section */}
+          <div style={{ padding: '4px 14px 0' }}>
+            <button
+              onClick={() => setShowGlobal(v => !v)}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', background: cardBg, border: `1.5px solid ${dark ? '#1e3a1e' : '#c8e6c9'}`, borderRadius: '12px', padding: '11px 14px', marginBottom: '12px', cursor: 'pointer', textAlign: 'left', boxShadow: dark ? '0 2px 10px rgba(0,0,0,0.3)' : '0 1px 4px rgba(46,125,50,0.07)' }}
+            >
+              <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: '#2e7d32', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+              </div>
+              <span style={{ fontWeight: '700', fontSize: '0.95rem', color: dark ? '#86efac' : '#1b5e20', flex: 1 }}>แหล่งเรียนรู้เพิ่มเติม</span>
+              {globalBlocks.length > 0 && (
+                <span style={{ background: '#e8f5e9', color: '#2e7d32', fontSize: '0.65rem', fontWeight: '700', borderRadius: '20px', padding: '2px 8px', border: '1px solid #a5d6a7' }}>{globalBlocks.length}</span>
+              )}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4caf50" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: showGlobal ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.2s ease' }}>
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            {showGlobal && (
+              <>
+                {globalBlocks.length === 0 && !editMode && (
+                  <div style={{ textAlign: 'center', color: mutedColor, fontSize: '0.75rem', padding: '24px 16px', background: cardBg, borderRadius: '12px', border: `1.5px dashed ${cardBorder}` }}>
+                    กด ✏️ ที่มุมขวาบน เพื่อเพิ่มรูป วีดีโอ หรือบันทึกสำหรับเรียนรู้
+                  </div>
+                )}
+                {globalBlocks.map(block => <BlockDisplay key={block.id} {...blockDisplayProps(block, null)} />)}
+                {editMode && (
+                  <button onClick={() => setEditForm({ stepId: null, block: null })} style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '2px dashed #a5d6a7', background: dark ? '#0f172a' : '#f1f8e9', color: '#2e7d32', fontSize: '0.82rem', fontWeight: '600', cursor: 'pointer', marginBottom: '4px' }}>
+                    + เพิ่มเนื้อหา / รูปภาพ / วีดีโอ สำหรับเรียนรู้
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+
+          <div style={{ padding: '12px 14px 0' }}>
+            <div style={{ background: dark ? '#1c1500' : '#fff3e0', border: `1px solid ${dark ? '#92400e' : '#ffe0b2'}`, borderRadius: '12px', padding: '12px 14px', fontSize: '0.72rem', color: dark ? '#fbbf24' : '#e65100', lineHeight: '1.6' }}>
+              <div style={{ fontWeight: '700', marginBottom: '4px' }}>⚠️ หน้านี้อยู่ระหว่างการเรียนรู้ระบบ</div>
+              ค่าที่แสดงอ้างอิงจาก GEA HMI จริง (Mitr Phol, 10/05/2026) — สามารถแก้ไขเพิ่มเติมได้เมื่อเข้าใจกระบวนการมากขึ้น
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Floating action buttons */}
+      <div style={{ position: 'fixed', bottom: '20px', right: '16px', display: 'flex', flexDirection: 'column', gap: '10px', zIndex: 100 }}>
+        {/* Print / Save PDF */}
         <button
-          onClick={() => setShowGlobal(v => !v)}
+          onClick={() => window.print()}
+          title="พิมพ์ / บันทึก PDF"
           style={{
-            width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
-            background: 'white', border: '1.5px solid #c8e6c9',
-            borderRadius: '12px', padding: '11px 14px', marginBottom: '12px',
-            cursor: 'pointer', textAlign: 'left', boxShadow: '0 1px 4px rgba(46,125,50,0.07)',
+            width: '48px', height: '48px', borderRadius: '50%',
+            background: dark ? '#1e293b' : 'white', border: `1.5px solid ${dark ? '#334155' : '#e0e0e0'}`,
+            boxShadow: dark ? '0 4px 16px rgba(0,0,0,0.4)' : '0 4px 16px rgba(0,0,0,0.12)',
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: dark ? '#94a3b8' : '#666', transition: 'all 0.18s',
           }}
         >
-          <div style={{
-            width: '30px', height: '30px', borderRadius: '8px',
-            background: '#2e7d32', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexShrink: 0,
-          }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-            </svg>
-          </div>
-          <span style={{ fontWeight: '700', fontSize: '0.95rem', color: '#1b5e20', flex: 1 }}>แหล่งเรียนรู้เพิ่มเติม</span>
-          {globalBlocks.length > 0 && (
-            <span style={{ background: '#e8f5e9', color: '#2e7d32', fontSize: '0.65rem', fontWeight: '700', borderRadius: '20px', padding: '2px 8px', border: '1px solid #a5d6a7' }}>{globalBlocks.length}</span>
-          )}
-          <svg
-            width="16" height="16" viewBox="0 0 24 24" fill="none"
-            stroke="#4caf50" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-            style={{ flexShrink: 0, transform: showGlobal ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.2s ease' }}
-          >
-            <polyline points="6 9 12 15 18 9"/>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+            <rect x="6" y="14" width="12" height="8"/>
           </svg>
         </button>
-
-        {showGlobal && (
-          <>
-            {globalBlocks.length === 0 && !editMode && (
-              <div style={{
-                textAlign: 'center', color: '#bbb', fontSize: '0.75rem',
-                padding: '24px 16px', background: 'white', borderRadius: '12px',
-                border: '1.5px dashed #e0e0e0',
-              }}>
-                กด ✏️ ที่มุมขวาบน เพื่อเพิ่มรูป วีดีโอ หรือบันทึกสำหรับเรียนรู้
-              </div>
-            )}
-
-            {globalBlocks.map(block => (
-              <BlockDisplay
-                key={block.id}
-                block={block}
-                editMode={editMode}
-                onEdit={() => setEditForm({ stepId: null, block })}
-                onDelete={() => deleteBlock(block.id)}
-              />
-            ))}
-
-            {editMode && (
-              <button
-                onClick={() => setEditForm({ stepId: null, block: null })}
-                style={{
-                  width: '100%', padding: '14px', borderRadius: '12px',
-                  border: '2px dashed #a5d6a7', background: '#f1f8e9',
-                  color: '#2e7d32', fontSize: '0.82rem', fontWeight: '600', cursor: 'pointer',
-                  marginBottom: '4px',
-                }}
-              >
-                + เพิ่มเนื้อหา / รูปภาพ / วีดีโอ สำหรับเรียนรู้
-              </button>
-            )}
-          </>
+        {/* Add content shortcut */}
+        {editMode && (
+          <button
+            onClick={() => setEditForm({ stepId: null, block: null })}
+            style={{
+              width: '52px', height: '52px', borderRadius: '50%',
+              background: 'linear-gradient(135deg,#2e7d32,#43a047)', border: 'none',
+              boxShadow: '0 4px 20px rgba(46,125,50,0.4)',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'white', fontSize: '1.4rem', fontWeight: '300', transition: 'all 0.18s',
+            }}
+          >+</button>
         )}
-      </div>
-
-      <div style={{ padding: '12px 14px 0' }}>
-        <div style={{
-          background: '#fff3e0', border: '1px solid #ffe0b2', borderRadius: '12px',
-          padding: '12px 14px', fontSize: '0.72rem', color: '#e65100', lineHeight: '1.6',
-        }}>
-          <div style={{ fontWeight: '700', marginBottom: '4px' }}>⚠️ หน้านี้อยู่ระหว่างการเรียนรู้ระบบ</div>
-          ค่าที่แสดงอ้างอิงจาก GEA HMI จริง (Mitr Phol, 10/05/2026) — สามารถแก้ไขเพิ่มเติมได้เมื่อเข้าใจกระบวนการมากขึ้น
-        </div>
       </div>
 
       {editForm !== null && (
