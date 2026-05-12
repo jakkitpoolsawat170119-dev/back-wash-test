@@ -347,11 +347,29 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
   const [saved, setSaved] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const videoFileRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const editorInitialized = useRef(false);
 
   const cfg = TYPE_CONFIG[type];
   const ytId = type === 'video' ? getYouTubeId(content) : null;
   const charCount = content.length;
+
+  // Initialize contentEditable from content state (run once per type switch)
+  useEffect(() => {
+    if (type === 'text' && editorRef.current && !editorInitialized.current) {
+      editorRef.current.innerHTML = content;
+      editorInitialized.current = true;
+    }
+    if (type !== 'text') editorInitialized.current = false;
+  });
+
+  const execCmd = (cmd: string, val?: string) => {
+    editorRef.current?.focus();
+    document.execCommand(cmd, false, val ?? undefined);
+    setTimeout(() => {
+      if (editorRef.current) setContent(editorRef.current.innerHTML);
+    }, 0);
+  };
 
   const startFakeProgress = (msg: string) => {
     setUploadMsg(msg);
@@ -428,10 +446,16 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
   };
 
   const handleSave = () => {
-    if (!content.trim()) { alert('กรุณาใส่เนื้อหา'); return; }
+    const textContent = type === 'text'
+      ? (editorRef.current?.textContent ?? content).trim()
+      : content.trim();
+    if (!textContent) { alert('กรุณาใส่เนื้อหา'); return; }
+    const finalContent = type === 'text'
+      ? (editorRef.current?.innerHTML ?? content).trim()
+      : content.trim();
     setSaved(true);
     setTimeout(() => {
-      onSave({ id: initial?.id ?? genId(), stepId, type, title: title.trim(), content: content.trim() });
+      onSave({ id: initial?.id ?? genId(), stepId, type, title: title.trim(), content: finalContent });
     }, 300);
   };
 
@@ -518,78 +542,141 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
             ))}
           </div>
 
-          {/* Title input */}
-          <div style={{ marginBottom: '12px' }}>
-            <label style={{ fontSize: '0.7rem', color: '#888', fontWeight: '700', letterSpacing: '0.05em', textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>
-              หัวข้อ <span style={{ fontWeight: '400', textTransform: 'none', letterSpacing: 0 }}>(ไม่บังคับ)</span>
-            </label>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="เช่น ขั้นตอนการ CIP, ตำแหน่งวาล์ว..."
-              style={{
-                width: '100%', padding: '11px 13px', borderRadius: '12px',
-                border: `1.5px solid ${title ? cfg.border : '#e8e8e8'}`,
-                fontSize: '0.88rem', boxSizing: 'border-box', outline: 'none',
-                fontFamily: 'inherit', transition: 'border-color 0.18s',
-                background: title ? cfg.bg + '55' : 'white',
-              }}
-            />
-          </div>
+          {/* Title input — hidden for text type (integrated into doc editor) */}
+          {type !== 'text' && (
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ fontSize: '0.7rem', color: '#888', fontWeight: '700', letterSpacing: '0.05em', textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>
+                หัวข้อ <span style={{ fontWeight: '400', textTransform: 'none', letterSpacing: 0 }}>(ไม่บังคับ)</span>
+              </label>
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="เช่น ขั้นตอนการ CIP, ตำแหน่งวาล์ว..."
+                style={{
+                  width: '100%', padding: '11px 13px', borderRadius: '12px',
+                  border: `1.5px solid ${title ? cfg.border : '#e8e8e8'}`,
+                  fontSize: '0.88rem', boxSizing: 'border-box', outline: 'none',
+                  fontFamily: 'inherit', transition: 'border-color 0.18s',
+                  background: title ? cfg.bg + '55' : 'white',
+                }}
+              />
+            </div>
+          )}
 
           {/* Content area */}
           <div style={{ marginBottom: '16px' }}>
-            <label style={{ fontSize: '0.7rem', color: '#888', fontWeight: '700', letterSpacing: '0.05em', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>
-              {type === 'text' ? 'เนื้อหา' : type === 'image' ? 'รูปภาพ' : 'วีดีโอ'}
-            </label>
+            {type !== 'text' && (
+              <label style={{ fontSize: '0.7rem', color: '#888', fontWeight: '700', letterSpacing: '0.05em', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>
+                {type === 'image' ? 'รูปภาพ' : 'วีดีโอ'}
+              </label>
+            )}
 
             {type === 'text' && (
-              <>
-                {/* Formatting toolbar */}
-                <div style={{
-                  display: 'flex', gap: '4px', padding: '6px 8px',
-                  background: '#f8f9fa', borderRadius: '10px 10px 0 0',
-                  border: '1.5px solid #e8e8e8', borderBottom: 'none',
-                }}>
-                  {[
-                    { label: 'B', title: 'ตัวหนา', action: () => insertTextFormat('**', '**'), style: { fontWeight: '800' } },
-                    { label: 'I', title: 'ตัวเอียง', action: () => insertTextFormat('_', '_'), style: { fontStyle: 'italic' } },
-                    { label: '—', title: 'หัวข้อ', action: () => insertLine('• '), style: {} },
-                    { label: '1.', title: 'ลำดับ', action: () => insertLine('1. '), style: {} },
-                    { label: '▶', title: 'ขั้นตอน', action: () => insertLine('→ '), style: { fontSize: '0.65rem' } },
-                  ].map((btn, i) => (
-                    <button
-                      key={i}
-                      className="ef-toolbar-btn"
-                      title={btn.title}
-                      onClick={btn.action}
-                      style={{
-                        padding: '5px 9px', borderRadius: '6px', border: '1px solid #e0e0e0',
-                        background: 'white', cursor: 'pointer', fontSize: '0.78rem',
-                        color: '#555', transition: 'all 0.12s', ...btn.style,
-                      }}
-                    >{btn.label}</button>
-                  ))}
-                  <div style={{ flex: 1 }} />
-                  <span style={{ fontSize: '0.62rem', color: '#bbb', alignSelf: 'center', paddingRight: '2px' }}>
-                    {charCount} ตัว
-                  </span>
-                </div>
-                <textarea
-                  ref={textareaRef}
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  placeholder="พิมพ์เนื้อหา หรือบันทึกขั้นตอนการทำงาน...&#10;&#10;ตัวอย่าง:&#10;→ เปิดวาล์ว V01&#10;→ กด Start ที่ HMI&#10;→ ตรวจสอบ Pressure"
-                  rows={7}
+              <div style={{
+                border: '1.5px solid #e8e8e8', borderRadius: '16px', overflow: 'hidden',
+                background: 'white', boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+              }}>
+                <style>{`
+                  .l4-doc-title::placeholder { color: #ccc; }
+                  .l4-doc-body:empty::before { content: attr(data-placeholder); color: #ccc; pointer-events: none; }
+                  .l4-doc-body:focus { outline: none; }
+                  .l4-doc-body h1 { font-size: 1.35rem; font-weight: 700; margin: 6px 0 2px; line-height: 1.3; }
+                  .l4-doc-body h2 { font-size: 1.05rem; font-weight: 700; margin: 6px 0 2px; line-height: 1.3; }
+                  .l4-doc-body h3 { font-size: 0.92rem; font-weight: 700; margin: 4px 0 2px; }
+                  .l4-doc-body ul { padding-left: 1.4em; margin: 4px 0; }
+                  .l4-doc-body ol { padding-left: 1.4em; margin: 4px 0; }
+                  .l4-doc-body li { margin: 3px 0; line-height: 1.65; }
+                  .l4-doc-body blockquote { border-left: 3px solid #4caf50; padding: 4px 0 4px 12px; color: #666; margin: 8px 0; }
+                  .l4-doc-body b, .l4-doc-body strong { font-weight: 700; }
+                  .l4-doc-body i, .l4-doc-body em { font-style: italic; }
+                  .l4-doc-body p { margin: 0 0 6px; }
+                  .l4-doc-body p:last-child { margin-bottom: 0; }
+                  .l4-tb-btn { background: none; border: none; cursor: pointer; padding: 6px 8px; border-radius: 6px; font-size: 0.78rem; color: #555; transition: background 0.12s; display: flex; align-items: center; gap: 3px; }
+                  .l4-tb-btn:hover { background: #f0f0f0; }
+                  .l4-tb-btn:active { background: #e0e0e0; }
+                  .l4-tb-divider { width: 1px; height: 20px; background: #e8e8e8; margin: 0 2px; flex-shrink: 0; align-self: center; }
+                `}</style>
+
+                {/* Document title */}
+                <input
+                  value={title}
+                  onChange={e => setTitle(e.target.value)}
+                  placeholder="ชื่อหัวข้อ..."
+                  className="l4-doc-title"
                   style={{
-                    width: '100%', padding: '11px 13px', borderRadius: '0 0 12px 12px',
-                    border: '1.5px solid #e8e8e8', borderTop: 'none',
-                    fontSize: '0.86rem', boxSizing: 'border-box', resize: 'vertical',
-                    outline: 'none', fontFamily: 'inherit', lineHeight: '1.7',
-                    background: 'white',
+                    width: '100%', padding: '18px 18px 8px', border: 'none', outline: 'none',
+                    fontSize: '1.3rem', fontWeight: '700', fontFamily: 'inherit',
+                    boxSizing: 'border-box', background: 'transparent', color: '#111',
+                    letterSpacing: '-0.01em',
                   }}
                 />
-              </>
+
+                {/* Toolbar */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '2px',
+                  padding: '4px 10px', borderTop: '1px solid #f0f0f0', borderBottom: '1px solid #f0f0f0',
+                  background: '#fafafa', overflowX: 'auto', WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'],
+                }}>
+                  {/* Heading */}
+                  <button className="l4-tb-btn" title="หัวข้อใหญ่ (H1)" onClick={() => execCmd('formatBlock', 'h1')}>
+                    <span style={{ fontWeight: '800', fontSize: '0.85rem' }}>H1</span>
+                  </button>
+                  <button className="l4-tb-btn" title="หัวข้อ (H2)" onClick={() => execCmd('formatBlock', 'h2')}>
+                    <span style={{ fontWeight: '700', fontSize: '0.75rem' }}>H2</span>
+                  </button>
+                  <button className="l4-tb-btn" title="ย่อหน้าปกติ" onClick={() => execCmd('formatBlock', 'p')}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M13 4v16"/><path d="M17 4v16"/><path d="M19 4H9.5a4.5 4.5 0 0 0 0 9H13"/></svg>
+                  </button>
+                  <div className="l4-tb-divider" />
+                  {/* Inline */}
+                  <button className="l4-tb-btn" title="ตัวหนา" onClick={() => execCmd('bold')}>
+                    <span style={{ fontWeight: '800' }}>B</span>
+                  </button>
+                  <button className="l4-tb-btn" title="ตัวเอียง" onClick={() => execCmd('italic')}>
+                    <span style={{ fontStyle: 'italic', fontWeight: '600' }}>I</span>
+                  </button>
+                  <button className="l4-tb-btn" title="ขีดเส้นใต้" onClick={() => execCmd('underline')}>
+                    <span style={{ textDecoration: 'underline', fontWeight: '600' }}>U</span>
+                  </button>
+                  <div className="l4-tb-divider" />
+                  {/* Lists */}
+                  <button className="l4-tb-btn" title="รายการ bullet" onClick={() => execCmd('insertUnorderedList')}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1" fill="currentColor"/><circle cx="4" cy="12" r="1" fill="currentColor"/><circle cx="4" cy="18" r="1" fill="currentColor"/></svg>
+                  </button>
+                  <button className="l4-tb-btn" title="รายการลำดับ" onClick={() => execCmd('insertOrderedList')}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><path d="M4 6h1v4"/><path d="M4 10h2"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/></svg>
+                  </button>
+                  <div className="l4-tb-divider" />
+                  {/* Quote */}
+                  <button className="l4-tb-btn" title="blockquote" onClick={() => execCmd('formatBlock', 'blockquote')}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" opacity="0.6"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1zm12 0c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
+                  </button>
+                  <div style={{ flex: 1 }} />
+                  <span style={{ fontSize: '0.6rem', color: '#bbb', flexShrink: 0 }}>
+                    {editorRef.current?.textContent?.length ?? charCount} ตัว
+                  </span>
+                </div>
+
+                {/* ContentEditable body */}
+                <div
+                  ref={editorRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  className="l4-doc-body"
+                  data-placeholder="เริ่มเขียนที่นี่... กด Enter เพื่อขึ้นบรรทัดใหม่"
+                  onInput={() => { if (editorRef.current) setContent(editorRef.current.innerHTML); }}
+                  onKeyDown={(e) => {
+                    // Tab = indent
+                    if (e.key === 'Tab') { e.preventDefault(); execCmd('insertHTML', '&nbsp;&nbsp;&nbsp;&nbsp;'); }
+                  }}
+                  style={{
+                    minHeight: '180px', padding: '12px 18px 18px',
+                    fontSize: '0.9rem', lineHeight: '1.78',
+                    fontFamily: 'inherit', color: '#222',
+                    wordBreak: 'break-word',
+                  }}
+                />
+              </div>
             )}
 
             {type === 'image' && (
@@ -924,28 +1011,50 @@ function BlockDisplay({ block, editMode, dark, reactions, myReactions, onEdit, o
         </div>
 
         {/* Content */}
-        {block.type === 'text' && (
-          <div style={{ padding: '12px 13px' }}>
-            <div style={{ fontSize: '0.83rem', color: bodyColor, lineHeight: '1.72', whiteSpace: 'pre-wrap' }}>
-              {displayContent}
+        {block.type === 'text' && (() => {
+          const isHtml = /<[a-z][\s\S]*>/i.test(block.content);
+          const plainText = block.content;
+          const shortPlain = isLongText && !textExpanded ? plainText.slice(0, 220) + '…' : plainText;
+          return (
+            <div style={{ padding: '10px 14px 12px' }}>
+              <style>{`
+                .l4-rc h1{font-size:1.2rem;font-weight:700;margin:6px 0 4px;line-height:1.3}
+                .l4-rc h2{font-size:1rem;font-weight:700;margin:5px 0 3px}
+                .l4-rc h3{font-size:0.9rem;font-weight:700;margin:4px 0 2px}
+                .l4-rc ul,.l4-rc ol{padding-left:1.4em;margin:4px 0}
+                .l4-rc li{margin:3px 0;line-height:1.65}
+                .l4-rc blockquote{border-left:3px solid #4caf50;padding:3px 0 3px 10px;color:#666;margin:6px 0;font-style:italic}
+                .l4-rc b,.l4-rc strong{font-weight:700}
+                .l4-rc i,.l4-rc em{font-style:italic}
+                .l4-rc p{margin:0 0 5px}
+                .l4-rc p:last-child{margin-bottom:0}
+                .l4-rc-dark h1,.l4-rc-dark h2,.l4-rc-dark h3{color:#f1f5f9}
+                .l4-rc-dark blockquote{color:#94a3b8}
+              `}</style>
+              {isHtml ? (
+                <div
+                  className={`l4-rc${dark ? ' l4-rc-dark' : ''}`}
+                  dangerouslySetInnerHTML={{ __html: block.content }}
+                  style={{ fontSize: '0.85rem', color: bodyColor, lineHeight: '1.75', wordBreak: 'break-word' }}
+                />
+              ) : (
+                <>
+                  <div style={{ fontSize: '0.83rem', color: bodyColor, lineHeight: '1.72', whiteSpace: 'pre-wrap' }}>
+                    {shortPlain}
+                  </div>
+                  {isLongText && (
+                    <button onClick={() => setTextExpanded(e => !e)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '5px 0 0', color: '#2e7d32', fontSize: '0.72rem', fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      {textExpanded
+                        ? <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="18 15 12 9 6 15"/></svg>ย่อ</>
+                        : <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>อ่านต่อ</>
+                      }
+                    </button>
+                  )}
+                </>
+              )}
             </div>
-            {isLongText && (
-              <button
-                onClick={() => setTextExpanded(e => !e)}
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer', padding: '5px 0 0',
-                  color: '#2e7d32', fontSize: '0.72rem', fontWeight: '700',
-                  display: 'inline-flex', alignItems: 'center', gap: '4px',
-                }}
-              >
-                {textExpanded
-                  ? <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="18 15 12 9 6 15"/></svg>ย่อ</>
-                  : <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>อ่านต่อ ({block.content.length - 220} ตัวอักษร)</>
-                }
-              </button>
-            )}
-          </div>
-        )}
+          );
+        })()}
 
         {block.type === 'image' && (
           <img src={block.content} alt={block.title}
