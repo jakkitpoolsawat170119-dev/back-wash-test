@@ -259,26 +259,95 @@ interface EditFormProps {
   onClose: () => void;
 }
 
+const TYPE_CONFIG = {
+  text: {
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="16" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/>
+        <polyline points="10 9 9 9 8 9"/>
+      </svg>
+    ),
+    label: 'ข้อความ',
+    desc: 'บันทึกขั้นตอน',
+    color: '#1565c0',
+    bg: '#e3f2fd',
+    border: '#90caf9',
+  },
+  image: {
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+        <circle cx="8.5" cy="8.5" r="1.5"/>
+        <polyline points="21 15 16 10 5 21"/>
+      </svg>
+    ),
+    label: 'รูปภาพ',
+    desc: 'ภาพหน้าจอ / อุปกรณ์',
+    color: '#6a1b9a',
+    bg: '#f3e5f5',
+    border: '#ce93d8',
+  },
+  video: {
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polygon points="23 7 16 12 23 17 23 7"/>
+        <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+      </svg>
+    ),
+    label: 'วีดีโอ',
+    desc: 'YouTube / คลิป',
+    color: '#b71c1c',
+    bg: '#ffebee',
+    border: '#ef9a9a',
+  },
+} as const;
+
 function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
   const [type, setType] = useState<LearningBlock['type']>(initial?.type ?? 'text');
   const [title, setTitle] = useState(initial?.title ?? '');
   const [content, setContent] = useState(initial?.content ?? '');
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState('');
+  const [uploadPct, setUploadPct] = useState(0);
+  const [uploadMsg, setUploadMsg] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+  const [saved, setSaved] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const videoFileRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const cfg = TYPE_CONFIG[type];
+  const ytId = type === 'video' ? getYouTubeId(content) : null;
+  const charCount = content.length;
+
+  const startFakeProgress = (msg: string) => {
+    setUploadMsg(msg);
+    setUploadPct(0);
+    let pct = 0;
+    const iv = setInterval(() => {
+      pct += Math.random() * 12;
+      if (pct >= 88) { clearInterval(iv); pct = 88; }
+      setUploadPct(Math.round(pct));
+    }, 200);
+    return iv;
+  };
+
+  const finishProgress = (iv: ReturnType<typeof setInterval>) => {
+    clearInterval(iv);
+    setUploadPct(100);
+    setTimeout(() => { setUploading(false); setUploadPct(0); setUploadMsg(''); }, 600);
+  };
+
+  const handleFileUpload = async (file: File) => {
     if (supabase) {
       setUploading(true);
-      setUploadProgress('กำลังอัปโหลดรูป...');
+      const iv = startFakeProgress('กำลังอัปโหลดรูปภาพ...');
       const url = await uploadToStorage(file);
-      setUploading(false);
-      setUploadProgress('');
-      if (url) { setContent(url); }
-      else { alert('อัปโหลดไม่สำเร็จ กรุณาลองใหม่หรือใช้ URL แทน'); }
+      finishProgress(iv);
+      if (url) setContent(url);
+      else alert('อัปโหลดไม่สำเร็จ กรุณาลองใหม่หรือใช้ URL แทน');
     } else {
       if (file.size > 3 * 1024 * 1024) { alert('รูปขนาดใหญ่เกิน 3MB — กรุณาใช้ URL แทน'); return; }
       const reader = new FileReader();
@@ -297,191 +366,412 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
     }
     setUploading(true);
     const mb = (file.size / 1024 / 1024).toFixed(1);
-    setUploadProgress(`กำลังอัปโหลดวีดีโอ (${mb} MB) — อาจใช้เวลาสักครู่...`);
+    const iv = startFakeProgress(`อัปโหลดวีดีโอ (${mb} MB)...`);
     const url = await uploadToStorage(file);
-    setUploading(false);
-    setUploadProgress('');
-    if (url) { setContent(url); }
-    else { alert('อัปโหลดวีดีโอไม่สำเร็จ กรุณาลองใหม่'); }
+    finishProgress(iv);
+    if (url) setContent(url);
+    else alert('อัปโหลดวีดีโอไม่สำเร็จ กรุณาลองใหม่');
+  };
+
+  const insertTextFormat = (prefix: string, suffix = '') => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const s = el.selectionStart, e = el.selectionEnd;
+    const sel = content.slice(s, e) || 'ข้อความ';
+    const next = content.slice(0, s) + prefix + sel + suffix + content.slice(e);
+    setContent(next);
+    setTimeout(() => {
+      el.focus();
+      el.setSelectionRange(s + prefix.length, s + prefix.length + sel.length);
+    }, 0);
+  };
+
+  const insertLine = (prefix: string) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const s = el.selectionStart;
+    const lineStart = content.lastIndexOf('\n', s - 1) + 1;
+    const next = content.slice(0, lineStart) + prefix + content.slice(lineStart);
+    setContent(next);
+    setTimeout(() => { el.focus(); el.setSelectionRange(s + prefix.length, s + prefix.length); }, 0);
   };
 
   const handleSave = () => {
     if (!content.trim()) { alert('กรุณาใส่เนื้อหา'); return; }
-    onSave({
-      id: initial?.id ?? genId(),
-      stepId,
-      type,
-      title: title.trim(),
-      content: content.trim(),
-    });
+    setSaved(true);
+    setTimeout(() => {
+      onSave({ id: initial?.id ?? genId(), stepId, type, title: title.trim(), content: content.trim() });
+    }, 300);
   };
-
-  const ytId = type === 'video' ? getYouTubeId(content) : null;
 
   return (
     <>
-      <div
-        onClick={onClose}
-        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200 }}
-      />
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 200, backdropFilter: 'blur(2px)' }} />
       <div style={{
         position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 201,
-        background: 'white', borderTopLeftRadius: '20px', borderTopRightRadius: '20px',
-        padding: '20px 16px 36px', maxHeight: '88vh', overflowY: 'auto',
-        boxShadow: '0 -4px 24px rgba(0,0,0,0.18)',
+        background: 'white', borderTopLeftRadius: '24px', borderTopRightRadius: '24px',
+        padding: '0 0 env(safe-area-inset-bottom, 24px)', maxHeight: '92vh', overflowY: 'auto',
+        boxShadow: '0 -8px 40px rgba(0,0,0,0.22)',
+        animation: 'slideUp 0.28s cubic-bezier(0.34, 1.56, 0.64, 1)',
       }}>
-        <div style={{ width: '40px', height: '4px', background: '#ddd', borderRadius: '2px', margin: '0 auto 16px' }} />
+        <style>{`
+          @keyframes slideUp {
+            from { transform: translateY(100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+          }
+          @keyframes fadeIn { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: scale(1); } }
+          @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+          .ef-type-btn:active { transform: scale(0.96); }
+          .ef-save:active { transform: scale(0.98); }
+          .ef-toolbar-btn:hover { background: #e8f5e9 !important; }
+          .ef-toolbar-btn:active { transform: scale(0.9); }
+        `}</style>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <div style={{ fontWeight: '700', fontSize: '1rem', color: '#222' }}>
-            {initial ? 'แก้ไขเนื้อหา' : 'เพิ่มเนื้อหา'}
+        {/* Handle bar */}
+        <div style={{ padding: '12px 16px 0', textAlign: 'center' }}>
+          <div style={{ width: '36px', height: '4px', background: '#e0e0e0', borderRadius: '2px', margin: '0 auto' }} />
+        </div>
+
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px 10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{
+              width: '32px', height: '32px', borderRadius: '8px',
+              background: cfg.bg, color: cfg.color,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              {cfg.icon}
+            </div>
+            <div>
+              <div style={{ fontWeight: '700', fontSize: '1rem', color: '#111', lineHeight: 1.2 }}>
+                {initial ? 'แก้ไขเนื้อหา' : 'เพิ่มเนื้อหา'}
+              </div>
+              {stepId && <div style={{ fontSize: '0.62rem', color: '#aaa', marginTop: '1px' }}>แนบกับขั้นตอน #{stepId}</div>}
+            </div>
           </div>
           <button onClick={onClose} style={{
-            background: '#f5f5f5', border: 'none', borderRadius: '8px',
-            padding: '6px 14px', cursor: 'pointer', color: '#555', fontSize: '0.8rem',
+            background: '#f5f5f5', border: 'none', borderRadius: '20px',
+            padding: '7px 16px', cursor: 'pointer', color: '#555', fontSize: '0.78rem', fontWeight: '600',
           }}>ยกเลิก</button>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
-          {(['text', 'image', 'video'] as const).map((t) => (
-            <button key={t} onClick={() => { setType(t); if (t !== initial?.type) setContent(''); }} style={{
-              flex: 1, padding: '10px 4px', borderRadius: '10px', border: '2px solid',
-              borderColor: type === t ? '#2e7d32' : '#eee',
-              background: type === t ? '#e8f5e9' : '#fafafa',
-              color: type === t ? '#1b5e20' : '#777',
-              fontWeight: type === t ? '700' : '400',
-              fontSize: '0.75rem', cursor: 'pointer',
-            }}>
-              {t === 'text' ? '📝 ข้อความ' : t === 'image' ? '🖼 รูปภาพ' : '🎬 วีดีโอ'}
-            </button>
-          ))}
-        </div>
+        <div style={{ padding: '0 14px 28px' }}>
 
-        <div style={{ marginBottom: '12px' }}>
-          <div style={{ fontSize: '0.72rem', color: '#666', marginBottom: '5px', fontWeight: '600' }}>หัวข้อ (ไม่บังคับ)</div>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="เช่น ขั้นตอนการ CIP..."
-            style={{
-              width: '100%', padding: '10px 12px', borderRadius: '10px',
-              border: '1.5px solid #ddd', fontSize: '0.88rem',
-              boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit',
-            }}
-          />
-        </div>
-
-        <div style={{ marginBottom: '18px' }}>
-          <div style={{ fontSize: '0.72rem', color: '#666', marginBottom: '5px', fontWeight: '600' }}>
-            {type === 'text' ? 'เนื้อหา' : type === 'image' ? 'URL รูปภาพ หรืออัปโหลดจากเครื่อง' : 'URL วีดีโอ (YouTube หรือลิงก์ตรง)'}
+          {/* Type selector — card grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '16px' }}>
+            {(Object.entries(TYPE_CONFIG) as [LearningBlock['type'], typeof TYPE_CONFIG.text][]).map(([t, c]) => (
+              <button
+                key={t}
+                className="ef-type-btn"
+                onClick={() => { setType(t); if (t !== initial?.type) setContent(''); }}
+                style={{
+                  padding: '12px 6px', borderRadius: '14px',
+                  border: `2px solid ${type === t ? c.color : '#eee'}`,
+                  background: type === t ? c.bg : '#fafafa',
+                  color: type === t ? c.color : '#999',
+                  cursor: 'pointer', transition: 'all 0.18s ease',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px',
+                  boxShadow: type === t ? `0 2px 10px ${c.color}22` : 'none',
+                }}
+              >
+                <div style={{ color: type === t ? c.color : '#bbb', transition: 'color 0.18s' }}>{c.icon}</div>
+                <div style={{ fontWeight: '700', fontSize: '0.78rem' }}>{c.label}</div>
+                <div style={{ fontSize: '0.6rem', opacity: 0.7, lineHeight: 1.2, textAlign: 'center' }}>{c.desc}</div>
+                {type === t && (
+                  <div style={{
+                    width: '20px', height: '3px', borderRadius: '2px',
+                    background: c.color, marginTop: '2px',
+                  }} />
+                )}
+              </button>
+            ))}
           </div>
 
-          {type === 'text' && (
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="พิมพ์เนื้อหา หรือบันทึกขั้นตอนการทำงาน..."
-              rows={6}
+          {/* Title input */}
+          <div style={{ marginBottom: '12px' }}>
+            <label style={{ fontSize: '0.7rem', color: '#888', fontWeight: '700', letterSpacing: '0.05em', textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>
+              หัวข้อ <span style={{ fontWeight: '400', textTransform: 'none', letterSpacing: 0 }}>(ไม่บังคับ)</span>
+            </label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="เช่น ขั้นตอนการ CIP, ตำแหน่งวาล์ว..."
               style={{
-                width: '100%', padding: '10px 12px', borderRadius: '10px',
-                border: '1.5px solid #ddd', fontSize: '0.88rem',
-                boxSizing: 'border-box', resize: 'vertical', outline: 'none',
-                fontFamily: 'inherit', lineHeight: '1.65',
+                width: '100%', padding: '11px 13px', borderRadius: '12px',
+                border: `1.5px solid ${title ? cfg.border : '#e8e8e8'}`,
+                fontSize: '0.88rem', boxSizing: 'border-box', outline: 'none',
+                fontFamily: 'inherit', transition: 'border-color 0.18s',
+                background: title ? cfg.bg + '55' : 'white',
               }}
             />
-          )}
+          </div>
 
-          {type === 'image' && (
-            <div>
-              <input
-                value={content.startsWith('data:') ? '' : content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="https://example.com/image.jpg"
-                style={{
-                  width: '100%', padding: '10px 12px', borderRadius: '10px',
-                  border: '1.5px solid #ddd', fontSize: '0.88rem',
-                  boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit',
-                  marginBottom: '8px',
-                }}
-              />
-              <button onClick={() => fileRef.current?.click()} style={{
-                width: '100%', padding: '12px', borderRadius: '10px',
-                border: '2px dashed #ccc', background: '#fafafa',
-                color: '#666', fontSize: '0.8rem', cursor: 'pointer',
-              }}>
-                📁 อัปโหลดรูปจากเครื่อง (สูงสุด 3MB)
-              </button>
-              <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: 'none' }} />
-              {content && (
-                <img
-                  src={content}
-                  alt="preview"
+          {/* Content area */}
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ fontSize: '0.7rem', color: '#888', fontWeight: '700', letterSpacing: '0.05em', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>
+              {type === 'text' ? 'เนื้อหา' : type === 'image' ? 'รูปภาพ' : 'วีดีโอ'}
+            </label>
+
+            {type === 'text' && (
+              <>
+                {/* Formatting toolbar */}
+                <div style={{
+                  display: 'flex', gap: '4px', padding: '6px 8px',
+                  background: '#f8f9fa', borderRadius: '10px 10px 0 0',
+                  border: '1.5px solid #e8e8e8', borderBottom: 'none',
+                }}>
+                  {[
+                    { label: 'B', title: 'ตัวหนา', action: () => insertTextFormat('**', '**'), style: { fontWeight: '800' } },
+                    { label: 'I', title: 'ตัวเอียง', action: () => insertTextFormat('_', '_'), style: { fontStyle: 'italic' } },
+                    { label: '—', title: 'หัวข้อ', action: () => insertLine('• '), style: {} },
+                    { label: '1.', title: 'ลำดับ', action: () => insertLine('1. '), style: {} },
+                    { label: '▶', title: 'ขั้นตอน', action: () => insertLine('→ '), style: { fontSize: '0.65rem' } },
+                  ].map((btn, i) => (
+                    <button
+                      key={i}
+                      className="ef-toolbar-btn"
+                      title={btn.title}
+                      onClick={btn.action}
+                      style={{
+                        padding: '5px 9px', borderRadius: '6px', border: '1px solid #e0e0e0',
+                        background: 'white', cursor: 'pointer', fontSize: '0.78rem',
+                        color: '#555', transition: 'all 0.12s', ...btn.style,
+                      }}
+                    >{btn.label}</button>
+                  ))}
+                  <div style={{ flex: 1 }} />
+                  <span style={{ fontSize: '0.62rem', color: '#bbb', alignSelf: 'center', paddingRight: '2px' }}>
+                    {charCount} ตัว
+                  </span>
+                </div>
+                <textarea
+                  ref={textareaRef}
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  placeholder="พิมพ์เนื้อหา หรือบันทึกขั้นตอนการทำงาน...&#10;&#10;ตัวอย่าง:&#10;→ เปิดวาล์ว V01&#10;→ กด Start ที่ HMI&#10;→ ตรวจสอบ Pressure"
+                  rows={7}
                   style={{
-                    width: '100%', borderRadius: '10px', marginTop: '10px',
-                    maxHeight: '220px', objectFit: 'contain', background: '#f5f5f5',
+                    width: '100%', padding: '11px 13px', borderRadius: '0 0 12px 12px',
+                    border: '1.5px solid #e8e8e8', borderTop: 'none',
+                    fontSize: '0.86rem', boxSizing: 'border-box', resize: 'vertical',
+                    outline: 'none', fontFamily: 'inherit', lineHeight: '1.7',
+                    background: 'white',
                   }}
                 />
-              )}
-            </div>
-          )}
+              </>
+            )}
 
-          {type === 'video' && (
-            <div>
-              <input
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="https://youtube.com/watch?v=... หรือ https://..."
-                style={{
-                  width: '100%', padding: '10px 12px', borderRadius: '10px',
-                  border: '1.5px solid #ddd', fontSize: '0.88rem',
-                  boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit',
-                }}
-              />
-              {content && ytId && (
-                <div style={{ marginTop: '6px', fontSize: '0.72rem', color: '#2e7d32', fontWeight: '600' }}>
-                  ✓ ตรวจพบ YouTube — ID: {ytId}
+            {type === 'image' && (
+              <div>
+                {/* Drag & drop zone */}
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    setDragOver(false);
+                    const file = e.dataTransfer.files[0];
+                    if (file && file.type.startsWith('image/')) handleFileUpload(file);
+                  }}
+                  onClick={() => fileRef.current?.click()}
+                  style={{
+                    border: `2px dashed ${dragOver ? cfg.color : content ? cfg.border : '#ddd'}`,
+                    borderRadius: '14px', padding: '20px 16px', textAlign: 'center',
+                    cursor: 'pointer', background: dragOver ? cfg.bg : content ? cfg.bg + '44' : '#fafafa',
+                    transition: 'all 0.18s ease', marginBottom: '10px',
+                  }}
+                >
+                  {content ? (
+                    <div style={{ animation: 'fadeIn 0.3s ease' }}>
+                      <img
+                        src={content}
+                        alt="preview"
+                        style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '10px', objectFit: 'contain' }}
+                      />
+                      <div style={{ fontSize: '0.7rem', color: cfg.color, marginTop: '8px', fontWeight: '600' }}>
+                        กดเพื่อเปลี่ยนรูป
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ color: dragOver ? cfg.color : '#ccc', marginBottom: '8px' }}>
+                        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                          <circle cx="8.5" cy="8.5" r="1.5"/>
+                          <polyline points="21 15 16 10 5 21"/>
+                        </svg>
+                      </div>
+                      <div style={{ fontWeight: '700', fontSize: '0.82rem', color: dragOver ? cfg.color : '#666' }}>
+                        {dragOver ? 'ปล่อยเพื่ออัปโหลด' : 'ลากรูปมาวางที่นี่'}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: '#aaa', marginTop: '4px' }}>หรือกดเพื่อเลือกจากเครื่อง</div>
+                    </>
+                  )}
                 </div>
-              )}
-              {content && !ytId && content.startsWith('http') && (
-                <div style={{ marginTop: '6px', fontSize: '0.72rem', color: '#666' }}>
-                  ✓ direct video link
+                <input ref={fileRef} type="file" accept="image/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); }} style={{ display: 'none' }} />
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                  <div style={{ flex: 1, height: '1px', background: '#eee' }} />
+                  <span style={{ fontSize: '0.68rem', color: '#bbb' }}>หรือใช้ URL</span>
+                  <div style={{ flex: 1, height: '1px', background: '#eee' }} />
                 </div>
-              )}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '10px 0' }}>
-                <div style={{ flex: 1, height: '1px', background: '#eee' }} />
-                <span style={{ fontSize: '0.7rem', color: '#aaa' }}>หรืออัปโหลดจากเครื่อง</span>
-                <div style={{ flex: 1, height: '1px', background: '#eee' }} />
+                <input
+                  value={content.startsWith('data:') ? '' : content}
+                  onChange={(e) => setContent(e.target.value)}
+                  placeholder="https://example.com/image.jpg"
+                  style={{
+                    width: '100%', padding: '10px 13px', borderRadius: '10px',
+                    border: '1.5px solid #e8e8e8', fontSize: '0.82rem',
+                    boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit', color: '#555',
+                  }}
+                />
               </div>
-              <button onClick={() => videoFileRef.current?.click()} disabled={uploading} style={{
-                width: '100%', padding: '12px', borderRadius: '10px',
-                border: '2px dashed #ccc', background: '#fafafa',
-                color: '#666', fontSize: '0.8rem', cursor: uploading ? 'not-allowed' : 'pointer',
-              }}>
-                📹 อัปโหลดวีดีโอจากเครื่อง / ถ่ายวีดีโอ (สูงสุด 100MB)
-              </button>
-              <input ref={videoFileRef} type="file" accept="video/*" onChange={handleVideoFile} style={{ display: 'none' }} />
-              {uploading && uploadProgress && (
-                <div style={{ marginTop: '8px', fontSize: '0.75rem', color: '#e65100', fontWeight: '600', textAlign: 'center' }}>
-                  ⏳ {uploadProgress}
+            )}
+
+            {type === 'video' && (
+              <div>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    placeholder="https://youtube.com/watch?v=... หรือ URL วีดีโอตรง"
+                    style={{
+                      width: '100%', padding: '12px 13px', paddingRight: ytId ? '44px' : '13px',
+                      borderRadius: '12px', border: `1.5px solid ${ytId ? '#ef9a9a' : '#e8e8e8'}`,
+                      fontSize: '0.86rem', boxSizing: 'border-box', outline: 'none',
+                      fontFamily: 'inherit', transition: 'border-color 0.18s',
+                      background: ytId ? '#fff5f5' : 'white',
+                    }}
+                  />
+                  {ytId && (
+                    <div style={{
+                      position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)',
+                      background: '#ff0000', color: 'white', borderRadius: '4px',
+                      padding: '2px 5px', fontSize: '0.55rem', fontWeight: '700',
+                    }}>YT</div>
+                  )}
                 </div>
-              )}
+
+                {ytId && (
+                  <div style={{ marginTop: '10px', borderRadius: '12px', overflow: 'hidden', animation: 'fadeIn 0.3s ease', position: 'relative' }}>
+                    <img
+                      src={`https://img.youtube.com/vi/${ytId}/mqdefault.jpg`}
+                      alt="YouTube thumbnail"
+                      style={{ width: '100%', display: 'block', borderRadius: '12px' }}
+                    />
+                    <div style={{
+                      position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: 'rgba(0,0,0,0.3)', borderRadius: '12px',
+                    }}>
+                      <div style={{
+                        width: '44px', height: '44px', background: '#ff0000', borderRadius: '50%',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
+                      }}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                      </div>
+                    </div>
+                    <div style={{
+                      position: 'absolute', bottom: '8px', left: '8px',
+                      background: 'rgba(0,0,0,0.7)', color: 'white', borderRadius: '6px',
+                      padding: '3px 8px', fontSize: '0.65rem', fontWeight: '600',
+                    }}>ID: {ytId}</div>
+                  </div>
+                )}
+
+                {content && !ytId && content.startsWith('http') && (
+                  <div style={{
+                    marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px',
+                    background: '#f1f8e9', borderRadius: '8px', padding: '7px 10px',
+                  }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2e7d32" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    <span style={{ fontSize: '0.72rem', color: '#2e7d32', fontWeight: '600' }}>direct video link</span>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '12px 0 8px' }}>
+                  <div style={{ flex: 1, height: '1px', background: '#eee' }} />
+                  <span style={{ fontSize: '0.68rem', color: '#bbb' }}>หรืออัปโหลดจากเครื่อง</span>
+                  <div style={{ flex: 1, height: '1px', background: '#eee' }} />
+                </div>
+                <button
+                  onClick={() => videoFileRef.current?.click()}
+                  disabled={uploading}
+                  style={{
+                    width: '100%', padding: '13px', borderRadius: '12px',
+                    border: '2px dashed #ffcdd2', background: uploading ? '#fff5f5' : '#fafafa',
+                    color: '#c62828', fontSize: '0.8rem', cursor: uploading ? 'not-allowed' : 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                    transition: 'all 0.18s',
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                  </svg>
+                  อัปโหลดวีดีโอจากเครื่อง (สูงสุด 100MB)
+                </button>
+                <input ref={videoFileRef} type="file" accept="video/*" onChange={handleVideoFile} style={{ display: 'none' }} />
+              </div>
+            )}
+          </div>
+
+          {/* Upload progress bar */}
+          {uploading && (
+            <div style={{ marginBottom: '14px', animation: 'fadeIn 0.2s ease' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                <span style={{ fontSize: '0.72rem', color: '#e65100', fontWeight: '600' }}>{uploadMsg}</span>
+                <span style={{ fontSize: '0.72rem', color: '#e65100', fontWeight: '700' }}>{uploadPct}%</span>
+              </div>
+              <div style={{ height: '6px', background: '#fff3e0', borderRadius: '3px', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', borderRadius: '3px',
+                  background: 'linear-gradient(90deg, #ff9800, #ef6c00)',
+                  width: `${uploadPct}%`,
+                  transition: 'width 0.2s ease',
+                  boxShadow: '0 0 8px rgba(255,152,0,0.5)',
+                }} />
+              </div>
             </div>
           )}
-        </div>
 
-        {uploading && uploadProgress && type !== 'video' && (
-          <div style={{ marginBottom: '10px', fontSize: '0.75rem', color: '#e65100', fontWeight: '600', textAlign: 'center' }}>
-            ⏳ {uploadProgress}
-          </div>
-        )}
-        <button onClick={handleSave} disabled={uploading} style={{
-          width: '100%', padding: '14px', borderRadius: '12px',
-          background: uploading ? '#a5d6a7' : '#2e7d32', color: 'white', border: 'none',
-          fontSize: '0.92rem', fontWeight: '700', cursor: uploading ? 'not-allowed' : 'pointer',
-          boxShadow: '0 2px 8px rgba(46,125,50,0.3)',
-        }}>
-          {uploading ? '⏳ กำลังอัปโหลดรูป...' : 'บันทึก'}
-        </button>
+          {/* Save button */}
+          <button
+            className="ef-save"
+            onClick={handleSave}
+            disabled={uploading || !content.trim()}
+            style={{
+              width: '100%', padding: '15px', borderRadius: '14px',
+              background: saved ? '#4caf50' : (uploading || !content.trim()) ? '#e0e0e0' : `linear-gradient(135deg, #2e7d32, #43a047)`,
+              color: (uploading || !content.trim()) ? '#aaa' : 'white',
+              border: 'none', fontSize: '0.95rem', fontWeight: '700',
+              cursor: (uploading || !content.trim()) ? 'not-allowed' : 'pointer',
+              boxShadow: (!uploading && content.trim()) ? '0 4px 16px rgba(46,125,50,0.35)' : 'none',
+              transition: 'all 0.2s ease',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+            }}
+          >
+            {saved ? (
+              <>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                บันทึกแล้ว!
+              </>
+            ) : uploading ? (
+              <>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ animation: 'pulse 1s infinite' }}><circle cx="12" cy="12" r="10"/></svg>
+                กำลังอัปโหลด...
+              </>
+            ) : (
+              <>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                  <polyline points="17 21 17 13 7 13 7 21"/>
+                  <polyline points="7 3 7 8 15 8"/>
+                </svg>
+                บันทึก{type === 'text' ? 'ข้อความ' : type === 'image' ? 'รูปภาพ' : 'วีดีโอ'}
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </>
   );
