@@ -422,29 +422,6 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
     else alert('อัปโหลดวีดีโอไม่สำเร็จ กรุณาลองใหม่');
   };
 
-  const insertTextFormat = (prefix: string, suffix = '') => {
-    const el = textareaRef.current;
-    if (!el) return;
-    const s = el.selectionStart, e = el.selectionEnd;
-    const sel = content.slice(s, e) || 'ข้อความ';
-    const next = content.slice(0, s) + prefix + sel + suffix + content.slice(e);
-    setContent(next);
-    setTimeout(() => {
-      el.focus();
-      el.setSelectionRange(s + prefix.length, s + prefix.length + sel.length);
-    }, 0);
-  };
-
-  const insertLine = (prefix: string) => {
-    const el = textareaRef.current;
-    if (!el) return;
-    const s = el.selectionStart;
-    const lineStart = content.lastIndexOf('\n', s - 1) + 1;
-    const next = content.slice(0, lineStart) + prefix + content.slice(lineStart);
-    setContent(next);
-    setTimeout(() => { el.focus(); el.setSelectionRange(s + prefix.length, s + prefix.length); }, 0);
-  };
-
   const handleSave = () => {
     const textContent = type === 'text'
       ? (editorRef.current?.textContent ?? content).trim()
@@ -915,7 +892,6 @@ function BlockDisplay({ block, editMode, dark, reactions, myReactions, onEdit, o
   const ytId = block.type === 'video' ? getYouTubeId(block.content) : null;
   const [textExpanded, setTextExpanded] = useState(false);
   const isLongText = block.type === 'text' && block.content.length > 220;
-  const displayContent = isLongText && !textExpanded ? block.content.slice(0, 220) + '…' : block.content;
 
   // Swipe-to-delete
   const touchStartX = useRef(0);
