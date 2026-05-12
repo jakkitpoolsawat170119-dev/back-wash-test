@@ -345,10 +345,15 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
   const [uploadMsg, setUploadMsg] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [insertPanel, setInsertPanel] = useState<'image' | 'video' | null>(null);
+  const [insertUrl, setInsertUrl] = useState('');
+  const [insertUploading, setInsertUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const videoFileRef = useRef<HTMLInputElement>(null);
+  const inlineFileRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const editorInitialized = useRef(false);
+  const savedRange = useRef<Range | null>(null);
 
   const cfg = TYPE_CONFIG[type];
   const ytId = type === 'video' ? getYouTubeId(content) : null;
@@ -369,6 +374,63 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
     setTimeout(() => {
       if (editorRef.current) setContent(editorRef.current.innerHTML);
     }, 0);
+  };
+
+  const saveRange = () => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) savedRange.current = sel.getRangeAt(0).cloneRange();
+  };
+
+  const restoreRange = () => {
+    if (!savedRange.current) return;
+    editorRef.current?.focus();
+    const sel = window.getSelection();
+    if (sel) { sel.removeAllRanges(); sel.addRange(savedRange.current); }
+  };
+
+  const openInsertPanel = (kind: 'image' | 'video') => {
+    saveRange();
+    setInsertUrl('');
+    setInsertPanel(kind);
+  };
+
+  const closeInsertPanel = () => { setInsertPanel(null); setInsertUrl(''); };
+
+  const insertImageHtml = (src: string) => {
+    const html = `<img src="${src}" style="max-width:100%;border-radius:8px;margin:8px 0;display:block;" alt="" /><p><br></p>`;
+    restoreRange();
+    execCmd('insertHTML', html);
+    closeInsertPanel();
+  };
+
+  const insertVideoHtml = (url: string) => {
+    const ytId = getYouTubeId(url);
+    let html: string;
+    if (ytId) {
+      html = `<div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:10px;margin:8px 0;"><iframe src="https://www.youtube.com/embed/${ytId}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none;" allowfullscreen></iframe></div><p><br></p>`;
+    } else {
+      html = `<video src="${url}" controls style="max-width:100%;border-radius:8px;margin:8px 0;display:block;"></video><p><br></p>`;
+    }
+    restoreRange();
+    execCmd('insertHTML', html);
+    closeInsertPanel();
+  };
+
+  const handleInlineImageFile = async (file: File) => {
+    setInsertUploading(true);
+    let src: string | null = null;
+    if (supabase) {
+      src = await uploadToStorage(file);
+    } else {
+      src = await new Promise((res) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => res(ev.target?.result as string);
+        reader.readAsDataURL(file);
+      });
+    }
+    setInsertUploading(false);
+    if (src) insertImageHtml(src);
+    else alert('อัปโหลดรูปไม่สำเร็จ');
   };
 
   const startFakeProgress = (msg: string) => {
@@ -571,7 +633,17 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
                   .l4-tb-btn { background: none; border: none; cursor: pointer; padding: 6px 8px; border-radius: 6px; font-size: 0.78rem; color: #555; transition: background 0.12s; display: flex; align-items: center; gap: 3px; }
                   .l4-tb-btn:hover { background: #f0f0f0; }
                   .l4-tb-btn:active { background: #e0e0e0; }
+                  .l4-tb-btn.active { background: #e8f5e9; color: #2e7d32; }
                   .l4-tb-divider { width: 1px; height: 20px; background: #e8e8e8; margin: 0 2px; flex-shrink: 0; align-self: center; }
+                  .l4-doc-body img { max-width: 100%; border-radius: 8px; margin: 8px 0; display: block; }
+                  .l4-doc-body video { max-width: 100%; border-radius: 8px; margin: 8px 0; display: block; }
+                  .l4-doc-body iframe { border: none; border-radius: 10px; }
+                  .l4-insert-panel { background: #f8faf8; border-top: 1px solid #e8e8e8; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+                  .l4-insert-input { border: 1.5px solid #ddd; border-radius: 8px; padding: 8px 10px; font-size: 0.82rem; font-family: inherit; width: 100%; box-sizing: border-box; outline: none; }
+                  .l4-insert-input:focus { border-color: #4caf50; }
+                  .l4-insert-confirm { background: #4caf50; color: white; border: none; border-radius: 8px; padding: 8px 16px; font-size: 0.82rem; font-weight: 700; cursor: pointer; }
+                  .l4-insert-confirm:hover { background: #388e3c; }
+                  .l4-insert-cancel { background: none; border: none; color: #999; font-size: 0.78rem; cursor: pointer; padding: 4px 8px; }
                 `}</style>
 
                 {/* Document title */}
@@ -628,11 +700,85 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
                   <button className="l4-tb-btn" title="blockquote" onClick={() => execCmd('formatBlock', 'blockquote')}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" opacity="0.6"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1zm12 0c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
                   </button>
+                  <div className="l4-tb-divider" />
+                  {/* Insert image */}
+                  <button
+                    className={`l4-tb-btn${insertPanel === 'image' ? ' active' : ''}`}
+                    title="แทรกรูปภาพ"
+                    onClick={() => insertPanel === 'image' ? closeInsertPanel() : openInsertPanel('image')}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                  </button>
+                  {/* Insert video */}
+                  <button
+                    className={`l4-tb-btn${insertPanel === 'video' ? ' active' : ''}`}
+                    title="แทรกวีดีโอ"
+                    onClick={() => insertPanel === 'video' ? closeInsertPanel() : openInsertPanel('video')}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+                  </button>
                   <div style={{ flex: 1 }} />
                   <span style={{ fontSize: '0.6rem', color: '#bbb', flexShrink: 0 }}>
                     {editorRef.current?.textContent?.length ?? charCount} ตัว
                   </span>
                 </div>
+
+                {/* Insert panel */}
+                {insertPanel && (
+                  <div className="l4-insert-panel">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#555' }}>
+                        {insertPanel === 'image' ? 'แทรกรูปภาพ' : 'แทรกวีดีโอ'}
+                      </span>
+                      <button className="l4-insert-cancel" onClick={closeInsertPanel}>ยกเลิก</button>
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <input
+                        className="l4-insert-input"
+                        placeholder={insertPanel === 'image' ? 'URL รูปภาพ (https://...)' : 'URL วีดีโอ YouTube หรือลิงก์วีดีโอ'}
+                        value={insertUrl}
+                        onChange={e => setInsertUrl(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && insertUrl.trim()) {
+                            e.preventDefault();
+                            insertPanel === 'image' ? insertImageHtml(insertUrl.trim()) : insertVideoHtml(insertUrl.trim());
+                          }
+                        }}
+                      />
+                      <button
+                        className="l4-insert-confirm"
+                        disabled={!insertUrl.trim() || insertUploading}
+                        onClick={() => insertPanel === 'image' ? insertImageHtml(insertUrl.trim()) : insertVideoHtml(insertUrl.trim())}
+                      >
+                        แทรก
+                      </button>
+                    </div>
+                    {insertPanel === 'image' && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '0.7rem', color: '#aaa' }}>หรือ</span>
+                        <button
+                          onClick={() => inlineFileRef.current?.click()}
+                          disabled={insertUploading}
+                          style={{ background: 'none', border: '1.5px dashed #bbb', borderRadius: '8px', padding: '5px 12px', fontSize: '0.75rem', color: '#666', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                          {insertUploading ? 'กำลังอัปโหลด...' : 'อัปโหลดจากเครื่อง'}
+                        </button>
+                        <input
+                          ref={inlineFileRef}
+                          type="file"
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          onChange={async e => {
+                            const file = e.target.files?.[0];
+                            if (file) await handleInlineImageFile(file);
+                            e.target.value = '';
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* ContentEditable body */}
                 <div
@@ -1004,6 +1150,10 @@ function BlockDisplay({ block, editMode, dark, reactions, myReactions, onEdit, o
                 .l4-rc i,.l4-rc em{font-style:italic}
                 .l4-rc p{margin:0 0 5px}
                 .l4-rc p:last-child{margin-bottom:0}
+                .l4-rc img{max-width:100%;border-radius:8px;margin:6px 0;display:block;}
+                .l4-rc video{max-width:100%;border-radius:8px;margin:6px 0;display:block;}
+                .l4-rc iframe{border:none;border-radius:10px;width:100%;}
+                .l4-rc div[style*="padding-bottom"]{margin:6px 0;border-radius:10px;overflow:hidden;}
                 .l4-rc-dark h1,.l4-rc-dark h2,.l4-rc-dark h3{color:#f1f5f9}
                 .l4-rc-dark blockquote{color:#94a3b8}
               `}</style>
