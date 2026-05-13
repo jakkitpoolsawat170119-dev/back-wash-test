@@ -1127,18 +1127,24 @@ interface BlockDisplayProps {
   dark: boolean;
   reactions: Record<string, number>;
   myReactions: string[];
+  emoji?: string;
+  onChangeEmoji: (emoji: string) => void;
   onEdit: () => void;
   onDelete: () => void;
   onReact: (emoji: string) => void;
   onShare: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
 }
 
 const REACTION_EMOJIS = ['👍', '✅', '🔥'];
 
-function BlockDisplay({ block, editMode, dark, reactions, myReactions, onEdit, onDelete, onReact, onShare }: BlockDisplayProps) {
+function BlockDisplay({ block, editMode, dark, reactions, myReactions, emoji, onChangeEmoji, onEdit, onDelete, onReact, onShare, onMoveUp, onMoveDown }: BlockDisplayProps) {
   const ytId = block.type === 'video' ? getYouTubeId(block.content) : null;
   const [textExpanded, setTextExpanded] = useState(false);
   const isLongText = block.type === 'text' && block.content.length > 220;
+  const [showIconPicker, setShowIconPicker] = useState(false);
+  const [iconPickerCat, setIconPickerCat] = useState(0);
 
   // Swipe-to-delete
   const touchStartX = useRef(0);
@@ -1196,24 +1202,52 @@ function BlockDisplay({ block, editMode, dark, reactions, myReactions, onEdit, o
         {/* Header */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: '8px',
-          padding: '9px 12px', background: headerBg, borderBottom: `1px solid ${dividerColor}`,
+          padding: '9px 12px', background: headerBg, borderBottom: showIconPicker ? 'none' : `1px solid ${dividerColor}`,
         }}>
-          <div style={{
-            width: '22px', height: '22px', borderRadius: '6px', flexShrink: 0,
-            background: block.type === 'text' ? '#e3f2fd' : block.type === 'image' ? '#f3e5f5' : '#ffebee',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            {block.type === 'text'
+          {/* Icon — click to change emoji in edit mode */}
+          <button
+            onClick={() => { if (editMode) setShowIconPicker(v => !v); }}
+            title={editMode ? 'คลิกเพื่อเปลี่ยนอิโมจิ' : undefined}
+            style={{
+              width: '26px', height: '26px', borderRadius: '7px', flexShrink: 0,
+              background: emoji ? 'transparent' : (block.type === 'text' ? '#e3f2fd' : block.type === 'image' ? '#f3e5f5' : '#ffebee'),
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              border: editMode ? `1.5px dashed ${showIconPicker ? '#4caf50' : '#ccc'}` : 'none',
+              cursor: editMode ? 'pointer' : 'default',
+              fontSize: '1rem', lineHeight: 1, padding: 0,
+              transition: 'border-color 0.15s',
+            }}
+          >
+            {emoji ? (
+              <span style={{ fontSize: '1rem', lineHeight: 1 }}>{emoji}</span>
+            ) : block.type === 'text'
               ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#1565c0" strokeWidth="2.5" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
               : block.type === 'image'
               ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6a1b9a" strokeWidth="2.5" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="21 15 16 10 5 21"/></svg>
               : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#b71c1c" strokeWidth="2.5" strokeLinecap="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
             }
-          </div>
+          </button>
           <span style={{ fontWeight: '700', fontSize: '0.8rem', color: textColor, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {block.title || (block.type === 'text' ? 'บันทึก' : block.type === 'image' ? 'รูปภาพ' : 'วีดีโอ')}
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '3px', flexShrink: 0 }}>
+            {/* Move up/down in edit mode */}
+            {editMode && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', marginRight: '2px' }}>
+                <button
+                  onClick={onMoveUp}
+                  disabled={!onMoveUp}
+                  title="ขึ้น"
+                  style={{ background: onMoveUp ? '#f0f0f0' : 'transparent', border: 'none', borderRadius: '4px', padding: '2px 5px', cursor: onMoveUp ? 'pointer' : 'default', color: onMoveUp ? '#555' : '#ccc', fontSize: '0.6rem', lineHeight: 1 }}
+                >▲</button>
+                <button
+                  onClick={onMoveDown}
+                  disabled={!onMoveDown}
+                  title="ลง"
+                  style={{ background: onMoveDown ? '#f0f0f0' : 'transparent', border: 'none', borderRadius: '4px', padding: '2px 5px', cursor: onMoveDown ? 'pointer' : 'default', color: onMoveDown ? '#555' : '#ccc', fontSize: '0.6rem', lineHeight: 1 }}
+                >▼</button>
+              </div>
+            )}
             <button
               onClick={onShare}
               title="แชร์ / คัดลอก link"
@@ -1232,6 +1266,41 @@ function BlockDisplay({ block, editMode, dark, reactions, myReactions, onEdit, o
             )}
           </div>
         </div>
+
+        {/* Icon emoji picker */}
+        {showIconPicker && (
+          <div style={{ borderBottom: `1px solid ${dividerColor}`, background: dark ? '#0f172a' : '#fafafa' }}>
+            <div style={{ display: 'flex', alignItems: 'center', padding: '6px 10px 0', gap: '0', overflowX: 'auto' }}>
+              {EMOJI_CATEGORIES.map((cat, i) => (
+                <button
+                  key={i}
+                  onClick={() => setIconPickerCat(i)}
+                  style={{ background: 'none', border: 'none', padding: '5px 8px', cursor: 'pointer', fontSize: '0.9rem', opacity: iconPickerCat === i ? 1 : 0.45, borderBottom: `2px solid ${iconPickerCat === i ? '#4caf50' : 'transparent'}`, flexShrink: 0, transition: 'all 0.1s' }}
+                >{cat.label}</button>
+              ))}
+              <div style={{ flex: 1 }} />
+              <button
+                onClick={() => { onChangeEmoji(''); setShowIconPicker(false); }}
+                style={{ background: 'none', border: 'none', color: '#aaa', fontSize: '0.65rem', cursor: 'pointer', padding: '4px 8px', flexShrink: 0 }}
+              >รีเซ็ต</button>
+              <button
+                onClick={() => setShowIconPicker(false)}
+                style={{ background: 'none', border: 'none', color: '#aaa', fontSize: '0.75rem', cursor: 'pointer', padding: '4px 6px', flexShrink: 0 }}
+              >✕</button>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1px', padding: '4px 8px 8px', maxHeight: '130px', overflowY: 'auto' }}>
+              {EMOJI_CATEGORIES[iconPickerCat].emojis.map((em, i) => (
+                <button
+                  key={i}
+                  onClick={() => { onChangeEmoji(em); setShowIconPicker(false); }}
+                  style={{ background: 'none', border: 'none', fontSize: '1.15rem', padding: '4px 5px', cursor: 'pointer', borderRadius: '6px', lineHeight: 1, transition: 'background 0.1s' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = '#f0f0f0')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                >{em}</button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Content */}
         {block.type === 'text' && (() => {
@@ -1366,6 +1435,9 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
     try { return JSON.parse(localStorage.getItem('l4-my-reactions') ?? '{}'); } catch { return {}; }
   });
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [blockEmojis, setBlockEmojis] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem('l4-block-emojis') ?? '{}'); } catch { return {}; }
+  });
   const localIds = useRef<Set<string>>(new Set());
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -1406,6 +1478,33 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
     }
   };
 
+  const handleChangeEmoji = (blockId: string, emoji: string) => {
+    setBlockEmojis(prev => {
+      const next = { ...prev };
+      if (emoji) next[blockId] = emoji; else delete next[blockId];
+      localStorage.setItem('l4-block-emojis', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const moveBlock = (id: string, dir: 'up' | 'down') => {
+    setBlocks(prev => {
+      const block = prev.find(b => b.id === id);
+      if (!block) return prev;
+      const peers = prev.filter(b => b.stepId === block.stepId);
+      const peerIdx = peers.findIndex(b => b.id === id);
+      if (dir === 'up' && peerIdx === 0) return prev;
+      if (dir === 'down' && peerIdx === peers.length - 1) return prev;
+      const swapWith = dir === 'up' ? peers[peerIdx - 1] : peers[peerIdx + 1];
+      const idx = prev.findIndex(b => b.id === id);
+      const swapIdx = prev.findIndex(b => b.id === swapWith.id);
+      const next = [...prev];
+      [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+      localStorage.setItem('l4-block-order', JSON.stringify(next.map(b => b.id)));
+      return next;
+    });
+  };
+
   // Supabase / localStorage
   useEffect(() => {
     if (!supabase) {
@@ -1413,7 +1512,17 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
       return;
     }
     supabase.from('learning_blocks').select('*').order('created_at').then(({ data }) => {
-      if (data) setBlocks(data.map(fromDb));
+      if (data) {
+        let loaded = data.map(fromDb);
+        try {
+          const savedOrder: string[] = JSON.parse(localStorage.getItem('l4-block-order') ?? '[]');
+          if (savedOrder.length > 0) {
+            const orderMap = new Map(savedOrder.map((id, i) => [id, i]));
+            loaded = [...loaded].sort((a, b) => (orderMap.get(a.id) ?? 9999) - (orderMap.get(b.id) ?? 9999));
+          }
+        } catch { /* ignore */ }
+        setBlocks(loaded);
+      }
     });
     const channel = supabase
       .channel('line4_blocks')
@@ -1497,6 +1606,8 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
     dark,
     reactions: reactions[block.id] ?? {},
     myReactions: myReactions[block.id] ?? [],
+    emoji: blockEmojis[block.id],
+    onChangeEmoji: (e: string) => handleChangeEmoji(block.id, e),
     onEdit: () => setEditForm({ stepId, block }),
     onDelete: () => deleteBlock(block.id),
     onReact: (emoji: string) => handleReact(block.id, emoji),
@@ -1621,6 +1732,7 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
           {searchResults.map(block => (
             <BlockDisplay key={block.id} {...blockDisplayProps(block, block.stepId)} />
           ))}
+
         </div>
       )}
 
@@ -1754,7 +1866,14 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
                             <span style={{ fontWeight: '700', fontSize: '0.88rem', color: '#1b5e20' }}>บันทึกการเรียนรู้</span>
                             <span style={{ marginLeft: 'auto', background: '#e8f5e9', color: '#2e7d32', fontSize: '0.65rem', fontWeight: '700', borderRadius: '20px', padding: '2px 8px', border: '1px solid #a5d6a7' }}>{sBlocks.length}</span>
                           </div>
-                          {sBlocks.map(block => <BlockDisplay key={block.id} {...blockDisplayProps(block, step.id)} />)}
+                          {sBlocks.map((block, idx) => (
+                            <BlockDisplay
+                              key={block.id}
+                              {...blockDisplayProps(block, step.id)}
+                              onMoveUp={idx > 0 ? () => moveBlock(block.id, 'up') : undefined}
+                              onMoveDown={idx < sBlocks.length - 1 ? () => moveBlock(block.id, 'down') : undefined}
+                            />
+                          ))}
                         </div>
                       )}
                       {editMode && (
@@ -1793,7 +1912,14 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
                     กด ✏️ ที่มุมขวาบน เพื่อเพิ่มรูป วีดีโอ หรือบันทึกสำหรับเรียนรู้
                   </div>
                 )}
-                {globalBlocks.map(block => <BlockDisplay key={block.id} {...blockDisplayProps(block, null)} />)}
+                {globalBlocks.map((block, idx) => (
+                  <BlockDisplay
+                    key={block.id}
+                    {...blockDisplayProps(block, null)}
+                    onMoveUp={idx > 0 ? () => moveBlock(block.id, 'up') : undefined}
+                    onMoveDown={idx < globalBlocks.length - 1 ? () => moveBlock(block.id, 'down') : undefined}
+                  />
+                ))}
                 {editMode && (
                   <button onClick={() => setEditForm({ stepId: null, block: null })} style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '2px dashed #a5d6a7', background: dark ? '#0f172a' : '#f1f8e9', color: '#2e7d32', fontSize: '0.82rem', fontWeight: '600', cursor: 'pointer', marginBottom: '4px' }}>
                     + เพิ่มเนื้อหา / รูปภาพ / วีดีโอ สำหรับเรียนรู้
