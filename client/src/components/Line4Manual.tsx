@@ -386,7 +386,10 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
   const [saved, setSaved] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [emojiCategory, setEmojiCategory] = useState(0);
+  const [showBlockMenu, setShowBlockMenu] = useState(false);
+  const [blockMenuSearch, setBlockMenuSearch] = useState('');
   const [insertPanel, setInsertPanel] = useState<'image' | 'video' | null>(null);
+  const slashTriggered = useRef(false);
   const [insertUrl, setInsertUrl] = useState('');
   const [insertUploading, setInsertUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -434,6 +437,8 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
     setInsertUrl('');
     setInsertPanel(kind);
     setShowEmojiPicker(false);
+    setShowBlockMenu(false);
+    setBlockMenuSearch('');
   };
 
   const closeInsertPanel = () => { setInsertPanel(null); setInsertUrl(''); };
@@ -443,12 +448,60 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
     setShowEmojiPicker(v => !v);
     setInsertPanel(null);
     setInsertUrl('');
+    setShowBlockMenu(false);
+    setBlockMenuSearch('');
   };
 
   const insertEmoji = (emoji: string) => {
     restoreRange();
     execCmd('insertText', emoji);
     editorRef.current?.focus();
+  };
+
+  const BLOCK_TYPES = [
+    { id: 'todo',    icon: '☑️',  label: 'To-do list',      desc: 'รายการงาน checkbox',       shortcut: '/todo' },
+    { id: 'toggle',  icon: '▶',   label: 'Toggle list',     desc: 'รายการซ่อน/แสดงได้',       shortcut: '/toggle' },
+    { id: 'callout', icon: '💡',  label: 'Callout',         desc: 'กล่องเน้นข้อความ',          shortcut: '/callout' },
+    { id: 'table',   icon: '⊞',   label: 'Table',           desc: 'ตาราง 3×3',                 shortcut: '/table' },
+    { id: 'h1tog',   icon: '▶H₁', label: 'Toggle heading 1',desc: 'หัวข้อใหญ่ ซ่อน/แสดงได้',  shortcut: '/h1>' },
+    { id: 'h2tog',   icon: '▶H₂', label: 'Toggle heading 2',desc: 'หัวข้อกลาง ซ่อน/แสดงได้', shortcut: '/h2>' },
+    { id: 'cols2',   icon: '⬜⬜', label: '2 columns',       desc: 'แบ่ง 2 คอลัมน์',           shortcut: '/2col' },
+    { id: 'cols3',   icon: '⬜⬜⬜',label: '3 columns',       desc: 'แบ่ง 3 คอลัมน์',           shortcut: '/3col' },
+  ];
+
+  const insertBlockType = (blockId: string) => {
+    const htmlMap: Record<string, string> = {
+      todo:    `<ul class="l4-todo"><li class="l4-todo-item"><input type="checkbox"><span class="l4-todo-text"> งานที่ต้องทำ</span></li><li class="l4-todo-item"><input type="checkbox"><span class="l4-todo-text"> อีกรายการ</span></li></ul><p><br></p>`,
+      toggle:  `<details class="l4-toggle"><summary class="l4-toggle-sum">คลิกเพื่อขยาย...</summary><div class="l4-toggle-body"><p>เนื้อหาภายใน</p></div></details><p><br></p>`,
+      callout: `<div class="l4-callout"><span class="l4-callout-ico">💡</span><span class="l4-callout-txt">ใส่ข้อความที่ต้องการเน้น</span></div><p><br></p>`,
+      table:   `<table class="l4-tbl"><thead><tr><th>หัวคอลัมน์ 1</th><th>หัวคอลัมน์ 2</th><th>หัวคอลัมน์ 3</th></tr></thead><tbody><tr><td></td><td></td><td></td></tr><tr><td></td><td></td><td></td></tr><tr><td></td><td></td><td></td></tr></tbody></table><p><br></p>`,
+      h1tog:   `<details class="l4-toggle l4-toggle-h1"><summary class="l4-toggle-sum"><h1>Toggle Heading 1</h1></summary><div class="l4-toggle-body"><p>เนื้อหาภายใน</p></div></details><p><br></p>`,
+      h2tog:   `<details class="l4-toggle l4-toggle-h2"><summary class="l4-toggle-sum"><h2>Toggle Heading 2</h2></summary><div class="l4-toggle-body"><p>เนื้อหาภายใน</p></div></details><p><br></p>`,
+      cols2:   `<div class="l4-cols l4-cols-2"><div class="l4-col"><p>คอลัมน์ 1</p></div><div class="l4-col"><p>คอลัมน์ 2</p></div></div><p><br></p>`,
+      cols3:   `<div class="l4-cols l4-cols-3"><div class="l4-col"><p>คอลัมน์ 1</p></div><div class="l4-col"><p>คอลัมน์ 2</p></div><div class="l4-col"><p>คอลัมน์ 3</p></div></div><p><br></p>`,
+    };
+    const html = htmlMap[blockId];
+    if (!html) return;
+    if (slashTriggered.current) {
+      // delete the '/' char that opened the menu
+      document.execCommand('delete', false);
+      slashTriggered.current = false;
+    } else {
+      restoreRange();
+    }
+    execCmd('insertHTML', html);
+    setShowBlockMenu(false);
+    setBlockMenuSearch('');
+  };
+
+  const openBlockMenu = (fromSlash = false) => {
+    if (!fromSlash) saveRange();
+    slashTriggered.current = fromSlash;
+    setBlockMenuSearch('');
+    setShowBlockMenu(true);
+    setShowEmojiPicker(false);
+    setInsertPanel(null);
+    setInsertUrl('');
   };
 
   const insertImageHtml = (src: string) => {
@@ -693,6 +746,40 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
                   .l4-doc-body img { max-width: 100%; border-radius: 8px; margin: 8px 0; display: block; }
                   .l4-doc-body video { max-width: 100%; border-radius: 8px; margin: 8px 0; display: block; }
                   .l4-doc-body iframe { border: none; border-radius: 10px; }
+                  /* Callout */
+                  .l4-callout { background: #f0fdf4; border-left: 3px solid #4caf50; border-radius: 8px; padding: 10px 14px; margin: 8px 0; display: flex; gap: 8px; align-items: flex-start; }
+                  .l4-callout-ico { font-size: 1rem; flex-shrink: 0; margin-top: 1px; }
+                  .l4-callout-txt { flex: 1; line-height: 1.65; }
+                  /* Table */
+                  .l4-tbl { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 0.83rem; }
+                  .l4-tbl th { background: #f5f5f5; font-weight: 700; padding: 7px 10px; border: 1px solid #ddd; text-align: left; }
+                  .l4-tbl td { padding: 6px 10px; border: 1px solid #ddd; min-width: 70px; }
+                  /* To-do */
+                  .l4-todo { list-style: none; padding-left: 0; margin: 4px 0; }
+                  .l4-todo-item { display: flex; align-items: baseline; gap: 7px; padding: 3px 0; }
+                  .l4-todo-item input[type="checkbox"] { cursor: pointer; flex-shrink: 0; }
+                  .l4-todo-text { line-height: 1.6; }
+                  /* Toggle */
+                  .l4-toggle { margin: 6px 0; }
+                  .l4-toggle-sum { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 5px; padding: 4px 0; font-weight: 600; }
+                  .l4-toggle-sum::-webkit-details-marker { display: none; }
+                  .l4-toggle-sum::before { content: "▶"; font-size: 0.6rem; color: #4caf50; transition: transform 0.15s; flex-shrink: 0; }
+                  .l4-toggle[open] .l4-toggle-sum::before { transform: rotate(90deg); }
+                  .l4-toggle-body { padding: 4px 0 4px 18px; border-left: 2px solid #e8f5e9; margin-left: 5px; }
+                  .l4-toggle-h1 .l4-toggle-sum { font-size: 1.1rem; }
+                  .l4-toggle-h2 .l4-toggle-sum { font-size: 0.95rem; }
+                  /* Columns */
+                  .l4-cols { display: flex; gap: 10px; margin: 8px 0; }
+                  .l4-col { flex: 1; min-width: 0; padding: 8px 10px; border: 1.5px dashed #ddd; border-radius: 8px; min-height: 44px; }
+                  .l4-cols-3 .l4-col { font-size: 0.85rem; }
+                  /* Block menu */
+                  .l4-block-menu { background: #fff; border-top: 1px solid #e8e8e8; max-height: 280px; overflow-y: auto; }
+                  .l4-bm-item { display: flex; align-items: center; gap: 10px; padding: 8px 14px; cursor: pointer; border: none; background: none; width: 100%; text-align: left; transition: background 0.1s; }
+                  .l4-bm-item:hover { background: #f5f5f5; }
+                  .l4-bm-icon { width: 30px; height: 30px; border-radius: 7px; background: #f0f0f0; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; flex-shrink: 0; font-weight: 700; color: #444; }
+                  .l4-bm-label { font-size: 0.82rem; font-weight: 600; color: #222; }
+                  .l4-bm-desc { font-size: 0.68rem; color: #999; margin-top: 1px; }
+                  .l4-bm-shortcut { margin-left: auto; font-size: 0.62rem; color: #bbb; font-family: monospace; flex-shrink: 0; }
                   .l4-insert-panel { background: #f8faf8; border-top: 1px solid #e8e8e8; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
                   .l4-insert-input { border: 1.5px solid #ddd; border-radius: 8px; padding: 8px 10px; font-size: 0.82rem; font-family: inherit; width: 100%; box-sizing: border-box; outline: none; }
                   .l4-insert-input:focus { border-color: #4caf50; }
@@ -790,6 +877,14 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
                   >
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
                   </button>
+                  <div className="l4-tb-divider" />
+                  {/* Block menu */}
+                  <button
+                    className={`l4-tb-btn${showBlockMenu ? ' active' : ''}`}
+                    title="เพิ่มบล็อก (หรือพิมพ์ /)"
+                    onClick={() => showBlockMenu ? (setShowBlockMenu(false), setBlockMenuSearch('')) : openBlockMenu()}
+                    style={{ fontWeight: '800', fontSize: '1rem', color: showBlockMenu ? '#2e7d32' : '#555' }}
+                  >+</button>
                   <div style={{ flex: 1 }} />
                   <span style={{ fontSize: '0.6rem', color: '#bbb', flexShrink: 0 }}>
                     {editorRef.current?.textContent?.length ?? charCount} ตัว
@@ -821,6 +916,38 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
                         >{em}</button>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* Block menu panel */}
+                {showBlockMenu && (
+                  <div className="l4-block-menu">
+                    <div style={{ padding: '8px 14px 4px', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid #f0f0f0' }}>
+                      <span style={{ fontSize: '0.65rem', fontWeight: '700', color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.05em' }}>เพิ่มบล็อก</span>
+                      <input
+                        autoFocus
+                        value={blockMenuSearch}
+                        onChange={e => setBlockMenuSearch(e.target.value)}
+                        placeholder="ค้นหา..."
+                        style={{ flex: 1, border: 'none', outline: 'none', fontSize: '0.8rem', fontFamily: 'inherit', background: 'transparent', color: '#333' }}
+                        onKeyDown={e => {
+                          if (e.key === 'Escape') { setShowBlockMenu(false); setBlockMenuSearch(''); }
+                        }}
+                      />
+                      <button onClick={() => { setShowBlockMenu(false); setBlockMenuSearch(''); }} style={{ background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', fontSize: '0.8rem', padding: '2px' }}>✕</button>
+                    </div>
+                    {BLOCK_TYPES.filter(bt =>
+                      !blockMenuSearch || bt.label.toLowerCase().includes(blockMenuSearch.toLowerCase()) || bt.desc.toLowerCase().includes(blockMenuSearch.toLowerCase())
+                    ).map(bt => (
+                      <button key={bt.id} className="l4-bm-item" onClick={() => insertBlockType(bt.id)}>
+                        <div className="l4-bm-icon">{bt.icon}</div>
+                        <div>
+                          <div className="l4-bm-label">{bt.label}</div>
+                          <div className="l4-bm-desc">{bt.desc}</div>
+                        </div>
+                        <span className="l4-bm-shortcut">{bt.shortcut}</span>
+                      </button>
+                    ))}
                   </div>
                 )}
 
@@ -890,8 +1017,9 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
                   data-placeholder="เริ่มเขียนที่นี่... กด Enter เพื่อขึ้นบรรทัดใหม่"
                   onInput={() => { if (editorRef.current) setContent(editorRef.current.innerHTML); }}
                   onKeyDown={(e) => {
-                    // Tab = indent
                     if (e.key === 'Tab') { e.preventDefault(); execCmd('insertHTML', '&nbsp;&nbsp;&nbsp;&nbsp;'); }
+                    if (e.key === '/' && !showBlockMenu) { openBlockMenu(true); }
+                    if (e.key === 'Escape' && showBlockMenu) { setShowBlockMenu(false); setBlockMenuSearch(''); slashTriggered.current = false; }
                   }}
                   style={{
                     minHeight: '180px', padding: '12px 18px 18px',
@@ -1324,6 +1452,27 @@ function BlockDisplay({ block, editMode, dark, reactions, myReactions, emoji, on
                 .l4-rc video{max-width:100%;border-radius:8px;margin:6px 0;display:block;}
                 .l4-rc iframe{border:none;border-radius:10px;width:100%;}
                 .l4-rc div[style*="padding-bottom"]{margin:6px 0;border-radius:10px;overflow:hidden;}
+                .l4-rc .l4-callout{background:#f0fdf4;border-left:3px solid #4caf50;border-radius:8px;padding:9px 12px;margin:6px 0;display:flex;gap:7px;align-items:flex-start;}
+                .l4-rc .l4-callout-ico{font-size:0.95rem;flex-shrink:0;}
+                .l4-rc .l4-callout-txt{flex:1;line-height:1.6;}
+                .l4-rc .l4-tbl{width:100%;border-collapse:collapse;margin:6px 0;font-size:0.82rem;}
+                .l4-rc .l4-tbl th{background:#f5f5f5;font-weight:700;padding:6px 9px;border:1px solid #ddd;text-align:left;}
+                .l4-rc .l4-tbl td{padding:5px 9px;border:1px solid #ddd;}
+                .l4-rc .l4-todo{list-style:none;padding-left:0;margin:3px 0;}
+                .l4-rc .l4-todo-item{display:flex;align-items:baseline;gap:6px;padding:2px 0;}
+                .l4-rc .l4-todo-item input{cursor:pointer;}
+                .l4-rc .l4-toggle{margin:5px 0;}
+                .l4-rc .l4-toggle-sum{cursor:pointer;list-style:none;display:flex;align-items:center;gap:5px;padding:3px 0;font-weight:600;}
+                .l4-rc .l4-toggle-sum::-webkit-details-marker{display:none;}
+                .l4-rc .l4-toggle-sum::before{content:"▶";font-size:0.6rem;color:#4caf50;transition:transform 0.15s;flex-shrink:0;}
+                .l4-rc .l4-toggle[open] .l4-toggle-sum::before{transform:rotate(90deg);}
+                .l4-rc .l4-toggle-body{padding:3px 0 3px 16px;border-left:2px solid #e8f5e9;margin-left:4px;}
+                .l4-rc .l4-cols{display:flex;gap:8px;margin:6px 0;}
+                .l4-rc .l4-col{flex:1;min-width:0;padding:6px 8px;border:1px solid #e8e8e8;border-radius:7px;}
+                .l4-rc-dark .l4-callout{background:#134e2a;border-color:#4caf50;}
+                .l4-rc-dark .l4-tbl th{background:#1e293b;color:#e2e8f0;border-color:#334155;}
+                .l4-rc-dark .l4-tbl td{border-color:#334155;color:#cbd5e1;}
+                .l4-rc-dark .l4-col{border-color:#334155;}
                 .l4-rc-dark h1,.l4-rc-dark h2,.l4-rc-dark h3{color:#f1f5f9}
                 .l4-rc-dark blockquote{color:#94a3b8}
               `}</style>
