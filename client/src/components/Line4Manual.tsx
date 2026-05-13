@@ -336,6 +336,45 @@ const TYPE_CONFIG = {
   },
 } as const;
 
+const EMOJI_CATEGORIES = [
+  {
+    label: '😀', name: 'หน้า',
+    emojis: ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊','😇','🥰','😍','🤩','😘','😗','😚','😙','🥲','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐','🥴','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','🥺','😱','😲','😤','😠','😡','🤬','😈','👿','💀','☠️','💩','🤡','👹','👺','👻','👽','👾','🤖'],
+  },
+  {
+    label: '👋', name: 'มือ/คน',
+    emojis: ['👋','🤚','🖐️','✋','🖖','👌','🤌','🤏','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','👍','👎','✊','👊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','✍️','💅','🤳','💪','🦵','🦶','👂','👃','👁️','👀','🫶','🫵','🫰','🫱','🫲','🧠','🦷','🦴','👅','👄','🫦'],
+  },
+  {
+    label: '❤️', name: 'ใจ',
+    emojis: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','❤️‍🔥','❤️‍🩹','💔','💕','💞','💓','💗','💖','💘','💝','💟','☮️','✝️','☯️','🕉️','🛐','🔯','♈','♉','♊','♋','♌','♍','♎','♏','♐','♑','♒','♓','⛎','🆚','🆕','🆓','🆙','🆒','🆗','🆖','🅰️','🅱️','🆎','🆑'],
+  },
+  {
+    label: '🐶', name: 'สัตว์',
+    emojis: ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮','🐷','🐸','🐵','🙈','🙉','🙊','🐔','🐧','🐦','🐤','🦆','🦅','🦉','🦇','🐺','🐗','🐴','🦄','🐝','🐛','🦋','🐌','🐞','🐜','🦟','🦗','🕷️','🦂','🐢','🐍','🦎','🦖','🦕','🐙','🦑','🦐','🦞','🦀','🐡','🐠','🐟','🐬','🐳','🐋','🦈','🐊','🐅','🐆','🦓','🦍','🦧','🐘','🦛','🦏','🐪','🐫','🦒','🦘','🦬','🐃','🐂','🐄','🐎','🐖','🐏','🐑','🦙','🐐','🦌','🐕','🐩','🦮','🐕‍🦺','🐈','🐈‍⬛','🐓','🦃','🦤','🦚','🦜','🦢','🦩','🕊️','🐇','🦝','🦨','🦡','🦫','🦦','🦥','🐁','🐀','🐿️','🦔'],
+  },
+  {
+    label: '🍎', name: 'อาหาร',
+    emojis: ['🍎','🍊','🍋','🍇','🍓','🫐','🍈','🍒','🍑','🥭','🍍','🥥','🥝','🍅','🥑','🍆','🥔','🥕','🌽','🌶️','🥦','🥬','🥒','🧄','🧅','🍄','🥜','🌰','🍞','🥐','🥖','🫓','🥨','🧀','🥚','🍳','🧈','🥞','🧇','🥓','🥩','🍗','🍖','🌭','🍔','🍟','🍕','🫔','🌮','🌯','🥙','🧆','🥚','🍱','🍘','🍙','🍚','🍛','🍜','🍝','🍠','🍢','🍣','🍤','🍥','🥮','🍡','🥟','🦪','🍦','🍧','🍨','🍩','🍪','🎂','🍰','🧁','🥧','🍫','🍬','🍭','🍮','🍯','🍼','🥛','☕','🫖','🍵','🧃','🥤','🧋','🍶','🍺','🍻','🥂','🍷','🥃','🍸','🍹','🧉','🍾'],
+  },
+  {
+    label: '⚽', name: 'กีฬา',
+    emojis: ['⚽','🏀','🏈','⚾','🥎','🏐','🏉','🎾','🥏','🎱','🪀','🏓','🏸','🥊','🥅','⛳','🪁','🏹','🎣','🤿','🥋','🎽','🛹','🛼','🛷','⛸️','🥌','🎿','⛷️','🏂','🪂','🏋️','🤼','🤸','⛹️','🤺','🏇','🧘','🏄','🚣','🧗','🚵','🚴','🏆','🥇','🥈','🥉','🏅','🎖️','🎪','🤹','🎭','🎨','🎬','🎤','🎧','🎼','🎵','🎶','🎷','🎸','🎹','🎺','🎻','🥁','🪘','🎮','🕹️','🎲','♟️'],
+  },
+  {
+    label: '🌍', name: 'สถานที่',
+    emojis: ['🌍','🌎','🌏','🌐','🗺️','🧭','🌋','⛰️','🏔️','🗻','🏕️','🏖️','🏜️','🏝️','🏞️','🏟️','🏛️','🏗️','🧱','🏘️','🏚️','🏠','🏡','🏢','🏣','🏤','🏥','🏦','🏨','🏩','🏪','🏫','🏬','🏭','🏯','🏰','💒','🗼','🗽','⛪','🕌','🛕','🕍','⛩️','🕋','⛲','⛺','🌁','🌃','🏙️','🌄','🌅','🌆','🌇','🌉','🎠','🎡','🎢','💈','🎪','🚂','🚃','🚄','🚅','🚆','🚇','🚈','🚉','🚊','🚝','🚞','🚋','🚌','🚍','🚎','🚐','🚑','🚒','🚓','🚔','🚕','🚖','🚗','🚘','🚙','🛻','🚚','🚛','🚜','🏎️','🏍️','🛵','🛺','🚲','🛴','🛹','🛼','🚏','🛣️','🛤️','✈️','🛩️','🚁','🛸','🚀','🛶','⛵','🚤','🛥️','🛳️','⛴️','🚢'],
+  },
+  {
+    label: '💡', name: 'วัตถุ',
+    emojis: ['💡','🔦','🕯️','🪔','🧯','💰','💴','💵','💶','💷','💸','💳','🪙','💎','⚖️','🧰','🔧','🪛','🔩','⚙️','🗜️','🔗','⛓️','🪝','🧲','🪜','🧪','🧫','🧬','🔬','🔭','📡','💊','🩺','🩻','🩹','🩼','🩺','🩸','🧴','🧷','🧹','🧺','🧻','🪣','🧼','🫧','🪥','🧽','🧯','🛒','🚪','🪞','🪟','🛏️','🛋️','🪑','🚽','🚿','🛁','🪠','🪤','🧸','🪆','🖼️','🪄','🎩','👑','💍','👜','👛','👓','🕶️','🥽','☂️','🧵','🧶','📱','💻','⌨️','🖥️','🖨️','🖱️','🗜️','💾','💿','📀','📷','📸','📹','📼','📞','☎️','📟','📠','📺','📻','🧭','⏱️','⏲️','⏰','🕰️','📡','🔋','🔌','💡','🔦','🕯️','🗑️','🧲','🪜'],
+  },
+  {
+    label: '🌟', name: 'สัญลักษณ์',
+    emojis: ['⭐','🌟','✨','💫','🌠','🔥','💥','❄️','🌈','☁️','⛅','🌤️','🌥️','🌦️','🌧️','⛈️','🌩️','🌨️','🌪️','🌫️','🌬️','🌀','🌊','💧','💦','☔','⚡','🌙','☀️','🌤️','🌈','⛱️','✅','❎','🔴','🟠','🟡','🟢','🔵','🟣','⚫','⚪','🟤','🔶','🔷','🔸','🔹','🔺','🔻','💠','🔘','🔲','🔳','▪️','▫️','◾','◽','◼️','◻️','⬛','⬜','🟥','🟧','🟨','🟩','🟦','🟪','🟫','⁉️','‼️','❓','❔','❕','❗','🔅','🔆','🔱','⚜️','🔰','♻️','✅','🈴','🈵','🈹','🈲','🉐','🈶','🈚','🈸','🈺','🈷️','✴️','🆚','💯','🈹','📵','🔞','🔃','🔄','🔙','🔚','🔛','🔜','🔝'],
+  },
+];
+
 function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
   const [type, setType] = useState<LearningBlock['type']>(initial?.type ?? 'text');
   const [title, setTitle] = useState(initial?.title ?? '');
@@ -345,6 +384,8 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
   const [uploadMsg, setUploadMsg] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [emojiCategory, setEmojiCategory] = useState(0);
   const [insertPanel, setInsertPanel] = useState<'image' | 'video' | null>(null);
   const [insertUrl, setInsertUrl] = useState('');
   const [insertUploading, setInsertUploading] = useState(false);
@@ -392,9 +433,23 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
     saveRange();
     setInsertUrl('');
     setInsertPanel(kind);
+    setShowEmojiPicker(false);
   };
 
   const closeInsertPanel = () => { setInsertPanel(null); setInsertUrl(''); };
+
+  const toggleEmojiPicker = () => {
+    if (!showEmojiPicker) saveRange();
+    setShowEmojiPicker(v => !v);
+    setInsertPanel(null);
+    setInsertUrl('');
+  };
+
+  const insertEmoji = (emoji: string) => {
+    restoreRange();
+    execCmd('insertText', emoji);
+    editorRef.current?.focus();
+  };
 
   const insertImageHtml = (src: string) => {
     const html = `<img src="${src}" style="max-width:100%;border-radius:8px;margin:8px 0;display:block;" alt="" /><p><br></p>`;
@@ -644,6 +699,15 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
                   .l4-insert-confirm { background: #4caf50; color: white; border: none; border-radius: 8px; padding: 8px 16px; font-size: 0.82rem; font-weight: 700; cursor: pointer; }
                   .l4-insert-confirm:hover { background: #388e3c; }
                   .l4-insert-cancel { background: none; border: none; color: #999; font-size: 0.78rem; cursor: pointer; padding: 4px 8px; }
+                  .l4-emoji-panel { background: #fff; border-top: 1px solid #e8e8e8; }
+                  .l4-emoji-cats { display: flex; gap: 0; overflow-x: auto; background: #f5f5f5; border-bottom: 1px solid #e8e8e8; }
+                  .l4-emoji-cat-btn { background: none; border: none; padding: 7px 10px; cursor: pointer; font-size: 1rem; opacity: 0.5; border-bottom: 2px solid transparent; transition: all 0.12s; flex-shrink: 0; }
+                  .l4-emoji-cat-btn.active { opacity: 1; border-bottom-color: #4caf50; }
+                  .l4-emoji-cat-btn:hover { opacity: 0.85; background: #ececec; }
+                  .l4-emoji-grid { display: flex; flex-wrap: wrap; gap: 2px; padding: 8px 10px; max-height: 160px; overflow-y: auto; }
+                  .l4-emoji-item { background: none; border: none; font-size: 1.25rem; padding: 4px 5px; cursor: pointer; border-radius: 6px; line-height: 1; transition: background 0.1s; }
+                  .l4-emoji-item:hover { background: #f0f0f0; }
+                  .l4-emoji-item:active { background: #e0e0e0; transform: scale(0.9); }
                 `}</style>
 
                 {/* Document title */}
@@ -701,6 +765,15 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" opacity="0.6"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1zm12 0c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
                   </button>
                   <div className="l4-tb-divider" />
+                  {/* Emoji */}
+                  <button
+                    className={`l4-tb-btn${showEmojiPicker ? ' active' : ''}`}
+                    title="แทรกอิโมจิ"
+                    onClick={toggleEmojiPicker}
+                  >
+                    <span style={{ fontSize: '0.95rem', lineHeight: 1 }}>😊</span>
+                  </button>
+                  <div className="l4-tb-divider" />
                   {/* Insert image */}
                   <button
                     className={`l4-tb-btn${insertPanel === 'image' ? ' active' : ''}`}
@@ -722,6 +795,34 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
                     {editorRef.current?.textContent?.length ?? charCount} ตัว
                   </span>
                 </div>
+
+                {/* Emoji picker panel */}
+                {showEmojiPicker && (
+                  <div className="l4-emoji-panel">
+                    <div className="l4-emoji-cats">
+                      {EMOJI_CATEGORIES.map((cat, i) => (
+                        <button
+                          key={i}
+                          className={`l4-emoji-cat-btn${emojiCategory === i ? ' active' : ''}`}
+                          title={cat.name}
+                          onClick={() => setEmojiCategory(i)}
+                        >{cat.label}</button>
+                      ))}
+                    </div>
+                    <div style={{ padding: '4px 10px 2px', fontSize: '0.65rem', color: '#aaa', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      {EMOJI_CATEGORIES[emojiCategory].name}
+                    </div>
+                    <div className="l4-emoji-grid">
+                      {EMOJI_CATEGORIES[emojiCategory].emojis.map((em, i) => (
+                        <button
+                          key={i}
+                          className="l4-emoji-item"
+                          onClick={() => insertEmoji(em)}
+                        >{em}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Insert panel */}
                 {insertPanel && (
