@@ -475,8 +475,8 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
       toggle:  `<details class="l4-toggle"><summary class="l4-toggle-sum">คลิกเพื่อขยาย...</summary><div class="l4-toggle-body"><p>เนื้อหาภายใน</p></div></details><p><br></p>`,
       callout: `<div class="l4-callout"><span class="l4-callout-ico">💡</span><span class="l4-callout-txt">ใส่ข้อความที่ต้องการเน้น</span></div><p><br></p>`,
       table:   `<table class="l4-tbl"><thead><tr><th>หัวคอลัมน์ 1</th><th>หัวคอลัมน์ 2</th><th>หัวคอลัมน์ 3</th></tr></thead><tbody><tr><td></td><td></td><td></td></tr><tr><td></td><td></td><td></td></tr><tr><td></td><td></td><td></td></tr></tbody></table><p><br></p>`,
-      h1tog:   `<details class="l4-toggle l4-toggle-h1"><summary class="l4-toggle-sum"><h1>Toggle Heading 1</h1></summary><div class="l4-toggle-body"><p>เนื้อหาภายใน</p></div></details><p><br></p>`,
-      h2tog:   `<details class="l4-toggle l4-toggle-h2"><summary class="l4-toggle-sum"><h2>Toggle Heading 2</h2></summary><div class="l4-toggle-body"><p>เนื้อหาภายใน</p></div></details><p><br></p>`,
+      h1tog:   `<details class="l4-toggle l4-toggle-h1"><summary class="l4-toggle-sum">Toggle Heading 1</summary><div class="l4-toggle-body"><p>เนื้อหาภายใน</p></div></details><p><br></p>`,
+      h2tog:   `<details class="l4-toggle l4-toggle-h2"><summary class="l4-toggle-sum">Toggle Heading 2</summary><div class="l4-toggle-body"><p>เนื้อหาภายใน</p></div></details><p><br></p>`,
       cols2:   `<div class="l4-cols l4-cols-2"><div class="l4-col"><p>คอลัมน์ 1</p></div><div class="l4-col"><p>คอลัมน์ 2</p></div></div><p><br></p>`,
       cols3:   `<div class="l4-cols l4-cols-3"><div class="l4-col"><p>คอลัมน์ 1</p></div><div class="l4-col"><p>คอลัมน์ 2</p></div><div class="l4-col"><p>คอลัมน์ 3</p></div></div><p><br></p>`,
     };
@@ -761,14 +761,15 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
                   .l4-todo-text { line-height: 1.6; }
                   /* Toggle */
                   .l4-toggle { margin: 6px 0; }
-                  .l4-toggle-sum { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; padding: 5px 0; font-weight: 600; }
+                  .l4-toggle { display: block; margin: 6px 0; }
+                  .l4-toggle-sum { cursor: pointer; list-style: none; display: block; padding: 4px 0; font-weight: 600; line-height: 1.4; }
                   .l4-toggle-sum::-webkit-details-marker { display: none; }
                   .l4-toggle-sum::marker { content: ''; }
-                  .l4-toggle-sum::before { content: "▶"; font-size: 0.55rem; color: #4caf50; transition: transform 0.18s ease; flex-shrink: 0; display: inline-block; }
+                  .l4-toggle-sum::before { content: "▶"; font-size: 0.55rem; color: #4caf50; transition: transform 0.18s ease; display: inline-block; margin-right: 6px; vertical-align: middle; }
                   .l4-toggle[open] > .l4-toggle-sum::before { transform: rotate(90deg); }
-                  .l4-toggle-body { padding: 6px 0 6px 20px; border-left: 2px solid #e8f5e9; margin-left: 5px; margin-top: 2px; }
-                  .l4-toggle-h1 .l4-toggle-sum h1 { margin: 0; font-size: 1.25rem; }
-                  .l4-toggle-h2 .l4-toggle-sum h2 { margin: 0; font-size: 1rem; }
+                  .l4-toggle-body { padding: 5px 0 5px 20px; border-left: 2px solid #e8f5e9; margin-left: 4px; margin-top: 3px; }
+                  .l4-toggle-h1 > .l4-toggle-sum { font-size: 1.3rem; font-weight: 800; letter-spacing: -0.01em; }
+                  .l4-toggle-h2 > .l4-toggle-sum { font-size: 1.05rem; font-weight: 700; }
                   /* Columns */
                   .l4-cols { display: flex; gap: 10px; margin: 8px 0; }
                   .l4-col { flex: 1; min-width: 0; padding: 8px 10px; border: 1.5px dashed #ddd; border-radius: 8px; min-height: 44px; }
@@ -1463,13 +1464,15 @@ function BlockDisplay({ block, editMode, dark, reactions, myReactions, emoji, on
                 .l4-rc .l4-todo-item{display:flex;align-items:baseline;gap:6px;padding:2px 0;}
                 .l4-rc .l4-todo-item input{cursor:pointer;}
                 .l4-rc .l4-toggle{margin:5px 0;}
-                .l4-rc .l4-toggle-sum{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;padding:4px 0;font-weight:600;}
+                .l4-rc .l4-toggle{display:block;margin:5px 0;}
+                .l4-rc .l4-toggle-sum{cursor:pointer;list-style:none;display:block;padding:3px 0;font-weight:600;line-height:1.4;}
                 .l4-rc .l4-toggle-sum::-webkit-details-marker{display:none;}
                 .l4-rc .l4-toggle-sum::marker{content:'';}
-                .l4-rc .l4-toggle-sum::before{content:"▶";font-size:0.55rem;color:#4caf50;transition:transform 0.18s ease;flex-shrink:0;display:inline-block;}
+                .l4-rc .l4-toggle-sum::before{content:"▶";font-size:0.55rem;color:#4caf50;transition:transform 0.18s ease;display:inline-block;margin-right:6px;vertical-align:middle;}
                 .l4-rc .l4-toggle[open]>.l4-toggle-sum::before{transform:rotate(90deg);}
-                .l4-rc .l4-toggle-h1 .l4-toggle-sum h1{margin:0;font-size:1.15rem;}
-                .l4-rc .l4-toggle-h2 .l4-toggle-sum h2{margin:0;font-size:0.95rem;}
+                .l4-rc .l4-toggle-body{padding:4px 0 4px 18px;border-left:2px solid #e8f5e9;margin-left:4px;margin-top:2px;}
+                .l4-rc .l4-toggle-h1>.l4-toggle-sum{font-size:1.2rem;font-weight:800;}
+                .l4-rc .l4-toggle-h2>.l4-toggle-sum{font-size:1rem;font-weight:700;}
                 .l4-rc .l4-toggle-body{padding:3px 0 3px 16px;border-left:2px solid #e8f5e9;margin-left:4px;}
                 .l4-rc .l4-cols{display:flex;gap:8px;margin:6px 0;}
                 .l4-rc .l4-col{flex:1;min-width:0;padding:6px 8px;border:1px solid #e8e8e8;border-radius:7px;}
