@@ -67,7 +67,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "={{ $env.SUPABASE_URL }}/rest/v1/sticker_guides",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/sticker_guides",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
@@ -90,11 +90,11 @@
           "parameters": [
             {
               "name": "apikey",
-              "value": "={{ $env.SUPABASE_ANON_KEY }}"
+              "value": "={{ $vars.SUPABASE_ANON_KEY }}"
             },
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $env.SUPABASE_ANON_KEY }}"
+              "value": "=Bearer {{ $vars.SUPABASE_ANON_KEY }}"
             }
           ]
         },
