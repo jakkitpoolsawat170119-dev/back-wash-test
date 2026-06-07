@@ -8,7 +8,7 @@
 2. ค่า `SUPABASE_URL` และ `SUPABASE_ANON_KEY` ถูกใส่ไว้ในโหนด **"ค้นหาวิธีติดสติ๊กเกอร์ใน Supabase"** ตรงๆ แล้ว (ตัวเดียวกับ `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` ของ client)
 
    > anon key เป็น public key ที่ออกแบบมาให้ใช้ฝั่ง client ได้อยู่แล้ว ความปลอดภัยของข้อมูลขึ้นอยู่กับ **Row Level Security (RLS)** ที่ตั้งในตาราง Supabase ไม่ใช่การซ่อนคีย์นี้ — ถ้าต้องเปลี่ยนคีย์ภายหลัง (rotate) ให้แก้ค่าตรงในโหนดนี้ทั้ง 2 จุด (header `apikey` และ `Authorization`) และในช่อง `url`
-3. สร้างตาราง `sticker_guides` ใน Supabase ด้วยคอลัมน์:
+3. สร้างตาราง `howtosticker` ใน Supabase ด้วยคอลัมน์:
    - `customer_name` (text) — ชื่อลูกค้า เช่น `Kaoshop`
    - `steps` (text) — ขั้นตอนการติดสติ๊กเกอร์ (ข้อความหลายบรรทัด)
    - `image_urls` (jsonb หรือ text[]) — array ของ URL รูปตัวอย่างขั้นตอน

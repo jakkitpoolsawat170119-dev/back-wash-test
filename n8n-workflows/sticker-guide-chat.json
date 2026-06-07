@@ -67,7 +67,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "=https://rmolqxpsuwaenkzycyht.supabase.co/rest/v1/sticker_guides",
+        "url": "=https://rmolqxpsuwaenkzycyht.supabase.co/rest/v1/howtosticker",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
