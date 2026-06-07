@@ -1,0 +1,346 @@
+{
+  "name": "Sticker Guide Chat (Web Chat -> Supabase)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sticker-guide-chat",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook (รับคำถามจากเว็บแชท)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        0
+      ],
+      "webhookId": "sticker-guide-chat"
+    },
+    {
+      "parameters": {
+        "jsThinkingMode": "code",
+        "jsCode": "// ดึงชื่อลูกค้าออกจากข้อความ เช่น \"วิธีติดสติ๊กเกอร์ลูกค้า Kaoshop\" -> \"Kaoshop\"\nconst body = $input.first().json.body || {};\nconst message = (body.message || '').toString().trim();\n\n// รองรับทั้ง \"ลูกค้า <ชื่อ>\" และ \"ลูกค้าชื่อ <ชื่อ>\"\nconst match = message.match(/ลูกค้า(?:ชื่อ)?\\s*([A-Za-zก-๙0-9_-]+)/);\nconst customerName = match ? match[1].trim() : '';\n\nreturn [{\n  json: {\n    message,\n    customerName,\n    sessionId: body.sessionId || null\n  }\n}];"
+      },
+      "id": "extract-customer-name",
+      "name": "ดึงชื่อลูกค้าจากข้อความ",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-customer-name",
+              "leftValue": "={{ $json.customerName }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-has-customer-name",
+      "name": "พบชื่อลูกค้าในข้อความหรือไม่?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -20,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/sticker_guides",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "customer_name",
+              "value": "=ilike.*{{ $json.customerName }}*"
+            },
+            {
+              "name": "select",
+              "value": "customer_name,steps,image_urls"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_ANON_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_ANON_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "query-supabase",
+      "name": "ค้นหาวิธีติดสติ๊กเกอร์ใน Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        200,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "guide-found",
+              "leftValue": "={{ $json.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-guide-found",
+      "name": "เจอข้อมูลวิธีติดสติ๊กเกอร์หรือไม่?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        420,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "jsThinkingMode": "code",
+        "jsCode": "// ประกอบคำตอบ: ข้อความขั้นตอน + รูปภาพประกอบ\nconst guide = $input.first().json[0];\nconst customerName = guide.customer_name;\n\n// guide.steps เก็บเป็นข้อความหลายบรรทัด เช่น \"1. แกะสติ๊กเกอร์...\\n2. วาง...\"\nconst stepsText = `📦 วิธีติดสติ๊กเกอร์สำหรับลูกค้า ${customerName}\\n\\n${guide.steps}`;\n\n// guide.image_urls เป็น array ของ URL รูปตัวอย่างขั้นตอน\nconst imageUrls = Array.isArray(guide.image_urls) ? guide.image_urls : [];\n\nconst messages = [\n  { type: 'text', text: stepsText },\n  ...imageUrls.map((url) => ({ type: 'image', url }))\n];\n\nreturn [{ json: { messages } }];"
+      },
+      "id": "format-found-reply",
+      "name": "จัดรูปแบบคำตอบ (พบข้อมูล)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "jsThinkingMode": "code",
+        "jsCode": "const customerName = $('ดึงชื่อลูกค้าจากข้อความ').first().json.customerName;\n\nreturn [{\n  json: {\n    messages: [\n      {\n        type: 'text',\n        text: `ขออภัยค่ะ ยังไม่มีข้อมูลวิธีติดสติ๊กเกอร์สำหรับลูกค้า \"${customerName}\" ในระบบ\\nรบกวนติดต่อแอดมินเพื่อขอข้อมูลเพิ่มเติมนะคะ 🙏`\n      }\n    ]\n  }\n}];"
+      },
+      "id": "format-not-found-reply",
+      "name": "จัดรูปแบบคำตอบ (ไม่พบข้อมูล)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "jsThinkingMode": "code",
+        "jsCode": "return [{\n  json: {\n    messages: [\n      {\n        type: 'text',\n        text: 'รบกวนระบุชื่อลูกค้าด้วยนะคะ เช่น \"วิธีติดสติ๊กเกอร์ลูกค้า Kaoshop\" เพื่อให้ระบบค้นหาขั้นตอนการติดสติ๊กเกอร์ให้ถูกต้องค่ะ'\n      }\n    ]\n  }\n}];"
+      },
+      "id": "format-no-customer-reply",
+      "name": "จัดรูปแบบคำตอบ (ไม่พบชื่อลูกค้าในคำถาม)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-found",
+      "name": "ตอบกลับเว็บแชท (พบข้อมูล)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        860,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-not-found",
+      "name": "ตอบกลับเว็บแชท (ไม่พบข้อมูล)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        860,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-no-customer",
+      "name": "ตอบกลับเว็บแชท (ไม่พบชื่อลูกค้า)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        420,
+        160
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook (รับคำถามจากเว็บแชท)": {
+      "main": [
+        [
+          {
+            "node": "ดึงชื่อลูกค้าจากข้อความ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ดึงชื่อลูกค้าจากข้อความ": {
+      "main": [
+        [
+          {
+            "node": "พบชื่อลูกค้าในข้อความหรือไม่?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "พบชื่อลูกค้าในข้อความหรือไม่?": {
+      "main": [
+        [
+          {
+            "node": "ค้นหาวิธีติดสติ๊กเกอร์ใน Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "จัดรูปแบบคำตอบ (ไม่พบชื่อลูกค้าในคำถาม)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ค้นหาวิธีติดสติ๊กเกอร์ใน Supabase": {
+      "main": [
+        [
+          {
+            "node": "เจอข้อมูลวิธีติดสติ๊กเกอร์หรือไม่?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "เจอข้อมูลวิธีติดสติ๊กเกอร์หรือไม่?": {
+      "main": [
+        [
+          {
+            "node": "จัดรูปแบบคำตอบ (พบข้อมูล)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "จัดรูปแบบคำตอบ (ไม่พบข้อมูล)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "จัดรูปแบบคำตอบ (พบข้อมูล)": {
+      "main": [
+        [
+          {
+            "node": "ตอบกลับเว็บแชท (พบข้อมูล)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "จัดรูปแบบคำตอบ (ไม่พบข้อมูล)": {
+      "main": [
+        [
+          {
+            "node": "ตอบกลับเว็บแชท (ไม่พบข้อมูล)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "จัดรูปแบบคำตอบ (ไม่พบชื่อลูกค้าในคำถาม)": {
+      "main": [
+        [
+          {
+            "node": "ตอบกลับเว็บแชท (ไม่พบชื่อลูกค้า)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
