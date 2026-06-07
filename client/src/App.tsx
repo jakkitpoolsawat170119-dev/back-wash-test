@@ -5,11 +5,12 @@ import CipLine2Form from './components/CipLine2Form';
 import CipLine1Form from './components/CipLine1Form';
 import ProductionRecord from './components/ProductionRecord';
 import Line4Manual from './components/Line4Manual';
+import StickerGuideChat from './components/StickerGuideChat';
 import styles from './App.module.css';
 
 const App: React.FC = () => {
   const [operator, setOperator] = useState<string | null>(null);
-  const [appMode, setAppMode] = useState<'selection' | 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'line4manual'>('selection');
+  const [appMode, setAppMode] = useState<'selection' | 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'line4manual' | 'stickerGuideChat'>('selection');
   const [isFlipping, setIsFlipping] = useState(false);
   const [isCipLine2Active, setIsCipLine2Active] = useState(false);
   const [isCipLine3Active, setIsCipLine3Active] = useState(false);
@@ -41,7 +42,7 @@ const App: React.FC = () => {
     }
   };
 
-  const switchMode = (targetMode: 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'selection' | 'line4manual') => {
+  const switchMode = (targetMode: 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'selection' | 'line4manual' | 'stickerGuideChat') => {
     setIsFlipping(true);
     setTimeout(() => {
       setAppMode(targetMode);
@@ -116,7 +117,8 @@ const App: React.FC = () => {
               { mode: 'cip',      icon: '⚗️', label: 'CIP ทดลอง', color: '#546e7a' },
               { mode: 'production', icon: '🏭', label: 'ผลิต', color: '#1b5e20' },
               { mode: 'line4manual', icon: '📋', label: 'Line 4', color: '#4a7c59' },
-            ] as { mode: 'selection'|'cip'|'cipLine2'|'cipLine3'|'cipLine1'|'production'|'line4manual'; icon: string; label: string; color: string }[]).map(({ mode, icon, label, color }) => (
+              { mode: 'stickerGuideChat', icon: '💬', label: 'วิธีติดสติ๊กเกอร์', color: '#ff8c00' },
+            ] as { mode: 'selection'|'cip'|'cipLine2'|'cipLine3'|'cipLine1'|'production'|'line4manual'|'stickerGuideChat'; icon: string; label: string; color: string }[]).map(({ mode, icon, label, color }) => (
               <button
                 key={mode}
                 onClick={() => switchMode(mode)}
@@ -237,6 +239,16 @@ const App: React.FC = () => {
                 </div>
 
                 <div style={{ padding: '0 14px', marginBottom: '10px' }}>
+                  <div onClick={() => switchMode('stickerGuideChat')} style={{ background: 'linear-gradient(135deg, #ff6b00, #ff8c00)', borderRadius: '18px', padding: '14px 16px', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '14px', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
+                    <div style={{ fontSize: '1.6rem' }}>💬</div>
+                    <div>
+                      <div style={{ fontWeight: '700', fontSize: '0.95rem', letterSpacing: '0.02em' }}>ถามวิธีติดสติ๊กเกอร์</div>
+                      <div style={{ fontSize: '0.72rem', opacity: 0.8, marginTop: '2px' }}>แชทถามขั้นตอนติดสติ๊กเกอร์ตามชื่อลูกค้า</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ padding: '0 14px', marginBottom: '10px' }}>
                   <div style={{ fontSize: '0.7rem', color: '#999', fontWeight: '600', letterSpacing: '0.08em', marginBottom: '6px', textTransform: 'uppercase' }}>CIP — ทำความสะอาด</div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
                     <div onClick={() => switchMode('cipLine1')} style={{ background: '#0d47a1', borderRadius: '16px', padding: '18px 6px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
@@ -298,6 +310,10 @@ const App: React.FC = () => {
 
           <div style={{ display: appMode === 'line4manual' ? 'block' : 'none' }}>
             <Line4Manual operatorName={operator} onBackToMain={() => switchMode('selection')} />
+          </div>
+
+          <div style={{ display: appMode === 'stickerGuideChat' ? 'block' : 'none' }}>
+            <StickerGuideChat onBackToMain={() => switchMode('selection')} />
           </div>
         </div>
         </>
