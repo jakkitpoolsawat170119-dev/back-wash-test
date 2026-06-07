@@ -40,11 +40,13 @@ interface LineState {
 }
 
 const apiUrl = "https://back-wash-test.onrender.com";
-const DRAFT_KEY = 'production_draft_v1';
+const DRAFT_KEY_PREFIX = 'production_draft_v1';
 
 const lockKeyForLine = (lineId: number) => `production-line-${lineId}`;
 
 const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHome, onStatusChange }) => {
+  // แยก draft ตามชื่อผู้ใช้ กันข้อมูลค้างของคนหนึ่งไปโผล่ในเซสชันของอีกคนเมื่อใช้เครื่อง/เบราว์เซอร์เดียวกัน
+  const DRAFT_KEY = `${DRAFT_KEY_PREFIX}_${operatorName}`;
   const batchOptions = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [filterFlavorP, setFilterFlavorP] = useState('');
@@ -128,6 +130,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pageKey: lockKeyForLine(lineId), operatorName })
       });
+      if (!res.ok) throw new Error('lock check failed');
       const data = await res.json();
       if (data.locked) {
         setLockHolders(prev => ({ ...prev, [lineId]: data.operatorName }));
@@ -137,8 +140,9 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
       setLockHolders(prev => ({ ...prev, [lineId]: null }));
       return true;
     } catch {
-      // หากเช็คล็อคไม่ได้ (เช่น เน็ตหลุด) ให้ปล่อยผ่านเพื่อไม่ขัดขวางการทำงาน
-      return true;
+      // เช็คสถานะการใช้งานไม่ได้ (เช่น เซิร์ฟเวอร์กำลังตื่น/เน็ตหลุด) — ห้ามเริ่มงานไว้ก่อนเพื่อกันบันทึกซ้ำ
+      alert("⚠️ ไม่สามารถตรวจสอบสถานะการใช้งานได้ในขณะนี้ (เซิร์ฟเวอร์อาจกำลังเริ่มทำงาน)\nกรุณารอสักครู่ แล้วลองกด Start ใหม่อีกครั้งครับ");
+      return false;
     }
   };
 
