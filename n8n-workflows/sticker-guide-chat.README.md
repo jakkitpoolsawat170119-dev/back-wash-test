@@ -5,11 +5,9 @@
 ## วิธีใช้งาน
 
 1. นำเข้า `sticker-guide-chat.json` เข้า n8n (Import from File)
-2. ตั้งค่า n8n Variables (เมนู **Settings → Variables** ในหน้าเว็บ n8n):
-   - `SUPABASE_URL` — URL โปรเจกต์ Supabase เช่น `https://xxxxx.supabase.co` (ตัวเดียวกับ `VITE_SUPABASE_URL` ของ client)
-   - `SUPABASE_ANON_KEY` — anon public key สำหรับเรียก REST API (ตัวเดียวกับ `VITE_SUPABASE_ANON_KEY` ของ client)
+2. ค่า `SUPABASE_URL` และ `SUPABASE_ANON_KEY` ถูกใส่ไว้ในโหนด **"ค้นหาวิธีติดสติ๊กเกอร์ใน Supabase"** ตรงๆ แล้ว (ตัวเดียวกับ `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` ของ client)
 
-   workflow จะอ้างถึงค่าพวกนี้ผ่าน `{{ $vars.SUPABASE_URL }}` และ `{{ $vars.SUPABASE_ANON_KEY }}` — ตั้งครั้งเดียวใช้ได้ทุก workflow ไม่ต้องแก้โค้ด
+   > anon key เป็น public key ที่ออกแบบมาให้ใช้ฝั่ง client ได้อยู่แล้ว ความปลอดภัยของข้อมูลขึ้นอยู่กับ **Row Level Security (RLS)** ที่ตั้งในตาราง Supabase ไม่ใช่การซ่อนคีย์นี้ — ถ้าต้องเปลี่ยนคีย์ภายหลัง (rotate) ให้แก้ค่าตรงในโหนดนี้ทั้ง 2 จุด (header `apikey` และ `Authorization`) และในช่อง `url`
 3. สร้างตาราง `sticker_guides` ใน Supabase ด้วยคอลัมน์:
    - `customer_name` (text) — ชื่อลูกค้า เช่น `Kaoshop`
    - `steps` (text) — ขั้นตอนการติดสติ๊กเกอร์ (ข้อความหลายบรรทัด)
