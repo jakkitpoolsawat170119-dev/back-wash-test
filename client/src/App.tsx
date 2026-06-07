@@ -84,6 +84,51 @@ const App: React.FC = () => {
       <circle cx="28" cy="36" r="2" fill={color} stroke="none" opacity="0.4"/>
     </svg>
   );
+  const IconChat = ({ size = 32, color = '#e65100' }: { size?: number; color?: string }) => (
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 9 C5 6.8 6.8 5 9 5 L31 5 C33.2 5 35 6.8 35 9 L35 23 C35 25.2 33.2 27 31 27 L15 27 L8 34 L8 27 L9 27 C6.8 27 5 25.2 5 23 Z"/>
+      <line x1="13" y1="13" x2="27" y2="13" strokeOpacity="0.5"/>
+      <line x1="13" y1="19" x2="23" y2="19" strokeOpacity="0.5"/>
+    </svg>
+  );
+  const IconBook = ({ size = 32, color = '#4a7c59' }: { size?: number; color?: string }) => (
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 9 C17.5 6.5 13 5.5 6 6 L6 31 C13 30.5 17.5 31.5 20 34 C22.5 31.5 27 30.5 34 31 L34 6 C27 5.5 22.5 6.5 20 9 Z"/>
+      <line x1="20" y1="9" x2="20" y2="34"/>
+      <line x1="11" y1="13" x2="17" y2="12.4" strokeOpacity="0.5"/>
+      <line x1="11" y1="19" x2="17" y2="18.6" strokeOpacity="0.5"/>
+      <line x1="23" y1="12.4" x2="29" y2="13" strokeOpacity="0.5"/>
+      <line x1="23" y1="18.6" x2="29" y2="19" strokeOpacity="0.5"/>
+    </svg>
+  );
+  const IconWrench = ({ size = 22, color = '#e65100' }: { size?: number; color?: string }) => (
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M28 6 C24 6 21 9 21 13 C21 14.2 21.3 15.4 21.8 16.4 L8 30.2 C6.6 31.6 6.6 33.9 8 35.3 C9.4 36.7 11.7 36.7 13.1 35.3 L26.9 21.5 C27.9 22 29.1 22.3 30.3 22.3 C34.3 22.3 37.3 19.3 37.3 15.3 C37.3 14 37 12.8 36.4 11.7 L31.4 16.7 L27.6 12.9 L32.6 7.9 C31.2 6.7 29.6 6 28 6 Z"/>
+    </svg>
+  );
+
+  const CategoryLabel = ({ children }: { children: React.ReactNode }) => (
+    <div style={{ fontSize: '0.72rem', color: '#9aa0a6', fontWeight: '700', letterSpacing: '0.1em', marginBottom: '8px', textTransform: 'uppercase', padding: '0 4px' }}>{children}</div>
+  );
+
+  const SoftCard = ({ onClick, bg, iconBg, icon, title, subtitle, badge }: {
+    onClick: () => void; bg: string; iconBg: string; icon: React.ReactNode; title: string; subtitle: string; badge?: React.ReactNode;
+  }) => (
+    <div onClick={onClick} style={{
+      background: bg, borderRadius: '18px', padding: '14px 16px', cursor: 'pointer', position: 'relative',
+      display: 'flex', alignItems: 'center', gap: '14px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)',
+      border: '1px solid rgba(0,0,0,0.04)',
+    }}>
+      {badge}
+      <div style={{ width: '46px', height: '46px', flexShrink: 0, borderRadius: '14px', background: iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {icon}
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: '700', fontSize: '0.95rem', letterSpacing: '0.01em', color: '#37474f' }}>{title}</div>
+        <div style={{ fontSize: '0.74rem', color: '#78828a', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subtitle}</div>
+      </div>
+    </div>
+  );
 
   return (
     <div className={styles.container}>
@@ -202,7 +247,16 @@ const App: React.FC = () => {
               </svg>
 
               <div style={{ position: 'relative', zIndex: 1 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '32px' }}>
+                <button onClick={() => switchMode('stickerGuideAdmin')} title="จัดการคู่มือติดสติ๊กเกอร์ (แอดมิน)" style={{
+                  position: 'absolute', top: 0, right: '14px', width: '38px', height: '38px',
+                  borderRadius: '12px', border: '1px solid rgba(0,0,0,0.06)', background: '#fff',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                }}>
+                  <IconWrench size={20} color="#e65100" />
+                </button>
+
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '28px' }}>
                   <div style={{ width: '72px', height: '72px', backgroundColor: '#fff', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '2.2rem', boxShadow: '0 4px 16px rgba(0,0,0,0.1)', marginBottom: '12px', border: '2px solid #e0e0e0' }}>👤</div>
                   <h2 style={{ margin: '0 0 4px 0', fontSize: '1rem', color: '#333' }}>ยินดีต้อนรับ, คุณ {operator}</h2>
                   {(() => {
@@ -214,85 +268,71 @@ const App: React.FC = () => {
                   })()}
                 </div>
 
-                <div style={{ padding: '0 14px', marginBottom: '10px' }}>
-                  <div onClick={() => switchMode('production')} style={{ background: '#1b5e20', borderRadius: '18px', padding: '18px 16px', color: 'white', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center', gap: '14px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
-                    {isProdActive && <div style={{ position: 'absolute', top: '8px', right: '10px', background: '#ff3b30', color: 'white', fontSize: '0.68rem', padding: '3px 8px', borderRadius: '8px', animation: 'pulse 1.5s infinite' }}>● กำลังทำงาน</div>}
-                    <IconFactory size={38} color="white" />
-                    <div>
-                      <div style={{ fontWeight: '700', fontSize: '1rem', letterSpacing: '0.02em' }}>บันทึกการผลิต</div>
-                      <div style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '2px' }}>Production Control</div>
-                    </div>
+                {/* หมวดหมู่: Production */}
+                <div style={{ padding: '0 14px', marginBottom: '18px' }}>
+                  <CategoryLabel>การผลิต</CategoryLabel>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <SoftCard
+                      onClick={() => switchMode('production')}
+                      bg="#eaf6ec" iconBg="#cfead5"
+                      icon={<IconFactory size={26} color="#2e7d32" />}
+                      title="บันทึกการผลิต"
+                      subtitle="Production Control"
+                      badge={isProdActive && <div style={{ position: 'absolute', top: '10px', right: '12px', background: '#ff3b30', color: 'white', fontSize: '0.62rem', padding: '3px 8px', borderRadius: '8px', animation: 'pulse 1.5s infinite' }}>● กำลังทำงาน</div>}
+                    />
+                    <SoftCard
+                      onClick={() => switchMode('line4manual')}
+                      bg="#eef3ec" iconBg="#d6e3d2"
+                      icon={<IconBook size={24} color="#4a7c59" />}
+                      title="คู่มือระบบผลิต Line 4"
+                      subtitle="Mixing · Pasteurizer · Storage · CIP Kitchen"
+                    />
                   </div>
                 </div>
 
-                <div style={{ padding: '0 14px', marginBottom: '10px' }}>
-                  <div onClick={() => switchMode('line4manual')} style={{ background: '#4a7c59', borderRadius: '18px', padding: '14px 16px', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '14px', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
-                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="5" y="3" width="22" height="26" rx="2"/>
-                      <line x1="9" y1="10" x2="23" y2="10"/>
-                      <line x1="9" y1="15" x2="23" y2="15"/>
-                      <line x1="9" y1="20" x2="17" y2="20"/>
-                    </svg>
-                    <div>
-                      <div style={{ fontWeight: '700', fontSize: '0.95rem', letterSpacing: '0.02em' }}>คู่มือระบบผลิต Line 4</div>
-                      <div style={{ fontSize: '0.72rem', opacity: 0.75, marginTop: '2px' }}>Mixing · Pasteurizer · Storage · CIP Kitchen</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ padding: '0 14px', marginBottom: '10px' }}>
-                  <div onClick={() => switchMode('stickerGuideChat')} style={{ background: 'linear-gradient(135deg, #ff6b00, #ff8c00)', borderRadius: '18px', padding: '14px 16px', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '14px', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
-                    <div style={{ fontSize: '1.6rem' }}>💬</div>
-                    <div>
-                      <div style={{ fontWeight: '700', fontSize: '0.95rem', letterSpacing: '0.02em' }}>ถามวิธีติดสติ๊กเกอร์</div>
-                      <div style={{ fontSize: '0.72rem', opacity: 0.8, marginTop: '2px' }}>แชทถามขั้นตอนติดสติ๊กเกอร์ตามชื่อลูกค้า</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ padding: '0 14px', marginBottom: '10px' }}>
-                  <div onClick={() => switchMode('stickerGuideAdmin')} style={{ background: '#fff', border: '1.5px solid #ffd9b3', borderRadius: '18px', padding: '14px 16px', color: '#e65100', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '14px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-                    <div style={{ fontSize: '1.6rem' }}>🛠️</div>
-                    <div>
-                      <div style={{ fontWeight: '700', fontSize: '0.95rem', letterSpacing: '0.02em' }}>จัดการคู่มือติดสติ๊กเกอร์</div>
-                      <div style={{ fontSize: '0.72rem', opacity: 0.7, marginTop: '2px' }}>เพิ่ม/แก้ไข/ลบ ขั้นตอนและรูปภาพของลูกค้า</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ padding: '0 14px', marginBottom: '10px' }}>
-                  <div style={{ fontSize: '0.7rem', color: '#999', fontWeight: '600', letterSpacing: '0.08em', marginBottom: '6px', textTransform: 'uppercase' }}>CIP — ทำความสะอาด</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-                    <div onClick={() => switchMode('cipLine1')} style={{ background: '#0d47a1', borderRadius: '16px', padding: '18px 6px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
+                {/* หมวดหมู่: CIP */}
+                <div style={{ padding: '0 14px', marginBottom: '18px' }}>
+                  <CategoryLabel>CIP — ทำความสะอาด</CategoryLabel>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                    <div onClick={() => switchMode('cipLine1')} style={{ background: '#e6eef9', border: '1px solid rgba(0,0,0,0.04)', borderRadius: '16px', padding: '16px 6px', color: '#0d47a1', textAlign: 'center', cursor: 'pointer', position: 'relative', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
                       {isCipLine1Active && <div style={{ position: 'absolute', top: '6px', right: '6px', width: '8px', height: '8px', background: '#ff3b30', borderRadius: '50%', animation: 'pulse 1.5s infinite' }} />}
-                      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '6px' }}><IconWater size={32} color="white" /></div>
+                      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '6px' }}><IconWater size={28} color="#5b8fd6" /></div>
                       <div style={{ fontWeight: '700', fontSize: '0.8rem' }}>Line 1</div>
-                      <div style={{ fontSize: '0.68rem', opacity: 0.7, marginTop: '2px' }}>Syrup</div>
+                      <div style={{ fontSize: '0.68rem', opacity: 0.65, marginTop: '2px' }}>Syrup</div>
                     </div>
-                    <div onClick={() => switchMode('cipLine2')} style={{ background: '#01579b', borderRadius: '16px', padding: '18px 6px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
+                    <div onClick={() => switchMode('cipLine2')} style={{ background: '#e3eef8', border: '1px solid rgba(0,0,0,0.04)', borderRadius: '16px', padding: '16px 6px', color: '#01579b', textAlign: 'center', cursor: 'pointer', position: 'relative', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
                       {isCipLine2Active && <div style={{ position: 'absolute', top: '6px', right: '6px', width: '8px', height: '8px', background: '#ff3b30', borderRadius: '50%', animation: 'pulse 1.5s infinite' }} />}
-                      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '6px' }}><IconWater size={32} color="white" /></div>
+                      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '6px' }}><IconWater size={28} color="#4f9bd1" /></div>
                       <div style={{ fontWeight: '700', fontSize: '0.8rem' }}>Line 2</div>
-                      <div style={{ fontSize: '0.68rem', opacity: 0.7, marginTop: '2px' }}>Flavour</div>
+                      <div style={{ fontSize: '0.68rem', opacity: 0.65, marginTop: '2px' }}>Flavour</div>
                     </div>
-                    <div onClick={() => switchMode('cipLine3')} style={{ background: '#006064', borderRadius: '16px', padding: '18px 6px', color: 'white', textAlign: 'center', cursor: 'pointer', position: 'relative', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
+                    <div onClick={() => switchMode('cipLine3')} style={{ background: '#e1f0ef', border: '1px solid rgba(0,0,0,0.04)', borderRadius: '16px', padding: '16px 6px', color: '#006064', textAlign: 'center', cursor: 'pointer', position: 'relative', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
                       {isCipLine3Active && <div style={{ position: 'absolute', top: '6px', right: '6px', width: '8px', height: '8px', background: '#ff3b30', borderRadius: '50%', animation: 'pulse 1.5s infinite' }} />}
-                      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '6px' }}><IconWater size={32} color="white" /></div>
+                      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '6px' }}><IconWater size={28} color="#4ba6a4" /></div>
                       <div style={{ fontWeight: '700', fontSize: '0.8rem' }}>Line 3</div>
-                      <div style={{ fontSize: '0.68rem', opacity: 0.7, marginTop: '2px' }}>Flavour</div>
+                      <div style={{ fontSize: '0.68rem', opacity: 0.65, marginTop: '2px' }}>Flavour</div>
                     </div>
                   </div>
+                  <SoftCard
+                    onClick={() => switchMode('cip')}
+                    bg="#f4f5f6" iconBg="#e6e8ea"
+                    icon={<IconFlask size={22} color="#78828a" />}
+                    title="CIP ทดลอง"
+                    subtitle="Line 2 (ใหม่)"
+                    badge={isCipLabActive && <div style={{ position: 'absolute', top: '10px', right: '12px', width: '8px', height: '8px', background: '#ff3b30', borderRadius: '50%', animation: 'pulse 1.5s infinite' }} />}
+                  />
                 </div>
 
-                <div style={{ padding: '0 14px' }}>
-                  <div onClick={() => switchMode('cip')} style={{ background: '#f5f5f5', border: '1.5px solid #e0e0e0', borderRadius: '14px', padding: '12px 16px', color: '#555', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    {isCipLabActive && <div style={{ position: 'absolute', top: '8px', right: '10px', width: '8px', height: '8px', background: '#ff3b30', borderRadius: '50%', animation: 'pulse 1.5s infinite' }} />}
-                    <IconFlask size={30} color="#555" />
-                    <div>
-                      <div style={{ fontWeight: '600', fontSize: '0.85rem' }}>CIP ทดลอง</div>
-                      <div style={{ fontSize: '0.65rem', color: '#999', marginTop: '1px' }}>Line 2 (ใหม่)</div>
-                    </div>
-                  </div>
+                {/* หมวดหมู่: Sticker how to */}
+                <div style={{ padding: '0 14px', marginBottom: '10px' }}>
+                  <CategoryLabel>Sticker how to</CategoryLabel>
+                  <SoftCard
+                    onClick={() => switchMode('stickerGuideChat')}
+                    bg="#fff1e6" iconBg="#ffe0c2"
+                    icon={<IconChat size={22} color="#e65100" />}
+                    title="Sticker how to"
+                    subtitle="แชทถามขั้นตอนติดสติ๊กเกอร์ตามชื่อลูกค้า"
+                  />
                 </div>
 
                 <div style={{ textAlign: 'center', marginTop: '50px' }}><button onClick={handleLogout} style={{ background: 'none', border: 'none', color: '#bbb', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.85rem' }}>ออกจากระบบ</button></div>
