@@ -114,12 +114,87 @@ db.serialize(() => {
       FOREIGN KEY (session_id) REFERENCES cip_line1_sessions(id)
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS page_locks (
+      page_key TEXT PRIMARY KEY,
+      operator_name TEXT,
+      started_at TEXT,
+      last_seen TEXT
+    )`);
+
     db.run("DELETE FROM operators");
     const insertOp = db.prepare("INSERT OR IGNORE INTO operators (name, pin) VALUES (?, ?)");
     insertOp.run("จักรกฤษ พูลสวัสดิ์", "1234");
     insertOp.run("พัฒพริศ อ่ำอยู่", "1234");
     insertOp.run("อนุวัตร สุวรรณวงค์", "1234");
     insertOp.finalize();
+});
+
+// ─── Page Lock API (ป้องกันการบันทึกซ้ำซ้อนเมื่อมีคนใช้งานหน้าเดียวกัน) ───────
+const LOCK_TIMEOUT_MS = 2 * 60 * 1000; // ถือว่าหมดอายุถ้าไม่มี heartbeat เกิน 2 นาที
+
+app.get('/api/locks/status', (req, res) => {
+  const { pageKey } = req.query;
+  if (!pageKey) return res.status(400).json({ error: 'pageKey จำเป็นต้องระบุ' });
+
+  db.get(`SELECT * FROM page_locks WHERE page_key = ?`, [pageKey], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    const isStale = row && (Date.now() - new Date(row.last_seen).getTime() > LOCK_TIMEOUT_MS);
+    if (!row || isStale) return res.json({ locked: false });
+    res.json({ locked: true, operatorName: row.operator_name, startedAt: row.started_at });
+  });
+});
+
+app.post('/api/locks/acquire', (req, res) => {
+  const { pageKey, operatorName } = req.body;
+  if (!pageKey || !operatorName) return res.status(400).json({ error: 'pageKey และ operatorName จำเป็นต้องระบุ' });
+  const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
+
+  db.get(`SELECT * FROM page_locks WHERE page_key = ?`, [pageKey], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const isStale = row && (Date.now() - new Date(row.last_seen).getTime() > LOCK_TIMEOUT_MS);
+    const isSameOperator = row && row.operator_name === operatorName;
+
+    if (row && !isStale && !isSameOperator) {
+      return res.json({ success: false, locked: true, operatorName: row.operator_name, startedAt: row.started_at });
+    }
+
+    db.run(
+      `INSERT INTO page_locks (page_key, operator_name, started_at, last_seen) VALUES (?, ?, ?, ?)
+       ON CONFLICT(page_key) DO UPDATE SET operator_name = excluded.operator_name, started_at = excluded.started_at, last_seen = excluded.last_seen`,
+      [pageKey, operatorName, now, now],
+      (err2) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+        res.json({ success: true, locked: false });
+      }
+    );
+  });
+});
+
+app.post('/api/locks/heartbeat', (req, res) => {
+  const { pageKey, operatorName } = req.body;
+  if (!pageKey || !operatorName) return res.status(400).json({ error: 'pageKey และ operatorName จำเป็นต้องระบุ' });
+  const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
+
+  db.run(
+    `UPDATE page_locks SET last_seen = ? WHERE page_key = ? AND operator_name = ?`,
+    [now, pageKey, operatorName],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.json({ success: false, locked: true });
+      res.json({ success: true });
+    }
+  );
+});
+
+app.post('/api/locks/release', (req, res) => {
+  const { pageKey, operatorName } = req.body;
+  if (!pageKey || !operatorName) return res.status(400).json({ error: 'pageKey และ operatorName จำเป็นต้องระบุ' });
+
+  db.run(`DELETE FROM page_locks WHERE page_key = ? AND operator_name = ?`, [pageKey, operatorName], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
 });
 
 // ─── CIP Line 2 API ───────────────────────────────────────────────────────────

@@ -40,12 +40,17 @@ interface LineState {
 }
 
 const apiUrl = "https://back-wash-test.onrender.com";
+const DRAFT_KEY = 'production_draft_v1';
+
+const lockKeyForLine = (lineId: number) => `production-line-${lineId}`;
 
 const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHome, onStatusChange }) => {
   const batchOptions = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [filterFlavorP, setFilterFlavorP] = useState('');
   const [filterLineP, setFilterLineP] = useState('');
+  const [restoredNotice, setRestoredNotice] = useState(false);
+  const [lockHolders, setLockHolders] = useState<Record<number, string | null>>({ 1: null, 2: null, 3: null, 4: null });
 
   const initialLineState: LineState = {
     lotNo: '',
@@ -65,17 +70,120 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     showInputs: true
   };
 
-  const [lines, setLines] = useState<Record<number, LineState>>({
-    1: { ...initialLineState },
-    2: { ...initialLineState },
-    3: { ...initialLineState },
-    4: { ...initialLineState },
+  const loadDraft = (): Record<number, LineState> | null => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      const result: Record<number, LineState> = {} as Record<number, LineState>;
+      [1, 2, 3, 4].forEach(id => {
+        const saved = parsed[id];
+        result[id] = saved
+          ? { ...initialLineState, ...saved, startRaw: saved.startRaw ? new Date(saved.startRaw) : null }
+          : { ...initialLineState };
+      });
+      return result;
+    } catch {
+      return null;
+    }
+  };
+
+  const [lines, setLines] = useState<Record<number, LineState>>(() => {
+    const draft = loadDraft();
+    if (draft && Object.values(draft).some(l => l.isProcessing || l.history.length > 0 || l.flavor || l.cookingBatch)) {
+      return draft;
+    }
+    return {
+      1: { ...initialLineState },
+      2: { ...initialLineState },
+      3: { ...initialLineState },
+      4: { ...initialLineState },
+    };
   });
+
+  useEffect(() => {
+    const draft = loadDraft();
+    if (draft && Object.values(draft).some(l => l.isProcessing)) {
+      setRestoredNotice(true);
+    }
+  }, []);
+
+  // บันทึกร่างข้อมูลลง localStorage ทุกครั้งที่มีการเปลี่ยนแปลง (กันข้อมูลหายตอน Reload/ล็อคหน้าจอ)
+  useEffect(() => {
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(lines));
+    } catch { /* ignore quota errors */ }
+  }, [lines]);
 
   useEffect(() => {
     const anyProcessing = Object.values(lines).some(line => line.isProcessing);
     onStatusChange(anyProcessing);
   }, [lines, onStatusChange]);
+
+  // ─── ระบบล็อคการทำงานซ้ำ (กันคนอื่นบันทึกข้อมูลซ้ำในเวลาเดียวกัน) ───
+  const acquireLock = async (lineId: number): Promise<boolean> => {
+    try {
+      const res = await fetch(`${apiUrl}/api/locks/acquire`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pageKey: lockKeyForLine(lineId), operatorName })
+      });
+      const data = await res.json();
+      if (data.locked) {
+        setLockHolders(prev => ({ ...prev, [lineId]: data.operatorName }));
+        alert(`🔒 Line ${lineId} กำลังถูกใช้งานโดยคุณ ${data.operatorName} อยู่ในขณะนี้\nกรุณารอสักครู่แล้วลองใหม่อีกครั้งครับ`);
+        return false;
+      }
+      setLockHolders(prev => ({ ...prev, [lineId]: null }));
+      return true;
+    } catch {
+      // หากเช็คล็อคไม่ได้ (เช่น เน็ตหลุด) ให้ปล่อยผ่านเพื่อไม่ขัดขวางการทำงาน
+      return true;
+    }
+  };
+
+  const releaseLock = (lineId: number) => {
+    fetch(`${apiUrl}/api/locks/release`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pageKey: lockKeyForLine(lineId), operatorName })
+    }).catch(() => {});
+  };
+
+  // ส่ง heartbeat ทุก 20 วินาที สำหรับทุก Line ที่กำลังประมวลผลอยู่ เพื่อรักษาล็อคไว้
+  useEffect(() => {
+    const interval = setInterval(() => {
+      Object.entries(lines).forEach(([lineIdStr, line]) => {
+        if (line.isProcessing) {
+          const lineId = Number(lineIdStr);
+          fetch(`${apiUrl}/api/locks/heartbeat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pageKey: lockKeyForLine(lineId), operatorName })
+          }).catch(() => {});
+        }
+      });
+    }, 20000);
+    return () => clearInterval(interval);
+  }, [lines, operatorName]);
+
+  // ตรวจสอบสถานะล็อคของแต่ละ Line เป็นระยะ เพื่อโชว์ข้อความ "กำลังใช้งาน"
+  useEffect(() => {
+    const checkLocks = () => {
+      [1, 2, 3, 4].forEach(lineId => {
+        if (lines[lineId].isProcessing) return; // ถ้าเรากำลังใช้งานอยู่ ไม่ต้องเช็ค
+        fetch(`${apiUrl}/api/locks/status?pageKey=${encodeURIComponent(lockKeyForLine(lineId))}`)
+          .then(r => r.json())
+          .then(data => {
+            setLockHolders(prev => ({ ...prev, [lineId]: (data.locked && data.operatorName !== operatorName) ? data.operatorName : null }));
+          })
+          .catch(() => {});
+      });
+    };
+    checkLocks();
+    const interval = setInterval(checkLocks, 15000);
+    return () => clearInterval(interval);
+  }, [lines, operatorName]);
 
   const flavorList = [
     "Amazon", "FDS", "Golden", "Freshy Lychee", "Freshy Strawberry",
@@ -140,9 +248,11 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     return `${d}${m}${y.slice(2)}`;
   };
 
-  const handleStart = (lineId: number) => {
+  const handleStart = async (lineId: number) => {
     const line = lines[lineId];
     if (!line.flavor || !line.cookingBatch) { alert("กรุณาเลือก รสชาติ และ Batch เริ่มต้ม ก่อนกด Start"); return; }
+    const gotLock = await acquireLock(lineId);
+    if (!gotLock) return;
     const now = new Date();
     const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
     setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], startTime: timeStr, startRaw: now, doneTime: null, isProcessing: true } }));
@@ -162,18 +272,24 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     const newTotalCompleted = line.totalCompleted + 1;
     const newCipCount = isCip ? line.cipCount + 1 : line.cipCount;
     setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], doneTime: timeStr, history: newHistory, totalCompleted: newTotalCompleted, cipCount: newCipCount, isProcessing: false, showInputs: false, cookingBatch: '', startTime: null, startRaw: null, brix: '', ph: '' } }));
+    releaseLock(lineId);
     try {
       await fetch(`${apiUrl}/api/production/log`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ line: `Line ${lineId}`, flavor: line.flavor, batch: line.cookingBatch, operator: operatorName, timestamp: new Date().toISOString(), duration: diffMins, brix: line.brix, ph: line.ph, cipCount: isCip ? "1 Batch" : "-", lotNo: formattedLotNo, startTime: line.startTime, endTime: timeStr }) });
     } catch (error) { console.error("Failed to log:", error); }
   };
 
   const resetLine = (lineId: number) => {
-    if (window.confirm(`ล้างข้อมูลทั้งหมดของ Line ${lineId} ใช่หรือไม่?`)) { setLines(prev => ({ ...prev, [lineId]: { ...initialLineState } })); }
+    if (window.confirm(`ล้างข้อมูลทั้งหมดของ Line ${lineId} ใช่หรือไม่?`)) {
+      setLines(prev => ({ ...prev, [lineId]: { ...initialLineState } }));
+      releaseLock(lineId);
+    }
   };
 
   const finishSession = () => {
     if (window.confirm("🏁 ยืนยันสิ้นสุดการทำงานทั้งหมดหรือไม่? ข้อมูลทุก Line ในหน้านี้จะถูกล้างค่าใหม่")) {
       setLines({ 1: { ...initialLineState }, 2: { ...initialLineState }, 3: { ...initialLineState }, 4: { ...initialLineState } });
+      [1, 2, 3, 4].forEach(releaseLock);
+      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
       onStatusChange(false);
       alert("ล้างข้อมูลการผลิตเรียบร้อยแล้ว");
     }
@@ -188,6 +304,13 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
         Production Control
       </h2>
 
+      {restoredNotice && (
+        <div style={{ width: '95%', maxWidth: '500px', margin: '0 auto 15px auto', background: '#fff3e0', border: '1px solid #ffb74d', borderRadius: '12px', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+          <span style={{ color: '#e65100', fontSize: '0.85rem', fontWeight: 'bold' }}>📌 กู้คืนข้อมูลที่ค้างไว้ก่อนหน้านี้แล้ว (กันข้อมูลหายตอน Reload/ล็อคหน้าจอ)</span>
+          <button onClick={() => setRestoredNotice(false)} style={{ background: 'transparent', border: 'none', color: '#e65100', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}>✕</button>
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', padding: '10px' }}>
         {[1, 2, 3, 4].map(lineId => {
           const line = lines[lineId];
@@ -200,6 +323,11 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
                 <h3 style={{ margin: 0, color: '#2e7d32' }}>Line {lineId}</h3>
                 <button onClick={() => resetLine(lineId)} style={{ background: '#ffebee', color: '#d32f2f', border: '1px solid #ffcdd2', borderRadius: '8px', padding: '4px 12px', fontSize: '0.7rem', cursor: 'pointer' }}>ล้างค่า</button>
               </div>
+              {lockHolders[lineId] && !line.isProcessing && (
+                <div style={{ background: '#fce4ec', border: '1px solid #f48fb1', borderRadius: '10px', padding: '10px 14px', marginBottom: '15px', textAlign: 'center' }}>
+                  <span style={{ color: '#ad1457', fontWeight: 'bold', fontSize: '0.85rem' }}>🔒 กำลังใช้งานโดยคุณ {lockHolders[lineId]} อยู่ในขณะนี้ — กรุณารอสักครู่</span>
+                </div>
+              )}
               {line.showInputs ? (
                 <>
                   <div className={styles.formGroup} style={{ marginBottom: '10px' }}>
@@ -269,7 +397,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
                     </div>
                   )}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
-                    <button onClick={() => handleStart(lineId)} disabled={line.isProcessing || !line.cookingBatch} style={{ flex: 1.5, padding: '12px', background: line.isProcessing ? '#ccc' : '#4caf50', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>▶️ Start Batch {line.cookingBatch}</button>
+                    <button onClick={() => handleStart(lineId)} disabled={line.isProcessing || !line.cookingBatch || !!lockHolders[lineId]} style={{ flex: 1.5, padding: '12px', background: (line.isProcessing || lockHolders[lineId]) ? '#ccc' : '#4caf50', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>▶️ Start Batch {line.cookingBatch}</button>
                     <div style={{ flex: 1, textAlign: 'center', background: '#f5f5f5', padding: '10px', borderRadius: '10px', border: '1px solid #ddd' }}>
                       <small style={{ display: 'block', fontSize: '0.68rem', color: '#888' }}>เวลาเริ่ม</small>
                       <strong>{line.startTime || '--:--'}</strong>
