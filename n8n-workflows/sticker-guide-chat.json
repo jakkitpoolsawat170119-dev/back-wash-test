@@ -98,7 +98,8 @@
             }
           ]
         },
-        "options": {}
+        "options": {},
+        "alwaysOutputData": true
       },
       "id": "query-supabase",
       "name": "ค้นหาวิธีติดสติ๊กเกอร์ใน Supabase",
