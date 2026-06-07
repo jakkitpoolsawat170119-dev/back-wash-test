@@ -12,6 +12,72 @@ interface Guide {
   image_urls: string[] | null;
 }
 
+const ADMIN_USER = import.meta.env.VITE_STICKER_ADMIN_USER || 'admin';
+const ADMIN_PASS = import.meta.env.VITE_STICKER_ADMIN_PASS || 'admin1234';
+const AUTH_KEY = 'stickerGuideAdminAuthed';
+
+const AdminLoginGate: React.FC<{ onBackToMain: () => void; onAuthed: () => void }> = ({ onBackToMain, onAuthed }) => {
+  const [user, setUser] = useState('');
+  const [pass, setPass] = useState('');
+  const [error, setError] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (user === ADMIN_USER && pass === ADMIN_PASS) {
+      sessionStorage.setItem(AUTH_KEY, '1');
+      onAuthed();
+    } else {
+      setError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้องค่ะ');
+    }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '10px 14px', borderRadius: '12px', border: '1.5px solid #e0e0e0',
+    fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit',
+  };
+
+  return (
+    <div style={{ background: '#f5f5f5', minHeight: '100vh' }}>
+      <div style={{
+        background: 'linear-gradient(135deg, #ff6b00, #ff8c00)',
+        color: 'white', padding: '20px 16px 16px',
+        borderBottomLeftRadius: '20px', borderBottomRightRadius: '20px',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+        display: 'flex', alignItems: 'center', gap: '8px',
+      }}>
+        <button onClick={onBackToMain} style={{
+          background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white',
+          borderRadius: '8px', padding: '5px 12px', cursor: 'pointer', fontSize: '0.8rem', flexShrink: 0,
+        }}>← หลัก</button>
+        <div>
+          <div style={{ fontWeight: '700', fontSize: '1.05rem', letterSpacing: '0.02em' }}>🔒 เข้าสู่ระบบแอดมิน</div>
+          <div style={{ fontSize: '0.65rem', opacity: 0.8 }}>กรอกชื่อผู้ใช้และรหัสผ่านเพื่อจัดการคู่มือติดสติ๊กเกอร์</div>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} style={{ margin: '16px 12px', background: '#fff', borderRadius: '16px', padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+        <label style={{ display: 'block', fontSize: '0.78rem', color: '#777', marginBottom: '4px' }}>ชื่อผู้ใช้</label>
+        <input value={user} onChange={e => setUser(e.target.value)} style={{ ...inputStyle, marginBottom: '12px' }} autoFocus />
+
+        <label style={{ display: 'block', fontSize: '0.78rem', color: '#777', marginBottom: '4px' }}>รหัสผ่าน</label>
+        <input type="password" value={pass} onChange={e => setPass(e.target.value)} style={{ ...inputStyle, marginBottom: '12px' }} />
+
+        {error && (
+          <div style={{ marginBottom: '12px', padding: '10px 14px', borderRadius: '10px', fontSize: '0.82rem', background: '#ffebee', color: '#c62828' }}>
+            {error}
+          </div>
+        )}
+
+        <button type="submit" style={{
+          width: '100%', background: 'linear-gradient(135deg, #ff6b00, #ff8c00)',
+          color: 'white', border: 'none', borderRadius: '24px', padding: '12px 0',
+          fontWeight: '700', fontSize: '0.9rem', cursor: 'pointer',
+        }}>เข้าสู่ระบบ</button>
+      </form>
+    </div>
+  );
+};
+
 async function uploadToStorage(file: File): Promise<string | null> {
   if (!supabase) return null;
   const ext = file.name.split('.').pop()?.toLowerCase() ?? 'bin';
@@ -22,6 +88,7 @@ async function uploadToStorage(file: File): Promise<string | null> {
 }
 
 const StickerGuideAdmin: React.FC<Props> = ({ onBackToMain }) => {
+  const [authed, setAuthed] = useState(() => sessionStorage.getItem(AUTH_KEY) === '1');
   const [guides, setGuides] = useState<Guide[]>([]);
   const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -42,7 +109,7 @@ const StickerGuideAdmin: React.FC<Props> = ({ onBackToMain }) => {
     setLoading(false);
   };
 
-  useEffect(() => { loadGuides(); }, []);
+  useEffect(() => { if (authed) loadGuides(); }, [authed]);
 
   const resetForm = () => {
     setEditingId(null);
@@ -123,6 +190,10 @@ const StickerGuideAdmin: React.FC<Props> = ({ onBackToMain }) => {
     width: '100%', padding: '10px 14px', borderRadius: '12px', border: '1.5px solid #e0e0e0',
     fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit',
   };
+
+  if (!authed) {
+    return <AdminLoginGate onBackToMain={onBackToMain} onAuthed={() => setAuthed(true)} />;
+  }
 
   return (
     <div style={{ background: '#f5f5f5', minHeight: '100vh', paddingBottom: '40px' }}>
