@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import styles from '../App.module.css';
 import { cipSteps } from '../data/steps';
+import { usePageLock } from '../hooks/usePageLock';
+import LockBanner from './LockBanner';
 
 interface LogbookProps {
   operatorName: string;
@@ -48,8 +50,12 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, o
 
   const handleOpenHistory = () => { loadHistory(); setShowHistoryModal(true); };
 
+  const { lockedBy, acquire, release } = usePageLock('cip-logbook', operatorName, batchId !== null);
+
   const startBatchIfNeeded = async () => {
     if (batchId) return batchId;
+    const gotLock = await acquire();
+    if (!gotLock) return null;
     try {
       const res = await fetch(`${apiUrl}/api/batches/start`, {
         method: 'POST',
@@ -170,6 +176,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, o
       });
       alert('บันทึก CIP สำเร็จ!');
       onStatusChange(false);
+      release();
       setBatchId(null);
       setBatchStartTime('');
       setStepData({});
@@ -218,6 +225,8 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, o
       <h2 className={styles.header} style={{ width: '95%', maxWidth: '500px', margin: '20px auto 15px auto', background: 'linear-gradient(135deg, #ff6b00, #ff8c00)', borderRadius: '15px', padding: '15px', color: '#ffffff', textAlign: 'center', boxShadow: '0 6px 15px rgba(255, 107, 0, 0.3)' }}>
         ระบบบันทึก CIP
       </h2>
+
+      {lockedBy && <LockBanner holderName={lockedBy} />}
 
 
       {cipSteps.map((step) => {

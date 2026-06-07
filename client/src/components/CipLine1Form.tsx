@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { usePageLock } from '../hooks/usePageLock';
+import LockBanner from './LockBanner';
 
 const apiUrl = "https://back-wash-test.onrender.com";
 
@@ -46,8 +48,12 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
   const phWarn = (v: string) => v !== '' && (parseFloat(v) < 6.5 || parseFloat(v) > 8.5);
   const sessionInfo = { date, sku, operatorName };
 
+  const { lockedBy, acquire, release } = usePageLock('cip-line-1', operatorName, sessionId !== null);
+
   const getOrCreateSession = async () => {
     if (sessionId) return sessionId;
+    const gotLock = await acquire();
+    if (!gotLock) return null;
     try {
       const res = await fetch(`${apiUrl}/api/cip-line1/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ operatorName, date, sku }) });
       const data = await res.json();
@@ -131,7 +137,9 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
       body: JSON.stringify({ sessionId: sid, operatorName, date, sku, startTime: sessionStartTime, endTime, totalDuration }),
     });
     alert('บันทึก CIP Line 1 สำเร็จ!');
-    onStatusChange(false); onBackToMain();
+    onStatusChange(false);
+    release();
+    onBackToMain();
   };
 
   // ── History ──
@@ -298,6 +306,7 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
 
   return (
     <div style={{ maxWidth: '600px', margin: '0 auto', padding: '15px 15px 100px 15px' }}>
+      {lockedBy && <LockBanner holderName={lockedBy} />}
       <div style={{ background: `linear-gradient(135deg, ${accent}, #0d47a1)`, borderRadius: '15px', padding: '15px', marginBottom: '15px', color: 'white', textAlign: 'center' }}>
         <h2 style={{ margin: 0, fontSize: '1.1rem' }}>📋 CIP Line 1 Syrup</h2>
         <div style={{ fontSize: '0.85rem', opacity: 0.9, marginTop: '4px' }}>ผู้บันทึก: {operatorName}</div>
