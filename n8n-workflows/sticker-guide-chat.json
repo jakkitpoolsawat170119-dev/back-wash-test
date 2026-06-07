@@ -120,11 +120,11 @@
           "conditions": [
             {
               "id": "guide-found",
-              "leftValue": "={{ $json.length }}",
-              "rightValue": 0,
+              "leftValue": "={{ $json.customer_name }}",
+              "rightValue": "",
               "operator": {
-                "type": "number",
-                "operation": "gt"
+                "type": "string",
+                "operation": "notEmpty"
               }
             }
           ],
@@ -144,7 +144,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// ประกอบคำตอบ: ข้อความขั้นตอน + รูปภาพประกอบ\nconst guide = $input.first().json[0];\nconst customerName = guide.customer_name;\n\n// guide.steps เก็บเป็นข้อความหลายบรรทัด เช่น \"1. แกะสติ๊กเกอร์...\\n2. วาง...\"\nconst stepsText = `📦 วิธีติดสติ๊กเกอร์สำหรับลูกค้า ${customerName}\\n\\n${guide.steps}`;\n\n// guide.image_urls เป็น array ของ URL รูปตัวอย่างขั้นตอน\nconst imageUrls = Array.isArray(guide.image_urls) ? guide.image_urls : [];\n\nconst messages = [\n  { type: 'text', text: stepsText },\n  ...imageUrls.map((url) => ({ type: 'image', url }))\n];\n\nreturn [{ json: { messages } }];"
+        "jsCode": "// ประกอบคำตอบ: ข้อความขั้นตอน + รูปภาพประกอบ\nconst guide = $input.first().json;\nconst customerName = guide.customer_name;\n\n// guide.steps เก็บเป็นข้อความหลายบรรทัด เช่น \"1. แกะสติ๊กเกอร์...\\n2. วาง...\"\nconst stepsText = `📦 วิธีติดสติ๊กเกอร์สำหรับลูกค้า ${customerName}\\n\\n${guide.steps}`;\n\n// guide.image_urls เป็น array ของ URL รูปตัวอย่างขั้นตอน\nconst imageUrls = Array.isArray(guide.image_urls) ? guide.image_urls : [];\n\nconst messages = [\n  { type: 'text', text: stepsText },\n  ...imageUrls.map((url) => ({ type: 'image', url }))\n];\n\nreturn [{ json: { messages } }];"
       },
       "id": "format-found-reply",
       "name": "จัดรูปแบบคำตอบ (พบข้อมูล)",
