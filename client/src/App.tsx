@@ -18,11 +18,16 @@ const App: React.FC = () => {
   const [isCipLine1Active, setIsCipLine1Active] = useState(false);
   const [isCipLabActive, setIsCipLabActive] = useState(false);
   const [isProdActive, setIsProdActive] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === '1');
 
   useEffect(() => {
     const saved = localStorage.getItem('operator');
     if (saved) setOperator(saved);
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem('darkMode', darkMode ? '1' : '0');
+  }, [darkMode]);
 
   const handleLogin = (name: string) => {
     localStorage.setItem('operator', name);
@@ -131,13 +136,33 @@ const App: React.FC = () => {
   );
 
   return (
-    <div className={styles.container}>
+    <div className={`${styles.container}${darkMode ? ' app-dark-mode' : ''}`}>
       <style>{`
         @keyframes flipPaper { 0% { transform: rotateY(0deg); opacity: 1; } 50% { transform: rotateY(90deg); opacity: 0.5; } 100% { transform: rotateY(0deg); opacity: 1; } }
         .flip-active { animation: flipPaper 0.6s ease-in-out; }
         @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .app-dark-mode { filter: invert(1) hue-rotate(180deg); background: #ffffff; }
+        .app-dark-mode img, .app-dark-mode video, .app-dark-mode svg, .app-dark-mode iframe {
+          filter: invert(1) hue-rotate(180deg);
+        }
       `}</style>
+
+      <button
+        onClick={() => setDarkMode(d => !d)}
+        title={darkMode ? 'สลับเป็นหน้าจอสว่าง' : 'สลับเป็นหน้าจอมืด'}
+        style={{
+          position: 'fixed', top: '10px', right: '10px', zIndex: 500,
+          width: '40px', height: '40px', borderRadius: '50%',
+          border: '1px solid rgba(0,0,0,0.08)', background: '#fff',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'pointer', fontSize: '1.1rem', boxShadow: '0 2px 10px rgba(0,0,0,0.12)',
+          filter: darkMode ? 'invert(1) hue-rotate(180deg)' : 'none',
+        }}
+      >
+        {darkMode ? '☀️' : '🌙'}
+      </button>
 
       {!operator ? (
         <div style={{ animation: 'fadeIn 0.5s' }}>
