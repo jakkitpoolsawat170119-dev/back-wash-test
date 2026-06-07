@@ -245,7 +245,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '20px', background: 'linear-gradient(90deg, #fff9c4 0%, #e3f2fd 50%, #e8f5e9 100%)', padding: '12px', borderRadius: '18px', boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.05)', border: '1px solid rgba(0,0,0,0.05)', position: 'relative' }}>
                       {line.shiftMode === 'handover' && (
                         <div className={styles.formGroup} style={{ flex: 1 }}>
-                          <label className={styles.formLabel} style={{ fontSize: '0.6rem', textAlign: 'center', display: 'block', color: '#8d6e63', fontWeight: 'bold' }}>📥 รับช่วงต่อ</label>
+                          <label className={styles.formLabel} style={{ fontSize: '0.68rem', textAlign: 'center', display: 'block', color: '#8d6e63', fontWeight: 'bold' }}>📥 รับช่วงต่อ</label>
                           <select className={styles.formInput} value={line.shiftBatch} onChange={(e) => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], shiftBatch: e.target.value, cookingBatch: '' } }))} disabled={line.history.length > 0 || line.isProcessing} style={{ backgroundColor: 'rgba(255, 255, 255, 0.9)', padding: '8px', fontSize: '0.9rem', textAlign: 'center', borderRadius: '10px', border: '1px solid #fbc02d' }}>
                             <option value="">--</option>
                             {batchOptions.map(b => <option key={b} value={b}>{b}</option>)}
@@ -254,13 +254,13 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
                       )}
                       {(line.shiftMode === 'handover' || line.history.length > 0) && (
                         <div style={{ flex: 1, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                          <div style={{ fontSize: '0.6rem', color: '#1565c0', marginBottom: '4px', fontWeight: 'bold' }}>📍 ล่าสุด</div>
+                          <div style={{ fontSize: '0.68rem', color: '#1565c0', marginBottom: '4px', fontWeight: 'bold' }}>📍 ล่าสุด</div>
                           <div style={{ background: lastBatch ? 'linear-gradient(135deg, #1565c0, #1e88e5)' : '#fff', padding: '6px 0', borderRadius: '10px', width: '100%', fontWeight: '800', color: lastBatch ? '#ffffff' : '#90caf9', fontSize: '1rem', minHeight: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{lastBatch || '--'}</div>
                           <div style={{ fontSize: '1rem', marginTop: '2px', color: '#1e88e5' }}>➜</div>
                         </div>
                       )}
                       <div className={styles.formGroup} style={{ flex: 1 }}>
-                        <label className={styles.formLabel} style={{ fontSize: '0.6rem', textAlign: 'center', display: 'block', color: '#2e7d32', fontWeight: 'bold' }}>🔥 เริ่มต้ม</label>
+                        <label className={styles.formLabel} style={{ fontSize: '0.68rem', textAlign: 'center', display: 'block', color: '#2e7d32', fontWeight: 'bold' }}>🔥 เริ่มต้ม</label>
                         <select className={styles.formInput} value={line.cookingBatch} onChange={(e) => handleCookingBatchChange(lineId, e.target.value)} disabled={line.isProcessing || (line.shiftMode === 'handover' && !line.shiftBatch && line.history.length === 0)} style={{ background: 'rgba(255, 255, 255, 0.9)', border: '2px solid #4caf50', padding: '8px', fontSize: '0.9rem', textAlign: 'center', borderRadius: '10px', fontWeight: 'bold' }}>
                           <option value="">--</option>
                           {batchOptions.map(b => <option key={b} value={b}>{b}</option>)}
@@ -271,7 +271,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
                     <button onClick={() => handleStart(lineId)} disabled={line.isProcessing || !line.cookingBatch} style={{ flex: 1.5, padding: '12px', background: line.isProcessing ? '#ccc' : '#4caf50', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>▶️ Start Batch {line.cookingBatch}</button>
                     <div style={{ flex: 1, textAlign: 'center', background: '#f5f5f5', padding: '10px', borderRadius: '10px', border: '1px solid #ddd' }}>
-                      <small style={{ display: 'block', fontSize: '0.6rem', color: '#888' }}>เวลาเริ่ม</small>
+                      <small style={{ display: 'block', fontSize: '0.68rem', color: '#888' }}>เวลาเริ่ม</small>
                       <strong>{line.startTime || '--:--'}</strong>
                     </div>
                   </div>
