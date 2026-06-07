@@ -85,7 +85,7 @@ const StickerGuideChat: React.FC<Props> = ({ onBackToMain }) => {
   };
 
   return (
-    <div style={{ background: '#f5f5f5', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ background: '#f5f5f5', minHeight: '100vh' }}>
       {/* Header */}
       <div style={{
         background: 'linear-gradient(135deg, #ff6b00, #ff8c00)',
@@ -105,7 +105,7 @@ const StickerGuideChat: React.FC<Props> = ({ onBackToMain }) => {
       </div>
 
       {/* Message list */}
-      <div ref={listRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 12px 8px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <div ref={listRef} style={{ padding: '16px 12px 90px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {entries.map(entry => (
           <div key={entry.id} style={{ display: 'flex', flexDirection: 'column', alignItems: entry.role === 'user' ? 'flex-end' : 'flex-start', gap: '6px' }}>
             {entry.messages.map((msg, i) => (
@@ -141,7 +141,7 @@ const StickerGuideChat: React.FC<Props> = ({ onBackToMain }) => {
       <div style={{
         display: 'flex', gap: '8px', padding: '10px 12px',
         background: '#ffffff', borderTop: '1px solid #eee',
-        position: 'sticky', bottom: 0,
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 100,
       }}>
         <input
           value={input}
