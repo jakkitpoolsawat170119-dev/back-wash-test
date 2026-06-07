@@ -20,7 +20,7 @@
     },
     {
       "parameters": {
-        "jsThinkingMode": "code",
+        "mode": "runOnceForAllItems",
         "jsCode": "// ดึงชื่อลูกค้าออกจากข้อความ เช่น \"วิธีติดสติ๊กเกอร์ลูกค้า Kaoshop\" -> \"Kaoshop\"\nconst body = $input.first().json.body || {};\nconst message = (body.message || '').toString().trim();\n\n// รองรับทั้ง \"ลูกค้า <ชื่อ>\" และ \"ลูกค้าชื่อ <ชื่อ>\"\nconst match = message.match(/ลูกค้า(?:ชื่อ)?\\s*([A-Za-zก-๙0-9_-]+)/);\nconst customerName = match ? match[1].trim() : '';\n\nreturn [{\n  json: {\n    message,\n    customerName,\n    sessionId: body.sessionId || null\n  }\n}];"
       },
       "id": "extract-customer-name",
@@ -143,7 +143,7 @@
     },
     {
       "parameters": {
-        "jsThinkingMode": "code",
+        "mode": "runOnceForAllItems",
         "jsCode": "// ประกอบคำตอบ: ข้อความขั้นตอน + รูปภาพประกอบ\nconst guide = $input.first().json[0];\nconst customerName = guide.customer_name;\n\n// guide.steps เก็บเป็นข้อความหลายบรรทัด เช่น \"1. แกะสติ๊กเกอร์...\\n2. วาง...\"\nconst stepsText = `📦 วิธีติดสติ๊กเกอร์สำหรับลูกค้า ${customerName}\\n\\n${guide.steps}`;\n\n// guide.image_urls เป็น array ของ URL รูปตัวอย่างขั้นตอน\nconst imageUrls = Array.isArray(guide.image_urls) ? guide.image_urls : [];\n\nconst messages = [\n  { type: 'text', text: stepsText },\n  ...imageUrls.map((url) => ({ type: 'image', url }))\n];\n\nreturn [{ json: { messages } }];"
       },
       "id": "format-found-reply",
@@ -157,7 +157,7 @@
     },
     {
       "parameters": {
-        "jsThinkingMode": "code",
+        "mode": "runOnceForAllItems",
         "jsCode": "const customerName = $('ดึงชื่อลูกค้าจากข้อความ').first().json.customerName;\n\nreturn [{\n  json: {\n    messages: [\n      {\n        type: 'text',\n        text: `ขออภัยค่ะ ยังไม่มีข้อมูลวิธีติดสติ๊กเกอร์สำหรับลูกค้า \"${customerName}\" ในระบบ\\nรบกวนติดต่อแอดมินเพื่อขอข้อมูลเพิ่มเติมนะคะ 🙏`\n      }\n    ]\n  }\n}];"
       },
       "id": "format-not-found-reply",
@@ -171,7 +171,7 @@
     },
     {
       "parameters": {
-        "jsThinkingMode": "code",
+        "mode": "runOnceForAllItems",
         "jsCode": "return [{\n  json: {\n    messages: [\n      {\n        type: 'text',\n        text: 'รบกวนระบุชื่อลูกค้าด้วยนะคะ เช่น \"วิธีติดสติ๊กเกอร์ลูกค้า Kaoshop\" เพื่อให้ระบบค้นหาขั้นตอนการติดสติ๊กเกอร์ให้ถูกต้องค่ะ'\n      }\n    ]\n  }\n}];"
       },
       "id": "format-no-customer-reply",
