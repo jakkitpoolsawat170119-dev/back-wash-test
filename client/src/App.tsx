@@ -153,7 +153,7 @@ const App: React.FC = () => {
         onClick={() => setDarkMode(d => !d)}
         title={darkMode ? 'สลับเป็นหน้าจอสว่าง' : 'สลับเป็นหน้าจอมืด'}
         style={{
-          position: 'fixed', top: '10px', right: '10px', zIndex: 500,
+          position: 'fixed', top: '10px', left: '10px', zIndex: 500,
           width: '40px', height: '40px', borderRadius: '50%',
           border: '1px solid rgba(0,0,0,0.08)', background: '#fff',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
