@@ -821,7 +821,7 @@
     },
     {
       "parameters": {
-        "operation": "appendOrUpdate",
+        "operation": "append",
         "documentId": {
           "__rl": true,
           "value": "1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8",
@@ -847,11 +847,7 @@
             "note": "={{ $json.note }}",
             "createdAt": "={{ $json.createdAt }}"
           },
-          "matchingColumns": [
-            "planDate",
-            "line",
-            "flavor"
-          ],
+          "matchingColumns": [],
           "schema": [
             {
               "id": "planDate",
