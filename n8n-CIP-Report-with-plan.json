@@ -839,13 +839,13 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "planDate": "={{ $json.body.planDate }}",
-            "line": "={{ $json.body.line }}",
-            "flavor": "={{ $json.body.flavor }}",
-            "plannedBatches": "={{ $json.body.plannedBatches }}",
-            "operator": "={{ $json.body.operator }}",
-            "note": "={{ $json.body.note }}",
-            "createdAt": "={{ $json.body.createdAt }}"
+            "planDate": "={{ $json.planDate }}",
+            "line": "={{ $json.line }}",
+            "flavor": "={{ $json.flavor }}",
+            "plannedBatches": "={{ $json.plannedBatches }}",
+            "operator": "={{ $json.operator }}",
+            "note": "={{ $json.note }}",
+            "createdAt": "={{ $json.createdAt }}"
           },
           "matchingColumns": [
             "planDate",
@@ -943,6 +943,19 @@
           "name": "GoogleAuth"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $input.first().json.body;\nconst list = Array.isArray(b.items) ? b.items : [];\nreturn list.map(it => ({ json: {\n  planDate: b.planDate,\n  line: it.line,\n  flavor: it.flavor,\n  plannedBatches: it.plannedBatches,\n  operator: b.operator,\n  note: it.note || '',\n  createdAt: b.createdAt,\n} }));"
+      },
+      "id": "expand-plan-items-0001",
+      "name": "Expand Plan Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -704,
+        360
+      ]
     }
   ],
   "pinData": {},
@@ -988,6 +1001,17 @@
             "index": 0
           }
         ],
+        [
+          {
+            "node": "Expand Plan Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expand Plan Items": {
+      "main": [
         [
           {
             "node": "Production Plan",
