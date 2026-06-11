@@ -64,6 +64,18 @@ db.serialize(() => {
       cip_count TEXT
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS production_plans (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      plan_date TEXT,
+      line_name TEXT,
+      flavor TEXT,
+      planned_batches INTEGER,
+      operator_name TEXT,
+      note TEXT,
+      created_at TEXT,
+      UNIQUE(plan_date, line_name, flavor)
+    )`);
+
     db.run(`CREATE TABLE IF NOT EXISTS cip_line2_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       operator_name TEXT,
@@ -760,6 +772,79 @@ app.post('/api/production/log', (req, res) => {
     });
     res.json({ success: true, logId: this.lastID });
   });
+});
+
+// ── แผนผลิตประจำวัน ─────────────────────────────
+// บันทึก/อัปเดตแผนผลิตหลายรายการในครั้งเดียว
+app.post('/api/production/plan', (req, res) => {
+  const { planDate, operator, items } = req.body;
+  const date = planDate || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'items ต้องเป็น array และไม่ว่าง' });
+  }
+  const createdAt = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
+  const upsert = db.prepare(`INSERT INTO production_plans
+    (plan_date, line_name, flavor, planned_batches, operator_name, note, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(plan_date, line_name, flavor)
+    DO UPDATE SET planned_batches=excluded.planned_batches, operator_name=excluded.operator_name, note=excluded.note, created_at=excluded.created_at`);
+  db.serialize(() => {
+    items.forEach((it) => {
+      upsert.run([date, it.line || '', it.flavor || '', Number(it.plannedBatches) || 0, operator || '', it.note || '', createdAt]);
+    });
+    upsert.finalize((err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      const total = items.reduce((s, it) => s + (Number(it.plannedBatches) || 0), 0);
+      sendToTelegram([
+        `📋 <b>บันทึกแผนผลิตประจำวัน</b>`,
+        `🗓 วันที่: <b>${escapeHtml(date)}</b>`,
+        operator ? `👤 ผู้วางแผน: ${escapeHtml(operator)}` : null,
+        `─────────────────────`,
+        ...items.map((it) => `• ${escapeHtml(it.line || '-')} | ${escapeHtml(it.flavor || '-')}: <b>${Number(it.plannedBatches) || 0}</b> batch`),
+        `─────────────────────`,
+        `รวมแผน: <b>${total}</b> batch (${items.length} รายการ)`,
+      ].filter(Boolean).join('\n'));
+      // ส่งแต่ละรายการไป n8n เพื่อเก็บลง Google Sheet ชีต "แผนผลิต"
+      items.forEach((it) => {
+        sendToN8n({
+          type: 'production_plan',
+          planDate: date,
+          line: it.line || '',
+          flavor: it.flavor || '',
+          plannedBatches: String(Number(it.plannedBatches) || 0),
+          operator: operator || '',
+          note: it.note || '',
+          createdAt,
+        });
+      });
+      res.json({ success: true, saved: items.length, total });
+    });
+  });
+});
+
+// ดึงแผนผลิตของวัน (default = วันนี้)
+app.get('/api/production/plan', (req, res) => {
+  const date = req.query.date || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+  db.all("SELECT * FROM production_plans WHERE plan_date = ? ORDER BY line_name, flavor", [date], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ planDate: date, items: rows });
+  });
+});
+
+// สรุปยอดผลิตจริง (นับ batch) จาก production_logs ตามวัน — ใช้เทียบแผน vs จริง
+app.get('/api/production/summary', (req, res) => {
+  const date = req.query.date || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+  db.all(
+    `SELECT line_name, flavor, COUNT(*) AS actual_batches
+     FROM production_logs
+     WHERE substr(timestamp,1,10) = ?
+     GROUP BY line_name, flavor`,
+    [date],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ date, items: rows });
+    }
+  );
 });
 
 app.get('/api/batches', (req, res) => {
