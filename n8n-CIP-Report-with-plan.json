@@ -1,0 +1,1004 @@
+{
+  "name": "CIP-Report (with Production Plan)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cip-report",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1040,
+        -112
+      ],
+      "id": "7e618980-dbc2-4e94-b44c-9c37bd25548b",
+      "name": "Webhook",
+      "webhookId": "6fba1584-da4a-4a23-8174-ff69a9fda524"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.type }}",
+                    "rightValue": "production",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "0827d307-7458-47d8-8685-462c74865c9d"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "output 1"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "351494b8-60f8-4f62-b671-7a0fa9bb3e5c",
+                    "leftValue": "={{ $json.body.type }}",
+                    "rightValue": "cip_line2",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "output 2"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "55dd9c53-40e6-45cc-8ae8-6462162e6fe0",
+                    "leftValue": "={{ $json.body.type }}",
+                    "rightValue": "cip_line1",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Output 3"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "278fa207-7985-4843-aba5-526d5a07bd76",
+                    "leftValue": "cip_step",
+                    "rightValue": "={{ $json.body.type }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "output 4"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "369342b2-5d78-492b-9853-56ab6c88b646",
+                    "leftValue": "={{ $json.body.type }}",
+                    "rightValue": "production_plan",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "production_plan"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -816,
+        -144
+      ],
+      "id": "8693d518-d9fa-4f0d-a752-92649dc81313",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8",
+          "mode": "list",
+          "cachedResultName": "Log-CIP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1328762776,
+          "mode": "list",
+          "cachedResultName": "CIP Line 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8/edit#gid=1328762776"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "date": "={{ $('Webhook').item.json.body.date }}",
+            "sku": "={{ $('Webhook').item.json.body.sku }}",
+            "operator": "={{ $('Webhook').item.json.body.operator }}",
+            "rowNo": "={{ $('Webhook').item.json.body.rowNo }}",
+            "startTime": "={{ $('Webhook').item.json.body.startTime }}",
+            "endTime": "={{ $('Webhook').item.json.body.endTime }}",
+            "duration": "={{ $('Webhook').item.json.body.duration }}",
+            "ph": "={{ $('Webhook').item.json.body.ph }}",
+            "brix": "={{ $('Webhook').item.json.body.brix }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "sku",
+              "displayName": "sku",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "operator",
+              "displayName": "operator",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "rowNo",
+              "displayName": "rowNo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "startTime",
+              "displayName": "startTime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "endTime",
+              "displayName": "endTime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "duration",
+              "displayName": "duration",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ph",
+              "displayName": "ph",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "brix",
+              "displayName": "brix",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -592,
+        -16
+      ],
+      "id": "2d227df8-036e-412d-b5d7-d1ef7090a078",
+      "name": "CIP Line 1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8",
+          "mode": "list",
+          "cachedResultName": "Log-CIP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1839998857,
+          "mode": "list",
+          "cachedResultName": "CIP Line 2",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8/edit#gid=1839998857"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "date": "={{ $('Webhook').item.json.body.date }}",
+            "line": "={{ $('Webhook').item.json.body.line }}",
+            "sku": "={{ $('Webhook').item.json.body.sku }}",
+            "flavor": "={{ $('Webhook').item.json.body.flavor }}",
+            "operator": "={{ $('Webhook').item.json.body.operator }}",
+            "rowNo": "={{ $('Webhook').item.json.body.rowNo }}",
+            "startTime": "={{ $('Webhook').item.json.body.startTime }}",
+            "endTime": "={{ $('Webhook').item.json.body.endTime }}",
+            "duration": "={{ $('Webhook').item.json.body.duration }}",
+            "pump1": "={{ $('Webhook').item.json.body.pump1Pressure }}",
+            "pump2": "={{ $('Webhook').item.json.body.pump2Pressure }}",
+            "ph": "={{ $('Webhook').item.json.body.ph }}",
+            "brix": "={{ $('Webhook').item.json.body.brix }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "line",
+              "displayName": "line",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "sku",
+              "displayName": "sku",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "flavor",
+              "displayName": "flavor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "operator",
+              "displayName": "operator",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "rowNo",
+              "displayName": "rowNo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "startTime",
+              "displayName": "startTime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "endTime",
+              "displayName": "endTime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "duration",
+              "displayName": "duration",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "pump1",
+              "displayName": "pump1",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "pump2",
+              "displayName": "pump2",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ph",
+              "displayName": "ph",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "brix",
+              "displayName": "brix",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -592,
+        -208
+      ],
+      "id": "a2d4542e-f382-403f-95c0-28381dbb5fe0",
+      "name": "CIP Line 2-3",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8",
+          "mode": "list",
+          "cachedResultName": "Log-CIP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "การผลิต",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.body.timestamp }}",
+            "line": "={{ $json.body.line }}",
+            "flavor": "={{ $json.body.flavor }}",
+            "batch": "={{ $json.body.batch }}",
+            "lotNo": "={{ $json.body.lotNo }}",
+            "operator": "={{ $json.body.operator }}",
+            "startTime": "={{ $json.body.startTime }}",
+            "endTime": "={{ $json.body.endTime }}",
+            "duration": "={{ $json.body.duration }}",
+            "brix": "={{ $json.body.brix }}",
+            "ph": "={{ $json.body.ph }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "line",
+              "displayName": "line",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "flavor",
+              "displayName": "flavor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "batch",
+              "displayName": "batch",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lotNo",
+              "displayName": "lotNo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "operator",
+              "displayName": "operator",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "startTime",
+              "displayName": "startTime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "endTime",
+              "displayName": "endTime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "duration",
+              "displayName": "duration",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "brix",
+              "displayName": "brix",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ph",
+              "displayName": "ph",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -592,
+        -400
+      ],
+      "id": "a512c61c-3721-48e0-bec4-4141c1d5d79e",
+      "name": "Production",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8",
+          "mode": "list",
+          "cachedResultName": "Log-CIP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 109735513,
+          "mode": "list",
+          "cachedResultName": "CIP ทดลอง",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8/edit#gid=109735513"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "batchId": "={{ $('Webhook').item.json.body.batchId }}",
+            "stepNumber": "={{ $('Webhook').item.json.body.stepNumber }}",
+            "stepDescription": "={{ $('Webhook').item.json.body.stepDescription }}",
+            "operator": "={{ $('Webhook').item.json.body.operator }}",
+            "startTime": "={{ $('Webhook').item.json.body.startTime }}",
+            "endTime": "={{ $('Webhook').item.json.body.endTime }}",
+            "duration": "={{ $('Webhook').item.json.body.duration }}",
+            "pressure": "={{ $('Webhook').item.json.body.pressure }}",
+            "brix": "={{ $('Webhook').item.json.body.brix }}",
+            "ph": "={{ $('Webhook').item.json.body.ph }}",
+            "remarks": "={{ $('Webhook').item.json.body.remarks }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "batchId",
+              "displayName": "batchId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "stepNumber",
+              "displayName": "stepNumber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "stepDescription",
+              "displayName": "stepDescription",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "operator",
+              "displayName": "operator",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "startTime",
+              "displayName": "startTime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "endTime",
+              "displayName": "endTime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "duration",
+              "displayName": "duration",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "pressure",
+              "displayName": "pressure",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "brix",
+              "displayName": "brix",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ph",
+              "displayName": "ph",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "remarks",
+              "displayName": "remarks",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -592,
+        176
+      ],
+      "id": "da9990b5-5551-482c-8c98-c0f781502aa6",
+      "name": "Test CIP-Back Wash",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8",
+          "mode": "list",
+          "cachedResultName": "Log-CIP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 647726544,
+          "mode": "list",
+          "cachedResultName": "แผนผลิต",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8/edit#gid=647726544"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "planDate": "={{ $json.body.planDate }}",
+            "line": "={{ $json.body.line }}",
+            "flavor": "={{ $json.body.flavor }}",
+            "plannedBatches": "={{ $json.body.plannedBatches }}",
+            "operator": "={{ $json.body.operator }}",
+            "note": "={{ $json.body.note }}",
+            "createdAt": "={{ $json.body.createdAt }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "planDate",
+              "displayName": "planDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "line",
+              "displayName": "line",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "flavor",
+              "displayName": "flavor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "plannedBatches",
+              "displayName": "plannedBatches",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "operator",
+              "displayName": "operator",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "note",
+              "displayName": "note",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "createdAt",
+              "displayName": "createdAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -592,
+        360
+      ],
+      "id": "d6dbfefb-1d76-4b50-90e8-a1dec5f57b4e",
+      "name": "Production Plan",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Production",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CIP Line 2-3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CIP Line 1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Test CIP-Back Wash",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Production Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "tags": []
+}

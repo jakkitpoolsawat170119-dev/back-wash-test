@@ -1,0 +1,196 @@
+{
+  "name": "Telegram Production Chart Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -700,
+        0
+      ],
+      "id": "1ca8124b-eb01-4663-83ca-fefc204add1f",
+      "name": "Telegram Trigger",
+      "webhookId": "ec7c9121-9045-403e-943e-7ce1927be5a3"
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = ($json.message && $json.message.text ? $json.message.text : '').trim();\nconst lower = msg.toLowerCase();\n// ตอบเฉพาะข้อความที่เกี่ยวกับการสรุป/ผลิต/แผน/chart เท่านั้น\nif (!(lower.includes('สรุป') || lower.includes('ผลิต') || lower.includes('แผน') || lower.includes('chart') || lower.includes('กราฟ'))) {\n  return [];\n}\nconst flavorList = [\"Amazon\",\"FDS\",\"Golden\",\"Freshy Lychee\",\"Freshy Strawberry\",\"Senorita Coconut\",\"Senorita Caramel\",\"Freshy Blue Hawaii\",\"Freshy Lime\",\"Freshy Green Apple\",\"Freshy Sala\",\"Senorita Yuzu\",\"MLH 02\",\"Freshy Pineapple\",\"Freshy Grape\",\"Freshy Punch\",\"Freshy blue Lemon\",\"Senorita Fres Mint\",\"Freshy Orange\",\"Signature Rose\",\"Freshy Shine Muscat Grape\",\"Freshy Peach\"];\nlet flavor = '';\nfor (const f of flavorList) { if (lower.includes(f.toLowerCase())) { flavor = f; break; } }\nlet date = '';\nconst iso = msg.match(/\\d{4}-\\d{2}-\\d{2}/);\nif (lower.includes('ทั้งหมด') || lower.includes('all')) date = '';\nelse if (iso) date = iso[0];\nelse date = new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Bangkok'})).toISOString().slice(0,10);\nreturn [{ json: { text: msg, flavor, date, chatId: ($json.message && $json.message.chat ? $json.message.chat.id : '') } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ],
+      "id": "f711f08d-d1ae-4879-b0aa-f1d1040b3377",
+      "name": "Parse Query"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8",
+          "mode": "list",
+          "cachedResultName": "Log-CIP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "การผลิต",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -260,
+        0
+      ],
+      "id": "bd3ee631-b8a1-4048-9783-206c3f3d191a",
+      "name": "Read Actual",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8",
+          "mode": "list",
+          "cachedResultName": "Log-CIP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 647726544,
+          "mode": "list",
+          "cachedResultName": "แผนผลิต",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8/edit#gid=647726544"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -40,
+        0
+      ],
+      "id": "bd94d292-b47c-40ab-b41e-e23eed05d22b",
+      "name": "Read Plan",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const q = $('Parse Query').first().json;\nconst wantFlavor = (q.flavor || '').toLowerCase();\nconst actualRows = $('Read Actual').all().map(i => i.json);\nlet planRows = [];\ntry { planRows = $('Read Plan').all().map(i => i.json); } catch (e) { planRows = []; }\n\nconst actual = {};\nfor (const r of actualRows) {\n  const f = (r.flavor || '').toString().trim();\n  if (!f) continue;\n  if (q.date && r.timestamp && !String(r.timestamp).startsWith(q.date)) continue;\n  actual[f] = (actual[f] || 0) + 1;\n}\nconst plan = {};\nfor (const r of planRows) {\n  const f = (r.flavor || '').toString().trim();\n  if (!f) continue;\n  if (q.date && r.planDate && String(r.planDate) !== q.date) continue;\n  plan[f] = (plan[f] || 0) + Number(r.plannedBatches || 0);\n}\n\nlet flavors = Array.from(new Set([...Object.keys(plan), ...Object.keys(actual)]));\nif (wantFlavor) {\n  const filtered = flavors.filter(f => f.toLowerCase().includes(wantFlavor));\n  if (filtered.length) flavors = filtered;\n}\nflavors.sort();\nif (flavors.length === 0) {\n  return [{ json: { chatId: q.chatId, caption: 'ไม่พบข้อมูลการผลิต' + (q.date ? (' วันที่ ' + q.date) : '') + ' ครับ', chartUrl: '' } }];\n}\n\nconst planData = flavors.map(f => plan[f] || 0);\nconst actualData = flavors.map(f => actual[f] || 0);\nconst chart = {\n  type: 'bar',\n  data: { labels: flavors, datasets: [\n    { label: 'แผน', data: planData, backgroundColor: 'rgba(21,101,192,0.75)' },\n    { label: 'ผลิตจริง', data: actualData, backgroundColor: 'rgba(67,160,71,0.85)' } ] },\n  options: { title: { display: true, text: 'แผน vs ผลิตจริง (batch)' + (q.date ? (' ' + q.date) : '') },\n    scales: { yAxes: [{ ticks: { beginAtZero: true } }] } }\n};\nconst chartUrl = 'https://quickchart.io/chart?w=720&h=440&c=' + encodeURIComponent(JSON.stringify(chart));\n\nlet cap = '📊 สรุปแผน vs ผลิตจริง' + (q.date ? (' • ' + q.date) : ' • ทั้งหมด') + '\\n────────────\\n';\nlet tp = 0, ta = 0;\nfor (const f of flavors) { const p = plan[f]||0, a = actual[f]||0; tp+=p; ta+=a;\n  const pct = p>0 ? Math.round(a/p*100) : 0;\n  cap += '• ' + f + ': ' + a + '/' + p + ' batch (' + pct + '%)\\n'; }\ncap += '────────────\\nรวม: ' + ta + '/' + tp + ' batch';\nreturn [{ json: { chatId: q.chatId, chartUrl, caption: cap } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        180,
+        0
+      ],
+      "id": "1280c572-350e-40d3-9eae-b45a0e215bb7",
+      "name": "Build Chart"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendPhoto",
+        "chatId": "={{ $json.chatId }}",
+        "file": "={{ $json.chartUrl }}",
+        "additionalFields": {
+          "caption": "={{ $json.caption }}"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        400,
+        0
+      ],
+      "id": "d24ea153-3693-471b-afe3-b2f12c783cfb",
+      "name": "Send Chart"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parse Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Query": {
+      "main": [
+        [
+          {
+            "node": "Read Actual",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Actual": {
+      "main": [
+        [
+          {
+            "node": "Read Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Plan": {
+      "main": [
+        [
+          {
+            "node": "Build Chart",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Chart": {
+      "main": [
+        [
+          {
+            "node": "Send Chart",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}
