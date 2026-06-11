@@ -805,18 +805,22 @@ app.post('/api/production/plan', (req, res) => {
         `รวมแผน: <b>${total}</b> batch (${items.length} รายการ)`,
       ].filter(Boolean).join('\n'));
       // ส่งแต่ละรายการไป n8n เพื่อเก็บลง Google Sheet ชีต "แผนผลิต"
-      items.forEach((it) => {
-        sendToN8n({
-          type: 'production_plan',
-          planDate: date,
-          line: it.line || '',
-          flavor: it.flavor || '',
-          plannedBatches: String(Number(it.plannedBatches) || 0),
-          operator: operator || '',
-          note: it.note || '',
-          createdAt,
-        });
-      });
+      // ยิงทีละรายการแบบ sequential (await) กัน append ของ n8n ชนกัน (read-modify-write race)
+      // หมายเหตุ: ต้องตั้ง webhook responseMode = "lastNode" ฝั่ง n8n ด้วย ตัว await ถึงจะรอจน append เสร็จจริง
+      (async () => {
+        for (const it of items) {
+          await sendToN8n({
+            type: 'production_plan',
+            planDate: date,
+            line: it.line || '',
+            flavor: it.flavor || '',
+            plannedBatches: String(Number(it.plannedBatches) || 0),
+            operator: operator || '',
+            note: it.note || '',
+            createdAt,
+          });
+        }
+      })();
       res.json({ success: true, saved: items.length, total });
     });
   });

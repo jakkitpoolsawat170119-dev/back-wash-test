@@ -5,7 +5,8 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "cip-report",
-        "options": {}
+        "options": {},
+        "responseMode": "lastNode"
       },
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
@@ -820,7 +821,7 @@
     },
     {
       "parameters": {
-        "operation": "append",
+        "operation": "appendOrUpdate",
         "documentId": {
           "__rl": true,
           "value": "1Tm9UibL5o9assdK7L-MbM27H8KDB7gysd0g2b4X5gA8",
@@ -846,7 +847,11 @@
             "note": "={{ $json.body.note }}",
             "createdAt": "={{ $json.body.createdAt }}"
           },
-          "matchingColumns": [],
+          "matchingColumns": [
+            "planDate",
+            "line",
+            "flavor"
+          ],
           "schema": [
             {
               "id": "planDate",
