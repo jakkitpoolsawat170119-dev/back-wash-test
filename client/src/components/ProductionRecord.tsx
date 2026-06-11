@@ -54,6 +54,15 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
   const [restoredNotice, setRestoredNotice] = useState(false);
   const [lockHolders, setLockHolders] = useState<Record<number, string | null>>({ 1: null, 2: null, 3: null, 4: null });
 
+  // ── แผนผลิตวันนี้ ──────────────────────────────
+  interface PlanItem { line: string; flavor: string; plannedBatches: string; }
+  const todayStr = new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD
+  const [showPlan, setShowPlan] = useState(false);
+  const [planDate, setPlanDate] = useState(todayStr);
+  const [planItems, setPlanItems] = useState<PlanItem[]>([]);
+  const [planSaving, setPlanSaving] = useState(false);
+  const [planLoaded, setPlanLoaded] = useState(false);
+
   const initialLineState: LineState = {
     lotNo: '',
     flavor: '',
@@ -301,6 +310,54 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
 
   const allHistory = Object.values(lines).flatMap(l => l.history).sort((a, b) => b.line - a.line);
 
+  // โหลดแผนผลิตของวันที่เลือก
+  const loadPlan = async (date: string) => {
+    try {
+      const res = await fetch(`${apiUrl}/api/production/plan?date=${date}`);
+      const data = await res.json();
+      const items: PlanItem[] = (data.items || []).map((r: { line_name: string; flavor: string; planned_batches: number }) => ({
+        line: r.line_name || 'รวม', flavor: r.flavor || '', plannedBatches: String(r.planned_batches ?? 0),
+      }));
+      setPlanItems(items);
+    } catch (e) { console.error('load plan failed', e); }
+    finally { setPlanLoaded(true); }
+  };
+
+  useEffect(() => { loadPlan(todayStr); /* eslint-disable-next-line */ }, []);
+
+  const addPlanRow = () => setPlanItems(prev => [...prev, { line: 'รวม', flavor: '', plannedBatches: '' }]);
+  const updatePlanRow = (i: number, field: keyof PlanItem, value: string) =>
+    setPlanItems(prev => prev.map((it, idx) => idx === i ? { ...it, [field]: value } : it));
+  const removePlanRow = (i: number) => setPlanItems(prev => prev.filter((_, idx) => idx !== i));
+
+  // นับยอดผลิตจริง (batch) ตามรสชาติ — ถ้าแผนระบุ Line เจาะจง ก็กรองตาม Line ด้วย
+  const actualFor = (item: PlanItem) => {
+    return allHistory.filter(h => {
+      if (item.flavor && h.flavor !== item.flavor) return false;
+      if (item.line && item.line !== 'รวม' && `Line ${h.line}` !== item.line && String(h.line) !== item.line.replace(/\D/g, '')) return false;
+      return true;
+    }).length;
+  };
+
+  const savePlan = async () => {
+    const valid = planItems.filter(it => it.flavor && Number(it.plannedBatches) > 0);
+    if (valid.length === 0) { alert('กรุณากรอกอย่างน้อย 1 รายการ (เลือกรสชาติ และจำนวน batch มากกว่า 0)'); return; }
+    setPlanSaving(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/production/plan`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planDate, operator: operatorName, items: valid }),
+      });
+      const data = await res.json();
+      if (data.success) alert(`✅ บันทึกแผนผลิตสำเร็จ (${data.saved} รายการ รวม ${data.total} batch)`);
+      else alert('บันทึกไม่สำเร็จ: ' + (data.error || 'unknown'));
+    } catch (e) { alert('เชื่อมต่อ server ไม่สำเร็จ'); console.error(e); }
+    finally { setPlanSaving(false); }
+  };
+
+  const planTotal = planItems.reduce((s, it) => s + (Number(it.plannedBatches) || 0), 0);
+  const actualTotal = allHistory.length;
+
   return (
     <div style={{ paddingBottom: '120px' }}>
       {/* 1. หัวข้อหลักบนสุด */}
@@ -314,6 +371,65 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
           <button onClick={() => setRestoredNotice(false)} style={{ background: 'transparent', border: 'none', color: '#e65100', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}>✕</button>
         </div>
       )}
+
+      {/* ── แผนผลิตวันนี้ ── */}
+      <div style={{ width: '95%', maxWidth: '900px', margin: '0 auto 20px auto' }}>
+        <button
+          onClick={() => setShowPlan(s => !s)}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(135deg, #1565c0, #0d47a1)', color: 'white', border: 'none', borderRadius: '15px', padding: '14px 20px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', boxShadow: '0 6px 15px rgba(21,101,192,0.25)' }}
+        >
+          <span>📋 แผนผลิตวันนี้ {planLoaded && planItems.length > 0 ? `(${planItems.length} รายการ • ${actualTotal}/${planTotal} batch)` : ''}</span>
+          <span style={{ fontSize: '1.2rem' }}>{showPlan ? '▲' : '▼'}</span>
+        </button>
+
+        {showPlan && (
+          <div style={{ background: '#ffffff', border: '2px solid #1565c0', borderTop: 'none', borderRadius: '0 0 15px 15px', padding: '18px', boxShadow: '0 6px 15px rgba(0,0,0,0.05)' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
+              <label className={styles.formLabel} style={{ fontWeight: 'bold', color: '#0d47a1' }}>🗓 วันที่ผลิต</label>
+              <input type="date" className={styles.formInput} value={planDate} onChange={e => { setPlanDate(e.target.value); loadPlan(e.target.value); }} style={{ maxWidth: '180px', fontWeight: 'bold' }} />
+              <div style={{ marginLeft: 'auto', fontSize: '0.9rem', color: '#555' }}>รวมแผน: <b style={{ color: '#0d47a1' }}>{planTotal}</b> batch • ผลิตจริง: <b style={{ color: '#2e7d32' }}>{actualTotal}</b> batch</div>
+            </div>
+
+            {planItems.length === 0 && (
+              <div style={{ textAlign: 'center', color: '#999', padding: '15px', background: '#f9f9f9', borderRadius: '10px', marginBottom: '12px' }}>ยังไม่มีรายการแผน — กด "➕ เพิ่มรายการ" เพื่อวางแผนผลิตของวันนี้</div>
+            )}
+
+            {planItems.map((it, i) => {
+              const done = actualFor(it);
+              const target = Number(it.plannedBatches) || 0;
+              const pct = target > 0 ? Math.min(100, Math.round((done / target) * 100)) : 0;
+              const theme = flavorColors[it.flavor];
+              return (
+                <div key={i} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', padding: '10px', marginBottom: '8px', borderRadius: '12px', background: theme ? theme.bg : '#f5f7fa', border: `1px solid ${theme ? theme.border : '#e0e0e0'}` }}>
+                  <select className={styles.formInput} value={it.line} onChange={e => updatePlanRow(i, 'line', e.target.value)} style={{ flex: '0 0 90px', padding: '8px', borderRadius: '8px' }}>
+                    <option value="รวม">รวม</option>
+                    {[1, 2, 3, 4].map(l => <option key={l} value={`Line ${l}`}>Line {l}</option>)}
+                  </select>
+                  <select className={styles.formInput} value={it.flavor} onChange={e => updatePlanRow(i, 'flavor', e.target.value)} style={{ flex: '1 1 150px', padding: '8px', borderRadius: '8px' }}>
+                    <option value="">-- เลือกรสชาติ --</option>
+                    {flavorList.map(f => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                  <input type="number" min="0" className={styles.formInput} placeholder="แผน" value={it.plannedBatches} onChange={e => updatePlanRow(i, 'plannedBatches', e.target.value)} style={{ flex: '0 0 80px', padding: '8px', borderRadius: '8px', textAlign: 'center' }} />
+                  <div style={{ flex: '1 1 160px', minWidth: '140px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#444', marginBottom: '3px' }}>
+                      <span>จริง {done}/{target}</span><span style={{ fontWeight: 'bold', color: pct >= 100 ? '#2e7d32' : '#1565c0' }}>{pct}%</span>
+                    </div>
+                    <div style={{ height: '10px', background: '#e0e0e0', borderRadius: '6px', overflow: 'hidden' }}>
+                      <div style={{ width: `${pct}%`, height: '100%', background: pct >= 100 ? 'linear-gradient(90deg,#43a047,#2e7d32)' : 'linear-gradient(90deg,#42a5f5,#1565c0)', transition: 'width 0.4s ease' }} />
+                    </div>
+                  </div>
+                  <button onClick={() => removePlanRow(i)} style={{ flex: '0 0 auto', background: '#ffebee', color: '#d32f2f', border: '1px solid #ffcdd2', borderRadius: '8px', padding: '6px 10px', cursor: 'pointer', fontSize: '0.8rem' }}>✕</button>
+                </div>
+              );
+            })}
+
+            <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+              <button onClick={addPlanRow} style={{ flex: 1, padding: '12px', background: '#e3f2fd', color: '#1565c0', border: '2px dashed #1565c0', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>➕ เพิ่มรายการ</button>
+              <button onClick={savePlan} disabled={planSaving} style={{ flex: 1, padding: '12px', background: planSaving ? '#ccc' : 'linear-gradient(135deg,#1565c0,#0d47a1)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: planSaving ? 'default' : 'pointer' }}>{planSaving ? 'กำลังบันทึก...' : '💾 บันทึกแผน'}</button>
+            </div>
+          </div>
+        )}
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', padding: '10px' }}>
         {[1, 2, 3, 4].map(lineId => {
