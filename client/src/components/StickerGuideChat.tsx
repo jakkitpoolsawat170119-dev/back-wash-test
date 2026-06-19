@@ -191,7 +191,7 @@ const StickerGuideChat: React.FC<Props> = ({ onBackToMain, darkMode = false }) =
       background: c.pageBg,
       backgroundImage: `radial-gradient(circle, ${c.pageDot} 1px, transparent 1.2px)`,
       backgroundSize: '18px 18px',
-      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+      position: 'fixed', top: '58px', left: 0, right: 0, bottom: 0,
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',
