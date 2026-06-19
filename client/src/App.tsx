@@ -390,7 +390,7 @@ const App: React.FC = () => {
           </div>
 
           <div style={{ display: appMode === 'stickerGuideChat' ? 'block' : 'none' }}>
-            <StickerGuideChat onBackToMain={() => switchMode('selection')} />
+            <StickerGuideChat onBackToMain={() => switchMode('selection')} darkMode={darkMode} />
           </div>
 
           <div style={{ display: appMode === 'stickerGuideAdmin' ? 'block' : 'none' }}>
