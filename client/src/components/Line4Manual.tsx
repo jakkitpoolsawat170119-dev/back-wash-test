@@ -12,6 +12,7 @@ interface LearningBlock {
   type: 'text' | 'image' | 'video' | 'document';
   title: string;
   content: string;
+  coverUrl?: string;
 }
 
 function getFileExt(url: string): string {
@@ -58,6 +59,7 @@ function fromDb(row: Record<string, unknown>): LearningBlock {
     type: row.type as LearningBlock['type'],
     title: (row.title as string) ?? '',
     content: row.content as string,
+    coverUrl: (row.cover_url as string | null) ?? undefined,
   };
 }
 
@@ -68,6 +70,7 @@ function toDb(block: LearningBlock): Record<string, unknown> {
     type: block.type,
     title: block.title,
     content: block.content,
+    cover_url: block.coverUrl ?? null,
   };
 }
 
@@ -431,6 +434,7 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
   const [type, setType] = useState<LearningBlock['type']>(initial?.type ?? 'text');
   const [title, setTitle] = useState(initial?.title ?? '');
   const [content, setContent] = useState(initial?.content ?? '');
+  const [coverUrl, setCoverUrl] = useState(initial?.coverUrl ?? '');
   const [uploading, setUploading] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
   const [uploadMsg, setUploadMsg] = useState('');
@@ -447,6 +451,7 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const videoFileRef = useRef<HTMLInputElement>(null);
   const docFileRef = useRef<HTMLInputElement>(null);
+  const coverFileRef = useRef<HTMLInputElement>(null);
   const inlineFileRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const editorInitialized = useRef(false);
@@ -628,6 +633,22 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
     }
   };
 
+  const handleCoverFileUpload = async (file: File) => {
+    if (supabase) {
+      setUploading(true);
+      const iv = startFakeProgress('กำลังอัปโหลดรูปหน้าปก...');
+      const url = await uploadToStorage(file);
+      finishProgress(iv);
+      if (url) setCoverUrl(url);
+      else alert('อัปโหลดรูปหน้าปกไม่สำเร็จ กรุณาลองใหม่');
+    } else {
+      if (file.size > 3 * 1024 * 1024) { alert('รูปขนาดใหญ่เกิน 3MB — กรุณาใช้ URL แทน'); return; }
+      const reader = new FileReader();
+      reader.onload = (ev) => setCoverUrl(ev.target?.result as string);
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleVideoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -676,7 +697,7 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
       : content.trim();
     setSaved(true);
     setTimeout(() => {
-      onSave({ id: initial?.id ?? genId(), stepId, type, title: title.trim(), content: finalContent });
+      onSave({ id: initial?.id ?? genId(), stepId, type, title: title.trim(), content: finalContent, coverUrl: coverUrl.trim() || undefined });
     }, 300);
   };
 
@@ -783,6 +804,37 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
               />
             </div>
           )}
+
+          {/* Cover photo — optional, used as the thumbnail in the gallery grid */}
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ fontSize: '0.7rem', color: '#888', fontWeight: '700', letterSpacing: '0.05em', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>
+              รูปหน้าปก <span style={{ fontWeight: '400', textTransform: 'none', letterSpacing: 0 }}>(ไม่บังคับ — ใช้แสดงในการ์ด)</span>
+            </label>
+            {coverUrl ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <img src={coverUrl} alt="cover" style={{ width: '56px', height: '56px', borderRadius: '10px', objectFit: 'cover', flexShrink: 0, border: '1.5px solid #eee' }} />
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button onClick={() => coverFileRef.current?.click()} style={{ background: '#f0f0f0', border: 'none', borderRadius: '8px', padding: '7px 13px', fontSize: '0.74rem', fontWeight: '600', color: '#555', cursor: 'pointer' }}>เปลี่ยนรูป</button>
+                  <button onClick={() => setCoverUrl('')} style={{ background: '#ffebee', border: 'none', borderRadius: '8px', padding: '7px 13px', fontSize: '0.74rem', fontWeight: '600', color: '#c62828', cursor: 'pointer' }}>ลบ</button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => coverFileRef.current?.click()}
+                style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1.5px dashed #ccc', background: '#fafafa', color: '#777', fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                เพิ่มรูปหน้าปก
+              </button>
+            )}
+            <input
+              ref={coverFileRef}
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleCoverFileUpload(f); e.target.value = ''; }}
+            />
+          </div>
 
           {/* Content area */}
           <div style={{ marginBottom: '16px' }}>
@@ -1464,6 +1516,10 @@ function BlockDisplay({ block, editMode, dark, reactions, myReactions, emoji, on
         transform: `translateX(${swipeX}px)`,
         transition: isSwiping ? 'none' : 'transform 0.22s cubic-bezier(0.25,0.46,0.45,0.94)',
       }}>
+        {block.coverUrl && (
+          <img src={block.coverUrl} alt="" style={{ width: '100%', height: '140px', objectFit: 'cover', display: 'block' }} />
+        )}
+
         {/* Header */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: '8px',
@@ -1781,11 +1837,15 @@ function GalleryCard({ block, dark, emoji, reactionTotal, onOpen }: GalleryCardP
     >
       {/* Thumbnail */}
       <div style={{ position: 'relative', width: '100%', paddingTop: '68%', background: cfg.bg, overflow: 'hidden' }}>
-        {block.type === 'image' && (
+        {block.coverUrl && (
+          <img src={block.coverUrl} alt={block.title} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+        )}
+
+        {!block.coverUrl && block.type === 'image' && (
           <img src={block.content} alt={block.title} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
         )}
 
-        {block.type === 'video' && ytId && (
+        {!block.coverUrl && block.type === 'video' && ytId && (
           <>
             <img src={`https://img.youtube.com/vi/${ytId}/mqdefault.jpg`} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
             <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.25)' }}>
@@ -1795,11 +1855,11 @@ function GalleryCard({ block, dark, emoji, reactionTotal, onOpen }: GalleryCardP
             </div>
           </>
         )}
-        {block.type === 'video' && !ytId && (
+        {!block.coverUrl && block.type === 'video' && !ytId && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: cfg.color }}>{cfg.icon}</div>
         )}
 
-        {block.type === 'document' && (() => {
+        {!block.coverUrl && block.type === 'document' && (() => {
           const ext = getFileExt(block.content);
           const docStyle = getDocStyle(ext);
           return (
@@ -1810,7 +1870,7 @@ function GalleryCard({ block, dark, emoji, reactionTotal, onOpen }: GalleryCardP
           );
         })()}
 
-        {block.type === 'text' && (
+        {!block.coverUrl && block.type === 'text' && (
           <div style={{ position: 'absolute', inset: 0, padding: '12px' }}>
             <div style={{ fontSize: '0.7rem', lineHeight: 1.55, color: cfg.color, overflow: 'hidden' }}>
               {snippet}
