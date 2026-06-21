@@ -2056,18 +2056,27 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
       return [...prev, block];
     });
     setEditForm(null);
-    addToast('บันทึกแล้ว!', 'success');
     if (supabase) {
       setSyncing(true);
-      await supabase.from('learning_blocks').upsert(toDb(block));
+      const { error } = await supabase.from('learning_blocks').upsert(toDb(block));
       setSyncing(false);
+      if (error) {
+        console.error('Save block error:', error);
+        alert(`บันทึกไม่สำเร็จ: ${error.message}\n\nข้อมูลจะถูกซิงค์กลับเป็นค่าล่าสุดบนเซิร์ฟเวอร์ กรุณาลองใหม่`);
+        const { data } = await supabase.from('learning_blocks').select('*').order('created_at');
+        if (data) setBlocks(data.map(fromDb));
+        return;
+      }
+      addToast('บันทึกแล้ว!', 'success');
     } else {
+      addToast('บันทึกแล้ว!', 'success');
       setBlocks(prev => { localStorage.setItem('line4-blocks', JSON.stringify(prev)); return prev; });
     }
   };
 
   const deleteBlock = async (id: string) => {
     if (!window.confirm('ลบเนื้อหานี้?')) return;
+    const removed = blocks.find(b => b.id === id);
     setBlocks(prev => {
       const next = prev.filter(b => b.id !== id);
       if (!supabase) localStorage.setItem('line4-blocks', JSON.stringify(next));
@@ -2075,8 +2084,13 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
     });
     if (supabase) {
       setSyncing(true);
-      await supabase.from('learning_blocks').delete().eq('id', id);
+      const { error } = await supabase.from('learning_blocks').delete().eq('id', id);
       setSyncing(false);
+      if (error) {
+        console.error('Delete block error:', error);
+        alert(`ลบไม่สำเร็จ: ${error.message}`);
+        if (removed) setBlocks(prev => prev.find(b => b.id === id) ? prev : [...prev, removed]);
+      }
     }
   };
 
