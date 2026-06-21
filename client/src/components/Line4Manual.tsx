@@ -9,9 +9,38 @@ interface Props {
 interface LearningBlock {
   id: string;
   stepId: number | null;
-  type: 'text' | 'image' | 'video';
+  type: 'text' | 'image' | 'video' | 'document';
   title: string;
   content: string;
+}
+
+function getFileExt(url: string): string {
+  const clean = url.split('?')[0].split('#')[0];
+  const last = clean.split('.').pop() ?? '';
+  return last.length <= 5 ? last.toLowerCase() : '';
+}
+
+function getFileNameFromUrl(url: string): string {
+  try {
+    const clean = url.split('?')[0].split('#')[0];
+    return decodeURIComponent(clean.split('/').pop() ?? url);
+  } catch {
+    return url;
+  }
+}
+
+const DOC_TYPE_STYLE: Record<string, { emoji: string; color: string }> = {
+  pdf: { emoji: '📕', color: '#c62828' },
+  doc: { emoji: '📘', color: '#1565c0' },
+  docx: { emoji: '📘', color: '#1565c0' },
+  xls: { emoji: '📗', color: '#2e7d32' },
+  xlsx: { emoji: '📗', color: '#2e7d32' },
+  ppt: { emoji: '📙', color: '#e65100' },
+  pptx: { emoji: '📙', color: '#e65100' },
+};
+
+function getDocStyle(ext: string) {
+  return DOC_TYPE_STYLE[ext] ?? { emoji: '📄', color: '#546e7a' };
 }
 
 function fromDb(row: Record<string, unknown>): LearningBlock {
@@ -334,6 +363,21 @@ const TYPE_CONFIG = {
     bg: '#ffebee',
     border: '#ef9a9a',
   },
+  document: {
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="9" y1="13" x2="15" y2="13"/>
+        <line x1="9" y1="17" x2="13" y2="17"/>
+      </svg>
+    ),
+    label: 'เอกสาร',
+    desc: 'PDF / Word / Excel',
+    color: '#00695c',
+    bg: '#e0f2f1',
+    border: '#80cbc4',
+  },
 } as const;
 
 const EMOJI_CATEGORIES = [
@@ -394,6 +438,7 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
   const [insertUploading, setInsertUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const videoFileRef = useRef<HTMLInputElement>(null);
+  const docFileRef = useRef<HTMLInputElement>(null);
   const inlineFileRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const editorInitialized = useRef(false);
@@ -592,6 +637,27 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
     else alert('อัปโหลดวีดีโอไม่สำเร็จ กรุณาลองใหม่');
   };
 
+  const handleDocFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!supabase) { alert('ต้องเชื่อมต่อ Supabase ก่อนอัปโหลดเอกสาร'); return; }
+    if (file.size > 20 * 1024 * 1024) {
+      alert('ไฟล์ขนาดใหญ่เกิน 20MB กรุณาใช้ไฟล์ที่เล็กลง หรือใช้ URL แทน');
+      return;
+    }
+    setUploading(true);
+    const mb = (file.size / 1024 / 1024).toFixed(1);
+    const iv = startFakeProgress(`อัปโหลดเอกสาร (${mb} MB)...`);
+    const url = await uploadToStorage(file);
+    finishProgress(iv);
+    if (url) {
+      setContent(url);
+      if (!title.trim()) setTitle(file.name);
+    } else {
+      alert('อัปโหลดเอกสารไม่สำเร็จ กรุณาลองใหม่');
+    }
+  };
+
   const handleSave = () => {
     const textContent = type === 'text'
       ? (editorRef.current?.textContent ?? content).trim()
@@ -660,7 +726,7 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
         <div style={{ padding: '0 14px 28px' }}>
 
           {/* Type selector — card grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', marginBottom: '16px' }}>
             {(Object.entries(TYPE_CONFIG) as [LearningBlock['type'], typeof TYPE_CONFIG.text][]).map(([t, c]) => (
               <button
                 key={t}
@@ -714,7 +780,7 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
           <div style={{ marginBottom: '16px' }}>
             {type !== 'text' && (
               <label style={{ fontSize: '0.7rem', color: '#888', fontWeight: '700', letterSpacing: '0.05em', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>
-                {type === 'image' ? 'รูปภาพ' : 'วีดีโอ'}
+                {type === 'image' ? 'รูปภาพ' : type === 'document' ? 'เอกสาร' : 'วีดีโอ'}
               </label>
             )}
 
@@ -1185,6 +1251,67 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
                 <input ref={videoFileRef} type="file" accept="video/*" onChange={handleVideoFile} style={{ display: 'none' }} />
               </div>
             )}
+
+            {type === 'document' && (() => {
+              const ext = content ? getFileExt(content) : '';
+              const docStyle = getDocStyle(ext);
+              return (
+                <div>
+                  <div
+                    onClick={() => docFileRef.current?.click()}
+                    style={{
+                      border: `2px dashed ${content ? cfg.border : '#ddd'}`,
+                      borderRadius: '14px', padding: '20px 16px', textAlign: 'center',
+                      cursor: uploading ? 'default' : 'pointer', background: content ? cfg.bg + '44' : '#fafafa',
+                      transition: 'all 0.18s ease', marginBottom: '10px',
+                    }}
+                  >
+                    {content ? (
+                      <div style={{ animation: 'fadeIn 0.3s ease', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}>
+                        <span style={{ fontSize: '2rem', lineHeight: 1, flexShrink: 0 }}>{docStyle.emoji}</span>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontWeight: '700', fontSize: '0.82rem', color: '#333', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {title.trim() || getFileNameFromUrl(content)}
+                          </div>
+                          <div style={{ fontSize: '0.68rem', color: cfg.color, marginTop: '4px', fontWeight: '600' }}>
+                            กดเพื่อเปลี่ยนไฟล์
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ color: '#ccc', marginBottom: '8px' }}>{cfg.icon}</div>
+                        <div style={{ fontWeight: '700', fontSize: '0.82rem', color: '#666' }}>กดเพื่อเลือกไฟล์เอกสาร</div>
+                        <div style={{ fontSize: '0.7rem', color: '#aaa', marginTop: '4px' }}>PDF, Word, Excel, PowerPoint (สูงสุด 20MB)</div>
+                      </>
+                    )}
+                  </div>
+                  <input
+                    ref={docFileRef}
+                    type="file"
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                    onChange={handleDocFile}
+                    style={{ display: 'none' }}
+                  />
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', marginBottom: '8px' }}>
+                    <div style={{ flex: 1, height: '1px', background: '#eee' }} />
+                    <span style={{ fontSize: '0.68rem', color: '#bbb' }}>หรือใช้ URL</span>
+                    <div style={{ flex: 1, height: '1px', background: '#eee' }} />
+                  </div>
+                  <input
+                    value={content.startsWith('http') ? content : ''}
+                    onChange={(e) => setContent(e.target.value)}
+                    placeholder="https://example.com/document.pdf"
+                    style={{
+                      width: '100%', padding: '10px 13px', borderRadius: '10px',
+                      border: '1.5px solid #e8e8e8', fontSize: '0.82rem',
+                      boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit', color: '#555',
+                    }}
+                  />
+                </div>
+              );
+            })()}
           </div>
 
           {/* Upload progress bar */}
@@ -1239,7 +1366,7 @@ function EditForm({ initial, stepId, onSave, onClose }: EditFormProps) {
                   <polyline points="17 21 17 13 7 13 7 21"/>
                   <polyline points="7 3 7 8 15 8"/>
                 </svg>
-                บันทึก{type === 'text' ? 'ข้อความ' : type === 'image' ? 'รูปภาพ' : 'วีดีโอ'}
+                บันทึก{type === 'text' ? 'ข้อความ' : type === 'image' ? 'รูปภาพ' : type === 'document' ? 'เอกสาร' : 'วีดีโอ'}
               </>
             )}
           </button>
@@ -1340,7 +1467,7 @@ function BlockDisplay({ block, editMode, dark, reactions, myReactions, emoji, on
             title={editMode ? 'คลิกเพื่อเปลี่ยนอิโมจิ' : undefined}
             style={{
               width: '26px', height: '26px', borderRadius: '7px', flexShrink: 0,
-              background: emoji ? 'transparent' : (block.type === 'text' ? '#e3f2fd' : block.type === 'image' ? '#f3e5f5' : '#ffebee'),
+              background: emoji ? 'transparent' : (block.type === 'text' ? '#e3f2fd' : block.type === 'image' ? '#f3e5f5' : block.type === 'document' ? '#e0f2f1' : '#ffebee'),
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               border: editMode ? `1.5px dashed ${showIconPicker ? '#4caf50' : '#ccc'}` : 'none',
               cursor: editMode ? 'pointer' : 'default',
@@ -1354,11 +1481,13 @@ function BlockDisplay({ block, editMode, dark, reactions, myReactions, emoji, on
               ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#1565c0" strokeWidth="2.5" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
               : block.type === 'image'
               ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6a1b9a" strokeWidth="2.5" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="21 15 16 10 5 21"/></svg>
+              : block.type === 'document'
+              ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#00695c" strokeWidth="2.5" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
               : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#b71c1c" strokeWidth="2.5" strokeLinecap="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
             }
           </button>
           <span style={{ fontWeight: '700', fontSize: '0.8rem', color: textColor, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {block.title || (block.type === 'text' ? 'บันทึก' : block.type === 'image' ? 'รูปภาพ' : 'วีดีโอ')}
+            {block.title || (block.type === 'text' ? 'บันทึก' : block.type === 'image' ? 'รูปภาพ' : block.type === 'document' ? getFileNameFromUrl(block.content) : 'วีดีโอ')}
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '3px', flexShrink: 0 }}>
             {/* Move up/down in edit mode */}
@@ -1530,6 +1659,45 @@ function BlockDisplay({ block, editMode, dark, reactions, myReactions, emoji, on
             <source src={block.content} />
           </video>
         )}
+
+        {block.type === 'document' && (() => {
+          const ext = getFileExt(block.content);
+          const docStyle = getDocStyle(ext);
+          const fileName = block.title || getFileNameFromUrl(block.content);
+          return (
+            <div style={{ padding: '12px 14px' }}>
+              <a
+                href={block.content}
+                download={fileName}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '12px', textDecoration: 'none',
+                  background: dark ? '#0f172a' : '#fafafa', border: `1.5px solid ${dark ? '#334155' : '#eee'}`,
+                  borderRadius: '12px', padding: '12px 14px', transition: 'border-color 0.15s, background-color 0.15s',
+                }}
+              >
+                <span style={{ fontSize: '1.8rem', lineHeight: 1, flexShrink: 0 }}>{docStyle.emoji}</span>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontWeight: '700', fontSize: '0.82rem', color: textColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {fileName}
+                  </div>
+                  <div style={{ fontSize: '0.65rem', color: docStyle.color, marginTop: '3px', fontWeight: '700', textTransform: 'uppercase' }}>
+                    {ext || 'ไฟล์'}
+                  </div>
+                </div>
+                <div style={{
+                  flexShrink: 0, width: '32px', height: '32px', borderRadius: '50%',
+                  background: docStyle.color, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                </div>
+              </a>
+            </div>
+          );
+        })()}
 
         {/* Reactions bar */}
         <div style={{
