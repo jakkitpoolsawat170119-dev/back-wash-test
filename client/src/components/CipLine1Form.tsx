@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { usePageLock } from '../hooks/usePageLock';
 import LockBanner from './LockBanner';
+import FooterBar, { ProgressBadge } from './FooterBar';
 
 const apiUrl = "https://back-wash-test.onrender.com";
 
@@ -394,10 +395,11 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
         </div>
       )}
 
-      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'white', padding: '12px 15px', borderTop: `2px solid ${accent}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 100 }}>
-        <button onClick={onBackToMain} style={{ background: '#f5f5f5', border: '1px solid #ddd', borderRadius: '10px', padding: '10px 16px', fontSize: '0.85rem', cursor: 'pointer', color: '#666', fontWeight: 'bold' }}>🔙 เมนูหลัก</button>
-        <div style={{ fontSize: '0.85rem', color: accent, fontWeight: 'bold' }}>✅ {doneCount}/7</div>
-      </div>
+      <FooterBar
+        accentColor={accent}
+        onHome={onBackToMain}
+        right={<ProgressBadge done={doneCount} total={7} color={accent} />}
+      />
     </div>
   );
 };

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import styles from '../App.module.css';
+import FooterBar, { OperatorBadge } from './FooterBar';
 
 interface ProductionRecordProps {
   operatorName: string;
@@ -583,12 +584,14 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
         </div>
       )}
 
-      {/* Footer Menu */}
-      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#fff', padding: '15px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '2px solid #4caf50', boxShadow: '0 -4px 15px rgba(0,0,0,0.1)', zIndex: 100 }}>
-        <button onClick={() => { const pin = window.prompt("กรุณาใส่รหัสผ่านเพื่อกลับหน้าแรก:"); if (pin === "1234") onHome(); else if (pin !== null) alert("รหัสผ่านไม่ถูกต้อง!"); }} style={{ background: '#f5f5f5', border: '1px solid #ddd', borderRadius: '10px', padding: '10px 20px', fontSize: '0.9rem', cursor: 'pointer', color: '#333', fontWeight: 'bold' }}>🏠 Home</button>
-        <button onClick={finishSession} style={{ background: '#d32f2f', color: 'white', border: 'none', borderRadius: '10px', padding: '10px 20px', fontSize: '0.85rem', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 10px rgba(211, 47, 47, 0.3)' }}>🏁 สิ้นสุดการทำงาน</button>
-        <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#333' }}>👤 <span style={{ color: '#2e7d32' }}>{operatorName}</span></div>
-      </div>
+      <FooterBar
+        accentColor="#4caf50"
+        homeLabel="Home"
+        onHome={() => { const pin = window.prompt("กรุณาใส่รหัสผ่านเพื่อกลับหน้าแรก:"); if (pin === "1234") onHome(); else if (pin !== null) alert("รหัสผ่านไม่ถูกต้อง!"); }}
+        finishLabel="สิ้นสุดการทำงาน"
+        onFinish={finishSession}
+        right={<OperatorBadge name={operatorName} color="#2e7d32" />}
+      />
     </div>
   );
 };

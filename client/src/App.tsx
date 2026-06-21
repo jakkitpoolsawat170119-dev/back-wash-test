@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Login from './components/Login';
+import Splash from './components/Splash';
 import Logbook from './components/Logbook';
 import CipLine2Form from './components/CipLine2Form';
 import CipLine1Form from './components/CipLine1Form';
@@ -19,10 +20,15 @@ const App: React.FC = () => {
   const [isCipLabActive, setIsCipLabActive] = useState(false);
   const [isProdActive, setIsProdActive] = useState(false);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === '1');
+  const [showSplash, setShowSplash] = useState(true);
+  const [splashFadeOut, setSplashFadeOut] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('operator');
     if (saved) setOperator(saved);
+    const fadeTimer = setTimeout(() => setSplashFadeOut(true), 1000);
+    const removeTimer = setTimeout(() => setShowSplash(false), 1450);
+    return () => { clearTimeout(fadeTimer); clearTimeout(removeTimer); };
   }, []);
 
   useEffect(() => {
@@ -149,20 +155,24 @@ const App: React.FC = () => {
         }
       `}</style>
 
-      <button
-        onClick={() => setDarkMode(d => !d)}
-        title={darkMode ? 'สลับเป็นหน้าจอสว่าง' : 'สลับเป็นหน้าจอมืด'}
-        style={{
-          position: 'fixed', top: '10px', left: '10px', zIndex: 500,
-          width: '40px', height: '40px', borderRadius: '50%',
-          border: '1px solid rgba(0,0,0,0.08)', background: '#fff',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: 'pointer', fontSize: '1.1rem', boxShadow: '0 2px 10px rgba(0,0,0,0.12)',
-          filter: darkMode ? 'invert(1) hue-rotate(180deg)' : 'none',
-        }}
-      >
-        {darkMode ? '☀️' : '🌙'}
-      </button>
+      {showSplash && <Splash fadeOut={splashFadeOut} />}
+
+      {(!operator || appMode === 'selection') && (
+        <button
+          onClick={() => setDarkMode(d => !d)}
+          title={darkMode ? 'สลับเป็นหน้าจอสว่าง' : 'สลับเป็นหน้าจอมืด'}
+          style={{
+            position: 'fixed', top: '10px', left: '10px', zIndex: 500,
+            width: '34px', height: '34px', borderRadius: '50%',
+            border: '1px solid rgba(0,0,0,0.08)', background: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer', fontSize: '0.95rem', boxShadow: '0 2px 10px rgba(0,0,0,0.12)',
+            filter: darkMode ? 'invert(1) hue-rotate(180deg)' : 'none',
+          }}
+        >
+          {darkMode ? '☀️' : '🌙'}
+        </button>
+      )}
 
       {!operator ? (
         <div style={{ animation: 'fadeIn 0.5s' }}>
@@ -176,10 +186,23 @@ const App: React.FC = () => {
             position: 'fixed', top: 0, left: 0, right: 0, zIndex: 200,
             background: 'white', borderBottom: '2px solid #eee',
             padding: '8px 10px',
-            display: 'flex', gap: '6px', overflowX: 'auto',
+            display: 'flex', alignItems: 'center', gap: '8px',
             boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
-            WebkitOverflowScrolling: 'touch' as any,
           }}>
+            <button
+              onClick={() => setDarkMode(d => !d)}
+              title={darkMode ? 'สลับเป็นหน้าจอสว่าง' : 'สลับเป็นหน้าจอมืด'}
+              style={{
+                flexShrink: 0, width: '30px', height: '30px', borderRadius: '50%',
+                border: '1.5px solid #e0e0e0', background: '#f5f5f5',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: 'pointer', fontSize: '0.85rem',
+                filter: darkMode ? 'invert(1) hue-rotate(180deg)' : 'none',
+              }}
+            >
+              {darkMode ? '☀️' : '🌙'}
+            </button>
+            <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', WebkitOverflowScrolling: 'touch' as any }}>
             {([
               { mode: 'selection', icon: '🏠', label: 'หน้าหลัก', color: '#37474f' },
               { mode: 'cipLine1', icon: '💧', label: 'Line 1', color: '#0d47a1' },
@@ -205,6 +228,7 @@ const App: React.FC = () => {
                 {icon} {label}
               </button>
             ))}
+            </div>
           </div>
         )}
         <div className={isFlipping ? 'flip-active' : ''} style={{ paddingTop: appMode !== 'selection' ? '58px' : '0' }}>

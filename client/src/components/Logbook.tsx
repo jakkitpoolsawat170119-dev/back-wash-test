@@ -3,6 +3,7 @@ import styles from '../App.module.css';
 import { cipSteps } from '../data/steps';
 import { usePageLock } from '../hooks/usePageLock';
 import LockBanner from './LockBanner';
+import FooterBar, { OperatorBadge } from './FooterBar';
 
 interface LogbookProps {
   operatorName: string;
@@ -342,11 +343,14 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, o
         );
       })()}
 
-      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#fff', padding: '15px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '2px solid #ff6b00', zIndex: 100 }}>
-        <button onClick={() => { const p = window.prompt("รหัส:"); if (p === "1234") onHome(); }} style={{ background: '#f5f5f5', border: '1px solid #ddd', borderRadius: '10px', padding: '10px 15px' }}>🏠 Home</button>
-        <button onClick={finishSession} style={{ background: '#d32f2f', color: 'white', border: 'none', borderRadius: '10px', padding: '10px 15px', fontWeight: 'bold' }}>🏁 สิ้นสุดการทำงาน</button>
-        <div style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>👤 {operatorName}</div>
-      </div>
+      <FooterBar
+        accentColor="#ff6b00"
+        homeLabel="Home"
+        onHome={() => { const p = window.prompt("รหัส:"); if (p === "1234") onHome(); }}
+        finishLabel="สิ้นสุดการทำงาน"
+        onFinish={finishSession}
+        right={<OperatorBadge name={operatorName} color="#ff6b00" />}
+      />
     </div>
   );
 };

@@ -76,63 +76,6 @@
   box-shadow: 0 4px 8px rgba(255, 107, 0, 0.2);
 }
 
-.operatorButtons {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 24px;
-}
-
-.btnOperator {
-  padding: 18px;
-  font-size: 1.1rem;
-  background-color: #fafafa;
-  color: #333333;
-  border: 1px solid #eeeeee;
-  border-radius: 16px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.btnOperator:hover {
-  background-color: #fff5eb;
-  border-color: #ffbd8a;
-}
-
-.btnOperator.active {
-  background: linear-gradient(135deg, #ffd700, #ff8c00) !important;
-  color: #000000 !important;
-  border: 2px solid #ffffff !important;
-  box-shadow: 0 10px 20px rgba(255, 215, 0, 0.4);
-  position: relative;
-  overflow: hidden;
-}
-
-/* 🏆 Golden Shine Animation */
-.btnOperator.active::after {
-  content: "";
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: linear-gradient(
-    45deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.1) 30%,
-    rgba(255, 255, 255, 0.8) 50%,
-    rgba(255, 255, 255, 0.1) 70%,
-    transparent 100%
-  );
-  transform: rotate(45deg);
-  animation: shine 2.5s infinite linear;
-}
-
-@keyframes shine {
-  0% { left: -150%; }
-  100% { left: 150%; }
-}
-
 .welcomeMsg {
   background: rgba(255, 255, 255, 0.9);
   padding: 15px 25px;
@@ -160,24 +103,6 @@
   flex-direction: column;
   align-items: center;
   gap: 12px;
-}
-
-.inputField {
-  padding: 16px;
-  font-size: 1.8rem;
-  width: 180px;
-  text-align: center;
-  border: 2px solid #f0f0f0;
-  border-radius: 16px;
-  outline: none;
-  transition: border-color 0.2s;
-  letter-spacing: 8px;
-  color: #000000 !important;
-  background-color: #ffffff !important;
-}
-
-.inputField:focus {
-  border-color: #ff6b00;
 }
 
 /* Validation Feedback */
