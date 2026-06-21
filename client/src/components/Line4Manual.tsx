@@ -2459,6 +2459,7 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
                 <div onClick={() => setOpenGlobalBlockId(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 150, backdropFilter: 'blur(2px)' }} />
                 <div style={{
                   position: 'fixed', left: '50%', top: '50%', zIndex: 151,
+                  transform: 'translate(-50%, -50%)',
                   width: 'min(92vw, 480px)', maxHeight: '86vh', display: 'flex', flexDirection: 'column',
                   animation: 'l4ModalIn 0.2s cubic-bezier(0.22,1,0.36,1)',
                 }}>
