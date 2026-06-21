@@ -43,6 +43,14 @@ function getDocStyle(ext: string) {
   return DOC_TYPE_STYLE[ext] ?? { emoji: '📄', color: '#546e7a' };
 }
 
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function truncate(text: string, max: number): string {
+  return text.length > max ? text.slice(0, max).trim() + '…' : text;
+}
+
 function fromDb(row: Record<string, unknown>): LearningBlock {
   return {
     id: row.id as string,
@@ -1737,6 +1745,109 @@ function BlockDisplay({ block, editMode, dark, reactions, myReactions, emoji, on
   );
 }
 
+// ---- GalleryCard (compact card for grid view) ----
+
+interface GalleryCardProps {
+  block: LearningBlock;
+  dark: boolean;
+  emoji?: string;
+  reactionTotal: number;
+  onOpen: () => void;
+}
+
+function GalleryCard({ block, dark, emoji, reactionTotal, onOpen }: GalleryCardProps) {
+  const cfg = TYPE_CONFIG[block.type];
+  const ytId = block.type === 'video' ? getYouTubeId(block.content) : null;
+  const cardBg = dark ? '#1e293b' : '#ffffff';
+  const borderColor = dark ? '#334155' : '#e8f5e9';
+  const titleColor = dark ? '#e2e8f0' : '#222';
+  const mutedColor = dark ? '#64748b' : '#999';
+
+  const fallbackTitle = block.type === 'text' ? 'บันทึก' : block.type === 'image' ? 'รูปภาพ' : block.type === 'document' ? getFileNameFromUrl(block.content) : 'วีดีโอ';
+  const displayTitle = truncate(block.title || fallbackTitle, 46);
+  const snippet = block.type === 'text' ? truncate(stripHtml(block.content) || '...', 110) : '';
+
+  return (
+    <button
+      onClick={onOpen}
+      className="l4-gallery-card"
+      style={{
+        display: 'block', width: '100%', padding: 0, textAlign: 'left',
+        background: cardBg, border: `1.5px solid ${borderColor}`, borderRadius: '14px',
+        overflow: 'hidden', cursor: 'pointer', fontFamily: 'inherit',
+        boxShadow: dark ? '0 2px 12px rgba(0,0,0,0.35)' : '0 2px 10px rgba(46,125,50,0.08)',
+        transition: 'transform 0.16s cubic-bezier(0.22,1,0.36,1), box-shadow 0.16s ease',
+      }}
+    >
+      {/* Thumbnail */}
+      <div style={{ position: 'relative', width: '100%', paddingTop: '68%', background: cfg.bg, overflow: 'hidden' }}>
+        {block.type === 'image' && (
+          <img src={block.content} alt={block.title} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+        )}
+
+        {block.type === 'video' && ytId && (
+          <>
+            <img src={`https://img.youtube.com/vi/${ytId}/mqdefault.jpg`} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.25)' }}>
+              <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#ff0000', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.4)' }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              </div>
+            </div>
+          </>
+        )}
+        {block.type === 'video' && !ytId && (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: cfg.color }}>{cfg.icon}</div>
+        )}
+
+        {block.type === 'document' && (() => {
+          const ext = getFileExt(block.content);
+          const docStyle = getDocStyle(ext);
+          return (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+              <span style={{ fontSize: '2.3rem', lineHeight: 1 }}>{docStyle.emoji}</span>
+              {ext && <span style={{ fontSize: '0.6rem', fontWeight: '700', color: docStyle.color, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{ext}</span>}
+            </div>
+          );
+        })()}
+
+        {block.type === 'text' && (
+          <div style={{ position: 'absolute', inset: 0, padding: '12px' }}>
+            <div style={{ fontSize: '0.7rem', lineHeight: 1.55, color: cfg.color, overflow: 'hidden' }}>
+              {snippet}
+            </div>
+          </div>
+        )}
+
+        {emoji && (
+          <div style={{
+            position: 'absolute', top: '6px', left: '6px', width: '24px', height: '24px', borderRadius: '7px',
+            background: 'rgba(255,255,255,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '0.85rem', boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
+          }}>{emoji}</div>
+        )}
+
+        {reactionTotal > 0 && (
+          <div style={{
+            position: 'absolute', bottom: '6px', right: '6px', background: 'rgba(0,0,0,0.62)', color: 'white',
+            fontSize: '0.62rem', fontWeight: '700', borderRadius: '20px', padding: '2px 7px',
+          }}>👍 {reactionTotal}</div>
+        )}
+      </div>
+
+      {/* Title + type label */}
+      <div style={{ padding: '9px 10px' }}>
+        <div style={{ fontWeight: '700', fontSize: '0.76rem', color: titleColor, lineHeight: 1.35, minHeight: '2em' }}>
+          {displayTitle}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '5px' }}>
+          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: cfg.color, flexShrink: 0 }} />
+          <span style={{ fontSize: '0.6rem', color: mutedColor, fontWeight: '600' }}>{cfg.label}</span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
 // ---- Main Component ----
 
 const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
@@ -1747,6 +1858,7 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
   const [syncing, setSyncing] = useState(false);
   const [editForm, setEditForm] = useState<{ stepId: number | null; block: LearningBlock | null } | null>(null);
   const [showGlobal, setShowGlobal] = useState(true);
+  const [openGlobalBlockId, setOpenGlobalBlockId] = useState<string | null>(null);
 
   // New feature states
   const [dark, setDark] = useState(() => localStorage.getItem('l4-dark') === '1');
@@ -1942,6 +2054,10 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
     <div style={{ background: pageBg, minHeight: '100vh', paddingBottom: '80px', transition: 'background 0.3s' }}>
       <style>{`
         @keyframes toastIn { from { transform: translateY(-20px) scale(0.92); opacity: 0; } to { transform: none; opacity: 1; } }
+        @keyframes l4ModalIn { from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+        .l4-gallery-card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(46,125,50,0.16); }
+        .l4-gallery-card:active { transform: translateY(0) scale(0.98); }
+        .l4-gallery-card:focus-visible { outline: 2px solid #4caf50; outline-offset: 2px; }
         @media print {
           body * { visibility: hidden; }
           #l4-print-area, #l4-print-area * { visibility: visible; }
@@ -2236,14 +2352,20 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
                     กด ✏️ ที่มุมขวาบน เพื่อเพิ่มรูป วีดีโอ หรือบันทึกสำหรับเรียนรู้
                   </div>
                 )}
-                {globalBlocks.map((block, idx) => (
-                  <BlockDisplay
-                    key={block.id}
-                    {...blockDisplayProps(block, null)}
-                    onMoveUp={idx > 0 ? () => moveBlock(block.id, 'up') : undefined}
-                    onMoveDown={idx < globalBlocks.length - 1 ? () => moveBlock(block.id, 'down') : undefined}
-                  />
-                ))}
+                {globalBlocks.length > 0 && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginBottom: '12px' }}>
+                    {globalBlocks.map(block => (
+                      <GalleryCard
+                        key={block.id}
+                        block={block}
+                        dark={dark}
+                        emoji={blockEmojis[block.id]}
+                        reactionTotal={Object.values(reactions[block.id] ?? {}).reduce((a, b) => a + b, 0)}
+                        onOpen={() => setOpenGlobalBlockId(block.id)}
+                      />
+                    ))}
+                  </div>
+                )}
                 {editMode && (
                   <button onClick={() => setEditForm({ stepId: null, block: null })} style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '2px dashed #a5d6a7', background: dark ? '#0f172a' : '#f1f8e9', color: '#2e7d32', fontSize: '0.82rem', fontWeight: '600', cursor: 'pointer', marginBottom: '4px' }}>
                     + เพิ่มเนื้อหา / รูปภาพ / วีดีโอ สำหรับเรียนรู้
@@ -2252,6 +2374,37 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
               </>
             )}
           </div>
+
+          {(() => {
+            if (!openGlobalBlockId) return null;
+            const idx = globalBlocks.findIndex(b => b.id === openGlobalBlockId);
+            const block = globalBlocks[idx];
+            if (!block) return null;
+            return (
+              <>
+                <div onClick={() => setOpenGlobalBlockId(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 150, backdropFilter: 'blur(2px)' }} />
+                <div style={{
+                  position: 'fixed', left: '50%', top: '50%', zIndex: 151,
+                  width: 'min(92vw, 480px)', maxHeight: '86vh', display: 'flex', flexDirection: 'column',
+                  animation: 'l4ModalIn 0.2s cubic-bezier(0.22,1,0.36,1)',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px', flexShrink: 0 }}>
+                    <button
+                      onClick={() => setOpenGlobalBlockId(null)}
+                      style={{ width: '34px', height: '34px', borderRadius: '50%', background: 'white', border: 'none', boxShadow: '0 2px 10px rgba(0,0,0,0.25)', cursor: 'pointer', fontSize: '1rem', color: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >✕</button>
+                  </div>
+                  <div style={{ overflowY: 'auto', borderRadius: '16px' }}>
+                    <BlockDisplay
+                      {...blockDisplayProps(block, null)}
+                      onMoveUp={idx > 0 ? () => moveBlock(block.id, 'up') : undefined}
+                      onMoveDown={idx < globalBlocks.length - 1 ? () => moveBlock(block.id, 'down') : undefined}
+                    />
+                  </div>
+                </div>
+              </>
+            );
+          })()}
 
           <div style={{ padding: '12px 14px 0' }}>
             <div style={{ background: dark ? '#1c1500' : '#fff3e0', border: `1px solid ${dark ? '#92400e' : '#ffe0b2'}`, borderRadius: '12px', padding: '12px 14px', fontSize: '0.72rem', color: dark ? '#fbbf24' : '#e65100', lineHeight: '1.6' }}>
