@@ -31,18 +31,20 @@ function nowLabel() {
   return new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
 }
 
+function makeWelcomeEntry(): ChatEntry {
+  return {
+    id: makeId(),
+    role: 'bot',
+    messages: [
+      { type: 'text', text: 'สวัสดีค่ะ 👋 พิมพ์ชื่อลูกค้าเพื่อค้นหาวิธีติดสติ๊กเกอร์ได้เลย เช่น "วิธีติดสติ๊กเกอร์ลูกค้า Kaoshop"' },
+    ],
+    time: nowLabel(),
+  };
+}
+
 const StickerGuideChat: React.FC<Props> = ({ onBackToMain, darkMode = false }) => {
-  const [sessionId] = useState(() => makeId());
-  const [entries, setEntries] = useState<ChatEntry[]>([
-    {
-      id: makeId(),
-      role: 'bot',
-      messages: [
-        { type: 'text', text: 'สวัสดีค่ะ 👋 พิมพ์ชื่อลูกค้าเพื่อค้นหาวิธีติดสติ๊กเกอร์ได้เลย เช่น "วิธีติดสติ๊กเกอร์ลูกค้า Kaoshop"' },
-      ],
-      time: nowLabel(),
-    },
-  ]);
+  const [sessionId, setSessionId] = useState(() => makeId());
+  const [entries, setEntries] = useState<ChatEntry[]>([makeWelcomeEntry()]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
@@ -138,6 +140,12 @@ const StickerGuideChat: React.FC<Props> = ({ onBackToMain, darkMode = false }) =
     resumeTimeout.current = setTimeout(() => { autoScrollPaused.current = false; }, 3000);
   };
 
+  const resetChat = () => {
+    setEntries([makeWelcomeEntry()]);
+    setInput('');
+    setSessionId(makeId());
+  };
+
   const sendMessage = async (overrideText?: string) => {
     const text = (overrideText ?? input).trim();
     if (!text || sending) return;
@@ -212,6 +220,7 @@ const StickerGuideChat: React.FC<Props> = ({ onBackToMain, darkMode = false }) =
         }
         .sgc-send:active { transform: scale(0.92); }
         .sgc-back:hover { background: rgba(255,255,255,0.32); }
+        .sgc-back:active { transform: scale(0.9); }
         .sgc-input:focus { border-color: ${BRAND.from}; box-shadow: 0 0 0 3px ${darkMode ? 'rgba(255,138,31,0.22)' : 'rgba(255,107,0,0.12)'}; }
         .sgc-chips-row { scrollbar-width: none; }
         .sgc-chips-row::-webkit-scrollbar { display: none; }
@@ -245,13 +254,32 @@ const StickerGuideChat: React.FC<Props> = ({ onBackToMain, darkMode = false }) =
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem',
         }}>🏷️</div>
 
-        <div style={{ minWidth: 0 }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: '1rem', letterSpacing: '-0.01em' }}>ผู้ช่วยติดสติ๊กเกอร์</div>
           <div style={{ fontSize: '0.7rem', opacity: 0.9, display: 'flex', alignItems: 'center', gap: '5px' }}>
             <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#7CFFB2', display: 'inline-block', boxShadow: '0 0 0 2px rgba(124,255,178,0.25)' }} />
             ออนไลน์ · ตอบกลับไว
           </div>
         </div>
+
+        {entries.length > 1 && (
+          <button
+            onClick={resetChat}
+            className="sgc-back"
+            title="เริ่มแชทใหม่"
+            style={{
+              background: 'rgba(255,255,255,0.18)', border: 'none', color: c.headerText,
+              borderRadius: '50%', width: '34px', height: '34px', flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', transition: 'background-color 0.15s, transform 0.15s',
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c.headerText} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 12a9 9 0 1 0 2.6-6.3" />
+              <polyline points="3 4 3 9 8 9" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* Message list */}
@@ -352,7 +380,8 @@ const StickerGuideChat: React.FC<Props> = ({ onBackToMain, darkMode = false }) =
           disabled={sending}
           className="sgc-input"
           style={{
-            flex: 1, padding: '12px 16px', borderRadius: '24px', border: `1.5px solid ${c.inputBorder}`,
+            flex: 1, minWidth: 0, boxSizing: 'border-box',
+            padding: '12px 16px', borderRadius: '24px', border: `1.5px solid ${c.inputBorder}`,
             fontSize: '0.9rem', outline: 'none', transition: 'border-color 0.15s, box-shadow 0.15s',
             background: sending ? (darkMode ? '#171c24' : '#f7f5f1') : c.inputBg,
             color: c.inputText,

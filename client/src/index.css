@@ -40,6 +40,14 @@ h1, h2, h3, h4, h5, h6 {
   color: #000000;
 }
 
-input, button, textarea {
+input, button, textarea, select {
   font-family: inherit;
+}
+
+/* Prevent form controls from overflowing or expanding their container.
+   min-width:0 lets a flex-item input shrink instead of pushing siblings
+   (e.g. a send button) off-screen; max-width:100% caps standalone fields. */
+input, textarea, select {
+  min-width: 0;
+  max-width: 100%;
 }

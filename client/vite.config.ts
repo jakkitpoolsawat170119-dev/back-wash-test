@@ -8,5 +8,6 @@ export default defineConfig({
     host: true, // Listen on all network interfaces (0.0.0.0)
     port: 5173,
     strictPort: true, // Don't try other ports if 5173 is busy
+    allowedHosts: ['.loca.lt'], // allow localtunnel public URLs for phone testing
   },
 })
