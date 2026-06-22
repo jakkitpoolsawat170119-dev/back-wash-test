@@ -51,3 +51,13 @@ input, textarea, select {
   min-width: 0;
   max-width: 100%;
 }
+
+/* On touch devices, iOS Safari auto-zooms the whole page whenever a focused
+   form control has a font-size below 16px, which shoves edge buttons (e.g.
+   the chat send button) out of view. Force 16px on phones/tablets to stop it;
+   desktop keeps the designed sizes. */
+@media (max-width: 768px) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+}
