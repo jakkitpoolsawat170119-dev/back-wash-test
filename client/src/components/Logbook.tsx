@@ -28,10 +28,20 @@ interface StepData {
 const apiUrl = "https://back-wash-test.onrender.com";
 
 const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, onStatusChange }) => {
-  const [batchId, setBatchId] = useState<number | null>(null);
-  const [batchStartTime, setBatchStartTime] = useState<string>('');
-  const [stepData, setStepData] = useState<Record<number, StepData>>({});
-  const [expandedStep, setExpandedStep] = useState<number | null>(1);
+  // กันข้อมูลหายตอนปิดหน้าจอ/Reload — เก็บร่างไว้ใน localStorage แยกตามผู้ใช้
+  const DRAFT_KEY = `cip_logbook_draft_v1_${operatorName}`;
+  const [draft] = useState<any>(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
+  const [restoredNotice, setRestoredNotice] = useState(!!draft && (draft.batchId != null || Object.keys(draft.stepData || {}).length > 0));
+
+  const [batchId, setBatchId] = useState<number | null>(draft?.batchId ?? null);
+  const [batchStartTime, setBatchStartTime] = useState<string>(draft?.batchStartTime || '');
+  const [stepData, setStepData] = useState<Record<number, StepData>>(draft?.stepData || {});
+  const [expandedStep, setExpandedStep] = useState<number | null>(draft?.expandedStep ?? 1);
   const [isFinishing, setIsFinishing] = useState(false);
   const [uploadingStep, setUploadingStep] = useState<number | null>(null);
   
@@ -52,6 +62,23 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, o
   const handleOpenHistory = () => { loadHistory(); setShowHistoryModal(true); };
 
   const { lockedBy, acquire, release } = usePageLock('cip-logbook', operatorName, batchId !== null);
+
+  useEffect(() => {
+    try {
+      // File ไม่สามารถ JSON.stringify ได้ — ตัดออกก่อนบันทึกร่าง (รูปถูกอัปโหลดขึ้นเซิร์ฟเวอร์แยกแล้ว)
+      const cleanStepData: Record<number, StepData> = {};
+      Object.entries(stepData).forEach(([k, v]) => {
+        const { image, ...rest } = v;
+        cleanStepData[Number(k)] = rest;
+      });
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ batchId, batchStartTime, stepData: cleanStepData, expandedStep }));
+    } catch { /* ignore quota errors */ }
+  }, [batchId, batchStartTime, stepData, expandedStep]);
+
+  useEffect(() => {
+    if (batchId !== null) onStatusChange(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const startBatchIfNeeded = async () => {
     if (batchId) return batchId;
@@ -160,6 +187,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, o
       setBatchStartTime('');
       setStepData({});
       setExpandedStep(1);
+      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
       onStatusChange(false);
     }
   };
@@ -176,6 +204,7 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, o
         body: JSON.stringify({ batchId, operatorName, startTime: batchStartTime, endTime })
       });
       alert('บันทึก CIP สำเร็จ!');
+      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
       onStatusChange(false);
       release();
       setBatchId(null);
@@ -229,6 +258,12 @@ const Logbook: React.FC<LogbookProps> = ({ operatorName, onBackToMain, onHome, o
 
       {lockedBy && <LockBanner holderName={lockedBy} />}
 
+      {restoredNotice && (
+        <div style={{ background: '#fff3e0', border: '1px solid #ffb74d', borderRadius: '12px', padding: '12px 16px', margin: '0 15px 15px 15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+          <span style={{ color: '#e65100', fontSize: '0.85rem', fontWeight: 'bold' }}>📌 กู้คืนข้อมูลที่ค้างไว้ก่อนหน้านี้แล้ว (กันข้อมูลหายตอนปิดหน้าจอ/Reload)</span>
+          <button onClick={() => setRestoredNotice(false)} style={{ background: 'transparent', border: 'none', color: '#e65100', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}>✕</button>
+        </div>
+      )}
 
       {cipSteps.map((step) => {
         const data = stepData[step.id] || { status: 'pending' };

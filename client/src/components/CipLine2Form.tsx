@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { usePageLock } from '../hooks/usePageLock';
 import LockBanner from './LockBanner';
 import FooterBar, { ProgressBadge } from './FooterBar';
@@ -45,15 +45,25 @@ interface Props {
 }
 
 const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusChange, defaultLine }) => {
-  const [tab, setTab] = useState<'front' | 'back'>('front');
-  const [sessionId, setSessionId] = useState<number | null>(null);
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [sku, setSku] = useState('');
+  // กันข้อมูลหายตอนปิดหน้าจอ/Reload — เก็บร่างไว้ใน localStorage แยกตาม Line และผู้ใช้
+  const DRAFT_KEY = `cip_line2_draft_v1_${defaultLine}_${operatorName}`;
+  const [draft] = useState<any>(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
+  const [restoredNotice, setRestoredNotice] = useState(!!draft && (draft.sessionId != null || Object.keys(draft.rows || {}).length > 0));
+
+  const [tab, setTab] = useState<'front' | 'back'>(draft?.tab || 'front');
+  const [sessionId, setSessionId] = useState<number | null>(draft?.sessionId ?? null);
+  const [date, setDate] = useState<string>(draft?.date || new Date().toISOString().split('T')[0]);
+  const [sku, setSku] = useState<string>(draft?.sku || '');
   const [line] = useState(defaultLine);
-  const [flavor, setFlavor] = useState('');
-  const [rows, setRows] = useState<Record<number, RowData>>({});
-  const [back, setBack] = useState<BackData>(defaultBack());
-  const [currentNo, setCurrentNo] = useState(1);
+  const [flavor, setFlavor] = useState<string>(draft?.flavor || '');
+  const [rows, setRows] = useState<Record<number, RowData>>(draft?.rows || {});
+  const [back, setBack] = useState<BackData>(draft?.back || defaultBack());
+  const [currentNo, setCurrentNo] = useState<number>(draft?.currentNo || 1);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [filterDate2, setFilterDate2] = useState('');
@@ -64,6 +74,15 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
 
   const lockKey = defaultLine === 'Line 2' ? 'cip-line-2' : 'cip-line-3';
   const { lockedBy, acquire, release } = usePageLock(lockKey, operatorName, sessionId !== null);
+
+  useEffect(() => {
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ sessionId, date, sku, flavor, rows, back, currentNo, tab })); } catch { /* ignore quota errors */ }
+  }, [sessionId, date, sku, flavor, rows, back, currentNo, tab]);
+
+  useEffect(() => {
+    if (sessionId !== null) onStatusChange(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const getOrCreateSession = async () => {
     if (sessionId) return sessionId;
@@ -175,6 +194,7 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
       }),
     });
     alert(`บันทึก CIP ${line} สำเร็จ!`);
+    try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
     onStatusChange(false);
     release();
     onBackToMain();
@@ -516,6 +536,12 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
   return (
     <div style={{ maxWidth: '600px', margin: '0 auto', padding: '15px 15px 100px 15px' }}>
       {lockedBy && <LockBanner holderName={lockedBy} />}
+      {restoredNotice && (
+        <div style={{ background: '#fff3e0', border: '1px solid #ffb74d', borderRadius: '12px', padding: '12px 16px', marginBottom: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+          <span style={{ color: '#e65100', fontSize: '0.85rem', fontWeight: 'bold' }}>📌 กู้คืนข้อมูลที่ค้างไว้ก่อนหน้านี้แล้ว (กันข้อมูลหายตอนปิดหน้าจอ/Reload)</span>
+          <button onClick={() => setRestoredNotice(false)} style={{ background: 'transparent', border: 'none', color: '#e65100', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}>✕</button>
+        </div>
+      )}
       <div style={{ background: 'linear-gradient(135deg, #ff6b00, #ff8c00)', borderRadius: '15px', padding: '15px', marginBottom: '15px', color: 'white', textAlign: 'center' }}>
         <h2 style={{ margin: 0, fontSize: '1.1rem' }}>📋 CIP Line Flavour Syrup</h2>
         <div style={{ fontSize: '0.85rem', opacity: 0.9, marginTop: '4px' }}>ผู้บันทึก: {operatorName}</div>
