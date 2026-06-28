@@ -484,9 +484,6 @@ const calcDuration = (startIso, endIso) => {
 };
 
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || 'https://n8n.srv1267366.hstgr.cloud/webhook/cip-report';
-// webhook ของ n8n's "Telegram Trigger" node (n8n-Telegram-Production-Chart.json, webhookId ec7c9121-...)
-// ใช้ส่งต่อข้อความที่ไม่เกี่ยวกับ "สรุป CIP" กลับไปให้ n8n จัดการเหมือนเดิม เพราะ Telegram อนุญาตแค่ webhook เดียวต่อบอท
-const N8N_TELEGRAM_TRIGGER_URL = process.env.N8N_TELEGRAM_TRIGGER_URL || 'https://n8n.srv1267366.hstgr.cloud/webhook/ec7c9121-9045-403e-943e-7ce1927be5a3';
 
 const sendToN8n = async (data) => {
   try {
@@ -649,77 +646,87 @@ const buildLineDetailToday = async (lineFilter) => {
   return { line: lineFilter, operator: sessions[0]?.operator_name || '-', target, rounds, litersUsed, efficiency, backwashCount, slices };
 };
 
-// เรนเดอร์กราฟแท่งเปรียบเทียบจำนวนรอบ CIP แต่ละ Line ผ่าน QuickChart (ไม่ต้องลง native canvas lib ฝั่ง server)
-const renderBarChart = async (slices) => {
-  const config = {
-    type: 'bar',
-    data: {
-      labels: slices.map(s => s.label),
-      datasets: [{ label: 'จำนวนรอบ', data: slices.map(s => s.value), backgroundColor: slices.map(s => s.color) }],
-    },
-  };
-  const res = await axios.get('https://quickchart.io/chart', {
-    params: { c: JSON.stringify(config), backgroundColor: 'white', width: 500, height: 350 },
-    responseType: 'arraybuffer',
-  });
+// QuickChart รับ config เดียวกันได้ทั้งแบบขอ URL รูปตรงๆ (ให้ n8n ใช้) หรือขอเป็น buffer (ให้ส่ง Telegram เอง)
+const buildQuickChartUrl = (config, width = 500, height = 500) => {
+  const params = new URLSearchParams({ c: JSON.stringify(config), backgroundColor: 'white', width: String(width), height: String(height) });
+  return `https://quickchart.io/chart?${params.toString()}`;
+};
+const fetchQuickChartBuffer = async (config, width = 500, height = 500) => {
+  const res = await axios.get(buildQuickChartUrl(config, width, height), { responseType: 'arraybuffer' });
   return Buffer.from(res.data);
 };
 
-// เรนเดอร์โดนัทสัดส่วนรอบที่ใช้ไปเทียบกับเป้าหมาย สำหรับรายงานราย Line
-const renderDonutChart = async (slices) => {
-  const config = {
-    type: 'doughnut',
-    data: {
-      labels: slices.map(s => s.label),
-      datasets: [{ data: slices.map(s => s.value), backgroundColor: slices.map(s => s.color) }],
-    },
-    options: { plugins: { legend: { position: 'bottom' } } },
-  };
-  const res = await axios.get('https://quickchart.io/chart', {
-    params: { c: JSON.stringify(config), backgroundColor: 'white', width: 500, height: 500 },
-    responseType: 'arraybuffer',
-  });
-  return Buffer.from(res.data);
+const barChartConfig = (slices) => ({
+  type: 'bar',
+  data: { labels: slices.map(s => s.label), datasets: [{ label: 'จำนวนรอบ', data: slices.map(s => s.value), backgroundColor: slices.map(s => s.color) }] },
+});
+const donutChartConfig = (slices) => ({
+  type: 'doughnut',
+  data: { labels: slices.map(s => s.label), datasets: [{ data: slices.map(s => s.value), backgroundColor: slices.map(s => s.color) }] },
+  options: { plugins: { legend: { position: 'bottom' } } },
+});
+
+// ตรรกะกลางของคำสั่ง "สรุป CIP" — ใช้ทั้งจาก /api/telegram/webhook (ส่งเอง) และ /api/cip-summary (ให้ n8n เรียกแล้วส่งเอง)
+const buildCipReplyPayload = async (rawText) => {
+  const text = (rawText || '').trim().toLowerCase();
+  const lineFilter = detectLineFilter(text);
+  const isCipCommand = text.includes('สรุป') && (text.includes('cip') || lineFilter);
+  if (!isCipCommand) return { matched: false };
+
+  if (lineFilter) {
+    const d = await buildLineDetailToday(lineFilter);
+    const lines = [
+      `🍩 <b>สรุป CIP ${escapeHtml(d.line)}</b>`,
+      `👤 ผู้ปฏิบัติงานล่าสุด: ${escapeHtml(d.operator)}`,
+    ];
+    if (d.target !== undefined) lines.push(`🎯 เป้าหมาย: ${d.target} ขั้นตอน (รอบ)`);
+    lines.push(`🔄 จำนวนรอบวันนี้: ${d.rounds} รอบ`);
+    if (d.backwashCount !== undefined) lines.push(`🧴 Backwash: ${d.backwashCount} ครั้ง`);
+    if (d.litersUsed !== undefined) lines.push(`💧 น้ำ RO ที่ใช้: ${d.litersUsed} ลิตร`);
+    if (d.efficiency !== undefined) lines.push(`📊 ประสิทธิภาพการใช้น้ำ RO: ${d.efficiency === null ? 'ยังไม่มีข้อมูลวันนี้' : `${d.efficiency}%`}`);
+    return { matched: true, caption: lines.join('\n'), chartConfig: d.slices ? donutChartConfig(d.slices) : null, width: 500, height: 500 };
+  }
+
+  const slices = await buildTodayRoundsByLine();
+  return { matched: true, caption: '📊 <b>จำนวนรอบ CIP วันนี้ แยกตาม Line</b>', chartConfig: barChartConfig(slices), width: 500, height: 350 };
 };
 
+// เก็บไว้เผื่อใช้ในอนาคต — ตอนนี้ n8n's Telegram Trigger เป็นเจ้าของ webhook ของบอทอยู่ (ดู /api/cip-summary ด้านล่าง)
 app.post('/api/telegram/webhook', (req, res) => {
   res.sendStatus(200); // ตอบ Telegram ทันที กันเคส retry ซ้ำถ้าประมวลผลช้า
   (async () => {
     try {
       const msg = req.body?.message;
-      const text = (msg?.text || '').trim().toLowerCase();
-      const lineFilter = detectLineFilter(text);
-      const isCipCommand = msg?.text && String(msg.chat?.id) === String(process.env.TELEGRAM_CHAT_ID || '') && text.includes('สรุป') && (text.includes('cip') || lineFilter);
-      if (isCipCommand) {
-        if (lineFilter) {
-          const d = await buildLineDetailToday(lineFilter);
-          const lines = [
-            `🍩 <b>สรุป CIP ${escapeHtml(d.line)}</b>`,
-            `👤 ผู้ปฏิบัติงานล่าสุด: ${escapeHtml(d.operator)}`,
-          ];
-          if (d.target !== undefined) lines.push(`🎯 เป้าหมาย: ${d.target} ขั้นตอน (รอบ)`);
-          lines.push(`🔄 จำนวนรอบวันนี้: ${d.rounds} รอบ`);
-          if (d.backwashCount !== undefined) lines.push(`🧴 Backwash: ${d.backwashCount} ครั้ง`);
-          if (d.litersUsed !== undefined) lines.push(`💧 น้ำ RO ที่ใช้: ${d.litersUsed} ลิตร`);
-          if (d.efficiency !== undefined) lines.push(`📊 ประสิทธิภาพการใช้น้ำ RO: ${d.efficiency === null ? 'ยังไม่มีข้อมูลวันนี้' : `${d.efficiency}%`}`);
-          if (d.slices) {
-            const buffer = await renderDonutChart(d.slices);
-            await sendPhotoBufferToTelegram(buffer, 'image/png', lines.join('\n'));
-          } else {
-            await sendToTelegram(lines.join('\n'));
-          }
-        } else {
-          const slices = await buildTodayRoundsByLine();
-          const buffer = await renderBarChart(slices);
-          await sendPhotoBufferToTelegram(buffer, 'image/png', '📊 <b>จำนวนรอบ CIP วันนี้ แยกตาม Line</b>');
-        }
+      if (!msg?.text || String(msg.chat?.id) !== String(process.env.TELEGRAM_CHAT_ID || '')) return;
+      const payload = await buildCipReplyPayload(msg.text);
+      if (!payload.matched) return;
+      if (payload.chartConfig) {
+        const buffer = await fetchQuickChartBuffer(payload.chartConfig, payload.width, payload.height);
+        await sendPhotoBufferToTelegram(buffer, 'image/png', payload.caption);
       } else {
-        // ไม่ใช่คำสั่งสรุป CIP — ส่งต่อ payload ดิบให้ n8n's Telegram Trigger จัดการเหมือนเดิม
-        // (เช่น "สรุปยอดผลิตวันนี้") เพราะ setWebhook ของเราเข้ามาแทนที่ webhook เดิมของ n8n ไปแล้ว
-        axios.post(N8N_TELEGRAM_TRIGGER_URL, req.body).catch(e => console.error('[Telegram relay to n8n] error', e.message));
+        await sendToTelegram(payload.caption);
       }
     } catch (e) { console.error('[Telegram webhook] error', e); }
   })();
+});
+
+// ให้ n8n's Telegram Trigger workflow เรียกใช้ — ส่ง { message: { text, chat: { id } } } (เอาต์พุตจาก Telegram Trigger node ตรงๆ)
+// คืนค่า { matched, chatId, caption, chartUrl } ให้ n8n ต่อด้วย node ส่ง Telegram เอง (เหมือน node "Send Chart" ที่มีอยู่แล้ว)
+app.post('/api/cip-summary', async (req, res) => {
+  try {
+    const msg = req.body?.message || req.body;
+    const payload = await buildCipReplyPayload(msg?.text);
+    if (!payload.matched) return res.json({ matched: false });
+    res.json({
+      matched: true,
+      chatId: msg?.chat?.id,
+      caption: payload.caption,
+      chartUrl: payload.chartConfig ? buildQuickChartUrl(payload.chartConfig, payload.width, payload.height) : null,
+    });
+  } catch (e) {
+    console.error('[cip-summary] error', e);
+    res.status(500).json({ matched: false, error: e.message });
+  }
 });
 
 app.post('/api/login', (req, res) => {
