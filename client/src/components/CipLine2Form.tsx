@@ -201,6 +201,15 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     });
     alert(`บันทึก CIP ${line} สำเร็จ!`);
     try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+    // รีเซ็ตสถานะในหน้าให้เริ่มงานใหม่ได้สะอาด — คอมโพเนนต์นี้ไม่ได้ unmount ตอนสลับหน้า (App.tsx ใช้ display:none)
+    setSessionId(null);
+    setDate(new Date().toISOString().split('T')[0]);
+    setSku('');
+    setFlavor('');
+    setRows({});
+    setBack(defaultBack());
+    setCurrentNo(1);
+    setTab('front');
     onStatusChange(false);
     release();
     onBackToMain();

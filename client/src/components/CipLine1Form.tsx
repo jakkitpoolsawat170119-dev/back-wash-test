@@ -158,6 +158,14 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     });
     alert('บันทึก CIP Line 1 สำเร็จ!');
     try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+    // รีเซ็ตสถานะในหน้าให้เริ่มงานใหม่ได้สะอาด — คอมโพเนนต์นี้ไม่ได้ unmount ตอนสลับหน้า (App.tsx ใช้ display:none)
+    setSessionId(null);
+    setSessionStartTime('');
+    setDate(new Date().toISOString().split('T')[0]);
+    setSku('');
+    setRows({});
+    setBack(defaultBack());
+    setTab('front');
     onStatusChange(false);
     release();
     onBackToMain();
