@@ -630,7 +630,19 @@ const buildLineDetailToday = async (lineFilter) => {
   const litersUsed = rounds * LITERS_PER_ROUND;
   const efficiency = rounds === 0 ? null : Math.round((target / rounds) * 1000) / 10;
 
-  return { line: lineFilter, operator: sessions[0]?.operator_name || '-', target, rounds, litersUsed, efficiency, backwashCount };
+  // โดนัทสัดส่วนรอบที่ใช้ไปเทียบกับเป้าหมาย — ถ้าทำไม่เกินเป้าหมาย โชว์ "ใช้ไปแล้ว" vs "เหลือ"
+  // ถ้าทำเกินเป้าหมาย โชว์ "เป้าหมาย" vs "เกินเป้าหมาย" (สีแดง เตือนว่าใช้น้ำเกิน)
+  const slices = rounds <= target
+    ? [
+        { label: 'ใช้ไปแล้ว', value: rounds, color: '#2e7d32' },
+        { label: 'เหลือก่อนถึงเป้าหมาย', value: target - rounds, color: '#e0e0e0' },
+      ]
+    : [
+        { label: 'เป้าหมาย', value: target, color: '#ff9800' },
+        { label: 'เกินเป้าหมาย', value: rounds - target, color: '#d32f2f' },
+      ];
+
+  return { line: lineFilter, operator: sessions[0]?.operator_name || '-', target, rounds, litersUsed, efficiency, backwashCount, slices };
 };
 
 // เรนเดอร์กราฟแท่งเปรียบเทียบจำนวนรอบ CIP แต่ละ Line ผ่าน QuickChart (ไม่ต้องลง native canvas lib ฝั่ง server)
@@ -644,6 +656,23 @@ const renderBarChart = async (slices) => {
   };
   const res = await axios.get('https://quickchart.io/chart', {
     params: { c: JSON.stringify(config), backgroundColor: 'white', width: 500, height: 350 },
+    responseType: 'arraybuffer',
+  });
+  return Buffer.from(res.data);
+};
+
+// เรนเดอร์โดนัทสัดส่วนรอบที่ใช้ไปเทียบกับเป้าหมาย สำหรับรายงานราย Line
+const renderDonutChart = async (slices) => {
+  const config = {
+    type: 'doughnut',
+    data: {
+      labels: slices.map(s => s.label),
+      datasets: [{ data: slices.map(s => s.value), backgroundColor: slices.map(s => s.color) }],
+    },
+    options: { plugins: { legend: { position: 'bottom' } } },
+  };
+  const res = await axios.get('https://quickchart.io/chart', {
+    params: { c: JSON.stringify(config), backgroundColor: 'white', width: 500, height: 500 },
     responseType: 'arraybuffer',
   });
   return Buffer.from(res.data);
@@ -670,7 +699,12 @@ app.post('/api/telegram/webhook', (req, res) => {
           if (d.backwashCount !== undefined) lines.push(`🧴 Backwash: ${d.backwashCount} ครั้ง`);
           if (d.litersUsed !== undefined) lines.push(`💧 น้ำ RO ที่ใช้: ${d.litersUsed} ลิตร`);
           if (d.efficiency !== undefined) lines.push(`📊 ประสิทธิภาพการใช้น้ำ RO: ${d.efficiency === null ? 'ยังไม่มีข้อมูลวันนี้' : `${d.efficiency}%`}`);
-          await sendToTelegram(lines.join('\n'));
+          if (d.slices) {
+            const buffer = await renderDonutChart(d.slices);
+            await sendPhotoBufferToTelegram(buffer, 'image/png', lines.join('\n'));
+          } else {
+            await sendToTelegram(lines.join('\n'));
+          }
         } else {
           const slices = await buildTodayRoundsByLine();
           const buffer = await renderBarChart(slices);
