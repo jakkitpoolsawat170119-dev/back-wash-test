@@ -352,20 +352,13 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
                 <div style={{ fontSize: '0.8rem', color: '#aaa' }}>{currentNo} / {totalBatches}</div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '14px' }}>
+              <div style={{ marginBottom: '14px' }}>
                 <button
                   onClick={() => handleRowStart(currentNo)}
                   disabled={!!row.startTime}
-                  style={{ padding: '12px 8px', borderRadius: '12px', border: 'none', fontWeight: 'bold', fontSize: '0.85rem', cursor: row.startTime ? 'default' : 'pointer', background: row.startTime ? '#e8f5e9' : 'linear-gradient(135deg, #4caf50, #2e7d32)', color: row.startTime ? '#2e7d32' : 'white' }}
+                  style={{ width: '100%', padding: '12px 8px', borderRadius: '12px', border: 'none', fontWeight: 'bold', fontSize: '0.85rem', cursor: row.startTime ? 'default' : 'pointer', background: row.startTime ? '#e8f5e9' : 'linear-gradient(135deg, #4caf50, #2e7d32)', color: row.startTime ? '#2e7d32' : 'white' }}
                 >
                   {row.startTime ? `▶ ${row.startTime}` : '▶ Start'}
-                </button>
-                <button
-                  onClick={() => handleRowStop(currentNo)}
-                  disabled={!row.startTime || !!row.endTime}
-                  style={{ padding: '12px 8px', borderRadius: '12px', border: 'none', fontWeight: 'bold', fontSize: '0.85rem', cursor: (!row.startTime || row.endTime) ? 'default' : 'pointer', background: row.endTime ? '#ffebee' : !row.startTime ? '#f5f5f5' : 'linear-gradient(135deg, #f44336, #c62828)', color: row.endTime ? '#c62828' : !row.startTime ? '#ccc' : 'white' }}
-                >
-                  {row.endTime ? `⏹ ${row.endTime}` : '⏹ Stop'}
                 </button>
               </div>
 
@@ -421,6 +414,16 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
                     <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => handleImageUpload(e, currentNo)} />
                   </label>
                 )}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '14px' }}>
+                <button
+                  onClick={() => handleRowStop(currentNo)}
+                  disabled={!row.startTime || !!row.endTime}
+                  style={{ padding: '12px 24px', borderRadius: '12px', border: 'none', fontWeight: 'bold', fontSize: '0.85rem', cursor: (!row.startTime || row.endTime) ? 'default' : 'pointer', background: row.endTime ? '#ffebee' : !row.startTime ? '#f5f5f5' : 'linear-gradient(135deg, #f44336, #c62828)', color: row.endTime ? '#c62828' : !row.startTime ? '#ccc' : 'white' }}
+                >
+                  {row.endTime ? `⏹ ${row.endTime}` : '⏹ Stop'}
+                </button>
               </div>
 
               {!isComplete && !row.done && (
