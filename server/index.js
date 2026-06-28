@@ -583,8 +583,8 @@ const countBackwashRows = async (sessionIds) => {
 const buildTodayRoundsByLine = async () => {
   const today = todayBKK();
   const [line1Sessions, line2Sessions, batches] = await Promise.all([
-    dbAll("SELECT id FROM cip_line1_sessions WHERE created_at LIKE ?", [`${today}%`]),
-    dbAll("SELECT id, line FROM cip_line2_sessions WHERE created_at LIKE ?", [`${today}%`]),
+    dbAll("SELECT id FROM cip_line1_sessions WHERE date = ? OR created_at LIKE ?", [today, `${today}%`]),
+    dbAll("SELECT id, line FROM cip_line2_sessions WHERE date = ? OR created_at LIKE ?", [today, `${today}%`]),
     dbAll('SELECT start_time, status FROM cip_batches'),
   ]);
   const line2Ids = line2Sessions.filter(s => (s.line || 'Line 2') === 'Line 2').map(s => s.id);
@@ -621,8 +621,8 @@ const buildLineDetailToday = async (lineFilter) => {
 
   const isLine1 = lineFilter === 'Line 1';
   const sessions = isLine1
-    ? await dbAll("SELECT id, operator_name FROM cip_line1_sessions WHERE created_at LIKE ? ORDER BY id DESC", [`${today}%`])
-    : await dbAll("SELECT id, operator_name FROM cip_line2_sessions WHERE created_at LIKE ? AND line = ? ORDER BY id DESC", [`${today}%`, lineFilter]);
+    ? await dbAll("SELECT id, operator_name FROM cip_line1_sessions WHERE (date = ? OR created_at LIKE ?) ORDER BY id DESC", [today, `${today}%`])
+    : await dbAll("SELECT id, operator_name FROM cip_line2_sessions WHERE (date = ? OR created_at LIKE ?) AND line = ? ORDER BY id DESC", [today, `${today}%`, lineFilter]);
   const ids = sessions.map(s => s.id);
   const rounds = await countDoneRows(isLine1 ? 'cip_line1_rows' : 'cip_line2_rows', ids);
   const backwashCount = isLine1 ? undefined : await countBackwashRows(ids);
