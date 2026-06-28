@@ -686,8 +686,8 @@ app.post('/api/telegram/webhook', (req, res) => {
       if (!msg?.text) return;
       if (String(msg.chat?.id) !== String(process.env.TELEGRAM_CHAT_ID || '')) return;
       const text = msg.text.trim().toLowerCase();
-      if (text.includes('สรุป') && text.includes('cip')) {
-        const lineFilter = detectLineFilter(text);
+      const lineFilter = detectLineFilter(text);
+      if (text.includes('สรุป') && (text.includes('cip') || lineFilter)) {
         if (lineFilter) {
           const d = await buildLineDetailToday(lineFilter);
           const lines = [
