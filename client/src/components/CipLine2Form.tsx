@@ -691,8 +691,6 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
       <FooterBar
         accentColor="#ff6b00"
         onHome={onBackToMain}
-        finishLabel="จบการทำงาน"
-        onFinish={handleFinish}
         right={<ProgressBadge done={doneCount} total={20} color="#ff6b00" />}
       />
     </div>
