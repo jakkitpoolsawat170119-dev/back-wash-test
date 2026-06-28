@@ -549,39 +549,6 @@ const dbAll = (sql, params = []) => new Promise((resolve, reject) => {
   db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows || []));
 });
 
-// รวมยอด CIP ทุกระบบ (Line 1 / Line 2 / Line 3 / CIP ทดลอง) สำหรับคำสั่ง "สรุป CIP" ใน Telegram
-const buildCipSummary = async () => {
-  const [line1Sessions, line2Sessions, batches, line2Rows] = await Promise.all([
-    dbAll('SELECT status FROM cip_line1_sessions'),
-    dbAll('SELECT line, status FROM cip_line2_sessions'),
-    dbAll('SELECT status FROM cip_batches'),
-    dbAll('SELECT data FROM cip_line2_rows'),
-  ]);
-
-  const line2 = line2Sessions.filter(s => (s.line || 'Line 2') === 'Line 2');
-  const line3 = line2Sessions.filter(s => s.line === 'Line 3');
-  const completed = (rows) => rows.filter(r => r.status === 'completed').length;
-
-  const backwashCount = line2Rows.reduce((sum, r) => {
-    try { return sum + (JSON.parse(r.data).backwash ? 1 : 0); } catch { return sum; }
-  }, 0);
-
-  const totalSessions = line1Sessions.length + line2.length + line3.length + batches.length;
-  const completedSessions = completed(line1Sessions) + completed(line2) + completed(line3) + completed(batches);
-
-  return {
-    slices: [
-      { label: 'Line 1', value: line1Sessions.length, color: '#0d47a1' },
-      { label: 'Line 2', value: line2.length, color: '#01579b' },
-      { label: 'Line 3', value: line3.length, color: '#006064' },
-      { label: 'CIP ทดลอง', value: batches.length, color: '#546e7a' },
-    ],
-    totalSessions,
-    completedSessions,
-    backwashCount,
-  };
-};
-
 // หาว่าข้อความระบุ Line ใดไว้หรือไม่ เช่น "สรุป CIP Line2" / "สรุป cip ไลน์ 3" / "สรุป cip ทดลอง"
 // คืนค่า null ถ้าไม่ได้ระบุ Line (หมายถึงสรุปรวมทุก Line)
 const detectLineFilter = (text) => {
@@ -591,51 +558,92 @@ const detectLineFilter = (text) => {
   return null;
 };
 
-const summarizeStatuses = (rows) => {
-  const completed = rows.filter(r => r.status === 'completed').length;
-  return {
-    slices: [
-      { label: 'เสร็จสิ้น', value: completed, color: '#2e7d32' },
-      { label: 'ยังไม่เสร็จ', value: rows.length - completed, color: '#ff9800' },
-    ],
-    total: rows.length,
-    completed,
-  };
+const todayBKK = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+
+const LINE_TARGETS = { 'Line 1': 7, 'Line 2': 20, 'Line 3': 20 };
+const LITERS_PER_ROUND = 1000;
+
+// นับจำนวนรอบ (batch/row ที่ติ๊กเสร็จแล้ว) จากตาราง rows ของ session ที่ระบุ
+const countDoneRows = async (table, sessionIds) => {
+  if (!sessionIds.length) return 0;
+  const placeholders = sessionIds.map(() => '?').join(',');
+  const rows = await dbAll(`SELECT data FROM ${table} WHERE session_id IN (${placeholders})`, sessionIds);
+  return rows.filter(r => { try { return !!JSON.parse(r.data).done; } catch { return false; } }).length;
 };
 
-// สรุปเฉพาะ Line ที่ระบุ — โชว์สัดส่วนเสร็จสิ้น/ยังไม่เสร็จของ Line นั้น (ต่างจากสรุปรวมที่แบ่งสัดส่วนตาม Line)
-const buildLineSummary = async (lineFilter) => {
-  if (lineFilter === 'Line 1') {
-    const rows = await dbAll('SELECT status FROM cip_line1_sessions');
-    return { label: lineFilter, ...summarizeStatuses(rows) };
-  }
-  if (lineFilter === 'Line 2' || lineFilter === 'Line 3') {
-    const [rows, rowsData] = await Promise.all([
-      dbAll('SELECT status FROM cip_line2_sessions WHERE line = ?', [lineFilter]),
-      dbAll('SELECT cr.data FROM cip_line2_rows cr JOIN cip_line2_sessions s ON cr.session_id = s.id WHERE s.line = ?', [lineFilter]),
-    ]);
-    const backwashCount = rowsData.reduce((sum, r) => {
-      try { return sum + (JSON.parse(r.data).backwash ? 1 : 0); } catch { return sum; }
-    }, 0);
-    return { label: lineFilter, ...summarizeStatuses(rows), backwashCount };
-  }
-  // CIP ทดลอง
-  const rows = await dbAll('SELECT status FROM cip_batches');
-  return { label: lineFilter, ...summarizeStatuses(rows) };
+const countBackwashRows = async (sessionIds) => {
+  if (!sessionIds.length) return 0;
+  const placeholders = sessionIds.map(() => '?').join(',');
+  const rows = await dbAll(`SELECT data FROM cip_line2_rows WHERE session_id IN (${placeholders})`, sessionIds);
+  return rows.filter(r => { try { return !!JSON.parse(r.data).backwash; } catch { return false; } }).length;
 };
 
-// เรนเดอร์รูปกราฟ Donut ผ่าน QuickChart (ไม่ต้องลง native canvas lib ฝั่ง server)
-const renderDonutChart = async (slices) => {
+// จำนวนรอบ CIP ของวันนี้ แยกตาม Line สำหรับกราฟแท่งเปรียบเทียบ
+const buildTodayRoundsByLine = async () => {
+  const today = todayBKK();
+  const [line1Sessions, line2Sessions, batches] = await Promise.all([
+    dbAll('SELECT id FROM cip_line1_sessions WHERE date = ?', [today]),
+    dbAll('SELECT id, line FROM cip_line2_sessions WHERE date = ?', [today]),
+    dbAll('SELECT start_time, status FROM cip_batches'),
+  ]);
+  const line2Ids = line2Sessions.filter(s => (s.line || 'Line 2') === 'Line 2').map(s => s.id);
+  const line3Ids = line2Sessions.filter(s => s.line === 'Line 3').map(s => s.id);
+  const line1Ids = line1Sessions.map(s => s.id);
+
+  const [line1Rounds, line2Rounds, line3Rounds] = await Promise.all([
+    countDoneRows('cip_line1_rows', line1Ids),
+    countDoneRows('cip_line2_rows', line2Ids),
+    countDoneRows('cip_line2_rows', line3Ids),
+  ]);
+  const logbookRounds = batches.filter(b => {
+    if (b.status !== 'completed') return false;
+    try { return new Date(b.start_time).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }) === today; } catch { return false; }
+  }).length;
+
+  return [
+    { label: 'Line 1', value: line1Rounds, color: '#0d47a1' },
+    { label: 'Line 2', value: line2Rounds, color: '#01579b' },
+    { label: 'Line 3', value: line3Rounds, color: '#006064' },
+    { label: 'CIP ทดลอง', value: logbookRounds, color: '#546e7a' },
+  ];
+};
+
+// รายงานรายวันของ Line ที่ระบุ — เป้าหมาย/จำนวนรอบ/น้ำ RO/ประสิทธิภาพ
+const buildLineDetailToday = async (lineFilter) => {
+  const today = todayBKK();
+  if (lineFilter === 'CIP ทดลอง') {
+    const batches = await dbAll('SELECT operator_name, start_time, status FROM cip_batches ORDER BY id DESC');
+    const todays = batches.filter(b => { try { return new Date(b.start_time).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }) === today; } catch { return false; } });
+    const rounds = todays.filter(b => b.status === 'completed').length;
+    return { line: lineFilter, operator: todays[0]?.operator_name || '-', rounds };
+  }
+
+  const isLine1 = lineFilter === 'Line 1';
+  const sessions = isLine1
+    ? await dbAll('SELECT id, operator_name FROM cip_line1_sessions WHERE date = ? ORDER BY id DESC', [today])
+    : await dbAll('SELECT id, operator_name FROM cip_line2_sessions WHERE date = ? AND line = ? ORDER BY id DESC', [today, lineFilter]);
+  const ids = sessions.map(s => s.id);
+  const rounds = await countDoneRows(isLine1 ? 'cip_line1_rows' : 'cip_line2_rows', ids);
+  const backwashCount = isLine1 ? undefined : await countBackwashRows(ids);
+
+  const target = LINE_TARGETS[lineFilter];
+  const litersUsed = rounds * LITERS_PER_ROUND;
+  const efficiency = rounds === 0 ? null : Math.round((target / rounds) * 1000) / 10;
+
+  return { line: lineFilter, operator: sessions[0]?.operator_name || '-', target, rounds, litersUsed, efficiency, backwashCount };
+};
+
+// เรนเดอร์กราฟแท่งเปรียบเทียบจำนวนรอบ CIP แต่ละ Line ผ่าน QuickChart (ไม่ต้องลง native canvas lib ฝั่ง server)
+const renderBarChart = async (slices) => {
   const config = {
-    type: 'doughnut',
+    type: 'bar',
     data: {
       labels: slices.map(s => s.label),
-      datasets: [{ data: slices.map(s => s.value), backgroundColor: slices.map(s => s.color) }],
+      datasets: [{ label: 'จำนวนรอบ', data: slices.map(s => s.value), backgroundColor: slices.map(s => s.color) }],
     },
-    options: { plugins: { legend: { position: 'bottom' } } },
   };
   const res = await axios.get('https://quickchart.io/chart', {
-    params: { c: JSON.stringify(config), backgroundColor: 'white', width: 500, height: 500 },
+    params: { c: JSON.stringify(config), backgroundColor: 'white', width: 500, height: 350 },
     responseType: 'arraybuffer',
   });
   return Buffer.from(res.data);
@@ -652,23 +660,21 @@ app.post('/api/telegram/webhook', (req, res) => {
       if (text.includes('สรุป') && text.includes('cip')) {
         const lineFilter = detectLineFilter(text);
         if (lineFilter) {
-          const summary = await buildLineSummary(lineFilter);
-          const buffer = await renderDonutChart(summary.slices);
-          const captionLines = [
-            `🍩 <b>สรุป CIP ${escapeHtml(summary.label)}</b>`,
-            `✅ เสร็จสิ้น: ${summary.completed}/${summary.total}`,
+          const d = await buildLineDetailToday(lineFilter);
+          const lines = [
+            `🍩 <b>สรุป CIP ${escapeHtml(d.line)}</b>`,
+            `👤 ผู้ปฏิบัติงานล่าสุด: ${escapeHtml(d.operator)}`,
           ];
-          if (summary.backwashCount !== undefined) captionLines.push(`🧴 Backwash: ${summary.backwashCount} Batch`);
-          await sendPhotoBufferToTelegram(buffer, 'image/png', captionLines.join('\n'));
+          if (d.target !== undefined) lines.push(`🎯 เป้าหมาย: ${d.target} ขั้นตอน (รอบ)`);
+          lines.push(`🔄 จำนวนรอบวันนี้: ${d.rounds} รอบ`);
+          if (d.backwashCount !== undefined) lines.push(`🧴 Backwash: ${d.backwashCount} ครั้ง`);
+          if (d.litersUsed !== undefined) lines.push(`💧 น้ำ RO ที่ใช้: ${d.litersUsed} ลิตร`);
+          if (d.efficiency !== undefined) lines.push(`📊 ประสิทธิภาพการใช้น้ำ RO: ${d.efficiency === null ? 'ยังไม่มีข้อมูลวันนี้' : `${d.efficiency}%`}`);
+          await sendToTelegram(lines.join('\n'));
         } else {
-          const summary = await buildCipSummary();
-          const buffer = await renderDonutChart(summary.slices);
-          const caption = [
-            `🍩 <b>สรุป CIP ทั้งหมด</b>`,
-            `✅ เสร็จสิ้น: ${summary.completedSessions}/${summary.totalSessions}`,
-            `🧴 Backwash: ${summary.backwashCount} Batch`,
-          ].join('\n');
-          await sendPhotoBufferToTelegram(buffer, 'image/png', caption);
+          const slices = await buildTodayRoundsByLine();
+          const buffer = await renderBarChart(slices);
+          await sendPhotoBufferToTelegram(buffer, 'image/png', '📊 <b>จำนวนรอบ CIP วันนี้ แยกตาม Line</b>');
         }
       }
     } catch (e) { console.error('[Telegram webhook] error', e); }
