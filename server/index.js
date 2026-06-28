@@ -582,6 +582,48 @@ const buildCipSummary = async () => {
   };
 };
 
+// หาว่าข้อความระบุ Line ใดไว้หรือไม่ เช่น "สรุป CIP Line2" / "สรุป cip ไลน์ 3" / "สรุป cip ทดลอง"
+// คืนค่า null ถ้าไม่ได้ระบุ Line (หมายถึงสรุปรวมทุก Line)
+const detectLineFilter = (text) => {
+  const m = text.match(/(?:line|ไลน์)\s*([123])/i);
+  if (m) return `Line ${m[1]}`;
+  if (text.includes('ทดลอง')) return 'CIP ทดลอง';
+  return null;
+};
+
+const summarizeStatuses = (rows) => {
+  const completed = rows.filter(r => r.status === 'completed').length;
+  return {
+    slices: [
+      { label: 'เสร็จสิ้น', value: completed, color: '#2e7d32' },
+      { label: 'ยังไม่เสร็จ', value: rows.length - completed, color: '#ff9800' },
+    ],
+    total: rows.length,
+    completed,
+  };
+};
+
+// สรุปเฉพาะ Line ที่ระบุ — โชว์สัดส่วนเสร็จสิ้น/ยังไม่เสร็จของ Line นั้น (ต่างจากสรุปรวมที่แบ่งสัดส่วนตาม Line)
+const buildLineSummary = async (lineFilter) => {
+  if (lineFilter === 'Line 1') {
+    const rows = await dbAll('SELECT status FROM cip_line1_sessions');
+    return { label: lineFilter, ...summarizeStatuses(rows) };
+  }
+  if (lineFilter === 'Line 2' || lineFilter === 'Line 3') {
+    const [rows, rowsData] = await Promise.all([
+      dbAll('SELECT status FROM cip_line2_sessions WHERE line = ?', [lineFilter]),
+      dbAll('SELECT cr.data FROM cip_line2_rows cr JOIN cip_line2_sessions s ON cr.session_id = s.id WHERE s.line = ?', [lineFilter]),
+    ]);
+    const backwashCount = rowsData.reduce((sum, r) => {
+      try { return sum + (JSON.parse(r.data).backwash ? 1 : 0); } catch { return sum; }
+    }, 0);
+    return { label: lineFilter, ...summarizeStatuses(rows), backwashCount };
+  }
+  // CIP ทดลอง
+  const rows = await dbAll('SELECT status FROM cip_batches');
+  return { label: lineFilter, ...summarizeStatuses(rows) };
+};
+
 // เรนเดอร์รูปกราฟ Donut ผ่าน QuickChart (ไม่ต้องลง native canvas lib ฝั่ง server)
 const renderDonutChart = async (slices) => {
   const config = {
@@ -608,14 +650,26 @@ app.post('/api/telegram/webhook', (req, res) => {
       if (String(msg.chat?.id) !== String(process.env.TELEGRAM_CHAT_ID || '')) return;
       const text = msg.text.trim().toLowerCase();
       if (text.includes('สรุป') && text.includes('cip')) {
-        const summary = await buildCipSummary();
-        const buffer = await renderDonutChart(summary.slices);
-        const caption = [
-          `🍩 <b>สรุป CIP ทั้งหมด</b>`,
-          `✅ เสร็จสิ้น: ${summary.completedSessions}/${summary.totalSessions}`,
-          `🧴 Backwash: ${summary.backwashCount} Batch`,
-        ].join('\n');
-        await sendPhotoBufferToTelegram(buffer, 'image/png', caption);
+        const lineFilter = detectLineFilter(text);
+        if (lineFilter) {
+          const summary = await buildLineSummary(lineFilter);
+          const buffer = await renderDonutChart(summary.slices);
+          const captionLines = [
+            `🍩 <b>สรุป CIP ${escapeHtml(summary.label)}</b>`,
+            `✅ เสร็จสิ้น: ${summary.completed}/${summary.total}`,
+          ];
+          if (summary.backwashCount !== undefined) captionLines.push(`🧴 Backwash: ${summary.backwashCount} Batch`);
+          await sendPhotoBufferToTelegram(buffer, 'image/png', captionLines.join('\n'));
+        } else {
+          const summary = await buildCipSummary();
+          const buffer = await renderDonutChart(summary.slices);
+          const caption = [
+            `🍩 <b>สรุป CIP ทั้งหมด</b>`,
+            `✅ เสร็จสิ้น: ${summary.completedSessions}/${summary.totalSessions}`,
+            `🧴 Backwash: ${summary.backwashCount} Batch`,
+          ].join('\n');
+          await sendPhotoBufferToTelegram(buffer, 'image/png', caption);
+        }
       }
     } catch (e) { console.error('[Telegram webhook] error', e); }
   })();
