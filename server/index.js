@@ -484,6 +484,9 @@ const calcDuration = (startIso, endIso) => {
 };
 
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || 'https://n8n.srv1267366.hstgr.cloud/webhook/cip-report';
+// webhook ของ n8n's "Telegram Trigger" node (n8n-Telegram-Production-Chart.json, webhookId ec7c9121-...)
+// ใช้ส่งต่อข้อความที่ไม่เกี่ยวกับ "สรุป CIP" กลับไปให้ n8n จัดการเหมือนเดิม เพราะ Telegram อนุญาตแค่ webhook เดียวต่อบอท
+const N8N_TELEGRAM_TRIGGER_URL = process.env.N8N_TELEGRAM_TRIGGER_URL || 'https://n8n.srv1267366.hstgr.cloud/webhook/ec7c9121-9045-403e-943e-7ce1927be5a3';
 
 const sendToN8n = async (data) => {
   try {
@@ -684,11 +687,10 @@ app.post('/api/telegram/webhook', (req, res) => {
   (async () => {
     try {
       const msg = req.body?.message;
-      if (!msg?.text) return;
-      if (String(msg.chat?.id) !== String(process.env.TELEGRAM_CHAT_ID || '')) return;
-      const text = msg.text.trim().toLowerCase();
+      const text = (msg?.text || '').trim().toLowerCase();
       const lineFilter = detectLineFilter(text);
-      if (text.includes('สรุป') && (text.includes('cip') || lineFilter)) {
+      const isCipCommand = msg?.text && String(msg.chat?.id) === String(process.env.TELEGRAM_CHAT_ID || '') && text.includes('สรุป') && (text.includes('cip') || lineFilter);
+      if (isCipCommand) {
         if (lineFilter) {
           const d = await buildLineDetailToday(lineFilter);
           const lines = [
@@ -711,6 +713,10 @@ app.post('/api/telegram/webhook', (req, res) => {
           const buffer = await renderBarChart(slices);
           await sendPhotoBufferToTelegram(buffer, 'image/png', '📊 <b>จำนวนรอบ CIP วันนี้ แยกตาม Line</b>');
         }
+      } else {
+        // ไม่ใช่คำสั่งสรุป CIP — ส่งต่อ payload ดิบให้ n8n's Telegram Trigger จัดการเหมือนเดิม
+        // (เช่น "สรุปยอดผลิตวันนี้") เพราะ setWebhook ของเราเข้ามาแทนที่ webhook เดิมของ n8n ไปแล้ว
+        axios.post(N8N_TELEGRAM_TRIGGER_URL, req.body).catch(e => console.error('[Telegram relay to n8n] error', e.message));
       }
     } catch (e) { console.error('[Telegram webhook] error', e); }
   })();
