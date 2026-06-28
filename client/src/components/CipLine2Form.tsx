@@ -292,7 +292,7 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
                 "CIP", "ว่าง", "Freshy Green Apple", "Freshy Sala", "Senorita Yuzu",
                 "MLH 02", "Freshy Pineapple", "Operator Name", "Freshy Grape",
                 "Freshy Punch", "Freshy blue Lemon", "Senorita Fres Mint",
-                "Freshy Orange", "Signature Rose",
+                "Freshy Orange", "Signature Rose", "Freshy Yuzu",
               ].map(f => <option key={f} value={f}>{f}</option>)}
             </select>
           </div>
