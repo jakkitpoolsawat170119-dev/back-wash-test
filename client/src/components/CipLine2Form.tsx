@@ -159,7 +159,7 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     const now = new Date();
     const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
     const duration = Math.round((now.getTime() - row.startRaw) / 60000);
-    const newRow = { ...row, endTime: timeStr, duration };
+    const newRow = { ...row, endTime: timeStr, duration, done: true };
     setRows(prev => ({ ...prev, [rowNo]: newRow }));
     saveRow(rowNo, newRow);
   };

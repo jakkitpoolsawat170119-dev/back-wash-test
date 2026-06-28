@@ -563,12 +563,13 @@ const todayBKK = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/
 const LINE_TARGETS = { 'Line 1': 7, 'Line 2': 20, 'Line 3': 20 };
 const LITERS_PER_ROUND = 1000;
 
-// นับจำนวนรอบ (batch/row ที่ติ๊กเสร็จแล้ว) จากตาราง rows ของ session ที่ระบุ
+// นับจำนวนรอบ (batch/row ที่กด Stop เสร็จแล้ว) จากตาราง rows ของ session ที่ระบุ
+// เช็คจาก endTime แทน done เพราะ done ไม่ได้ถูกตั้งค่าสม่ำเสมอในข้อมูลเก่า/ทุก Line
 const countDoneRows = async (table, sessionIds) => {
   if (!sessionIds.length) return 0;
   const placeholders = sessionIds.map(() => '?').join(',');
   const rows = await dbAll(`SELECT data FROM ${table} WHERE session_id IN (${placeholders})`, sessionIds);
-  return rows.filter(r => { try { return !!JSON.parse(r.data).done; } catch { return false; } }).length;
+  return rows.filter(r => { try { return !!JSON.parse(r.data).endTime; } catch { return false; } }).length;
 };
 
 const countBackwashRows = async (sessionIds) => {
@@ -582,8 +583,8 @@ const countBackwashRows = async (sessionIds) => {
 const buildTodayRoundsByLine = async () => {
   const today = todayBKK();
   const [line1Sessions, line2Sessions, batches] = await Promise.all([
-    dbAll('SELECT id FROM cip_line1_sessions WHERE date = ?', [today]),
-    dbAll('SELECT id, line FROM cip_line2_sessions WHERE date = ?', [today]),
+    dbAll("SELECT id FROM cip_line1_sessions WHERE created_at LIKE ?", [`${today}%`]),
+    dbAll("SELECT id, line FROM cip_line2_sessions WHERE created_at LIKE ?", [`${today}%`]),
     dbAll('SELECT start_time, status FROM cip_batches'),
   ]);
   const line2Ids = line2Sessions.filter(s => (s.line || 'Line 2') === 'Line 2').map(s => s.id);
@@ -620,8 +621,8 @@ const buildLineDetailToday = async (lineFilter) => {
 
   const isLine1 = lineFilter === 'Line 1';
   const sessions = isLine1
-    ? await dbAll('SELECT id, operator_name FROM cip_line1_sessions WHERE date = ? ORDER BY id DESC', [today])
-    : await dbAll('SELECT id, operator_name FROM cip_line2_sessions WHERE date = ? AND line = ? ORDER BY id DESC', [today, lineFilter]);
+    ? await dbAll("SELECT id, operator_name FROM cip_line1_sessions WHERE created_at LIKE ? ORDER BY id DESC", [`${today}%`])
+    : await dbAll("SELECT id, operator_name FROM cip_line2_sessions WHERE created_at LIKE ? AND line = ? ORDER BY id DESC", [`${today}%`, lineFilter]);
   const ids = sessions.map(s => s.id);
   const rounds = await countDoneRows(isLine1 ? 'cip_line1_rows' : 'cip_line2_rows', ids);
   const backwashCount = isLine1 ? undefined : await countBackwashRows(ids);
