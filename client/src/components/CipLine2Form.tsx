@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { usePageLock } from '../hooks/usePageLock';
 import LockBanner from './LockBanner';
 import FooterBar, { ProgressBadge } from './FooterBar';
+import DonutChart from './DonutChart';
 
 const apiUrl = "https://back-wash-test.onrender.com";
 
@@ -18,6 +19,7 @@ interface RowData {
   duration: number;
   imagePath: string;
   done: boolean;
+  backwash: boolean;
 }
 
 interface BackData {
@@ -29,7 +31,7 @@ const defaultRow = (): RowData => ({
   mipLiquid: '', pump1Pressure: '', pump2Pressure: '',
   excelerate1: '', ph: '', brix: '',
   startTime: '', startRaw: 0, endTime: '', duration: 0,
-  imagePath: '', done: false,
+  imagePath: '', done: false, backwash: false,
 });
 
 const defaultBack = (): BackData => ({
@@ -65,6 +67,7 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
   const [back, setBack] = useState<BackData>(draft?.back || defaultBack());
   const [currentNo, setCurrentNo] = useState<number>(draft?.currentNo || 1);
   const [showHistory, setShowHistory] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [filterDate2, setFilterDate2] = useState('');
   const [filterOperator2, setFilterOperator2] = useState('');
@@ -179,6 +182,7 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     const lastEnd = withEnd[0]?.endTime || '';
     const lastRow = withEnd[0];
     const totalDuration = Object.values(rows).reduce((sum, r) => sum + (r.duration || 0), 0);
+    const backwashBatches = allRows.filter(r => r.backwash).map(r => r.no).sort((a, b) => a - b);
 
     await fetch(`${apiUrl}/api/cip-line2/finish`, {
       method: 'POST',
@@ -191,6 +195,8 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
         pump2: lastRow?.pump2Pressure || '',
         ph: lastRow?.ph || '',
         brix: lastRow?.brix || '',
+        backwashCount: backwashBatches.length,
+        backwashBatches,
       }),
     });
     alert(`บันทึก CIP ${line} สำเร็จ!`);
@@ -401,6 +407,11 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
                 </div>
               </div>
 
+              <div style={{ marginBottom: '12px' }}>
+                <label style={labelStyle}>ล้าง Backwash</label>
+                <Toggle checked={row.backwash} onToggle={() => updateRow(currentNo, 'backwash', !row.backwash)} label="Backwash" />
+              </div>
+
               <div style={{ marginBottom: '14px' }}>
                 <label style={labelStyle}>📷 รูปภาพ (ไม่บังคับ)</label>
                 {row.imagePath ? (
@@ -561,9 +572,12 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
 
       {tab === 'front' ? renderFront() : renderBack()}
 
-      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
         <button onClick={() => { loadHistory(); setShowHistory(true); }} style={{ background: 'linear-gradient(135deg, #ff6b00, #ff8c00)', color: 'white', border: 'none', borderRadius: '15px', padding: '16px 30px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', boxShadow: '0 6px 15px rgba(255,107,0,0.2)', width: '100%', maxWidth: '400px' }}>
           📊 ดูประวัติ CIP Line 2&3 ({history.length} ครั้ง)
+        </button>
+        <button onClick={() => { loadHistory(); setShowSummary(true); }} style={{ background: 'linear-gradient(135deg, #01579b, #006064)', color: 'white', border: 'none', borderRadius: '15px', padding: '16px 30px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', boxShadow: '0 6px 15px rgba(1,87,155,0.2)', width: '100%', maxWidth: '400px' }}>
+          🍩 สรุป CIP (Line 2/3)
         </button>
       </div>
 
@@ -619,6 +633,7 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
                             {r.pump2Pressure && <span>💨 Pump2: {r.pump2Pressure}</span>}
                             {r.ph && <span>🧪 pH: {r.ph}</span>}
                             {r.brix && <span>🍬 Brix: {r.brix}</span>}
+                            {r.backwash && <span>🧴 Backwash</span>}
                           </div>
                           {r.imagePath && <img src={r.imagePath.startsWith('data:') ? r.imagePath : `${apiUrl}${r.imagePath}`} alt="batch" style={{ marginTop: '6px', width: '100%', maxWidth: '200px', borderRadius: '8px', border: '1px solid #ffcc80' }} />}
                         </div>
@@ -632,6 +647,45 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
           </div>
         </div>
       )}
+
+      {showSummary && (() => {
+        const countLine2 = history.filter((s: any) => (s.line || 'Line 2') === 'Line 2').length;
+        const countLine3 = history.filter((s: any) => s.line === 'Line 3').length;
+        const completedCount = history.filter((s: any) => s.status === 'completed').length;
+        const backwashCount = history.reduce((sum: number, s: any) => sum + (s.rows || []).filter((r: any) => r.backwash).length, 0);
+        return (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(10px)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '15px' }}>
+            <div style={{ backgroundColor: 'white', width: '100%', maxWidth: '420px', maxHeight: '90vh', borderRadius: '25px', padding: '25px', overflowY: 'auto', boxShadow: '0 20px 50px rgba(0,0,0,0.15)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '2px solid #eee', paddingBottom: '15px' }}>
+                <h3 style={{ margin: 0, color: '#01579b' }}>🍩 สรุป CIP (Line 2/3)</h3>
+                <button onClick={() => setShowSummary(false)} style={{ background: '#f5f5f5', color: '#666', border: '1px solid #ddd', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer' }}>✕</button>
+              </div>
+
+              <DonutChart data={[
+                { label: 'Line 2', value: countLine2, color: '#01579b' },
+                { label: 'Line 3', value: countLine3, color: '#006064' },
+              ]} />
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '20px' }}>
+                <div style={{ background: '#f5f5f5', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#888' }}>เสร็จสิ้นแล้ว</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#2e7d32' }}>{completedCount} / {history.length}</div>
+                </div>
+                <div style={{ background: '#f5f5f5', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#888' }}>🧴 Backwash (Batch)</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#01579b' }}>{backwashCount}</div>
+                </div>
+              </div>
+
+              <div style={{ fontSize: '0.75rem', color: '#aaa', textAlign: 'center', marginTop: '14px' }}>
+                * จากข้อมูล {history.length} session ล่าสุด (เหมือนหน้าดูประวัติ)
+              </div>
+
+              <button onClick={() => setShowSummary(false)} style={{ width: '100%', padding: '12px', background: '#424242', color: 'white', border: 'none', borderRadius: '10px', marginTop: '20px', cursor: 'pointer' }}>ปิดหน้าต่างนี้</button>
+            </div>
+          </div>
+        );
+      })()}
 
       <FooterBar
         accentColor="#ff6b00"

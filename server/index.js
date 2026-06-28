@@ -239,6 +239,7 @@ app.post('/api/cip-line2/row', (req, res) => {
       data.pump2Pressure ? `💨 Pump2: ${escapeHtml(data.pump2Pressure)} Bar` : null,
       data.ph            ? `🧪 pH: ${escapeHtml(data.ph)}` : null,
       data.brix          ? `🍬 Brix: ${escapeHtml(data.brix)}` : null,
+      data.backwash      ? `🧴 Backwash: ✓` : null,
     ].filter(Boolean).join('\n');
     const img = data.imagePath ? dataUrlToBuffer(data.imagePath) : null;
     if (img) sendPhotoBufferToTelegram(img.buffer, img.mimeType, msg);
@@ -259,6 +260,7 @@ app.post('/api/cip-line2/row', (req, res) => {
       pump2Pressure: data.pump2Pressure || '',
       ph: data.ph || '',
       brix: data.brix || '',
+      backwash: !!data.backwash,
     });
   }
 
@@ -285,7 +287,7 @@ app.post('/api/cip-line2/back', (req, res) => {
 });
 
 app.post('/api/cip-line2/finish', (req, res) => {
-  const { sessionId, line, date, operatorName, firstStart, lastEnd, totalDuration, pump1, pump2, ph, brix } = req.body;
+  const { sessionId, line, date, operatorName, firstStart, lastEnd, totalDuration, pump1, pump2, ph, brix, backwashCount, backwashBatches } = req.body;
   db.run(`UPDATE cip_line2_sessions SET status = 'completed' WHERE id = ?`, [sessionId],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
@@ -300,6 +302,7 @@ app.post('/api/cip-line2/finish', (req, res) => {
         `─────────────────────`,
         (pump1 || pump2) ? `💨 Pump 1: ${escapeHtml(pump1 || '-')} Bar\n💨 Pump 2: ${escapeHtml(pump2 || '-')} Bar` : null,
         (ph || brix) ? `🧪 pH: ${escapeHtml(ph || '-')}  |  🍬 Brix: ${escapeHtml(brix || '-')}` : null,
+        backwashCount ? `🧴 Backwash: ${escapeHtml(String(backwashCount))} Batch (NO. ${escapeHtml((backwashBatches || []).join(', '))})` : null,
       ].filter(Boolean).join('\n'));
       res.json({ success: true });
     }
