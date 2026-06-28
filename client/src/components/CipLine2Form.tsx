@@ -224,9 +224,10 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
 
   const Toggle = ({ checked, onToggle, label }: { checked: boolean; onToggle: () => void; label: string }) => (
     <button onClick={onToggle} style={{
-      padding: '8px 12px', borderRadius: '20px', border: 'none', cursor: 'pointer',
+      padding: '8px 14px', borderRadius: '20px', cursor: 'pointer',
       fontWeight: 'bold', fontSize: '0.75rem', transition: 'all 0.2s',
-      background: checked ? '#4caf50' : '#f0f0f0', color: checked ? 'white' : '#666',
+      border: `2px solid ${checked ? '#2e7d32' : '#ccc'}`,
+      background: checked ? '#4caf50' : 'white', color: checked ? 'white' : '#666',
     }}>
       {checked ? '✓ ' : '— '}{label}
     </button>
@@ -690,6 +691,8 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
       <FooterBar
         accentColor="#ff6b00"
         onHome={onBackToMain}
+        finishLabel="จบการทำงาน"
+        onFinish={handleFinish}
         right={<ProgressBadge done={doneCount} total={20} color="#ff6b00" />}
       />
     </div>

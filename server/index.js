@@ -545,6 +545,82 @@ const sendPhotoBufferToTelegram = async (buffer, mimeType, caption) => {
   }
 };
 
+const dbAll = (sql, params = []) => new Promise((resolve, reject) => {
+  db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows || []));
+});
+
+// รวมยอด CIP ทุกระบบ (Line 1 / Line 2 / Line 3 / CIP ทดลอง) สำหรับคำสั่ง "สรุป CIP" ใน Telegram
+const buildCipSummary = async () => {
+  const [line1Sessions, line2Sessions, batches, line2Rows] = await Promise.all([
+    dbAll('SELECT status FROM cip_line1_sessions'),
+    dbAll('SELECT line, status FROM cip_line2_sessions'),
+    dbAll('SELECT status FROM cip_batches'),
+    dbAll('SELECT data FROM cip_line2_rows'),
+  ]);
+
+  const line2 = line2Sessions.filter(s => (s.line || 'Line 2') === 'Line 2');
+  const line3 = line2Sessions.filter(s => s.line === 'Line 3');
+  const completed = (rows) => rows.filter(r => r.status === 'completed').length;
+
+  const backwashCount = line2Rows.reduce((sum, r) => {
+    try { return sum + (JSON.parse(r.data).backwash ? 1 : 0); } catch { return sum; }
+  }, 0);
+
+  const totalSessions = line1Sessions.length + line2.length + line3.length + batches.length;
+  const completedSessions = completed(line1Sessions) + completed(line2) + completed(line3) + completed(batches);
+
+  return {
+    slices: [
+      { label: 'Line 1', value: line1Sessions.length, color: '#0d47a1' },
+      { label: 'Line 2', value: line2.length, color: '#01579b' },
+      { label: 'Line 3', value: line3.length, color: '#006064' },
+      { label: 'CIP ทดลอง', value: batches.length, color: '#546e7a' },
+    ],
+    totalSessions,
+    completedSessions,
+    backwashCount,
+  };
+};
+
+// เรนเดอร์รูปกราฟ Donut ผ่าน QuickChart (ไม่ต้องลง native canvas lib ฝั่ง server)
+const renderDonutChart = async (slices) => {
+  const config = {
+    type: 'doughnut',
+    data: {
+      labels: slices.map(s => s.label),
+      datasets: [{ data: slices.map(s => s.value), backgroundColor: slices.map(s => s.color) }],
+    },
+    options: { plugins: { legend: { position: 'bottom' } } },
+  };
+  const res = await axios.get('https://quickchart.io/chart', {
+    params: { c: JSON.stringify(config), backgroundColor: 'white', width: 500, height: 500 },
+    responseType: 'arraybuffer',
+  });
+  return Buffer.from(res.data);
+};
+
+app.post('/api/telegram/webhook', (req, res) => {
+  res.sendStatus(200); // ตอบ Telegram ทันที กันเคส retry ซ้ำถ้าประมวลผลช้า
+  (async () => {
+    try {
+      const msg = req.body?.message;
+      if (!msg?.text) return;
+      if (String(msg.chat?.id) !== String(process.env.TELEGRAM_CHAT_ID || '')) return;
+      const text = msg.text.trim().toLowerCase();
+      if (text.includes('สรุป') && text.includes('cip')) {
+        const summary = await buildCipSummary();
+        const buffer = await renderDonutChart(summary.slices);
+        const caption = [
+          `🍩 <b>สรุป CIP ทั้งหมด</b>`,
+          `✅ เสร็จสิ้น: ${summary.completedSessions}/${summary.totalSessions}`,
+          `🧴 Backwash: ${summary.backwashCount} Batch`,
+        ].join('\n');
+        await sendPhotoBufferToTelegram(buffer, 'image/png', caption);
+      }
+    } catch (e) { console.error('[Telegram webhook] error', e); }
+  })();
+});
+
 app.post('/api/login', (req, res) => {
   const { pin } = req.body;
   db.get("SELECT name FROM operators WHERE pin = ?", [pin], (err, row) => {
@@ -891,6 +967,17 @@ app.post('/api/batches/reset', (req, res) => {
   });
 });
 
+const PUBLIC_URL = 'https://back-wash-test.onrender.com';
+const registerTelegramWebhook = async () => {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+  try {
+    await axios.get(`https://api.telegram.org/bot${token}/setWebhook`, { params: { url: `${PUBLIC_URL}/api/telegram/webhook` } });
+    console.log('[Telegram] Webhook registered');
+  } catch (e) { console.error('[Telegram] Webhook registration failed', e.response?.data || e.message); }
+};
+
 app.listen(port, '0.0.0.0', () => {
   console.log(`Server running at http://0.0.0.0:${port}`);
+  registerTelegramWebhook();
 });
