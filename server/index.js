@@ -1,6 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
+const db = require('./db');
 const cors = require('cors');
 const path = require('path');
 const multer = require('multer');
@@ -15,31 +15,26 @@ app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-const db = new sqlite3.Database('./cip_database.sqlite', (err) => {
-  if (err) console.error(err.message);
-  console.log('Connected to the SQLite database.');
-});
-
 // In-memory cache for step start times (handles out-of-order handleStart/handleStop requests)
 const stepStartCache = {};
 
-db.serialize(() => {
-    db.run(`CREATE TABLE IF NOT EXISTS operators (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+// สร้างตารางตามลำดับ (ตาราง parent ก่อน child เพราะ Postgres เช็ค FK ตอน CREATE)
+// ใช้ db.pk เพื่อให้ใช้ได้ทั้ง Postgres (SERIAL) และ SQLite (AUTOINCREMENT)
+const SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS operators (
+      id ${db.pk},
       name TEXT UNIQUE,
       pin TEXT
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS cip_batches (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    )`,
+  `CREATE TABLE IF NOT EXISTS cip_batches (
+      id ${db.pk},
       operator_name TEXT,
       start_time TEXT,
       end_time TEXT,
       status TEXT DEFAULT 'in_progress'
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS cip_step_logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    )`,
+  `CREATE TABLE IF NOT EXISTS cip_step_logs (
+      id ${db.pk},
       batch_id INTEGER,
       step_number INTEGER,
       step_description TEXT,
@@ -52,20 +47,18 @@ db.serialize(() => {
       image_path TEXT,
       UNIQUE(batch_id, step_number),
       FOREIGN KEY (batch_id) REFERENCES cip_batches (id)
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS production_logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    )`,
+  `CREATE TABLE IF NOT EXISTS production_logs (
+      id ${db.pk},
       timestamp TEXT,
       line_name TEXT,
       flavor TEXT,
       batch TEXT,
       operator_name TEXT,
       cip_count TEXT
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS production_plans (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    )`,
+  `CREATE TABLE IF NOT EXISTS production_plans (
+      id ${db.pk},
       plan_date TEXT,
       line_name TEXT,
       flavor TEXT,
@@ -74,10 +67,9 @@ db.serialize(() => {
       note TEXT,
       created_at TEXT,
       UNIQUE(plan_date, line_name, flavor)
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS cip_line2_sessions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    )`,
+  `CREATE TABLE IF NOT EXISTS cip_line2_sessions (
+      id ${db.pk},
       operator_name TEXT,
       date TEXT,
       sku TEXT,
@@ -85,61 +77,67 @@ db.serialize(() => {
       flavor TEXT,
       created_at TEXT,
       status TEXT DEFAULT 'in_progress'
-    )`);
-    db.run(`CREATE TABLE IF NOT EXISTS cip_line2_rows (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    )`,
+  `CREATE TABLE IF NOT EXISTS cip_line2_rows (
+      id ${db.pk},
       session_id INTEGER,
       row_no INTEGER,
       data TEXT,
       UNIQUE(session_id, row_no),
       FOREIGN KEY (session_id) REFERENCES cip_line2_sessions(id)
-    )`);
-    db.run(`CREATE TABLE IF NOT EXISTS cip_line2_back (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    )`,
+  `CREATE TABLE IF NOT EXISTS cip_line2_back (
+      id ${db.pk},
       session_id INTEGER UNIQUE,
       data TEXT,
       FOREIGN KEY (session_id) REFERENCES cip_line2_sessions(id)
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS cip_line1_sessions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    )`,
+  `CREATE TABLE IF NOT EXISTS cip_line1_sessions (
+      id ${db.pk},
       operator_name TEXT,
       date TEXT,
       sku TEXT,
       created_at TEXT,
       status TEXT DEFAULT 'in_progress'
-    )`);
-    db.run(`CREATE TABLE IF NOT EXISTS cip_line1_rows (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    )`,
+  `CREATE TABLE IF NOT EXISTS cip_line1_rows (
+      id ${db.pk},
       session_id INTEGER,
       row_no INTEGER,
       data TEXT,
       UNIQUE(session_id, row_no),
       FOREIGN KEY (session_id) REFERENCES cip_line1_sessions(id)
-    )`);
-    db.run(`CREATE TABLE IF NOT EXISTS cip_line1_extra (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    )`,
+  `CREATE TABLE IF NOT EXISTS cip_line1_extra (
+      id ${db.pk},
       session_id INTEGER,
       section TEXT,
       data TEXT,
       UNIQUE(session_id, section),
       FOREIGN KEY (session_id) REFERENCES cip_line1_sessions(id)
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS page_locks (
+    )`,
+  `CREATE TABLE IF NOT EXISTS page_locks (
       page_key TEXT PRIMARY KEY,
       operator_name TEXT,
       started_at TEXT,
       last_seen TEXT
-    )`);
+    )`,
+];
 
-    db.run("DELETE FROM operators");
-    const insertOp = db.prepare("INSERT OR IGNORE INTO operators (name, pin) VALUES (?, ?)");
-    insertOp.run("จักรกฤษ พูลสวัสดิ์", "1234");
-    insertOp.run("พัฒพริศ อ่ำอยู่", "1234");
-    insertOp.run("อนุวัตร สุวรรณวงค์", "1234");
-    insertOp.finalize();
-});
+const DEFAULT_OPERATORS = [
+  ["จักรกฤษ พูลสวัสดิ์", "1234"],
+  ["พัฒพริศ อ่ำอยู่", "1234"],
+  ["อนุวัตร สุวรรณวงค์", "1234"],
+];
+
+async function initDb() {
+  for (const ddl of SCHEMA) await db.exec(ddl);
+  // seed รายชื่อ operator (idempotent — ไม่ลบของเดิมเพื่อไม่ให้ข้อมูลหายตอน restart)
+  for (const [name, pin] of DEFAULT_OPERATORS) {
+    await db.exec("INSERT INTO operators (name, pin) VALUES (?, ?) ON CONFLICT (name) DO NOTHING", [name, pin]);
+  }
+  console.log('[db] schema ready');
+}
 
 // ─── Page Lock API (ป้องกันการบันทึกซ้ำซ้อนเมื่อมีคนใช้งานหน้าเดียวกัน) ───────
 const LOCK_TIMEOUT_MS = 2 * 60 * 1000; // ถือว่าหมดอายุถ้าไม่มี heartbeat เกิน 2 นาที
@@ -979,44 +977,45 @@ app.post('/api/production/plan', (req, res) => {
     return res.status(400).json({ error: 'items ต้องเป็น array และไม่ว่าง' });
   }
   const createdAt = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
-  const upsert = db.prepare(`INSERT INTO production_plans
+  const upsertSql = `INSERT INTO production_plans
     (plan_date, line_name, flavor, planned_batches, operator_name, note, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(plan_date, line_name, flavor)
-    DO UPDATE SET planned_batches=excluded.planned_batches, operator_name=excluded.operator_name, note=excluded.note, created_at=excluded.created_at`);
-  db.serialize(() => {
-    items.forEach((it) => {
-      upsert.run([date, it.line || '', it.flavor || '', Number(it.plannedBatches) || 0, operator || '', it.note || '', createdAt]);
+    DO UPDATE SET planned_batches=excluded.planned_batches, operator_name=excluded.operator_name, note=excluded.note, created_at=excluded.created_at`;
+  (async () => {
+    try {
+      for (const it of items) {
+        await db.exec(upsertSql, [date, it.line || '', it.flavor || '', Number(it.plannedBatches) || 0, operator || '', it.note || '', createdAt]);
+      }
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    const total = items.reduce((s, it) => s + (Number(it.plannedBatches) || 0), 0);
+    sendToTelegram([
+      `📋 <b>บันทึกแผนผลิตประจำวัน</b>`,
+      `🗓 วันที่: <b>${escapeHtml(date)}</b>`,
+      operator ? `👤 ผู้วางแผน: ${escapeHtml(operator)}` : null,
+      `─────────────────────`,
+      ...items.map((it) => `• ${escapeHtml(it.line || '-')} | ${escapeHtml(it.flavor || '-')}: <b>${Number(it.plannedBatches) || 0}</b> batch`),
+      `─────────────────────`,
+      `รวมแผน: <b>${total}</b> batch (${items.length} รายการ)`,
+    ].filter(Boolean).join('\n'));
+    // ส่งทั้งแผนเป็น payload เดียว (items[]) ให้ n8n แตกเป็นหลายแถวแล้ว append ใน execution เดียว
+    // (ยิงทีละรายการทำให้ Google Sheets append เขียนทับแถวเดิม → ข้อมูลหาย)
+    sendToN8n({
+      type: 'production_plan',
+      planDate: date,
+      operator: operator || '',
+      createdAt,
+      items: items.map((it) => ({
+        line: it.line || '',
+        flavor: it.flavor || '',
+        plannedBatches: String(Number(it.plannedBatches) || 0),
+        note: it.note || '',
+      })),
     });
-    upsert.finalize((err) => {
-      if (err) return res.status(500).json({ error: err.message });
-      const total = items.reduce((s, it) => s + (Number(it.plannedBatches) || 0), 0);
-      sendToTelegram([
-        `📋 <b>บันทึกแผนผลิตประจำวัน</b>`,
-        `🗓 วันที่: <b>${escapeHtml(date)}</b>`,
-        operator ? `👤 ผู้วางแผน: ${escapeHtml(operator)}` : null,
-        `─────────────────────`,
-        ...items.map((it) => `• ${escapeHtml(it.line || '-')} | ${escapeHtml(it.flavor || '-')}: <b>${Number(it.plannedBatches) || 0}</b> batch`),
-        `─────────────────────`,
-        `รวมแผน: <b>${total}</b> batch (${items.length} รายการ)`,
-      ].filter(Boolean).join('\n'));
-      // ส่งทั้งแผนเป็น payload เดียว (items[]) ให้ n8n แตกเป็นหลายแถวแล้ว append ใน execution เดียว
-      // (ยิงทีละรายการทำให้ Google Sheets append เขียนทับแถวเดิม → ข้อมูลหาย)
-      sendToN8n({
-        type: 'production_plan',
-        planDate: date,
-        operator: operator || '',
-        createdAt,
-        items: items.map((it) => ({
-          line: it.line || '',
-          flavor: it.flavor || '',
-          plannedBatches: String(Number(it.plannedBatches) || 0),
-          note: it.note || '',
-        })),
-      });
-      res.json({ success: true, saved: items.length, total });
-    });
-  });
+    res.json({ success: true, saved: items.length, total });
+  })();
 });
 
 // ดึงแผนผลิตของวัน (default = วันนี้)
@@ -1094,10 +1093,17 @@ const registerTelegramWebhook = async () => {
   } catch (e) { console.error('[Telegram] Webhook registration failed', e.response?.data || e.message); }
 };
 
-app.listen(port, '0.0.0.0', () => {
-  console.log(`Server running at http://0.0.0.0:${port}`);
-  // ปิดไว้ชั่วคราว — Telegram อนุญาตแค่ webhook เดียวต่อบอท และ n8n's Telegram Trigger
-  // (n8n-Telegram-Production-Chart.json) ใช้บอทตัวเดียวกันสำหรับ "สรุปยอดผลิตวันนี้"
-  // เปิดอีกครั้งได้เมื่อ n8n ฝั่งนั้น deactivate ไปแล้วจริงๆ หรือออกแบบให้ทำงานร่วมกันแล้ว
-  // registerTelegramWebhook();
-});
+initDb()
+  .then(() => {
+    app.listen(port, '0.0.0.0', () => {
+      console.log(`Server running at http://0.0.0.0:${port}`);
+      // ปิดไว้ชั่วคราว — Telegram อนุญาตแค่ webhook เดียวต่อบอท และ n8n's Telegram Trigger
+      // (n8n-Telegram-Production-Chart.json) ใช้บอทตัวเดียวกันสำหรับ "สรุปยอดผลิตวันนี้"
+      // เปิดอีกครั้งได้เมื่อ n8n ฝั่งนั้น deactivate ไปแล้วจริงๆ หรือออกแบบให้ทำงานร่วมกันแล้ว
+      // registerTelegramWebhook();
+    });
+  })
+  .catch((err) => {
+    console.error('[db] init failed — server not started', err);
+    process.exit(1);
+  });
