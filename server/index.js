@@ -629,7 +629,15 @@ const buildLineDetailToday = async (lineFilter) => {
 
   const target = LINE_TARGETS[lineFilter];
   const litersUsed = rounds * LITERS_PER_ROUND;
-  const efficiency = rounds === 0 ? null : Math.round((target / rounds) * 1000) / 10;
+  // target = "เพดาน" จำนวนรอบ/น้ำ RO ที่ใช้ได้ต่อวัน
+  // ใช้น้ำเทียบเพดาน = rounds/target: ใกล้ 100% แต่ไม่เกิน = ดี, เกิน 100% = สิ้นเปลือง, น้อยเกินไป = เตือน
+  const usagePct = (rounds === 0 || target <= 0) ? null : Math.round((rounds / target) * 100);
+  let waterStatus = null;
+  if (usagePct !== null) {
+    if (rounds > target) waterStatus = '🔴 เกินเพดาน ใช้น้ำเกินไป (สิ้นเปลือง)';
+    else if (usagePct >= 50) waterStatus = '🟢 เหมาะสม';
+    else waterStatus = '🟡 ใช้น้ำน้อยเกินไป';
+  }
 
   // โดนัทสัดส่วนรอบที่ใช้ไปเทียบกับเป้าหมาย — ถ้าทำไม่เกินเป้าหมาย โชว์ "ใช้ไปแล้ว" vs "เหลือ"
   // ถ้าทำเกินเป้าหมาย โชว์ "เป้าหมาย" vs "เกินเป้าหมาย" (สีแดง เตือนว่าใช้น้ำเกิน)
@@ -643,7 +651,7 @@ const buildLineDetailToday = async (lineFilter) => {
         { label: 'เกินเป้าหมาย', value: rounds - target, color: '#d32f2f' },
       ];
 
-  return { line: lineFilter, operator: sessions[0]?.operator_name || '-', target, rounds, litersUsed, efficiency, backwashCount, slices };
+  return { line: lineFilter, operator: sessions[0]?.operator_name || '-', target, rounds, litersUsed, usagePct, waterStatus, backwashCount, slices };
 };
 
 // QuickChart รับ config เดียวกันได้ทั้งแบบขอ URL รูปตรงๆ (ให้ n8n ใช้) หรือขอเป็น buffer (ให้ส่ง Telegram เอง)
@@ -683,7 +691,8 @@ const buildCipReplyPayload = async (rawText) => {
     lines.push(`🔄 จำนวนรอบวันนี้: ${d.rounds} รอบ`);
     if (d.backwashCount !== undefined) lines.push(`🧴 Backwash: ${d.backwashCount} ครั้ง`);
     if (d.litersUsed !== undefined) lines.push(`💧 น้ำ RO ที่ใช้: ${d.litersUsed} ลิตร`);
-    if (d.efficiency !== undefined) lines.push(`📊 ประสิทธิภาพการใช้น้ำ RO: ${d.efficiency === null ? 'ยังไม่มีข้อมูลวันนี้' : `${d.efficiency}%`}`);
+    if (d.usagePct !== undefined) lines.push(`📊 การใช้น้ำ RO เทียบเพดาน: ${d.usagePct === null ? 'ยังไม่มีข้อมูลวันนี้' : `${d.usagePct}% (${d.rounds}/${d.target} รอบ)`}`);
+    if (d.waterStatus) lines.push(`⚖️ สถานะ: ${d.waterStatus}`);
     return { matched: true, caption: lines.join('\n'), chartConfig: d.slices ? donutChartConfig(d.slices) : null, width: 500, height: 500 };
   }
 
