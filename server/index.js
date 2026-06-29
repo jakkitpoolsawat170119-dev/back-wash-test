@@ -662,14 +662,25 @@ const fetchQuickChartBuffer = async (config, width = 500, height = 500) => {
   return Buffer.from(res.data);
 };
 
-const barChartConfig = (slices) => ({
+// titleLines = อาเรย์ข้อความหลายบรรทัด ฝัง "สรุป" ลงในรูปเลย (Chart.js v2 รับ title.text เป็นอาเรย์ได้)
+const barChartConfig = (slices, titleLines) => ({
   type: 'bar',
   data: { labels: slices.map(s => s.label), datasets: [{ label: 'จำนวนรอบ', data: slices.map(s => s.value), backgroundColor: slices.map(s => s.color) }] },
+  options: {
+    title: titleLines && titleLines.length ? { display: true, text: titleLines, fontSize: 15, fontStyle: 'bold' } : { display: false },
+    legend: { display: false },
+    plugins: { datalabels: { display: true, color: '#fff', anchor: 'end', align: 'start', font: { size: 18, weight: 'bold' } } },
+    scales: { yAxes: [{ ticks: { beginAtZero: true, precision: 0 } }] },
+  },
 });
-const donutChartConfig = (slices) => ({
+const donutChartConfig = (slices, titleLines) => ({
   type: 'doughnut',
   data: { labels: slices.map(s => s.label), datasets: [{ data: slices.map(s => s.value), backgroundColor: slices.map(s => s.color) }] },
-  options: { plugins: { legend: { position: 'bottom' } } },
+  options: {
+    title: titleLines && titleLines.length ? { display: true, text: titleLines, fontSize: 14, fontStyle: 'bold' } : { display: false },
+    legend: { position: 'bottom' },
+    plugins: { datalabels: { display: true, color: '#fff', font: { size: 16, weight: 'bold' } } },
+  },
 });
 
 // ตรรกะกลางของคำสั่ง "สรุป CIP" — ใช้ทั้งจาก /api/telegram/webhook (ส่งเอง) และ /api/cip-summary (ให้ n8n เรียกแล้วส่งเอง)
@@ -691,19 +702,27 @@ const buildCipReplyPayload = async (rawText) => {
     if (d.litersUsed !== undefined) lines.push(`💧 น้ำ RO ที่ใช้: ${d.litersUsed} ลิตร`);
     if (d.usagePct !== undefined) lines.push(`📊 การใช้น้ำ RO เทียบเพดาน: ${d.usagePct === null ? 'ยังไม่มีข้อมูลวันนี้' : `${d.usagePct}% (${d.rounds}/${d.target} รอบ)`}`);
     if (d.waterStatus) lines.push(`⚖️ สถานะ: ${d.waterStatus}`);
-    return { matched: true, caption: lines.join('\n'), chartConfig: d.slices ? donutChartConfig(d.slices) : null, width: 500, height: 500 };
+    // ฝังสรุป (ข้อความเดียวกับ caption) ลงในรูปกราฟเลย เพื่อแชร์รูปเดียวจบ
+    return { matched: true, caption: lines.join('\n'), chartConfig: d.slices ? donutChartConfig(d.slices, lines) : null, width: 560, height: 620 };
   }
 
   const slices = await buildTodayRoundsByLine();
+  const today = todayBKK();
   const lines = ['📊 สรุป CIP วันนี้ แยกตาม Line'];
+  const titleLines = [`📊 สรุป CIP วันนี้ ${today}`];
+  let totRounds = 0, totLiters = 0;
   for (const s of slices) {
     if (s.label === 'CIP ทดลอง') continue; // แสดงเฉพาะ Line 1/2/3
+    const liters = s.value * LITERS_PER_ROUND;
+    totRounds += s.value; totLiters += liters;
     lines.push('');
     lines.push(`🏭 ${s.label}`);
     lines.push(`   💧 จำนวนการใช้น้ำ RO: ${s.value} รอบ`);
-    lines.push(`   🪣 รวมปริมาตรน้ำที่ใช้: ${s.value * LITERS_PER_ROUND} ลิตร`);
+    lines.push(`   🪣 รวมปริมาตรน้ำที่ใช้: ${liters} ลิตร`);
+    titleLines.push(`${s.label}: ${s.value} รอบ · ${liters} ลิตร`);
   }
-  return { matched: true, caption: lines.join('\n'), chartConfig: barChartConfig(slices), width: 500, height: 350 };
+  titleLines.push(`รวม ${totRounds} รอบ · ${totLiters} ลิตร`);
+  return { matched: true, caption: lines.join('\n'), chartConfig: barChartConfig(slices, titleLines), width: 560, height: 520 };
 };
 
 // เก็บไว้เผื่อใช้ในอนาคต — ตอนนี้ n8n's Telegram Trigger เป็นเจ้าของ webhook ของบอทอยู่ (ดู /api/cip-summary ด้านล่าง)
