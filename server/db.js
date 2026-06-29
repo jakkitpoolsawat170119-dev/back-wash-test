@@ -33,9 +33,10 @@ if (USE_PG) {
     pk: 'SERIAL PRIMARY KEY',
     run(sqlRaw, paramsRaw, cbRaw) {
       const { sql: base, params, cb } = normalize(sqlRaw, paramsRaw, cbRaw);
-      // INSERT → ขอ id กลับมาเพื่อรองรับ this.lastID แบบ sqlite
+      // INSERT → ขอแถวกลับมาเพื่อรองรับ this.lastID แบบ sqlite
+      // ใช้ RETURNING * (ไม่ใช่ RETURNING id) เพราะบางตารางไม่มีคอลัมน์ id เช่น page_locks (PK = page_key)
       const isInsert = /^\s*insert\s/i.test(sqlRaw);
-      const sql = (isInsert && !/returning/i.test(sqlRaw)) ? base + ' RETURNING id' : base;
+      const sql = (isInsert && !/returning/i.test(sqlRaw)) ? base + ' RETURNING *' : base;
       pool.query(sql, params)
         .then((r) => {
           const ctx = { lastID: r.rows && r.rows[0] ? r.rows[0].id : undefined, changes: r.rowCount };
