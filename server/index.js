@@ -682,8 +682,8 @@ const buildCipReplyPayload = async (rawText) => {
   if (lineFilter) {
     const d = await buildLineDetailToday(lineFilter);
     const lines = [
-      `🍩 <b>สรุป CIP ${escapeHtml(d.line)}</b>`,
-      `👤 ผู้ปฏิบัติงานล่าสุด: ${escapeHtml(d.operator)}`,
+      `🍩 สรุป CIP ${d.line}`,
+      `👤 ผู้ปฏิบัติงานล่าสุด: ${d.operator}`,
     ];
     if (d.target !== undefined) lines.push(`🎯 เป้าหมาย: ${d.target} ขั้นตอน (รอบ)`);
     lines.push(`🔄 จำนวนรอบวันนี้: ${d.rounds} รอบ`);
@@ -695,7 +695,15 @@ const buildCipReplyPayload = async (rawText) => {
   }
 
   const slices = await buildTodayRoundsByLine();
-  return { matched: true, caption: '📊 <b>จำนวนรอบ CIP วันนี้ แยกตาม Line</b>', chartConfig: barChartConfig(slices), width: 500, height: 350 };
+  const lines = ['📊 สรุป CIP วันนี้ แยกตาม Line'];
+  for (const s of slices) {
+    if (s.label === 'CIP ทดลอง') continue; // แสดงเฉพาะ Line 1/2/3
+    lines.push('');
+    lines.push(`🏭 ${s.label}`);
+    lines.push(`   💧 จำนวนการใช้น้ำ RO: ${s.value} รอบ`);
+    lines.push(`   🪣 รวมปริมาตรน้ำที่ใช้: ${s.value * LITERS_PER_ROUND} ลิตร`);
+  }
+  return { matched: true, caption: lines.join('\n'), chartConfig: barChartConfig(slices), width: 500, height: 350 };
 };
 
 // เก็บไว้เผื่อใช้ในอนาคต — ตอนนี้ n8n's Telegram Trigger เป็นเจ้าของ webhook ของบอทอยู่ (ดู /api/cip-summary ด้านล่าง)
