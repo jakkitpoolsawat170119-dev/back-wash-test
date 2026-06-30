@@ -6,13 +6,14 @@ import CipLine2Form from './components/CipLine2Form';
 import CipLine1Form from './components/CipLine1Form';
 import ProductionRecord from './components/ProductionRecord';
 import Line4Manual from './components/Line4Manual';
+import TodoBoard from './components/TodoBoard';
 import StickerGuideChat from './components/StickerGuideChat';
 import StickerGuideAdmin from './components/StickerGuideAdmin';
 import styles from './App.module.css';
 
 const App: React.FC = () => {
   const [operator, setOperator] = useState<string | null>(null);
-  const [appMode, setAppMode] = useState<'selection' | 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'line4manual' | 'stickerGuideChat' | 'stickerGuideAdmin'>('selection');
+  const [appMode, setAppMode] = useState<'selection' | 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'line4manual' | 'todo' | 'stickerGuideChat' | 'stickerGuideAdmin'>('selection');
   const [isFlipping, setIsFlipping] = useState(false);
   const [isCipLine2Active, setIsCipLine2Active] = useState(false);
   const [isCipLine3Active, setIsCipLine3Active] = useState(false);
@@ -54,7 +55,7 @@ const App: React.FC = () => {
     }
   };
 
-  const switchMode = (targetMode: 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'selection' | 'line4manual' | 'stickerGuideChat' | 'stickerGuideAdmin') => {
+  const switchMode = (targetMode: 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'selection' | 'line4manual' | 'todo' | 'stickerGuideChat' | 'stickerGuideAdmin') => {
     setIsFlipping(true);
     setTimeout(() => {
       setAppMode(targetMode);
@@ -210,10 +211,11 @@ const App: React.FC = () => {
               { mode: 'cipLine3', icon: '💧', label: 'Line 3', color: '#006064' },
               { mode: 'cip',      icon: '⚗️', label: 'CIP ทดลอง', color: '#546e7a' },
               { mode: 'production', icon: '🏭', label: 'ผลิต', color: '#1b5e20' },
+              { mode: 'todo', icon: '✅', label: 'To-do', color: '#ff6b00' },
               { mode: 'line4manual', icon: '📋', label: 'Line 4', color: '#4a7c59' },
               { mode: 'stickerGuideChat', icon: '💬', label: 'วิธีติดสติ๊กเกอร์', color: '#ff8c00' },
               { mode: 'stickerGuideAdmin', icon: '🛠️', label: 'จัดการคู่มือ', color: '#e65100' },
-            ] as { mode: 'selection'|'cip'|'cipLine2'|'cipLine3'|'cipLine1'|'production'|'line4manual'|'stickerGuideChat'|'stickerGuideAdmin'; icon: string; label: string; color: string }[]).map(({ mode, icon, label, color }) => (
+            ] as { mode: 'selection'|'cip'|'cipLine2'|'cipLine3'|'cipLine1'|'production'|'line4manual'|'todo'|'stickerGuideChat'|'stickerGuideAdmin'; icon: string; label: string; color: string }[]).map(({ mode, icon, label, color }) => (
               <button
                 key={mode}
                 onClick={() => switchMode(mode)}
@@ -330,6 +332,13 @@ const App: React.FC = () => {
                       badge={isProdActive && <div style={{ position: 'absolute', top: '10px', right: '12px', background: '#ff3b30', color: 'white', fontSize: '0.62rem', padding: '3px 8px', borderRadius: '8px', animation: 'pulse 1.5s infinite' }}>● กำลังทำงาน</div>}
                     />
                     <SoftCard
+                      onClick={() => switchMode('todo')}
+                      bg="#fff1e6" iconBg="#ffe0c2"
+                      icon={<span style={{ fontSize: '1.5rem' }}>✅</span>}
+                      title="To-do วันนี้"
+                      subtitle="งานผลิต · CIP · ส่งเวร · ผู้ช่วย AI"
+                    />
+                    <SoftCard
                       onClick={() => switchMode('line4manual')}
                       bg="#eef3ec" iconBg="#d6e3d2"
                       icon={<IconBook size={24} color="#4a7c59" />}
@@ -411,6 +420,10 @@ const App: React.FC = () => {
 
           <div style={{ display: appMode === 'line4manual' ? 'block' : 'none' }}>
             <Line4Manual operatorName={operator} onBackToMain={() => switchMode('selection')} />
+          </div>
+
+          <div style={{ display: appMode === 'todo' ? 'block' : 'none' }}>
+            <TodoBoard operatorName={operator} onBackToMain={() => switchMode('selection')} />
           </div>
 
           <div style={{ display: appMode === 'stickerGuideChat' ? 'block' : 'none' }}>

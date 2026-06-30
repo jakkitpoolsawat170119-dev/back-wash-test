@@ -6,6 +6,7 @@ const path = require('path');
 const multer = require('multer');
 const axios = require('axios');
 const FormData = require('form-data');
+const Anthropic = require('@anthropic-ai/sdk');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -121,6 +122,49 @@ const SCHEMA = [
       operator_name TEXT,
       started_at TEXT,
       last_seen TEXT
+    )`,
+  // ── To-do List / งานรายวัน ─────────────────────────────────────────────
+  // แกนหลัก: งานแต่ละวันของแต่ละ Line (ผลิต/CIP/backwash/maintenance/manual)
+  // UNIQUE(task_date, line_name, category, title) → สร้างงานอัตโนมัติซ้ำได้แบบ idempotent
+  `CREATE TABLE IF NOT EXISTS daily_tasks (
+      id ${db.pk},
+      task_date TEXT,
+      line_name TEXT,
+      category TEXT,
+      flavor TEXT,
+      title TEXT,
+      detail TEXT,
+      target_count INTEGER,
+      actual_count INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'pending',
+      source TEXT DEFAULT 'manual',
+      recurring_id INTEGER,
+      created_by TEXT,
+      created_at TEXT,
+      due_time TEXT,
+      completed_at TEXT,
+      UNIQUE(task_date, line_name, category, title)
+    )`,
+  // เทมเพลตงานประจำ (recurring) — daily/weekly/monthly
+  `CREATE TABLE IF NOT EXISTS task_templates (
+      id ${db.pk},
+      title TEXT,
+      line_name TEXT,
+      category TEXT,
+      cadence TEXT DEFAULT 'daily',
+      weekday INTEGER,
+      target_count INTEGER,
+      active INTEGER DEFAULT 1,
+      created_at TEXT
+    )`,
+  // โน้ตส่งเวร (shift handover)
+  `CREATE TABLE IF NOT EXISTS handover_notes (
+      id ${db.pk},
+      note_date TEXT,
+      shift TEXT,
+      operator_name TEXT,
+      text TEXT,
+      created_at TEXT
     )`,
 ];
 
@@ -1014,6 +1058,9 @@ app.post('/api/production/plan', (req, res) => {
       for (const it of items) {
         await db.exec(upsertSql, [date, it.line || '', it.flavor || '', Number(it.plannedBatches) || 0, operator || '', it.note || '', createdAt]);
       }
+      // สร้าง To-do อัตโนมัติจากแผนที่เพิ่งบันทึก (ผลิต + CIP + งานประจำ)
+      await generateTasksForDate(date, operator);
+      await syncTaskProgress(date);
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
@@ -1068,6 +1115,363 @@ app.get('/api/production/summary', (req, res) => {
       res.json({ date, items: rows });
     }
   );
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── To-do List / งานรายวัน (เชื่อมผลิต + CIP ทั้ง 3 Line) ───────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+const nowBKK = () => new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
+const weekdayOf = (dateStr) => { try { return new Date(`${dateStr}T12:00:00`).getDay(); } catch { return null; } };
+const dayOfMonth = (dateStr) => { try { return new Date(`${dateStr}T12:00:00`).getDate(); } catch { return null; } };
+
+// upsert งานเข้า daily_tasks แบบไม่ทับ status/actual ที่มีอยู่ (idempotent)
+const upsertTask = (t) => db.exec(
+  `INSERT INTO daily_tasks (task_date, line_name, category, flavor, title, detail, target_count, source, recurring_id, created_by, created_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+   ON CONFLICT(task_date, line_name, category, title)
+   DO UPDATE SET target_count = excluded.target_count, detail = excluded.detail, source = excluded.source, recurring_id = excluded.recurring_id`,
+  [t.date, t.line || '', t.category, t.flavor || null, t.title, t.detail || null,
+   t.target == null ? null : Number(t.target), t.source || 'auto_plan', t.recurring_id || null, t.createdBy || null, nowBKK()]
+);
+
+// สร้างงานอัตโนมัติจากแผนผลิต + กติกา CIP + เทมเพลตงานประจำ
+async function generateTasksForDate(date, operator) {
+  // 1) จากแผนผลิต → งานผลิต + งาน CIP/backwash ของ Line ที่มีแผน
+  const plans = await dbAll('SELECT line_name, flavor, planned_batches FROM production_plans WHERE plan_date = ?', [date]);
+  const planLines = new Set();
+  for (const p of plans) {
+    const line = p.line_name || '';
+    if (line) planLines.add(line);
+    await upsertTask({ date, line, category: 'production', flavor: p.flavor,
+      title: `ผลิต ${p.flavor || '-'}`, detail: `แผน ${p.planned_batches || 0} batch`,
+      target: p.planned_batches, source: 'auto_plan', createdBy: operator });
+  }
+  // กติกา CIP: ทุก Line ที่มีแผนผลิตต้องทำ CIP; Line 2/3 เพิ่ม backwash
+  for (const line of planLines) {
+    await upsertTask({ date, line, category: 'cip', title: `CIP ${line}`,
+      detail: 'ทำความสะอาดหลังเปลี่ยนรส/จบกะ', target: 1, source: 'auto_cip_rule', createdBy: operator });
+    if (line === 'Line 2' || line === 'Line 3') {
+      await upsertTask({ date, line, category: 'backwash', title: `Backwash ${line}`,
+        detail: 'ตามรอบที่กำหนด', target: 1, source: 'auto_cip_rule', createdBy: operator });
+    }
+  }
+  // 2) เทมเพลตงานประจำ (recurring)
+  const templates = await dbAll('SELECT * FROM task_templates WHERE active = 1', []);
+  const wd = weekdayOf(date), dom = dayOfMonth(date);
+  for (const tpl of templates) {
+    const due = tpl.cadence === 'daily'
+      || (tpl.cadence === 'weekly' && Number(tpl.weekday) === wd)
+      || (tpl.cadence === 'monthly' && Number(tpl.weekday || 1) === dom);
+    if (!due) continue;
+    await upsertTask({ date, line: tpl.line_name || '', category: tpl.category || 'maintenance',
+      title: tpl.title, detail: tpl.cadence, target: tpl.target_count, source: 'recurring',
+      recurring_id: tpl.id, createdBy: operator });
+  }
+}
+
+// นับรอบ CIP/backwash ที่ทำเสร็จของวันที่ระบุ แยกตาม Line (reuse countDoneRows/countBackwashRows)
+async function cipRoundsForDate(date) {
+  const [l1, l23] = await Promise.all([
+    dbAll('SELECT id FROM cip_line1_sessions WHERE date = ? OR created_at LIKE ?', [date, `${date}%`]),
+    dbAll('SELECT id, line FROM cip_line2_sessions WHERE date = ? OR created_at LIKE ?', [date, `${date}%`]),
+  ]);
+  const l2Ids = l23.filter(s => (s.line || 'Line 2') === 'Line 2').map(s => s.id);
+  const l3Ids = l23.filter(s => s.line === 'Line 3').map(s => s.id);
+  const [r1, r2, r3, b2, b3] = await Promise.all([
+    countDoneRows('cip_line1_rows', l1.map(s => s.id)),
+    countDoneRows('cip_line2_rows', l2Ids),
+    countDoneRows('cip_line2_rows', l3Ids),
+    countBackwashRows(l2Ids),
+    countBackwashRows(l3Ids),
+  ]);
+  return { cip: { 'Line 1': r1, 'Line 2': r2, 'Line 3': r3 }, backwash: { 'Line 2': b2, 'Line 3': b3 } };
+}
+
+// คำนวณ actual + status ของงาน auto (ผลิต/CIP/backwash) จาก log จริง
+async function syncTaskProgress(date) {
+  const [prodRows, cipR, tasks] = await Promise.all([
+    dbAll(`SELECT line_name, flavor, COUNT(*) AS n FROM production_logs WHERE substr(timestamp,1,10) = ? GROUP BY line_name, flavor`, [date]),
+    cipRoundsForDate(date),
+    dbAll(`SELECT * FROM daily_tasks WHERE task_date = ? AND source IN ('auto_plan','auto_cip_rule')`, [date]),
+  ]);
+  const prodMap = {};
+  for (const r of prodRows) prodMap[`${r.line_name}||${r.flavor}`] = Number(r.n);
+  for (const t of tasks) {
+    let actual = t.actual_count || 0;
+    if (t.category === 'production') actual = prodMap[`${t.line_name}||${t.flavor}`] || 0;
+    else if (t.category === 'cip') actual = (cipR.cip[t.line_name] || 0) > 0 ? 1 : 0;
+    else if (t.category === 'backwash') actual = (cipR.backwash[t.line_name] || 0) > 0 ? 1 : 0;
+    const target = t.target_count || 1;
+    let status = 'pending';
+    if (actual >= target) status = 'done';
+    else if (actual > 0) status = 'in_progress';
+    const completedAt = (status === 'done' && t.status !== 'done') ? nowBKK() : (status === 'done' ? t.completed_at : null);
+    if (actual !== t.actual_count || status !== t.status) {
+      await db.exec('UPDATE daily_tasks SET actual_count = ?, status = ?, completed_at = ? WHERE id = ?',
+        [actual, status, completedAt, t.id]);
+    }
+  }
+}
+
+// รวมเหตุการณ์ของวันเป็นไทม์ไลน์เดียว (ผลิต + CIP + batch ทดลอง + โน้ตส่งเวร + งานเสร็จ)
+async function buildTimeline(date) {
+  const events = [];
+  const prod = await dbAll(`SELECT timestamp, line_name, flavor, batch, operator_name FROM production_logs WHERE substr(timestamp,1,10) = ?`, [date]);
+  for (const p of prod) events.push({ time: p.timestamp, type: 'production', line: p.line_name,
+    text: `🏭 ผลิต ${p.flavor || ''} (Batch ${p.batch || '-'}) — ${p.line_name || ''}`, operator: p.operator_name });
+
+  const pushCipRows = async (table, sessTable, withLine) => {
+    const sess = await dbAll(`SELECT * FROM ${sessTable} WHERE date = ? OR created_at LIKE ?`, [date, `${date}%`]);
+    if (!sess.length) return;
+    const ids = sess.map(s => s.id);
+    const byId = {}; sess.forEach(s => { byId[s.id] = s; });
+    const rows = await dbAll(`SELECT session_id, row_no, data FROM ${table} WHERE session_id IN (${ids.map(() => '?').join(',')})`, ids);
+    for (const r of rows) {
+      let d; try { d = JSON.parse(r.data); } catch { continue; }
+      if (!d.endTime) continue;
+      const s = byId[r.session_id] || {};
+      const line = withLine ? (s.line || 'Line 2') : 'Line 1';
+      events.push({ time: d.endTime, type: 'cip', line,
+        text: `💧 CIP ${line} รอบ ${r.row_no}${d.backwash ? ' + Backwash' : ''}`, operator: s.operator_name });
+    }
+  };
+  await pushCipRows('cip_line1_rows', 'cip_line1_sessions', false);
+  await pushCipRows('cip_line2_rows', 'cip_line2_sessions', true);
+
+  const notes = await dbAll('SELECT * FROM handover_notes WHERE note_date = ? ORDER BY created_at', [date]);
+  for (const n of notes) events.push({ time: n.created_at, type: 'handover', line: '',
+    text: `📝 ส่งเวร (${n.shift || '-'}): ${n.text}`, operator: n.operator_name });
+
+  const doneTasks = await dbAll(`SELECT * FROM daily_tasks WHERE task_date = ? AND status = 'done' AND completed_at IS NOT NULL`, [date]);
+  for (const t of doneTasks) events.push({ time: t.completed_at, type: 'task', line: t.line_name,
+    text: `✅ ${t.title}`, operator: t.created_by });
+
+  return events.filter(e => e.time).sort((a, b) => String(a.time).localeCompare(String(b.time)));
+}
+
+// ── Endpoints: tasks ──────────────────────────────────────────────────────
+app.get('/api/tasks', async (req, res) => {
+  const date = req.query.date || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+  try {
+    await syncTaskProgress(date);
+    const items = await dbAll('SELECT * FROM daily_tasks WHERE task_date = ? ORDER BY line_name, category, id', [date]);
+    res.json({ date, items });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/tasks/generate', async (req, res) => {
+  const date = req.body.date || req.query.date || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+  try {
+    await generateTasksForDate(date, req.body.operator);
+    await syncTaskProgress(date);
+    const items = await dbAll('SELECT * FROM daily_tasks WHERE task_date = ? ORDER BY line_name, category, id', [date]);
+    res.json({ success: true, date, count: items.length, items });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/tasks', (req, res) => {
+  const { date, line, category, title, detail, targetCount, operator } = req.body;
+  if (!title) return res.status(400).json({ error: 'title จำเป็น' });
+  const d = date || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+  db.run(`INSERT INTO daily_tasks (task_date, line_name, category, title, detail, target_count, status, source, created_by, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending', 'manual', ?, ?)
+    ON CONFLICT(task_date, line_name, category, title) DO UPDATE SET detail = excluded.detail, target_count = excluded.target_count`,
+    [d, line || '', category || 'manual', title, detail || null, targetCount == null ? null : Number(targetCount), operator || null, nowBKK()],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, id: this.lastID });
+    });
+});
+
+app.post('/api/tasks/update', (req, res) => {
+  const { id, status, actualCount, title, detail } = req.body;
+  if (!id) return res.status(400).json({ error: 'id จำเป็น' });
+  const completedAt = status === 'done' ? nowBKK() : null;
+  db.run(`UPDATE daily_tasks SET
+      status = COALESCE(?, status),
+      actual_count = COALESCE(?, actual_count),
+      title = COALESCE(?, title),
+      detail = COALESCE(?, detail),
+      completed_at = CASE WHEN ? = 'done' THEN ? ELSE completed_at END
+    WHERE id = ?`,
+    [status || null, actualCount == null ? null : Number(actualCount), title || null, detail || null, status || '', completedAt, id],
+    (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    });
+});
+
+app.post('/api/tasks/delete-one', (req, res) => {
+  db.run('DELETE FROM daily_tasks WHERE id = ?', [req.body.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// ── Endpoints: timeline + handover ────────────────────────────────────────
+app.get('/api/timeline', async (req, res) => {
+  const date = req.query.date || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+  try { res.json({ date, events: await buildTimeline(date) }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/handover', (req, res) => {
+  const { date, shift, operator, text } = req.body;
+  if (!text) return res.status(400).json({ error: 'text จำเป็น' });
+  const d = date || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+  db.run('INSERT INTO handover_notes (note_date, shift, operator_name, text, created_at) VALUES (?, ?, ?, ?, ?)',
+    [d, shift || null, operator || null, text, nowBKK()],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      sendToTelegram(`📝 <b>ส่งเวร</b> (${escapeHtml(shift || '-')})\n👤 ${escapeHtml(operator || '-')} | 📅 ${escapeHtml(d)}\n${escapeHtml(text)}`);
+      res.json({ success: true, id: this.lastID });
+    });
+});
+
+// ── Endpoints: task templates (งานประจำ) ──────────────────────────────────
+app.get('/api/task-templates', (req, res) => {
+  db.all('SELECT * FROM task_templates ORDER BY id DESC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/task-templates', (req, res) => {
+  const { id, title, line, category, cadence, weekday, targetCount, active } = req.body;
+  if (!title) return res.status(400).json({ error: 'title จำเป็น' });
+  if (id) {
+    db.run(`UPDATE task_templates SET title=?, line_name=?, category=?, cadence=?, weekday=?, target_count=?, active=? WHERE id=?`,
+      [title, line || '', category || 'maintenance', cadence || 'daily', weekday == null ? null : Number(weekday),
+       targetCount == null ? null : Number(targetCount), active == null ? 1 : Number(active), id],
+      (err) => err ? res.status(500).json({ error: err.message }) : res.json({ success: true, id }));
+  } else {
+    db.run(`INSERT INTO task_templates (title, line_name, category, cadence, weekday, target_count, active, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [title, line || '', category || 'maintenance', cadence || 'daily', weekday == null ? null : Number(weekday),
+       targetCount == null ? null : Number(targetCount), active == null ? 1 : Number(active), nowBKK()],
+      function(err) { err ? res.status(500).json({ error: err.message }) : res.json({ success: true, id: this.lastID }); });
+  }
+});
+
+app.post('/api/task-templates/delete-one', (req, res) => {
+  db.run('DELETE FROM task_templates WHERE id = ?', [req.body.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── ผู้ช่วย AI (Claude) — พิมพ์ภาษาคน → สร้างงาน / สืบค้นข้อมูลการผลิต ───────
+// เลเยอร์ tool-calling ตัวเดียว ใช้ได้ทั้งหน้าเว็บ (/api/assistant) และ Telegram (ผ่าน n8n)
+// ═══════════════════════════════════════════════════════════════════════════
+let _anthropic = null;
+const getAnthropic = () => {
+  if (!process.env.ANTHROPIC_API_KEY) return null;
+  if (!_anthropic) _anthropic = new Anthropic(); // อ่าน ANTHROPIC_API_KEY จาก env
+  return _anthropic;
+};
+
+const ASSISTANT_TOOLS = [
+  { name: 'create_task', description: 'สร้างงานใหม่ลง To-do เมื่อผู้ใช้บอกว่าจะทำหรือทำงานอะไรเสร็จแล้ว',
+    input_schema: { type: 'object', properties: {
+      date: { type: 'string', description: 'วันที่ YYYY-MM-DD (ถ้าไม่ระบุ = วันนี้)' },
+      line: { type: 'string', description: 'เช่น "Line 1", "Line 2", "Line 3", "Line 4" (ว่างได้)' },
+      category: { type: 'string', enum: ['production', 'cip', 'backwash', 'maintenance', 'manual'] },
+      title: { type: 'string' }, detail: { type: 'string' },
+      target_count: { type: 'integer', description: 'จำนวนเป้าหมาย เช่น batch' },
+    }, required: ['title', 'category'] } },
+  { name: 'list_tasks', description: 'ดูรายการงานของวัน',
+    input_schema: { type: 'object', properties: { date: { type: 'string' } } } },
+  { name: 'complete_task', description: 'ทำเครื่องหมายว่างานเสร็จแล้ว (ระบุ id หรือ title)',
+    input_schema: { type: 'object', properties: {
+      id: { type: 'integer' }, title: { type: 'string' }, line: { type: 'string' }, date: { type: 'string' } } } },
+  { name: 'get_production_summary', description: 'สรุปยอดผลิตจริงเทียบแผน แยกตาม Line/รสชาติ',
+    input_schema: { type: 'object', properties: { date: { type: 'string' } } } },
+  { name: 'get_cip_summary', description: 'สรุปจำนวนรอบ CIP/backwash ของวัน แยกตาม Line',
+    input_schema: { type: 'object', properties: { date: { type: 'string' } } } },
+  { name: 'get_timeline', description: 'ไทม์ไลน์เหตุการณ์ทั้งหมดของวัน (ผลิต/CIP/ส่งเวร)',
+    input_schema: { type: 'object', properties: { date: { type: 'string' } } } },
+];
+
+async function runAssistantTool(name, input, operator) {
+  const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+  const date = input.date || today();
+  if (name === 'create_task') {
+    await db.exec(`INSERT INTO daily_tasks (task_date, line_name, category, title, detail, target_count, status, source, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'pending', 'chat', ?, ?)
+      ON CONFLICT(task_date, line_name, category, title) DO UPDATE SET detail = excluded.detail, target_count = excluded.target_count`,
+      [date, input.line || '', input.category || 'manual', input.title, input.detail || null,
+       input.target_count == null ? null : Number(input.target_count), operator || null, nowBKK()]);
+    await syncTaskProgress(date);
+    return { ok: true, created: input.title };
+  }
+  if (name === 'list_tasks') {
+    await syncTaskProgress(date);
+    const items = await dbAll('SELECT id, line_name, category, title, status, target_count, actual_count FROM daily_tasks WHERE task_date = ? ORDER BY line_name, category', [date]);
+    return { date, items };
+  }
+  if (name === 'complete_task') {
+    if (input.id) await db.exec(`UPDATE daily_tasks SET status='done', completed_at=? WHERE id=?`, [nowBKK(), input.id]);
+    else await db.exec(`UPDATE daily_tasks SET status='done', completed_at=? WHERE task_date=? AND title LIKE ? ${input.line ? 'AND line_name=?' : ''}`,
+      input.line ? [nowBKK(), date, `%${input.title}%`, input.line] : [nowBKK(), date, `%${input.title}%`]);
+    return { ok: true };
+  }
+  if (name === 'get_production_summary') {
+    const [plan, actual] = await Promise.all([
+      dbAll('SELECT line_name, flavor, planned_batches FROM production_plans WHERE plan_date = ?', [date]),
+      dbAll(`SELECT line_name, flavor, COUNT(*) AS actual FROM production_logs WHERE substr(timestamp,1,10)=? GROUP BY line_name, flavor`, [date]),
+    ]);
+    return { date, plan, actual };
+  }
+  if (name === 'get_cip_summary') return { date, ...(await cipRoundsForDate(date)) };
+  if (name === 'get_timeline') return { date, events: await buildTimeline(date) };
+  return { error: 'unknown tool' };
+}
+
+app.post('/api/assistant', async (req, res) => {
+  const client = getAnthropic();
+  if (!client) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์' });
+  const { message, operator } = req.body;
+  if (!message) return res.status(400).json({ error: 'message จำเป็น' });
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+  const system = [
+    'คุณเป็นผู้ช่วยบันทึกและสืบค้นข้อมูลการผลิตน้ำเชื่อม/น้ำหวานของโรงงาน',
+    `วันนี้คือ ${today} (เขตเวลา Asia/Bangkok)`,
+    'มีสายการผลิต/CIP: Line 1 (Syrup), Line 2 และ Line 3 (Flavour), Line 4 (Mixing/Pasteurizer)',
+    'หน้าที่: 1) เมื่อผู้ใช้เล่าว่าทำงานอะไรไปแล้วหรือจะทำ ให้สร้างงานลง To-do ด้วย create_task (เลือก category ให้ถูก: ผลิต=production, ทำความสะอาด=cip, backwash=backwash)',
+    '2) เมื่อผู้ใช้ถามข้อมูล ให้ใช้ get_production_summary / get_cip_summary / get_timeline / list_tasks ก่อนตอบ',
+    'ตอบเป็นภาษาไทย สั้น กระชับ ชัดเจน หลังทำงานเสร็จให้สรุปสิ่งที่ทำให้ผู้ใช้ทราบ',
+  ].join('\n');
+
+  try {
+    const actions = [];
+    const messages = [{ role: 'user', content: String(message) }];
+    let reply = '';
+    for (let turn = 0; turn < 6; turn++) {
+      const resp = await client.messages.create({
+        model: 'claude-opus-4-8', max_tokens: 4096, system, tools: ASSISTANT_TOOLS, messages,
+      });
+      if (resp.stop_reason !== 'tool_use') {
+        reply = resp.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+        break;
+      }
+      messages.push({ role: 'assistant', content: resp.content });
+      const toolResults = [];
+      for (const block of resp.content) {
+        if (block.type !== 'tool_use') continue;
+        let out;
+        try { out = await runAssistantTool(block.name, block.input || {}, operator); }
+        catch (e) { out = { error: e.message }; }
+        actions.push({ tool: block.name, input: block.input });
+        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(out) });
+      }
+      messages.push({ role: 'user', content: toolResults });
+    }
+    res.json({ reply: reply || 'รับทราบครับ', actions });
+  } catch (err) {
+    console.error('[assistant] error', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/batches', (req, res) => {

@@ -225,6 +225,90 @@
           "name": "Telegram account 5"
         }
       }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "9ae09e77-6b16-4d77-9b81-c4547027abaf",
+              "leftValue": "={{ $json.message.text }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "bf970371-5bff-4d89-a506-9e10c2e799c6",
+              "leftValue": "={{ $json.message.text }}",
+              "rightValue": "สรุป",
+              "operator": {
+                "type": "string",
+                "operation": "notContains"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "89c05e26-93d6-465d-9e4a-80326126e413",
+      "name": "Is Assistant Msg",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        460,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://back-wash-test.onrender.com/api/assistant",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"message\": $json.message.text, \"operator\": ($json.message.from.first_name || \"\") } }}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "9aff5bce-7a37-4cfe-91b4-9902de216ab7",
+      "name": "Ask Assistant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        700,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "={{ $json.reply }}",
+        "additionalFields": {}
+      },
+      "id": "7ab49e1f-fa08-442a-817e-e12a28c353e1",
+      "name": "Send Assistant Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        940,
+        640
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "BDfXjMUVzqBPxhWS",
+          "name": "Telegram account 5"
+        }
+      }
     }
   ],
   "pinData": {},
@@ -239,6 +323,11 @@
           },
           {
             "node": "Parse Query",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is Assistant Msg",
             "type": "main",
             "index": 0
           }
@@ -305,6 +394,29 @@
         [
           {
             "node": "Send CIP Chart",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Assistant Msg": {
+      "main": [
+        [
+          {
+            "node": "Ask Assistant",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Ask Assistant": {
+      "main": [
+        [
+          {
+            "node": "Send Assistant Reply",
             "type": "main",
             "index": 0
           }
