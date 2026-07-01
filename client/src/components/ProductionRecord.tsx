@@ -49,6 +49,13 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
   // แยก draft ตามชื่อผู้ใช้ กันข้อมูลค้างของคนหนึ่งไปโผล่ในเซสชันของอีกคนเมื่อใช้เครื่อง/เบราว์เซอร์เดียวกัน
   const DRAFT_KEY = `${DRAFT_KEY_PREFIX}_${operatorName}`;
   const batchOptions = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+  // รสที่บันทึกเป็น No.1–20 (น้ำเชื่อม/เบส ผลิตเป็นรอบ) แทน Batch A-Z
+  const NUMBERED_FLAVORS = ["Dilute W-Molass"];
+  const isNumberedFlavor = (flavor: string) => NUMBERED_FLAVORS.includes(flavor);
+  const getSeq = (flavor: string) => (isNumberedFlavor(flavor)
+    ? Array.from({ length: 20 }, (_, i) => `No.${i + 1}`)
+    : batchOptions);
+  const unitWord = (flavor: string) => (isNumberedFlavor(flavor) ? 'รอบ' : 'Batch');
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [filterFlavorP, setFilterFlavorP] = useState('');
   const [filterLineP, setFilterLineP] = useState('');
@@ -238,10 +245,11 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     "Freshy Shine Muscat Grape": { bg: '#f0fce4', border: '#76b82a' },
   };
 
-  const getNextBatch = (currentBatch: string) => {
-    const index = batchOptions.indexOf(currentBatch);
-    if (index === -1 || index === batchOptions.length - 1) return "";
-    return batchOptions[index + 1];
+  const getNextBatch = (currentBatch: string, flavor: string) => {
+    const seq = getSeq(flavor);
+    const index = seq.indexOf(currentBatch);
+    if (index === -1 || index === seq.length - 1) return "";
+    return seq[index + 1];
   };
 
   const handleCookingBatchChange = (lineId: number, selectedBatch: string) => {
@@ -253,8 +261,8 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     }
     const lastBatch = line.history.length > 0 ? line.history[line.history.length - 1].batch : line.shiftBatch;
     if (!lastBatch) { alert("กรุณาเลือก 'รับช่วงต่อจาก Batch' ก่อนครับ"); return; }
-    const expectedBatch = getNextBatch(lastBatch);
-    if (selectedBatch !== expectedBatch) { alert(`ลำดับ Batch ไม่ถูกต้อง! ลำดับที่ต้องทำคือ Batch ${expectedBatch}`); return; }
+    const expectedBatch = getNextBatch(lastBatch, line.flavor);
+    if (selectedBatch !== expectedBatch) { alert(`ลำดับไม่ถูกต้อง! ลำดับที่ต้องทำคือ ${unitWord(line.flavor)} ${expectedBatch}`); return; }
     setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], cookingBatch: selectedBatch } }));
   };
 
@@ -439,7 +447,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
         {[1, 2, 3, 4].map(lineId => {
           const line = lines[lineId];
           const lastBatch = line.history.length > 0 ? line.history[line.history.length - 1].batch : line.shiftBatch;
-          const nextExpectedBatch = getNextBatch(lastBatch);
+          const nextExpectedBatch = getNextBatch(lastBatch, line.flavor);
           const flavorTheme = line.isProcessing && line.flavor ? flavorColors[line.flavor] : null;
           return (
             <div key={lineId} className={styles.stepCard} style={{ borderColor: flavorTheme ? flavorTheme.border : '#4caf50', borderWidth: flavorTheme ? '3px' : undefined, background: flavorTheme ? flavorTheme.bg : (line.showInputs ? '#ffffff' : '#f1f8e9'), padding: '20px', transition: 'background 0.5s ease, border-color 0.5s ease' }}>
@@ -456,7 +464,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
                 <>
                   <div className={styles.formGroup} style={{ marginBottom: '10px' }}>
                     <label className={styles.formLabel}>รสชาติ/แบรนด์ (Flavor)</label>
-                    <select className={styles.formInput} value={line.flavor} onChange={(e) => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], flavor: e.target.value } }))} disabled={line.isProcessing}>
+                    <select className={styles.formInput} value={line.flavor} onChange={(e) => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], flavor: e.target.value, shiftBatch: '', cookingBatch: '' } }))} disabled={line.isProcessing}>
                       <option value="">-- เลือกกลิ่น --</option>
                       {flavorList.map(f => <option key={f} value={f}>{f}</option>)}
                     </select>
@@ -500,7 +508,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
                           <label className={styles.formLabel} style={{ fontSize: '0.68rem', textAlign: 'center', display: 'block', color: '#8d6e63', fontWeight: 'bold' }}>📥 รับช่วงต่อ</label>
                           <select className={styles.formInput} value={line.shiftBatch} onChange={(e) => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], shiftBatch: e.target.value, cookingBatch: '' } }))} disabled={line.history.length > 0 || line.isProcessing} style={{ backgroundColor: 'rgba(255, 255, 255, 0.9)', padding: '8px', fontSize: '0.9rem', textAlign: 'center', borderRadius: '10px', border: '1px solid #fbc02d' }}>
                             <option value="">--</option>
-                            {batchOptions.map(b => <option key={b} value={b}>{b}</option>)}
+                            {getSeq(line.flavor).map(b => <option key={b} value={b}>{b}</option>)}
                           </select>
                         </div>
                       )}
@@ -515,13 +523,13 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
                         <label className={styles.formLabel} style={{ fontSize: '0.68rem', textAlign: 'center', display: 'block', color: '#2e7d32', fontWeight: 'bold' }}>🔥 เริ่มต้ม</label>
                         <select className={styles.formInput} value={line.cookingBatch} onChange={(e) => handleCookingBatchChange(lineId, e.target.value)} disabled={line.isProcessing || (line.shiftMode === 'handover' && !line.shiftBatch && line.history.length === 0)} style={{ background: 'rgba(255, 255, 255, 0.9)', border: '2px solid #4caf50', padding: '8px', fontSize: '0.9rem', textAlign: 'center', borderRadius: '10px', fontWeight: 'bold' }}>
                           <option value="">--</option>
-                          {batchOptions.map(b => <option key={b} value={b}>{b}</option>)}
+                          {getSeq(line.flavor).map(b => <option key={b} value={b}>{b}</option>)}
                         </select>
                       </div>
                     </div>
                   )}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
-                    <button onClick={() => handleStart(lineId)} disabled={line.isProcessing || !line.cookingBatch || !!lockHolders[lineId]} style={{ flex: 1.5, padding: '12px', background: (line.isProcessing || lockHolders[lineId]) ? '#ccc' : '#4caf50', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>▶️ Start Batch {line.cookingBatch}</button>
+                    <button onClick={() => handleStart(lineId)} disabled={line.isProcessing || !line.cookingBatch || !!lockHolders[lineId]} style={{ flex: 1.5, padding: '12px', background: (line.isProcessing || lockHolders[lineId]) ? '#ccc' : '#4caf50', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>▶️ Start {isNumberedFlavor(line.flavor) ? line.cookingBatch : `Batch ${line.cookingBatch}`}</button>
                     <div style={{ flex: 1, textAlign: 'center', background: '#f5f5f5', padding: '10px', borderRadius: '10px', border: '1px solid #ddd' }}>
                       <small style={{ display: 'block', fontSize: '0.68rem', color: '#888' }}>เวลาเริ่ม</small>
                       <strong>{line.startTime || '--:--'}</strong>
@@ -541,12 +549,12 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
                       <span style={{ fontWeight: 'bold', color: '#2e7d32', fontSize: '0.95rem' }}>🏷️ Lot No. {line.lotNo}</span>
                     </div>
                   )}
-                  <div style={{ background: '#fff9c4', padding: '12px', borderRadius: '10px', marginBottom: '20px', border: '1px solid #fbc02d' }}><div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#f57f17' }}>Batch ต่อไปที่คุณต้องผลิตคือ: {nextExpectedBatch || 'จบเซ็ต A-Z'}</div></div>
+                  <div style={{ background: '#fff9c4', padding: '12px', borderRadius: '10px', marginBottom: '20px', border: '1px solid #fbc02d' }}><div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#f57f17' }}>{unitWord(line.flavor)} ต่อไปที่คุณต้องผลิตคือ: {nextExpectedBatch || 'จบเซ็ตแล้ว'}</div></div>
                   <button onClick={() => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], showInputs: true } }))} style={{ width: '100%', padding: '15px', background: '#2e7d32', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>➕ เตรียมผลิต Batch ถัดไป</button>
                 </div>
               )}
               <div style={{ marginTop: '15px', display: 'flex', justifyContent: 'flex-end' }}>
-                <div style={{ color: '#1565c0', fontWeight: 'bold', fontSize: '0.9rem' }}>✅ ผลิตเสร็จแล้ว: {line.totalCompleted} Batch</div>
+                <div style={{ color: '#1565c0', fontWeight: 'bold', fontSize: '0.9rem' }}>✅ ผลิตเสร็จแล้ว: {line.totalCompleted} {unitWord(line.flavor)}</div>
               </div>
             </div>
           );
