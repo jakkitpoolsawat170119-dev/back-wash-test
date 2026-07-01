@@ -1137,18 +1137,15 @@ const upsertTask = (t) => db.exec(
 // สร้างงานอัตโนมัติจากแผนผลิต + กติกา CIP + เทมเพลตงานประจำ
 async function generateTasksForDate(date, operator) {
   // 1) จากแผนผลิต → งานผลิต + งาน CIP/backwash ของ Line ที่มีแผน
+  // สร้างอัตโนมัติเฉพาะ "งานผลิต" จากแผน
+  // CIP/backwash เป็นการตัดสินใจหน้างาน (operator กำหนดเอง) → ไม่สร้างอัตโนมัติ
+  // ทำจริงแล้วบันทึกผ่านหน้า CIP Line 1/2/3 → โผล่ในไทม์ไลน์เอง หรือเพิ่มเป็นงานเองได้
   const plans = await dbAll('SELECT line_name, flavor, planned_batches FROM production_plans WHERE plan_date = ?', [date]);
   for (const p of plans) {
-    const line = p.line_name || '';
-    await upsertTask({ date, line, category: 'production', flavor: p.flavor,
+    await upsertTask({ date, line: p.line_name || '', category: 'production', flavor: p.flavor,
       title: `ผลิต ${p.flavor || '-'}`, detail: `แผน ${p.planned_batches || 0} batch`,
       target: p.planned_batches, source: 'auto_plan', createdBy: operator });
-    // กติกา CIP: เปลี่ยนรส = ต้อง CIP → สร้างงาน CIP 1 งานต่อรสที่ผลิตในไลน์นั้น
-    await upsertTask({ date, line, category: 'cip', flavor: p.flavor,
-      title: `CIP หลัง ${p.flavor || '-'}`, detail: 'ทำความสะอาดหลังผลิต/ก่อนเปลี่ยนรส',
-      target: 1, source: 'auto_cip_rule', createdBy: operator });
   }
-  // ไม่สร้าง backwash อัตโนมัติ — เป็นการตัดสินใจหน้างาน (เพิ่มเองผ่านปุ่ม "เพิ่มงานเอง" หรือแชท AI)
   // 2) เทมเพลตงานประจำ (recurring)
   const templates = await dbAll('SELECT * FROM task_templates WHERE active = 1', []);
   const wd = weekdayOf(date), dom = dayOfMonth(date);
@@ -1183,26 +1180,15 @@ async function cipRoundsForDate(date) {
 
 // คำนวณ actual + status ของงาน auto (ผลิต/CIP/backwash) จาก log จริง
 async function syncTaskProgress(date) {
-  const [prodRows, cipR, tasks] = await Promise.all([
+  // ติ๊ก "งานผลิต" อัตโนมัติจากยอด log จริง (CIP/backwash ติ๊กเอง/บันทึกผ่านหน้า CIP)
+  const [prodRows, tasks] = await Promise.all([
     dbAll(`SELECT line_name, flavor, COUNT(*) AS n FROM production_logs WHERE substr(timestamp,1,10) = ? GROUP BY line_name, flavor`, [date]),
-    cipRoundsForDate(date),
-    dbAll(`SELECT * FROM daily_tasks WHERE task_date = ? AND source IN ('auto_plan','auto_cip_rule')`, [date]),
+    dbAll(`SELECT * FROM daily_tasks WHERE task_date = ? AND source = 'auto_plan'`, [date]),
   ]);
   const prodMap = {};
   for (const r of prodRows) prodMap[`${r.line_name}||${r.flavor}`] = Number(r.n);
-  // จัดสรรจำนวนรอบ CIP ที่ทำเสร็จของแต่ละ Line ให้งาน CIP ตามลำดับ (ผลิตหลายรส = CIP หลายรอบ)
-  const cipLeft = { ...cipR.cip };
-  const cipActual = {};
-  for (const t of tasks.filter(x => x.category === 'cip').sort((a, b) => a.id - b.id)) {
-    const left = cipLeft[t.line_name] || 0;
-    cipActual[t.id] = left > 0 ? 1 : 0;
-    if (left > 0) cipLeft[t.line_name] = left - 1;
-  }
   for (const t of tasks) {
-    let actual = t.actual_count || 0;
-    if (t.category === 'production') actual = prodMap[`${t.line_name}||${t.flavor}`] || 0;
-    else if (t.category === 'cip') actual = cipActual[t.id] || 0;
-    else if (t.category === 'backwash') actual = (cipR.backwash[t.line_name] || 0) > 0 ? 1 : 0;
+    const actual = prodMap[`${t.line_name}||${t.flavor}`] || 0;
     const target = t.target_count || 1;
     let status = 'pending';
     if (actual >= target) status = 'done';
