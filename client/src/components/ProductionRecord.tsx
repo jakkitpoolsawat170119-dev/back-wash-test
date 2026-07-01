@@ -206,7 +206,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     "MLH 02", "Freshy Pineapple", "Operator Name", "Freshy Grape",
     "Freshy Punch", "Freshy blue Lemon", "Senorita Fres Mint",
     "Freshy Orange", "Signature Rose", "Freshy Shine Muscat Grape", "Freshy Peach",
-    "Freshy Mango" "Dilute W-Molass"
+    "Freshy Mango" "Dilute W-Molass",
   ];
 
   const flavorColors: Record<string, { bg: string; border: string }> = {
