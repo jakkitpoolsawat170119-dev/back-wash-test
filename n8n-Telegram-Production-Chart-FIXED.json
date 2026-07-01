@@ -293,7 +293,9 @@
         "operation": "sendMessage",
         "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
         "text": "={{ $json.reply }}",
-        "additionalFields": {}
+        "additionalFields": {
+          "appendAttribution": false
+        }
       },
       "id": "7ab49e1f-fa08-442a-817e-e12a28c353e1",
       "name": "Send Assistant Reply",
@@ -318,11 +320,6 @@
         [
           {
             "node": "Check CIP Summary",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Parse Query",
             "type": "main",
             "index": 0
           },
@@ -409,7 +406,13 @@
             "index": 0
           }
         ],
-        []
+        [
+          {
+            "node": "Parse Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Ask Assistant": {
