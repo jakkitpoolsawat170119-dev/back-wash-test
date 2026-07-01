@@ -1134,19 +1134,9 @@ const upsertTask = (t) => db.exec(
    t.target == null ? null : Number(t.target), t.source || 'auto_plan', t.recurring_id || null, t.createdBy || null, nowBKK()]
 );
 
-// สร้างงานอัตโนมัติจากแผนผลิต + กติกา CIP + เทมเพลตงานประจำ
-async function generateTasksForDate(date, operator) {
-  // 1) จากแผนผลิต → งานผลิต + งาน CIP/backwash ของ Line ที่มีแผน
-  // สร้างอัตโนมัติเฉพาะ "งานผลิต" จากแผน
-  // CIP/backwash เป็นการตัดสินใจหน้างาน (operator กำหนดเอง) → ไม่สร้างอัตโนมัติ
-  // ทำจริงแล้วบันทึกผ่านหน้า CIP Line 1/2/3 → โผล่ในไทม์ไลน์เอง หรือเพิ่มเป็นงานเองได้
-  const plans = await dbAll('SELECT line_name, flavor, planned_batches FROM production_plans WHERE plan_date = ?', [date]);
-  for (const p of plans) {
-    await upsertTask({ date, line: p.line_name || '', category: 'production', flavor: p.flavor,
-      title: `ผลิต ${p.flavor || '-'}`, detail: `แผน ${p.planned_batches || 0} batch`,
-      target: p.planned_batches, source: 'auto_plan', createdBy: operator });
-  }
-  // 2) เทมเพลตงานประจำ (recurring)
+// สร้างงานประจำ (recurring) ของวันตามเทมเพลตที่ active — daily/weekly/monthly
+// แยกออกมาเพื่อเรียกตอนโหลด /api/tasks ได้ → งานประจำโผล่เองทุกวัน แม้ไม่มีแผนผลิต
+async function generateRecurringForDate(date) {
   const templates = await dbAll('SELECT * FROM task_templates WHERE active = 1', []);
   const wd = weekdayOf(date), dom = dayOfMonth(date);
   for (const tpl of templates) {
@@ -1156,8 +1146,20 @@ async function generateTasksForDate(date, operator) {
     if (!due) continue;
     await upsertTask({ date, line: tpl.line_name || '', category: tpl.category || 'maintenance',
       title: tpl.title, detail: tpl.cadence, target: tpl.target_count, source: 'recurring',
-      recurring_id: tpl.id, createdBy: operator });
+      recurring_id: tpl.id, createdBy: null });
   }
+}
+
+// สร้างงานอัตโนมัติของวัน: งานผลิตจากแผน + งานประจำ
+// (CIP/backwash เป็นการตัดสินใจหน้างาน operator → ไม่สร้างอัตโนมัติ; บันทึกผ่านหน้า CIP → โผล่ไทม์ไลน์)
+async function generateTasksForDate(date, operator) {
+  const plans = await dbAll('SELECT line_name, flavor, planned_batches FROM production_plans WHERE plan_date = ?', [date]);
+  for (const p of plans) {
+    await upsertTask({ date, line: p.line_name || '', category: 'production', flavor: p.flavor,
+      title: `ผลิต ${p.flavor || '-'}`, detail: `แผน ${p.planned_batches || 0} batch`,
+      target: p.planned_batches, source: 'auto_plan', createdBy: operator });
+  }
+  await generateRecurringForDate(date);
 }
 
 // นับรอบ CIP/backwash ที่ทำเสร็จของวันที่ระบุ แยกตาม Line (reuse countDoneRows/countBackwashRows)
@@ -1241,6 +1243,7 @@ async function buildTimeline(date) {
 app.get('/api/tasks', async (req, res) => {
   const date = req.query.date || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
   try {
+    await generateRecurringForDate(date); // งานประจำโผล่เองทุกวันที่เปิดหน้า
     await syncTaskProgress(date);
     const items = await dbAll('SELECT * FROM daily_tasks WHERE task_date = ? ORDER BY line_name, category, id', [date]);
     res.json({ date, items });
