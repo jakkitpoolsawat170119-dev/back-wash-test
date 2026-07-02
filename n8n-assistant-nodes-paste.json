@@ -48,7 +48,7 @@
         "url": "https://back-wash-test.onrender.com/api/assistant",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { \"message\": $json.message.text, \"operator\": ($json.message.from.first_name || \"\") } }}",
+        "jsonBody": "={{ { \"message\": $json.message.text, \"operator\": ($json.message.from.first_name || \"\"), \"session\": \"tg-\" + $json.message.chat.id } }}",
         "options": {
           "timeout": 90000
         }
@@ -67,7 +67,9 @@
         "operation": "sendMessage",
         "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
         "text": "={{ $json.reply }}",
-        "additionalFields": {}
+        "additionalFields": {
+          "appendAttribution": false
+        }
       },
       "id": "7ab49e1f-fa08-442a-817e-e12a28c353e1",
       "name": "Send Assistant Reply",
@@ -95,7 +97,13 @@
             "index": 0
           }
         ],
-        []
+        [
+          {
+            "node": "Parse Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Ask Assistant": {

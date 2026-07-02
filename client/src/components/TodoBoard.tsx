@@ -364,7 +364,7 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
       try {
         const r = await fetch(`${apiUrl}/api/assistant`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, operator: operatorName }),
+          body: JSON.stringify({ message: text, operator: operatorName, session: `web-${operatorName || 'guest'}` }),
         });
         const d = await r.json();
         setMsgs(m => [...m, { role: 'assistant', text: d.reply || d.error || 'ขออภัย เกิดข้อผิดพลาด' }]);

@@ -56,7 +56,9 @@ const SCHEMA = [
       flavor TEXT,
       batch TEXT,
       operator_name TEXT,
-      cip_count TEXT
+      cip_count TEXT,
+      brix REAL,
+      ph REAL
     )`,
   `CREATE TABLE IF NOT EXISTS production_plans (
       id ${db.pk},
@@ -166,6 +168,14 @@ const SCHEMA = [
       text TEXT,
       created_at TEXT
     )`,
+  // ประวัติบทสนทนาผู้ช่วย AI (ต่อ session — เว็บ/Telegram) เพื่อ multi-turn memory
+  `CREATE TABLE IF NOT EXISTS assistant_messages (
+      id ${db.pk},
+      session TEXT,
+      role TEXT,
+      content TEXT,
+      created_at TEXT
+    )`,
 ];
 
 const DEFAULT_OPERATORS = [
@@ -176,6 +186,11 @@ const DEFAULT_OPERATORS = [
 
 async function initDb() {
   for (const ddl of SCHEMA) await db.exec(ddl);
+  // migration: เพิ่มคอลัมน์ brix/ph ให้ production_logs (สำหรับ DB เดิมที่สร้างก่อนมีคอลัมน์นี้)
+  for (const col of ['brix', 'ph']) {
+    try { await db.exec(`ALTER TABLE production_logs ADD COLUMN ${col} REAL`); }
+    catch { /* มีคอลัมน์อยู่แล้ว — ข้าม */ }
+  }
   // seed รายชื่อ operator (idempotent — ไม่ลบของเดิมเพื่อไม่ให้ข้อมูลหายตอน restart)
   for (const [name, pin] of DEFAULT_OPERATORS) {
     await db.exec("INSERT INTO operators (name, pin) VALUES (?, ?) ON CONFLICT (name) DO NOTHING", [name, pin]);
@@ -1004,8 +1019,8 @@ app.post('/api/batches/finish', (req, res) => {
 app.post('/api/production/log', (req, res) => {
   const { line, flavor, batch, operator, timestamp, cipCount, brix, ph, startTime, endTime, duration, lotNo } = req.body;
   const fmtTime = timestamp ? new Date(timestamp).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T') : null;
-  const query = `INSERT INTO production_logs (timestamp, line_name, flavor, batch, operator_name, cip_count) VALUES (?, ?, ?, ?, ?, ?)`;
-  db.run(query, [fmtTime, line, flavor, batch, operator, cipCount], function(err) {
+  const query = `INSERT INTO production_logs (timestamp, line_name, flavor, batch, operator_name, cip_count, brix, ph) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+  db.run(query, [fmtTime, line, flavor, batch, operator, cipCount, brix === '' || brix == null ? null : Number(brix), ph === '' || ph == null ? null : Number(ph)], function(err) {
     if (err) return res.status(500).json({ error: err.message });
     sendToTelegram([
       `🏭 <b>บันทึกการผลิต</b>`,
@@ -1382,6 +1397,17 @@ const ASSISTANT_TOOLS = [
     input_schema: { type: 'object', properties: { date: { type: 'string' } } } },
   { name: 'get_timeline', description: 'ไทม์ไลน์เหตุการณ์ทั้งหมดของวัน (ผลิต/CIP/ส่งเวร)',
     input_schema: { type: 'object', properties: { date: { type: 'string' } } } },
+  { name: 'query_production_range', description: 'สืบค้น/สรุปยอดผลิตข้ามวันหรือช่วงเวลา (เทียบแผน) — ใช้ตอบคำถามย้อนหลัง เช่น "สัปดาห์นี้ผลิตรสไหนเยอะสุด", เทียบหลายวัน, หรือดูแนวโน้ม',
+    input_schema: { type: 'object', properties: {
+      from: { type: 'string', description: 'วันเริ่ม YYYY-MM-DD' },
+      to: { type: 'string', description: 'วันสิ้นสุด YYYY-MM-DD (รวมปลายทาง)' },
+      flavor: { type: 'string', description: 'กรองเฉพาะรสชาติ (ถ้าต้องการ)' },
+      line: { type: 'string', description: 'กรองเฉพาะ Line (ถ้าต้องการ)' },
+    }, required: ['from', 'to'] } },
+  { name: 'get_quality', description: 'ดูค่า Brix/pH ที่บันทึกจากการผลิต (ช่วงวัน) เพื่อตรวจค่าผิดปกติ',
+    input_schema: { type: 'object', properties: {
+      from: { type: 'string' }, to: { type: 'string' },
+      line: { type: 'string' }, flavor: { type: 'string' } } } },
 ];
 
 async function runAssistantTool(name, input, operator) {
@@ -1416,27 +1442,74 @@ async function runAssistantTool(name, input, operator) {
   }
   if (name === 'get_cip_summary') return { date, ...(await cipRoundsForDate(date)) };
   if (name === 'get_timeline') return { date, events: await buildTimeline(date) };
+  if (name === 'query_production_range') {
+    const from = input.from || date, to = input.to || date;
+    const cond = ['substr(timestamp,1,10) BETWEEN ? AND ?']; const args = [from, to];
+    if (input.flavor) { cond.push('flavor = ?'); args.push(input.flavor); }
+    if (input.line) { cond.push('line_name = ?'); args.push(input.line); }
+    const w = cond.join(' AND ');
+    const pc = ['plan_date BETWEEN ? AND ?']; const pa = [from, to];
+    if (input.flavor) { pc.push('flavor = ?'); pa.push(input.flavor); }
+    if (input.line) { pc.push('line_name = ?'); pa.push(input.line); }
+    const [byFlavor, byLine, byDay, plan] = await Promise.all([
+      dbAll(`SELECT flavor, COUNT(*) AS actual FROM production_logs WHERE ${w} GROUP BY flavor ORDER BY actual DESC`, args),
+      dbAll(`SELECT line_name, COUNT(*) AS actual FROM production_logs WHERE ${w} GROUP BY line_name`, args),
+      dbAll(`SELECT substr(timestamp,1,10) AS day, COUNT(*) AS actual FROM production_logs WHERE ${w} GROUP BY day ORDER BY day`, args),
+      dbAll(`SELECT flavor, SUM(planned_batches) AS planned FROM production_plans WHERE ${pc.join(' AND ')} GROUP BY flavor`, pa),
+    ]);
+    const total = byDay.reduce((s, r) => s + Number(r.actual), 0);
+    const plannedTotal = plan.reduce((s, r) => s + Number(r.planned || 0), 0);
+    return { from, to, total, plannedTotal, byFlavor, byLine, byDay, plan };
+  }
+  if (name === 'get_quality') {
+    const from = input.from || date, to = input.to || date;
+    const cond = ['substr(timestamp,1,10) BETWEEN ? AND ?', '(brix IS NOT NULL OR ph IS NOT NULL)']; const args = [from, to];
+    if (input.line) { cond.push('line_name = ?'); args.push(input.line); }
+    if (input.flavor) { cond.push('flavor = ?'); args.push(input.flavor); }
+    const rows = await dbAll(`SELECT substr(timestamp,1,10) AS day, line_name, flavor, batch, brix, ph FROM production_logs WHERE ${cond.join(' AND ')} ORDER BY timestamp DESC LIMIT 100`, args);
+    return { from, to, count: rows.length, rows };
+  }
   return { error: 'unknown tool' };
 }
 
 app.post('/api/assistant', async (req, res) => {
   const client = getAnthropic();
   if (!client) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์' });
-  const { message, operator } = req.body;
+  const { message, operator, session } = req.body;
   if (!message) return res.status(400).json({ error: 'message จำเป็น' });
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+  const FLAVORS = 'Amazon, FDS, Golden, Freshy Lychee, Freshy Strawberry, Senorita Coconut, Senorita Caramel, Freshy Blue Hawaii, Freshy Lime, Freshy Green Apple, Freshy Sala, Senorita Yuzu, Senorita Peach, MLH 02, Freshy Pineapple, Freshy Grape, Freshy Punch, Freshy blue Lemon, Senorita Fres Mint, Freshy Orange, Signature Rose, Freshy Shine Muscat Grape, Freshy Peach, Freshy Mango, Dilute W-Molass';
   const system = [
-    'คุณเป็นผู้ช่วยบันทึกและสืบค้นข้อมูลการผลิตน้ำเชื่อม/น้ำหวานของโรงงาน',
+    'คุณเป็นผู้ช่วยอัจฉริยะสำหรับบันทึกและวิเคราะห์ข้อมูลการผลิตน้ำเชื่อม/น้ำหวานของโรงงาน คุยแบบเป็นกันเองแต่มืออาชีพ',
     `วันนี้คือ ${today} (เขตเวลา Asia/Bangkok)`,
-    'มีสายการผลิต/CIP: Line 1 (Syrup), Line 2 และ Line 3 (Flavour), Line 4 (Mixing/Pasteurizer)',
-    'หน้าที่: 1) เมื่อผู้ใช้เล่าว่าทำงานอะไรไปแล้วหรือจะทำ ให้สร้างงานลง To-do ด้วย create_task (เลือก category ให้ถูก: ผลิต=production, ทำความสะอาด=cip, backwash=backwash)',
-    '2) เมื่อผู้ใช้ถามข้อมูล ให้ใช้ get_production_summary / get_cip_summary / get_timeline / list_tasks ก่อนตอบ',
-    'ตอบเป็นภาษาไทย สั้น กระชับ ชัดเจน หลังทำงานเสร็จให้สรุปสิ่งที่ทำให้ผู้ใช้ทราบ',
+    'สายการผลิต/CIP: Line 1 (Syrup), Line 2 และ Line 3 (Flavour), Line 4 (Mixing/Pasteurizer)',
+    `รสชาติที่มี: ${FLAVORS}`,
+    'ถ้าผู้ใช้พิมพ์ชื่อรสผิด/สะกดเพี้ยน/เป็นภาษาไทย ให้จับคู่กับรสที่ใกล้เคียงที่สุดในลิสต์เอง (เช่น "อเมซอน"→Amazon, "ลิ้นจี่"→Freshy Lychee) ไม่แน่ใจค่อยถามยืนยัน',
+    'หมายเหตุ: Dilute W-Molass บันทึกเป็นรอบ No.1–20 (รสอื่นเป็น Batch A-Z)',
+    '',
+    'ความสามารถ:',
+    '• บันทึกงาน: create_task (category ผลิต=production, ทำความสะอาด=cip, backwash=backwash, ซ่อมบำรุง=maintenance) · ปิดงาน: complete_task',
+    '• ข้อมูลวันเดียว: get_production_summary / get_cip_summary / get_timeline / list_tasks',
+    '• ข้ามวัน/ช่วงเวลา/แนวโน้ม: query_production_range (from,to) เช่น "สัปดาห์นี้", "3 วันก่อน", "เดือนนี้"',
+    '• คุณภาพ: get_quality (Brix/pH) — เจอค่าที่ดูผิดปกติให้ทักเตือน',
+    '',
+    'วิธีตอบ:',
+    '• เรียก tool ดึงข้อมูลจริงก่อนตอบเสมอ ห้ามเดา/มโนตัวเลข',
+    '• เชิงรุก: ถ้าผลิตไม่ทันแผน (จริงน้อยกว่าแผนมาก) / ค่า Brix,pH ผิดปกติ / เห็นแนวโน้มน่าสนใจ ให้ทักเตือนผู้ใช้ด้วย',
+    '• ตอบภาษาไทย กระชับ อ่านง่าย เน้นตัวเลขสำคัญ ใส่ emoji พอประมาณ',
+    '• ใช้บริบทจากบทสนทนาก่อนหน้าเมื่อเป็นคำถามต่อเนื่อง',
   ].join('\n');
 
   try {
     const actions = [];
-    const messages = [{ role: 'user', content: String(message) }];
+    // โหลดบทสนทนาก่อนหน้าของ session นี้ (multi-turn memory) — เก็บเฉพาะข้อความเป็น text
+    let history = [];
+    if (session) {
+      const rows = await dbAll('SELECT role, content FROM assistant_messages WHERE session = ? ORDER BY id DESC LIMIT 12', [session]);
+      history = rows.reverse().filter(r => r.content && String(r.content).trim());
+      while (history.length && history[0].role !== 'user') history.shift(); // ต้องเริ่มด้วย user
+    }
+    const messages = [...history.map(r => ({ role: r.role, content: r.content })), { role: 'user', content: String(message) }];
     let reply = '';
     for (let turn = 0; turn < 6; turn++) {
       const resp = await client.messages.create({
@@ -1458,7 +1531,15 @@ app.post('/api/assistant', async (req, res) => {
       }
       messages.push({ role: 'user', content: toolResults });
     }
-    res.json({ reply: reply || 'รับทราบครับ', actions });
+    reply = reply || 'รับทราบครับ';
+    // เก็บบทสนทนารอบนี้ไว้ต่อ session (จำกัดไว้ ~30 ข้อความล่าสุดต่อ session)
+    if (session) {
+      const ts = nowBKK();
+      await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [session, 'user', String(message), ts]);
+      await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [session, 'assistant', reply, ts]);
+      await db.exec(`DELETE FROM assistant_messages WHERE session = ? AND id NOT IN (SELECT id FROM assistant_messages WHERE session = ? ORDER BY id DESC LIMIT 30)`, [session, session]);
+    }
+    res.json({ reply, actions });
   } catch (err) {
     console.error('[assistant] error', err.message);
     res.status(500).json({ error: err.message });

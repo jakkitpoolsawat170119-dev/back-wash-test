@@ -274,7 +274,7 @@
         "url": "https://back-wash-test.onrender.com/api/assistant",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { \"message\": $json.message.text, \"operator\": ($json.message.from.first_name || \"\") } }}",
+        "jsonBody": "={{ { \"message\": $json.message.text, \"operator\": ($json.message.from.first_name || \"\"), \"session\": \"tg-\" + $json.message.chat.id } }}",
         "options": {
           "timeout": 90000
         }
