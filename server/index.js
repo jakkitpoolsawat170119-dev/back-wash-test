@@ -1314,6 +1314,26 @@ app.post('/api/tasks/delete-one', (req, res) => {
   });
 });
 
+// สรุปจำนวนงานต่อวันในช่วง [from, to] — ใช้วาดจุด/ตัวเลขบนปฏิทิน (ไม่ generate งานประจำล่วงหน้า)
+app.get('/api/tasks/calendar', async (req, res) => {
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+  const from = req.query.from || today;
+  const to = req.query.to || today;
+  try {
+    const rows = await dbAll(
+      `SELECT task_date,
+              COUNT(*) AS total,
+              SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done
+         FROM daily_tasks
+        WHERE task_date >= ? AND task_date <= ?
+        GROUP BY task_date
+        ORDER BY task_date`,
+      [from, to]
+    );
+    res.json({ from, to, days: rows.map(r => ({ date: r.task_date, total: Number(r.total), done: Number(r.done) })) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Endpoints: timeline + handover ────────────────────────────────────────
 app.get('/api/timeline', async (req, res) => {
   const date = req.query.date || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });

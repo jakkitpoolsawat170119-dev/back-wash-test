@@ -38,7 +38,7 @@ const LINE_ORDER = ['Line 1', 'Line 2', 'Line 3', 'Line 4', ''];
 interface Props { operatorName: string | null; onBackToMain: () => void; }
 
 const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
-  const [tab, setTab] = useState<'today' | 'timeline' | 'recurring' | 'ai'>('today');
+  const [tab, setTab] = useState<'today' | 'calendar' | 'timeline' | 'recurring' | 'ai'>('today');
   const [date, setDate] = useState(todayBKK());
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
@@ -145,7 +145,7 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
       {/* tabs */}
       <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', marginBottom: '14px' }}>
         {([
-          ['today', '📋 งานวันนี้'], ['timeline', '🕐 ไทม์ไลน์'], ['recurring', '🔁 งานประจำ'], ['ai', '🤖 ผู้ช่วย AI'],
+          ['today', '📋 งานวันนี้'], ['calendar', '📅 ปฏิทิน'], ['timeline', '🕐 ไทม์ไลน์'], ['recurring', '🔁 งานประจำ'], ['ai', '🤖 ผู้ช่วย AI'],
         ] as [typeof tab, string][]).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)} style={{
             flex: '0 0 auto', padding: '7px 13px', borderRadius: '20px', border: '2px solid',
@@ -223,6 +223,15 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── TAB: calendar ─────────────────────────────────────── */}
+      {tab === 'calendar' && (
+        <CalendarTab
+          operatorName={operatorName}
+          card={card}
+          onOpenDate={(d) => { setDate(d); setTab('today'); }}
+        />
       )}
 
       {/* ── TAB: timeline + handover ──────────────────────────── */}
@@ -345,6 +354,190 @@ const RecurringTab: React.FC<{ templates: Template[]; tasks: Task[]; reload: () 
           </div>
         ))}
         {templates.length === 0 && <div style={{ textAlign: 'center', color: '#bbb', padding: '16px', fontSize: '0.85rem' }}>ยังไม่มีเทมเพลตงานประจำ</div>}
+      </div>
+    );
+  };
+
+// ─── Calendar (schedule future tasks) ──────────────────────────
+const ymd = (y: number, m: number, d: number) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+const THAI_MONTHS = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+const THAI_WEEKDAYS = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+
+type DayCount = { total: number; done: number };
+
+const CalendarTab: React.FC<{ operatorName: string | null; card: React.CSSProperties; onOpenDate: (date: string) => void }> =
+  ({ operatorName, card, onOpenDate }) => {
+    const now = new Date(todayBKK() + 'T00:00:00');
+    const [view, setView] = useState({ y: now.getFullYear(), m: now.getMonth() });
+    const [counts, setCounts] = useState<Record<string, DayCount>>({});
+    const [selected, setSelected] = useState<string>(todayBKK());
+    const [dayTasks, setDayTasks] = useState<Task[]>([]);
+    const [loading, setLoading] = useState(false);
+    const today = todayBKK();
+
+    const daysInMonth = new Date(view.y, view.m + 1, 0).getDate();
+    const startWeekday = new Date(view.y, view.m, 1).getDay();
+
+    const loadCounts = useCallback(async () => {
+      const from = ymd(view.y, view.m, 1);
+      const to = ymd(view.y, view.m, daysInMonth);
+      try {
+        const r = await fetch(`${apiUrl}/api/tasks/calendar?from=${from}&to=${to}`);
+        const d = await r.json();
+        const map: Record<string, DayCount> = {};
+        for (const day of d.days || []) map[day.date] = { total: day.total, done: day.done };
+        setCounts(map);
+      } catch { /* offline */ }
+    }, [view.y, view.m, daysInMonth]);
+
+    const loadDay = useCallback(async (date: string) => {
+      setLoading(true);
+      try {
+        const r = await fetch(`${apiUrl}/api/tasks?date=${date}`);
+        const d = await r.json();
+        setDayTasks(d.items || []);
+      } catch { setDayTasks([]); } finally { setLoading(false); }
+    }, []);
+
+    useEffect(() => { loadCounts(); }, [loadCounts]);
+    useEffect(() => { loadDay(selected); }, [selected, loadDay]);
+
+    const shiftMonth = (delta: number) => {
+      setView(v => {
+        const d = new Date(v.y, v.m + delta, 1);
+        return { y: d.getFullYear(), m: d.getMonth() };
+      });
+    };
+
+    // quick add for the selected day
+    const [newTitle, setNewTitle] = useState('');
+    const [newLine, setNewLine] = useState('');
+    const [newCat, setNewCat] = useState('manual');
+    const addTask = async () => {
+      if (!newTitle.trim()) return;
+      await fetch(`${apiUrl}/api/tasks`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: selected, line: newLine, category: newCat, title: newTitle.trim(), operator: operatorName }),
+      });
+      setNewTitle('');
+      await Promise.all([loadDay(selected), loadCounts()]);
+    };
+    const deleteTask = async (id: number) => {
+      setDayTasks(ts => ts.filter(x => x.id !== id));
+      await fetch(`${apiUrl}/api/tasks/delete-one`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }),
+      });
+      await loadCounts();
+    };
+
+    const cells: (number | null)[] = [
+      ...Array(startWeekday).fill(null),
+      ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+    ];
+
+    const selDate = new Date(selected + 'T00:00:00');
+    const selLabel = `${selDate.getDate()} ${THAI_MONTHS[selDate.getMonth()]} ${selDate.getFullYear() + 543}`;
+    const isFuture = selected > today;
+
+    return (
+      <div>
+        {/* month header */}
+        <div style={{ ...card, padding: '12px 14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+            <button onClick={() => shiftMonth(-1)} style={{ border: '1px solid #eee', background: '#fff', borderRadius: '10px', padding: '6px 12px', cursor: 'pointer', fontSize: '1rem' }}>‹</button>
+            <div style={{ fontWeight: 800, color: '#37474f', fontSize: '0.95rem' }}>{THAI_MONTHS[view.m]} {view.y + 543}</div>
+            <button onClick={() => shiftMonth(1)} style={{ border: '1px solid #eee', background: '#fff', borderRadius: '10px', padding: '6px 12px', cursor: 'pointer', fontSize: '1rem' }}>›</button>
+          </div>
+          {/* weekday row */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', marginBottom: '4px' }}>
+            {THAI_WEEKDAYS.map((w, i) => (
+              <div key={w} style={{ textAlign: 'center', fontSize: '0.68rem', fontWeight: 700, color: i === 0 ? '#e53935' : '#9aa0a6', padding: '2px 0' }}>{w}</div>
+            ))}
+          </div>
+          {/* day grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px' }}>
+            {cells.map((d, i) => {
+              if (d === null) return <div key={`b${i}`} />;
+              const ds = ymd(view.y, view.m, d);
+              const c = counts[ds];
+              const isToday = ds === today;
+              const isSel = ds === selected;
+              const isPast = ds < today;
+              const allDone = c && c.done >= c.total && c.total > 0;
+              return (
+                <button key={ds} onClick={() => setSelected(ds)} style={{
+                  position: 'relative', aspectRatio: '1', border: '2px solid',
+                  borderColor: isSel ? '#ff6b00' : isToday ? '#ffd0a6' : 'transparent',
+                  background: isSel ? '#fff3e9' : '#fafafa', borderRadius: '10px', cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  color: isPast ? '#c5cbd0' : '#37474f', fontWeight: isToday ? 800 : 500, fontSize: '0.82rem', padding: 0,
+                }}>
+                  {d}
+                  {c && c.total > 0 && (
+                    <span style={{
+                      marginTop: '2px', minWidth: '15px', height: '15px', lineHeight: '15px', padding: '0 3px',
+                      borderRadius: '8px', fontSize: '0.58rem', fontWeight: 800, color: '#fff',
+                      background: allDone ? '#2e7d32' : '#ff8c00',
+                    }}>{c.done}/{c.total}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* selected day panel */}
+        <div style={{ ...card }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+            <div>
+              <div style={{ fontWeight: 800, color: '#37474f', fontSize: '0.9rem' }}>
+                {selected === today ? '📅 วันนี้' : isFuture ? '🔮 งานล่วงหน้า' : '📅 ย้อนหลัง'}
+              </div>
+              <div style={{ fontSize: '0.72rem', color: '#9aa0a6' }}>{selLabel}</div>
+            </div>
+            <button onClick={() => onOpenDate(selected)} style={{ border: '1px solid #eee', background: '#fff', borderRadius: '10px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700, color: '#ff6b00' }}>เปิดเต็ม →</button>
+          </div>
+
+          {loading && <div style={{ color: '#9aa0a6', fontSize: '0.8rem', padding: '4px 0' }}>กำลังโหลด…</div>}
+          {!loading && dayTasks.length === 0 && (
+            <div style={{ textAlign: 'center', color: '#bbb', padding: '14px', fontSize: '0.82rem' }}>ยังไม่มีงานในวันนี้ — เพิ่มด้านล่างได้เลย</div>
+          )}
+          {dayTasks.map(t => {
+            const st = STATUS_STYLE[t.status] || STATUS_STYLE.pending;
+            const cat = CAT[t.category] || CAT.manual;
+            return (
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 4px', borderBottom: '1px solid #f4f4f4' }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontWeight: 600, color: '#37474f', fontSize: '0.85rem', textDecoration: t.status === 'done' ? 'line-through' : 'none' }}>
+                    {cat.icon} {t.title}
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: '#9aa0a6' }}>{t.line_name || 'ทั่วไป'}</div>
+                </div>
+                <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '2px 7px', borderRadius: '8px', background: st.bg, color: st.fg, flexShrink: 0 }}>{st.label}</span>
+                {t.source === 'manual' && (
+                  <button onClick={() => deleteTask(t.id)} title="ลบ" style={{ border: 'none', background: 'none', color: '#ccc', cursor: 'pointer', fontSize: '1rem' }}>×</button>
+                )}
+              </div>
+            );
+          })}
+
+          {/* quick add for this day */}
+          <div style={{ marginTop: '12px', borderTop: '1px solid #eee', paddingTop: '12px' }}>
+            <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#37474f', marginBottom: '8px' }}>➕ นัดหมายงานวันนี้</div>
+            <input value={newTitle} onChange={e => setNewTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && addTask()}
+              placeholder="ชื่องาน เช่น Deep clean Line 3"
+              style={{ width: '100%', boxSizing: 'border-box', padding: '8px', border: '1px solid #ddd', borderRadius: '10px', marginBottom: '8px' }} />
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <select value={newLine} onChange={e => setNewLine(e.target.value)} style={{ flex: 1, padding: '8px', border: '1px solid #ddd', borderRadius: '10px' }}>
+                <option value="">ทั่วไป</option><option>Line 1</option><option>Line 2</option><option>Line 3</option><option>Line 4</option>
+              </select>
+              <select value={newCat} onChange={e => setNewCat(e.target.value)} style={{ flex: 1, padding: '8px', border: '1px solid #ddd', borderRadius: '10px' }}>
+                {Object.entries(CAT).map(([k, v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
+              </select>
+              <button onClick={addTask} style={{ padding: '8px 16px', borderRadius: '10px', border: 'none', background: '#ff6b00', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>เพิ่ม</button>
+            </div>
+          </div>
+        </div>
       </div>
     );
   };
