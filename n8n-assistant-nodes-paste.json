@@ -44,19 +44,12 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://back-wash-test.onrender.com/api/assistant",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ { \"message\": $json.message.text, \"operator\": ($json.message.from.first_name || \"\"), \"session\": \"tg-\" + $json.message.chat.id } }}",
-        "options": {
-          "timeout": 90000
-        }
+        "jsCode": "const msg = $json.message;\nconst response = await this.helpers.httpRequest({\n  method: 'POST',\n  url: 'https://back-wash-test.onrender.com/api/assistant',\n  headers: { 'Content-Type': 'application/json' },\n  body: {\n    message: msg.text,\n    operator: msg.from.first_name || '',\n    session: 'tg-' + msg.chat.id,\n  },\n  json: true,\n  timeout: 90000,\n});\nreturn [{ json: response }];"
       },
       "id": "9aff5bce-7a37-4cfe-91b4-9902de216ab7",
       "name": "Ask Assistant",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         700,
         640
