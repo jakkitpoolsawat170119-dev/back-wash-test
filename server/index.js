@@ -590,6 +590,14 @@ const sendToTelegram = async (message) => {
   }
 };
 
+// เรียก Telegram Bot API แบบ generic (sendMessage/editMessageText/answerCallbackQuery ฯลฯ)
+const tgApi = async (method, payload) => {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) { console.log(`[TG] ${method} skipped (no token)`); return null; }
+  try { const r = await axios.post(`https://api.telegram.org/bot${token}/${method}`, payload); return r.data; }
+  catch (e) { console.error(`[TG] ${method} error`, e.response?.data || e.message); return null; }
+};
+
 const dataUrlToBuffer = (dataUrl) => {
   if (!dataUrl || !dataUrl.startsWith('data:')) return null;
   const [header, b64] = dataUrl.split(',');
@@ -1544,6 +1552,96 @@ app.post('/api/duty/telegram', async (req, res) => {
     await sendToTelegram(text);
     res.json({ success: true, sent: !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID), preview: text });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// สร้างข้อความ + inline keyboard "งานค้าง" (แตะปุ่มเพื่อปิดงานทีละอันจาก Telegram)
+// callback_data: 'da:<id>' = งานมอบหมาย (daily_tasks), 'dr:<owner>:<nodeKey>' = งานประจำ/รับมอบต่อ
+async function buildDutyKeyboard(date) {
+  const duty = await buildDuty(date);
+  const rows = [];
+  let doneCount = 0, pendingCount = 0;
+  const btn = (label, data) => rows.push([{ text: label.length > 58 ? label.slice(0, 57) + '…' : label, callback_data: data }]);
+  for (const p of duty.people) {
+    for (const n of p.nodes) {
+      if (n.bypassed) continue;
+      if (n.checked) { doneCount++; continue; }
+      pendingCount++; btn(`☐ ${p.name} · ${n.title}`, `dr:${p.key}:${n.key}`);
+    }
+    for (const r of p.received) {
+      if (r.checked) { doneCount++; continue; }
+      pendingCount++; btn(`☐ ${p.name} · ${r.title} (รับมา)`, `dr:${r.ownerKey}:${r.nodeKey}`);
+    }
+    for (const t of p.adhoc) {
+      if (t.status === 'done') { doneCount++; continue; }
+      pendingCount++; btn(`☐ ${p.name} · ${t.title}`, `da:${t.id}`);
+    }
+  }
+  const text = pendingCount
+    ? `📋 <b>งานค้างวันนี้</b> (${date})\nแตะปุ่มเพื่อปิดงาน · เสร็จแล้ว ${doneCount} งาน · คงค้าง ${pendingCount} งาน`
+    : `🎉 <b>งานเสร็จครบแล้ววันนี้</b> (${date}) — ${doneCount} งาน`;
+  return { text, keyboard: rows, doneCount, pendingCount };
+}
+
+// ปิด/เปิดงาน 1 รายการจาก callback_data (คืน true ถ้าปิดสำเร็จ)
+async function toggleFromCallback(data, date) {
+  if (data.startsWith('da:')) {
+    const id = Number(data.slice(3));
+    const row = await dbAll('SELECT status FROM daily_tasks WHERE id = ?', [id]);
+    const next = row[0] && row[0].status === 'done' ? 'pending' : 'done';
+    await db.exec('UPDATE daily_tasks SET status = ?, completed_at = ? WHERE id = ?', [next, next === 'done' ? nowBKK() : null, id]);
+    return true;
+  }
+  if (data.startsWith('dr:')) {
+    const parts = data.split(':');
+    const owner = parts[1], nodeKey = parts.slice(2).join(':');
+    const cur = await dbAll('SELECT checked FROM routine_state WHERE state_date = ? AND assignee = ? AND node_key = ?', [date, owner, nodeKey]);
+    const next = cur[0] && cur[0].checked ? 0 : 1;
+    await db.exec(
+      `INSERT INTO routine_state (state_date, assignee, node_key, checked, updated_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(state_date, assignee, node_key) DO UPDATE SET checked = excluded.checked, updated_at = excluded.updated_at`,
+      [date, owner, nodeKey, next, nowBKK()]);
+    return true;
+  }
+  return false;
+}
+
+// GET keyboard (สำหรับทดสอบ / ให้ n8n ดึงไปส่งเองก็ได้)
+app.get('/api/duty/keyboard', async (req, res) => {
+  try { res.json(await buildDutyKeyboard(req.query.date || todayBKK())); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// รับ raw Telegram update (ข้อความสั่ง "งานค้าง" หรือปุ่ม callback) — n8n forward มาที่นี่
+// server จัดการ Telegram API เอง (send/edit/answerCallback) ไม่ต้องต่อ node เพิ่มใน n8n
+app.post('/api/telegram/duty-update', (req, res) => {
+  res.sendStatus(200);
+  (async () => {
+    try {
+      const upd = req.body || {};
+      const date = todayBKK();
+      if (upd.callback_query) {
+        const cq = upd.callback_query;
+        const changed = await toggleFromCallback(cq.data || '', date);
+        const kb = await buildDutyKeyboard(date);
+        if (cq.message) {
+          await tgApi('editMessageText', {
+            chat_id: cq.message.chat.id, message_id: cq.message.message_id,
+            text: kb.text, parse_mode: 'HTML', reply_markup: { inline_keyboard: kb.keyboard },
+          });
+        }
+        await tgApi('answerCallbackQuery', { callback_query_id: cq.id, text: changed ? 'อัปเดตแล้ว ✅' : 'ไม่พบงานนี้' });
+        return;
+      }
+      const text = upd.message?.text || '';
+      if (/ปิดงาน|งานค้าง|เช็[กค]งาน|เช็[กค]\s*งาน/.test(text)) {
+        const kb = await buildDutyKeyboard(date);
+        await tgApi('sendMessage', {
+          chat_id: upd.message.chat.id, text: kb.text, parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: kb.keyboard },
+        });
+      }
+    } catch (e) { console.error('[duty-update] error', e); }
+  })();
 });
 
 // ── Endpoints: timeline + handover ────────────────────────────────────────
