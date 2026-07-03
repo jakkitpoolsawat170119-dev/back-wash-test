@@ -190,6 +190,22 @@ const SCHEMA = [
       updated_at TEXT,
       UNIQUE(state_date, assignee, node_key)
     )`,
+  // ตั้งค่าส่งรายงานอัตโนมัติ (แถวเดียว)
+  `CREATE TABLE IF NOT EXISTS report_config (
+      id ${db.pk},
+      auto_enabled INTEGER DEFAULT 0,
+      times TEXT DEFAULT '[]',
+      weekdays TEXT DEFAULT '[1,2,3,4,5]',
+      only_if_pending INTEGER DEFAULT 0,
+      updated_at TEXT
+    )`,
+  // นัดส่งรายงานครั้งเดียว (run_at = 'YYYY-MM-DDTHH:MM')
+  `CREATE TABLE IF NOT EXISTS report_once (
+      id ${db.pk},
+      run_at TEXT,
+      sent INTEGER DEFAULT 0,
+      created_at TEXT
+    )`,
 ];
 
 const DEFAULT_OPERATORS = [
@@ -214,6 +230,9 @@ async function initDb() {
   for (const [name, pin] of DEFAULT_OPERATORS) {
     await db.exec("INSERT INTO operators (name, pin) VALUES (?, ?) ON CONFLICT (name) DO NOTHING", [name, pin]);
   }
+  // seed แถวตั้งค่ารายงาน (แถวเดียว)
+  const cfg = await dbAll('SELECT id FROM report_config LIMIT 1', []);
+  if (!cfg.length) await db.exec("INSERT INTO report_config (auto_enabled, times, weekdays, only_if_pending, updated_at) VALUES (0, '[]', '[1,2,3,4,5]', 0, ?)", [nowBKK()]);
   console.log('[db] schema ready');
 }
 
@@ -1461,6 +1480,26 @@ app.get('/api/duty', async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ประวัติ %ความคืบหน้าทีมต่อวัน (สำหรับ heatmap ปฏิทิน + กราฟแนวโน้ม)
+app.get('/api/duty/history', async (req, res) => {
+  const to = req.query.to || todayBKK();
+  const from = req.query.from || to;
+  try {
+    const days = [];
+    const d = new Date(from + 'T00:00:00Z'), end = new Date(to + 'T00:00:00Z');
+    let guard = 0;
+    while (d <= end && guard++ < 62) {
+      const ds = d.toISOString().slice(0, 10);
+      const duty = await buildDuty(ds);
+      // นับเฉพาะวันที่มีความเคลื่อนไหว เพื่อไม่ให้ heatmap เต็มไปด้วย 0%
+      const active = duty.team.done > 0 || duty.people.some(p => p.received.length || p.adhoc.length || p.nodes.some(n => n.bypassed));
+      days.push({ date: ds, pct: duty.team.pct, done: duty.team.done, total: duty.team.total, active });
+      d.setUTCDate(d.getUTCDate() + 1);
+    }
+    res.json({ from, to, days });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // เช็ก/ยกเลิกเช็ก งานประจำ 1 node (ถ้าเป็นงานที่รับมอบต่อ ให้ส่ง assignee = เจ้าของงานเดิม)
 app.post('/api/routine/toggle', async (req, res) => {
   const { date, assignee, nodeKey, title, checked } = req.body;
@@ -1568,6 +1607,81 @@ app.post('/api/duty/telegram', async (req, res) => {
     res.json({ success: true, sent: !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID), preview: text });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// ── ตั้งค่า/นัดส่งรายงานอัตโนมัติ ────────────────────────────────────────────
+async function getReportConfig() {
+  const rows = await dbAll('SELECT * FROM report_config ORDER BY id LIMIT 1', []);
+  const r = rows[0] || {};
+  return {
+    id: r.id,
+    autoEnabled: !!r.auto_enabled,
+    times: (() => { try { return JSON.parse(r.times || '[]'); } catch { return []; } })(),
+    weekdays: (() => { try { return JSON.parse(r.weekdays || '[]'); } catch { return []; } })(),
+    onlyIfPending: !!r.only_if_pending,
+  };
+}
+app.get('/api/report/config', async (req, res) => {
+  try {
+    const cfg = await getReportConfig();
+    const once = await dbAll("SELECT id, run_at FROM report_once WHERE sent = 0 ORDER BY run_at", []);
+    res.json({ ...cfg, once });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/report/config', async (req, res) => {
+  const { autoEnabled, times, weekdays, onlyIfPending } = req.body;
+  try {
+    const cfg = await getReportConfig();
+    await db.exec('UPDATE report_config SET auto_enabled = ?, times = ?, weekdays = ?, only_if_pending = ?, updated_at = ? WHERE id = ?',
+      [autoEnabled ? 1 : 0, JSON.stringify(times || []), JSON.stringify(weekdays || []), onlyIfPending ? 1 : 0, nowBKK(), cfg.id]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/report/schedule', async (req, res) => {
+  const { runAt } = req.body; // 'YYYY-MM-DDTHH:MM'
+  if (!runAt) return res.status(400).json({ error: 'runAt จำเป็น' });
+  try { await db.exec('INSERT INTO report_once (run_at, sent, created_at) VALUES (?, 0, ?)', [runAt, nowBKK()]); res.json({ success: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/report/schedule/delete', async (req, res) => {
+  try { await db.exec('DELETE FROM report_once WHERE id = ?', [req.body.id]); res.json({ success: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ส่งรายงานของวันปัจจุบัน (ใช้ทั้งปุ่มและ scheduler) — คืน true ถ้าส่ง
+async function sendDutyReport(date, onlyIfPending) {
+  const duty = await buildDuty(date);
+  if (onlyIfPending && duty.team.left <= 0) return false;
+  await sendToTelegram(buildDutyText(duty));
+  return true;
+}
+
+// ตัวจับเวลา: เช็กทุกนาที ว่าถึงเวลาส่ง auto หรือถึงนัดครั้งเดียวไหม
+const _sentAutoKeys = new Set();
+async function reportTick() {
+  try {
+    const bkk = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }); // "YYYY-MM-DD HH:MM:SS"
+    const date = bkk.slice(0, 10), hm = bkk.slice(11, 16);
+    const weekday = new Date(date + 'T12:00:00Z').getUTCDay(); // 0=Sun
+    // auto (recurring)
+    const cfg = await getReportConfig();
+    if (cfg.autoEnabled && cfg.weekdays.includes(weekday) && cfg.times.includes(hm)) {
+      const key = `${date} ${hm}`;
+      if (!_sentAutoKeys.has(key)) {
+        _sentAutoKeys.add(key);
+        const sent = await sendDutyReport(date, cfg.onlyIfPending);
+        console.log(`[report] auto ${key} → ${sent ? 'sent' : 'skipped (no pending)'}`);
+      }
+    }
+    // one-time
+    const nowKey = `${date}T${hm}`;
+    const due = await dbAll("SELECT id, run_at FROM report_once WHERE sent = 0 AND run_at <= ?", [nowKey]);
+    for (const row of due) {
+      await db.exec('UPDATE report_once SET sent = 1 WHERE id = ?', [row.id]);
+      await sendDutyReport(date, false);
+      console.log(`[report] once ${row.run_at} → sent`);
+    }
+  } catch (e) { console.error('[report] tick error', e.message); }
+}
 
 // แถบความคืบหน้าแบบ block (เพิ่มลูกเล่นให้ข้อความ Telegram)
 function progressBar(pct, blocks = 10) {
@@ -1977,6 +2091,9 @@ initDb()
       // (n8n-Telegram-Production-Chart.json) ใช้บอทตัวเดียวกันสำหรับ "สรุปยอดผลิตวันนี้"
       // เปิดอีกครั้งได้เมื่อ n8n ฝั่งนั้น deactivate ไปแล้วจริงๆ หรือออกแบบให้ทำงานร่วมกันแล้ว
       // registerTelegramWebhook();
+      // ตัวจับเวลาส่งรายงานอัตโนมัติ — เช็กทุกนาที (ต้องให้เซิร์ฟเวอร์ตื่นอยู่; มี Keep-Warm ping ช่วย)
+      setInterval(reportTick, 60 * 1000);
+      console.log('[report] scheduler started (every 60s)');
     });
   })
   .catch((err) => {
