@@ -1683,6 +1683,12 @@ async function reportTick() {
   } catch (e) { console.error('[report] tick error', e.message); }
 }
 
+// ให้ n8n Schedule เคาะทุกนาที (ปลุก Render + ทริกส่งตามตั้งค่าในแอป) — เสริม setInterval ให้ตรงเวลาแม้ Render หลับ
+app.post('/api/report/tick', async (req, res) => {
+  await reportTick();
+  res.json({ ok: true, at: new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }) });
+});
+
 // แถบความคืบหน้าแบบ block (เพิ่มลูกเล่นให้ข้อความ Telegram)
 function progressBar(pct, blocks = 10) {
   const filled = Math.max(0, Math.min(blocks, Math.round(pct / 100 * blocks)));
