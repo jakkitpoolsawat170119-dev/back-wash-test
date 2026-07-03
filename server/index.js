@@ -1528,18 +1528,33 @@ app.post('/api/duty/assign', async (req, res) => {
 });
 
 // สร้างข้อความสรุป + ส่งเข้า Telegram
+const THAI_MON_ABBR = ['', 'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+const thaiDate = (d) => { const [y, m, day] = String(d).split('-').map(Number); return `${day} ${THAI_MON_ABBR[m] || m} ${y + 543}`; };
+const DUTY_DOT = { mam: '🟢', nai: '🔵', pluk: '🟣' };
+
 function buildDutyText(duty) {
   const t = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' });
-  const L = [`📋 <b>สรุปงานตามหน้าที่</b> · ${duty.date} (${t})`,
-    `ทีมทำเสร็จ <b>${duty.team.pct}%</b> · คงค้าง <b>${duty.team.left} งาน</b>`, ''];
+  let bypass = 0;
+  for (const p of duty.people) bypass += p.nodes.filter(n => n.bypassed).length;
+  const L = [
+    `📋 <b>สรุปงานตามหน้าที่</b>`,
+    `🗓 ${thaiDate(duty.date)} · ${t} น.`,
+    ``,
+    `<b>ทีม ${duty.team.pct}%</b>  ${progressBar(duty.team.pct)}`,
+    `✅ ${duty.team.done} เสร็จ · ⏳ ${duty.team.left} ค้าง${bypass ? ` · ⤼ ${bypass} ข้าม` : ''}`,
+  ];
   for (const p of duty.people) {
-    L.push(`👤 <b>${escapeHtml(p.name)}</b> — ${p.done}/${p.total}${p.total && p.done >= p.total ? ' ✓ ครบ' : ''}`);
-    const pending = p.nodes.filter(n => !n.bypassed && !n.checked).map(n => n.title)
-      .concat(p.received.filter(r => !r.checked).map(r => `${r.title} (รับจาก ${r.fromName})`))
-      .concat(p.adhoc.filter(a => a.status !== 'done').map(a => a.title));
-    if (pending.length) L.push(`  ⏳ ค้าง: ${pending.map(escapeHtml).join(', ')}`);
-    for (const n of p.nodes.filter(n => n.bypassed && !n.handoffTo)) L.push(`  ⤼ ข้าม: ${escapeHtml(n.title)} (${escapeHtml(n.bypassReason || '')})`);
-    for (const n of p.nodes.filter(n => n.bypassed && n.handoffTo)) L.push(`  🔁 มอบต่อ: ${escapeHtml(n.title)} → ${escapeHtml(n.handoffToName)}`);
+    L.push('');
+    const dot = DUTY_DOT[p.key] || '👤';
+    const full = p.total && p.done >= p.total;
+    L.push(`${dot} <b>${escapeHtml(p.name)}</b> · ${p.done}/${p.total} (${p.pct}%)${full ? ' 🎉' : ''}`);
+    const pending = p.nodes.filter(n => !n.bypassed && !n.checked).map(n => escapeHtml(n.title))
+      .concat(p.received.filter(r => !r.checked).map(r => `${escapeHtml(r.title)} <i>⟵${escapeHtml(r.fromName)}</i>`))
+      .concat(p.adhoc.filter(a => a.status !== 'done').map(a => `${a.priority === 'urgent' ? '🔴 ' : ''}${escapeHtml(a.title)}`));
+    for (const item of pending) L.push(`   • ${item}`);
+    for (const n of p.nodes.filter(n => n.bypassed && !n.handoffTo)) L.push(`   ⤼ <i>ข้าม ${escapeHtml(n.title)} (${escapeHtml(n.bypassReason || '')})</i>`);
+    for (const n of p.nodes.filter(n => n.bypassed && n.handoffTo)) L.push(`   🔁 <i>มอบ ${escapeHtml(n.title)} → ${escapeHtml(n.handoffToName)}</i>`);
+    if (!pending.length && full) L.push(`   <i>— เสร็จครบทุกงาน —</i>`);
   }
   return L.join('\n');
 }
