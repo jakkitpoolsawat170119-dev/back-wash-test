@@ -176,6 +176,20 @@ const SCHEMA = [
       content TEXT,
       created_at TEXT
     )`,
+  // สถานะงานประจำตามหน้าที่รายบุคคล (ต่อวัน) — เช็ก/ข้าม/มอบต่อ ราย node ในเช็กลิสต์
+  `CREATE TABLE IF NOT EXISTS routine_state (
+      id ${db.pk},
+      state_date TEXT,
+      assignee TEXT,
+      node_key TEXT,
+      title TEXT,
+      checked INTEGER DEFAULT 0,
+      bypassed INTEGER DEFAULT 0,
+      bypass_reason TEXT,
+      handoff_to TEXT,
+      updated_at TEXT,
+      UNIQUE(state_date, assignee, node_key)
+    )`,
 ];
 
 const DEFAULT_OPERATORS = [
@@ -189,6 +203,11 @@ async function initDb() {
   // migration: เพิ่มคอลัมน์ brix/ph ให้ production_logs (สำหรับ DB เดิมที่สร้างก่อนมีคอลัมน์นี้)
   for (const col of ['brix', 'ph']) {
     try { await db.exec(`ALTER TABLE production_logs ADD COLUMN ${col} REAL`); }
+    catch { /* มีคอลัมน์อยู่แล้ว — ข้าม */ }
+  }
+  // migration: คอลัมน์งานมอบหมายรายบุคคลใน daily_tasks (assignee/location/priority/handoff_from)
+  for (const col of ['assignee', 'location', 'priority', 'handoff_from']) {
+    try { await db.exec(`ALTER TABLE daily_tasks ADD COLUMN ${col} TEXT`); }
     catch { /* มีคอลัมน์อยู่แล้ว — ข้าม */ }
   }
   // seed รายชื่อ operator (idempotent — ไม่ลบของเดิมเพื่อไม่ให้ข้อมูลหายตอน restart)
@@ -1331,6 +1350,199 @@ app.get('/api/tasks/calendar', async (req, res) => {
       [from, to]
     );
     res.json({ from, to, days: rows.map(r => ({ date: r.task_date, total: Number(r.total), done: Number(r.done) })) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── งานตามหน้าที่รับผิดชอบรายบุคคล (Duty board) ─────────────────────────────
+// รายชื่อผู้รับผิดชอบ + เช็กลิสต์งานประจำ (โครงตายตัวตาม Notion, ซ้อนชั้นได้)
+const DUTY_PEOPLE = [
+  { key: 'mam',  name: 'ม้ำ',   role: 'ผู้ช่วยหลัก · ควบคุมผลิต & CIP' },
+  { key: 'nai',  name: 'นาย',   role: 'ส่วนผสม & ผู้ช่วย ม้ำ' },
+  { key: 'pluk', name: 'พลุ๊ก', role: 'ส่วนผสม & เครื่องบรรจุ' },
+];
+const ROUTINES = {
+  mam: [
+    { key: 'plan', title: 'ตรวจสอบแผนผลิต / CIP' },
+    { key: 'assist', title: 'ทำหน้าที่ผู้ช่วย จักรกฤษ', children: [
+      { key: 'control', title: 'ควบคุมกระบวนการผลิตและ CIP ทั้งหมด', children: [
+        { key: 'pc', title: 'Control computer', mono: true },
+        { key: 'filter', title: 'เปลี่ยนกรอง' },
+        { key: 'record', title: 'จดบันทึกข้อมูลการผลิต' },
+      ] },
+    ] },
+    { key: 'mix', title: 'ตรวจสอบส่วนผสมของผลิตภัณฑ์' },
+  ],
+  nai: [
+    { key: 'move', title: 'ขนย้ายส่วนผสมเพื่อการผลิต' },
+    { key: 'mix', title: 'ตรวจสอบส่วนผสมของผลิตภัณฑ์' },
+    { key: 'pour', title: 'ดูแลการเทส่วนผสม' },
+    { key: 'assist', title: 'ทำหน้าที่ผู้ช่วย ม้ำ', children: [
+      { key: 'control', title: 'ควบคุมกระบวนการผลิตและ CIP', children: [
+        { key: 'filter', title: 'เปลี่ยนกรอง' },
+      ] },
+    ] },
+    { key: 'return', title: 'คืนภาชนะใช้แล้วกลับ FVH' },
+  ],
+  pluk: [
+    { key: 'move', title: 'ขนย้ายส่วนผสมเพื่อการผลิต' },
+    { key: 'pour', title: 'ดูแลการเทส่วนผสม' },
+    { key: 'filter', title: 'เปลี่ยนกรอง' },
+    { key: 'packer', title: 'ตรวจสอบเครื่องบรรจุ A1, A2, A3, L2', children: [
+      { key: 'disasm', title: 'ถอดประกอบ, ล้าง' },
+      { key: 'parts', title: 'ตรวจสอบชิ้นส่วนเครื่องจักร', children: [
+        { key: 'valve', title: 'ลูกวาล์ว' },
+        { key: 'oring', title: 'O-ring', mono: true },
+      ] },
+    ] },
+  ],
+};
+const dutyName = (k) => (DUTY_PEOPLE.find(p => p.key === k) || {}).name || k;
+function flattenRoutine(nodes, depth = 0, prefix = '') {
+  const out = [];
+  for (const n of nodes) {
+    const key = prefix ? `${prefix}/${n.key}` : n.key;
+    out.push({ key, title: n.title, depth, mono: !!n.mono });
+    if (n.children) out.push(...flattenRoutine(n.children, depth + 1, key));
+  }
+  return out;
+}
+
+// รวมสถานะงานประจำ + งานมอบหมาย ของทุกคนในวันนั้น
+async function buildDuty(date) {
+  const stateRows = await dbAll('SELECT * FROM routine_state WHERE state_date = ?', [date]);
+  const stateMap = {};
+  for (const s of stateRows) stateMap[`${s.assignee}|${s.node_key}`] = s;
+  const adhoc = await dbAll(`SELECT * FROM daily_tasks WHERE task_date = ? AND source = 'assigned' ORDER BY id`, [date]);
+
+  let teamDone = 0, teamTotal = 0;
+  const people = DUTY_PEOPLE.map(p => {
+    const nodes = flattenRoutine(ROUTINES[p.key] || []).map(n => {
+      const st = stateMap[`${p.key}|${n.key}`];
+      return {
+        ...n,
+        checked: !!(st && st.checked),
+        bypassed: !!(st && st.bypassed),
+        bypassReason: st ? st.bypass_reason || null : null,
+        handoffTo: st ? st.handoff_to || null : null,
+        handoffToName: st && st.handoff_to ? dutyName(st.handoff_to) : null,
+      };
+    });
+    // งานที่คนอื่นมอบต่อมาให้คนนี้ (bypass + handoff_to = p.key)
+    const received = stateRows
+      .filter(s => s.handoff_to === p.key && s.bypassed)
+      .map(s => ({ ownerKey: s.assignee, fromName: dutyName(s.assignee), nodeKey: s.node_key, title: s.title, checked: !!s.checked }));
+    const myAdhoc = adhoc.filter(t => t.assignee === p.key).map(t => ({
+      id: t.id, title: t.title, category: t.category, location: t.location || null,
+      priority: t.priority || 'normal', status: t.status, handoffFrom: t.handoff_from || null,
+    }));
+
+    const active = nodes.filter(n => !n.bypassed);
+    let done = active.filter(n => n.checked).length;
+    let total = active.length;
+    done += received.filter(r => r.checked).length; total += received.length;
+    done += myAdhoc.filter(t => t.status === 'done').length; total += myAdhoc.length;
+    teamDone += done; teamTotal += total;
+    return { ...p, nodes, received, adhoc: myAdhoc, done, total, pct: total ? Math.round(done / total * 100) : 100 };
+  });
+  return { date, people, team: { done: teamDone, total: teamTotal, left: teamTotal - teamDone, pct: teamTotal ? Math.round(teamDone / teamTotal * 100) : 100 } };
+}
+
+app.get('/api/duty', async (req, res) => {
+  const date = req.query.date || todayBKK();
+  try { res.json(await buildDuty(date)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// เช็ก/ยกเลิกเช็ก งานประจำ 1 node (ถ้าเป็นงานที่รับมอบต่อ ให้ส่ง assignee = เจ้าของงานเดิม)
+app.post('/api/routine/toggle', async (req, res) => {
+  const { date, assignee, nodeKey, title, checked } = req.body;
+  if (!assignee || !nodeKey) return res.status(400).json({ error: 'assignee/nodeKey จำเป็น' });
+  const d = date || todayBKK();
+  try {
+    await db.exec(
+      `INSERT INTO routine_state (state_date, assignee, node_key, title, checked, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(state_date, assignee, node_key)
+       DO UPDATE SET checked = excluded.checked, title = COALESCE(excluded.title, routine_state.title), updated_at = excluded.updated_at`,
+      [d, assignee, nodeKey, title || null, checked ? 1 : 0, nowBKK()]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ข้ามงานประจำ (ต้องมีเหตุผล) — ถ้า reason = "ให้คนอื่นทำแทน" ให้ส่ง handoffTo = key ของคนที่รับ
+app.post('/api/routine/bypass', async (req, res) => {
+  const { date, assignee, nodeKey, title, reason, handoffTo } = req.body;
+  if (!assignee || !nodeKey || !reason) return res.status(400).json({ error: 'assignee/nodeKey/reason จำเป็น' });
+  const d = date || todayBKK();
+  try {
+    await db.exec(
+      `INSERT INTO routine_state (state_date, assignee, node_key, title, bypassed, bypass_reason, handoff_to, checked, updated_at)
+       VALUES (?, ?, ?, ?, 1, ?, ?, 0, ?)
+       ON CONFLICT(state_date, assignee, node_key)
+       DO UPDATE SET bypassed = 1, bypass_reason = excluded.bypass_reason, handoff_to = excluded.handoff_to,
+                     checked = 0, title = COALESCE(excluded.title, routine_state.title), updated_at = excluded.updated_at`,
+      [d, assignee, nodeKey, title || null, reason, handoffTo || null, nowBKK()]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// คืนงานที่ข้าม (กลับมาเป็นงานปกติ)
+app.post('/api/routine/restore', async (req, res) => {
+  const { date, assignee, nodeKey } = req.body;
+  if (!assignee || !nodeKey) return res.status(400).json({ error: 'assignee/nodeKey จำเป็น' });
+  const d = date || todayBKK();
+  try {
+    await db.exec(
+      `UPDATE routine_state SET bypassed = 0, bypass_reason = NULL, handoff_to = NULL, updated_at = ?
+       WHERE state_date = ? AND assignee = ? AND node_key = ?`,
+      [nowBKK(), d, assignee, nodeKey]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// มอบหมายงานระหว่างวัน → เก็บลง daily_tasks (source = 'assigned') ผูก assignee
+app.post('/api/duty/assign', async (req, res) => {
+  const { date, assignTo, category, title, location, priority, operator } = req.body;
+  if (!title || !assignTo) return res.status(400).json({ error: 'title/assignTo จำเป็น' });
+  const d = date || todayBKK();
+  try {
+    await db.exec(
+      `INSERT INTO daily_tasks (task_date, line_name, category, title, status, source, assignee, location, priority, created_by, created_at)
+       VALUES (?, '', ?, ?, 'pending', 'assigned', ?, ?, ?, ?, ?)
+       ON CONFLICT(task_date, line_name, category, title)
+       DO UPDATE SET assignee = excluded.assignee, location = excluded.location, priority = excluded.priority`,
+      [d, category || 'manual', title, assignTo, location || null, priority || 'normal', operator || null, nowBKK()]);
+    if (process.env.TELEGRAM_CHAT_ID) {
+      sendToTelegram(`🆕 <b>มอบหมายงานใหม่</b> → ${escapeHtml(dutyName(assignTo))}\n${escapeHtml(title)}${location ? ` · 📍${escapeHtml(location)}` : ''}${priority === 'urgent' ? ' · 🔴 ด่วน' : ''}\nโดย ${escapeHtml(operator || 'จักรกฤษ')}`);
+    }
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// สร้างข้อความสรุป + ส่งเข้า Telegram
+function buildDutyText(duty) {
+  const t = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' });
+  const L = [`📋 <b>สรุปงานตามหน้าที่</b> · ${duty.date} (${t})`,
+    `ทีมทำเสร็จ <b>${duty.team.pct}%</b> · คงค้าง <b>${duty.team.left} งาน</b>`, ''];
+  for (const p of duty.people) {
+    L.push(`👤 <b>${escapeHtml(p.name)}</b> — ${p.done}/${p.total}${p.total && p.done >= p.total ? ' ✓ ครบ' : ''}`);
+    const pending = p.nodes.filter(n => !n.bypassed && !n.checked).map(n => n.title)
+      .concat(p.received.filter(r => !r.checked).map(r => `${r.title} (รับจาก ${r.fromName})`))
+      .concat(p.adhoc.filter(a => a.status !== 'done').map(a => a.title));
+    if (pending.length) L.push(`  ⏳ ค้าง: ${pending.map(escapeHtml).join(', ')}`);
+    for (const n of p.nodes.filter(n => n.bypassed && !n.handoffTo)) L.push(`  ⤼ ข้าม: ${escapeHtml(n.title)} (${escapeHtml(n.bypassReason || '')})`);
+    for (const n of p.nodes.filter(n => n.bypassed && n.handoffTo)) L.push(`  🔁 มอบต่อ: ${escapeHtml(n.title)} → ${escapeHtml(n.handoffToName)}`);
+  }
+  return L.join('\n');
+}
+
+app.post('/api/duty/telegram', async (req, res) => {
+  const date = req.body.date || req.query.date || todayBKK();
+  try {
+    const duty = await buildDuty(date);
+    const text = buildDutyText(duty);
+    await sendToTelegram(text);
+    res.json({ success: true, sent: !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID), preview: text });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

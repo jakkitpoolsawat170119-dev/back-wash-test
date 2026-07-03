@@ -21,19 +21,30 @@ const CAT: Record<string, { icon: string; label: string }> = {
   production: { icon: '🏭', label: 'ผลิต' },
   cip: { icon: '💧', label: 'CIP' },
   backwash: { icon: '🧴', label: 'Backwash' },
+  am: { icon: '🛠', label: 'AM' },
   maintenance: { icon: '🔧', label: 'ซ่อมบำรุง' },
-  manual: { icon: '📌', label: 'อื่นๆ' },
+  manual: { icon: '📌', label: 'ทั่วไป' },
 };
-const LINE_COLOR: Record<string, string> = {
-  'Line 1': '#0d47a1', 'Line 2': '#01579b', 'Line 3': '#006064', 'Line 4': '#4a7c59',
+// สีประจำตัวผู้รับผิดชอบ (duty board)
+const DUTY_COLOR: Record<string, { c: string; wash: string; initial: string }> = {
+  mam: { c: '#00897b', wash: '#e0f2f1', initial: 'ม' },
+  nai: { c: '#3949ab', wash: '#e8eaf6', initial: 'น' },
+  pluk: { c: '#c2185b', wash: '#fce4ec', initial: 'พ' },
 };
+const BYPASS_REASONS = ['ไม่มีการผลิต', 'เครื่องหยุด/ซ่อม', 'ทำล่วงหน้าแล้ว', 'ไม่ถึงรอบ', 'ให้คนอื่นทำแทน', 'อื่นๆ'];
+const LOCATIONS = ['Line 1', 'Line 2', 'Line 3', 'Line 4', 'FVH', 'บรรจุ A1/A2/A3', 'L2', 'อื่นๆ'];
+
+type DutyNode = { key: string; title: string; depth: number; mono: boolean; checked: boolean; bypassed: boolean; bypassReason: string | null; handoffTo: string | null; handoffToName: string | null };
+type Received = { ownerKey: string; fromName: string; nodeKey: string; title: string; checked: boolean };
+type AdhocTask = { id: number; title: string; category: string; location: string | null; priority: string; status: string; handoffFrom: string | null };
+type DutyPerson = { key: string; name: string; role: string; nodes: DutyNode[]; received: Received[]; adhoc: AdhocTask[]; done: number; total: number; pct: number };
+type Duty = { date: string; people: DutyPerson[]; team: { done: number; total: number; left: number; pct: number } };
 const STATUS_STYLE: Record<string, { bg: string; fg: string; label: string }> = {
   done: { bg: '#e8f5e9', fg: '#2e7d32', label: 'เสร็จ' },
   in_progress: { bg: '#fff3e0', fg: '#e65100', label: 'กำลังทำ' },
   pending: { bg: '#f5f5f5', fg: '#757575', label: 'รอทำ' },
   skipped: { bg: '#fafafa', fg: '#bdbdbd', label: 'ข้าม' },
 };
-const LINE_ORDER = ['Line 1', 'Line 2', 'Line 3', 'Line 4', ''];
 
 interface Props { operatorName: string | null; onBackToMain: () => void; }
 
@@ -43,16 +54,14 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
-  const [loading, setLoading] = useState(false);
 
   // ── data loaders ───────────────────────────────────────────────
   const loadTasks = useCallback(async () => {
-    setLoading(true);
     try {
       const r = await fetch(`${apiUrl}/api/tasks?date=${date}`);
       const d = await r.json();
       setTasks(d.items || []);
-    } catch { /* offline */ } finally { setLoading(false); }
+    } catch { /* offline */ }
   }, [date]);
 
   const loadTimeline = useCallback(async () => {
@@ -70,61 +79,8 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
     } catch { /* offline */ }
   }, []);
 
-  useEffect(() => { if (tab === 'today') loadTasks(); }, [tab, loadTasks]);
   useEffect(() => { if (tab === 'timeline') loadTimeline(); }, [tab, loadTimeline]);
   useEffect(() => { if (tab === 'recurring') { loadTemplates(); loadTasks(); } }, [tab, loadTemplates, loadTasks]);
-
-  // ── actions ────────────────────────────────────────────────────
-  const generateFromPlan = async () => {
-    setLoading(true);
-    try {
-      await fetch(`${apiUrl}/api/tasks/generate`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, operator: operatorName }),
-      });
-      await loadTasks();
-    } finally { setLoading(false); }
-  };
-
-  const toggleTask = async (t: Task) => {
-    const next = t.status === 'done' ? 'pending' : 'done';
-    setTasks(ts => ts.map(x => x.id === t.id ? { ...x, status: next } : x)); // optimistic
-    await fetch(`${apiUrl}/api/tasks/update`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: t.id, status: next }),
-    });
-  };
-
-  const deleteTask = async (id: number) => {
-    setTasks(ts => ts.filter(x => x.id !== id));
-    await fetch(`${apiUrl}/api/tasks/delete-one`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }),
-    });
-  };
-
-  // ── manual add task ────────────────────────────────────────────
-  const [newTitle, setNewTitle] = useState('');
-  const [newLine, setNewLine] = useState('');
-  const [newCat, setNewCat] = useState('manual');
-  const addTask = async () => {
-    if (!newTitle.trim()) return;
-    await fetch(`${apiUrl}/api/tasks`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, line: newLine, category: newCat, title: newTitle.trim(), operator: operatorName }),
-    });
-    setNewTitle('');
-    await loadTasks();
-  };
-
-  // group tasks by line
-  const byLine: Record<string, Task[]> = {};
-  for (const t of tasks) { (byLine[t.line_name] ||= []).push(t); }
-  const lineKeys = Object.keys(byLine).sort((a, b) => {
-    const ia = LINE_ORDER.indexOf(a), ib = LINE_ORDER.indexOf(b);
-    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
-  });
-
-  const doneCount = tasks.filter(t => t.status === 'done').length;
 
   // ── styles ─────────────────────────────────────────────────────
   const card: React.CSSProperties = {
@@ -145,7 +101,7 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
       {/* tabs */}
       <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', marginBottom: '14px' }}>
         {([
-          ['today', '📋 งานวันนี้'], ['calendar', '📅 ปฏิทิน'], ['timeline', '🕐 ไทม์ไลน์'], ['recurring', '🔁 งานประจำ'], ['ai', '🤖 ผู้ช่วย AI'],
+          ['today', '👥 หน้าที่'], ['calendar', '📅 ปฏิทิน'], ['timeline', '🕐 ไทม์ไลน์'], ['recurring', '🔁 งานประจำ'], ['ai', '🤖 ผู้ช่วย AI'],
         ] as [typeof tab, string][]).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)} style={{
             flex: '0 0 auto', padding: '7px 13px', borderRadius: '20px', border: '2px solid',
@@ -155,75 +111,8 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
         ))}
       </div>
 
-      {/* ── TAB: today ─────────────────────────────────────────── */}
-      {tab === 'today' && (
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-            <button onClick={generateFromPlan} disabled={loading} style={{
-              flex: 1, padding: '10px', borderRadius: '12px', border: 'none', cursor: 'pointer', color: '#fff',
-              background: 'linear-gradient(135deg, #ff6b00, #ff8c00)', fontWeight: 700, fontSize: '0.9rem',
-            }}>⚡ สร้างงานจากแผนผลิต</button>
-            <button onClick={loadTasks} style={{ padding: '10px 12px', borderRadius: '12px', border: '1px solid #eee', background: '#fff', cursor: 'pointer' }}>↻</button>
-          </div>
-          <div style={{ textAlign: 'center', fontSize: '0.8rem', color: '#78828a', marginBottom: '12px' }}>
-            เสร็จแล้ว <b style={{ color: '#2e7d32' }}>{doneCount}</b> / {tasks.length} งาน
-          </div>
-
-          {lineKeys.map(line => (
-            <div key={line || 'misc'} style={{ marginBottom: '6px' }}>
-              <div style={{ fontWeight: 700, fontSize: '0.85rem', color: LINE_COLOR[line] || '#607d8b', margin: '4px 2px 6px' }}>
-                {line || '🗂 ทั่วไป'}
-              </div>
-              {byLine[line].map(t => {
-                const st = STATUS_STYLE[t.status] || STATUS_STYLE.pending;
-                const cat = CAT[t.category] || CAT.manual;
-                const pct = t.target_count ? Math.min(100, Math.round((t.actual_count / t.target_count) * 100)) : (t.status === 'done' ? 100 : 0);
-                return (
-                  <div key={t.id} style={{ ...card, padding: '12px 14px', display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-                    <input type="checkbox" checked={t.status === 'done'} onChange={() => toggleTask(t)}
-                      style={{ width: '20px', height: '20px', marginTop: '2px', cursor: 'pointer', flexShrink: 0 }} />
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontWeight: 600, color: '#37474f', textDecoration: t.status === 'done' ? 'line-through' : 'none' }}>
-                        {cat.icon} {t.title}
-                      </div>
-                      {t.detail && <div style={{ fontSize: '0.74rem', color: '#9aa0a6', marginTop: '2px' }}>{t.detail}</div>}
-                      {t.target_count ? (
-                        <div style={{ marginTop: '6px' }}>
-                          <div style={{ height: '6px', background: '#eee', borderRadius: '4px', overflow: 'hidden' }}>
-                            <div style={{ height: '100%', width: `${pct}%`, background: pct >= 100 ? '#2e7d32' : '#ff8c00', transition: 'width 0.3s' }} />
-                          </div>
-                          <div style={{ fontSize: '0.68rem', color: '#9aa0a6', marginTop: '2px' }}>{t.actual_count}/{t.target_count}</div>
-                        </div>
-                      ) : null}
-                    </div>
-                    <span style={{ fontSize: '0.66rem', fontWeight: 700, padding: '3px 8px', borderRadius: '8px', background: st.bg, color: st.fg, flexShrink: 0 }}>{st.label}</span>
-                    {t.source === 'manual' && (
-                      <button onClick={() => deleteTask(t.id)} title="ลบ" style={{ border: 'none', background: 'none', color: '#ccc', cursor: 'pointer', fontSize: '1rem' }}>×</button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-          {tasks.length === 0 && <div style={{ textAlign: 'center', color: '#bbb', padding: '24px', fontSize: '0.85rem' }}>ยังไม่มีงาน — กด "สร้างงานจากแผนผลิต" หรือเพิ่มงานเองด้านล่าง</div>}
-
-          {/* manual add */}
-          <div style={{ ...card, marginTop: '14px' }}>
-            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#37474f', marginBottom: '8px' }}>➕ เพิ่มงานเอง</div>
-            <input value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="ชื่องาน เช่น ตรวจน้ำยา CIP"
-              style={{ width: '100%', boxSizing: 'border-box', padding: '8px', border: '1px solid #ddd', borderRadius: '10px', marginBottom: '8px' }} />
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <select value={newLine} onChange={e => setNewLine(e.target.value)} style={{ flex: 1, padding: '8px', border: '1px solid #ddd', borderRadius: '10px' }}>
-                <option value="">ทั่วไป</option><option>Line 1</option><option>Line 2</option><option>Line 3</option><option>Line 4</option>
-              </select>
-              <select value={newCat} onChange={e => setNewCat(e.target.value)} style={{ flex: 1, padding: '8px', border: '1px solid #ddd', borderRadius: '10px' }}>
-                {Object.entries(CAT).map(([k, v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
-              </select>
-              <button onClick={addTask} style={{ padding: '8px 16px', borderRadius: '10px', border: 'none', background: '#ff6b00', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>เพิ่ม</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── TAB: duty (หน้าที่รับผิดชอบ) ───────────────────────── */}
+      {tab === 'today' && <DutyBoard date={date} operatorName={operatorName} card={card} />}
 
       {/* ── TAB: calendar ─────────────────────────────────────── */}
       {tab === 'calendar' && (
@@ -538,6 +427,179 @@ const CalendarTab: React.FC<{ operatorName: string | null; card: React.CSSProper
             </div>
           </div>
         </div>
+      </div>
+    );
+  };
+
+// ─── Duty board (งานตามหน้าที่รับผิดชอบรายบุคคล) ─────────────────
+const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: React.CSSProperties }> =
+  ({ date, operatorName, card }) => {
+    const [duty, setDuty] = useState<Duty | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [pick, setPick] = useState('');       // "personKey|nodeKey" ที่กำลังเลือกเหตุผลข้าม
+    const [handoffKey, setHandoffKey] = useState(''); // key เดียวกันเมื่อเลือก "ให้คนอื่นทำแทน"
+    const [tgMsg, setTgMsg] = useState('');
+
+    const load = useCallback(async () => {
+      setLoading(true);
+      try { const r = await fetch(`${apiUrl}/api/duty?date=${date}`); setDuty(await r.json()); }
+      catch { /* offline */ } finally { setLoading(false); }
+    }, [date]);
+    useEffect(() => { load(); }, [load]);
+
+    const post = async (url: string, body: Record<string, unknown>) => {
+      await fetch(`${apiUrl}${url}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      await load();
+    };
+    const toggleNode = (pKey: string, n: DutyNode) => post('/api/routine/toggle', { date, assignee: pKey, nodeKey: n.key, title: n.title, checked: !n.checked });
+    const toggleReceived = (r: Received) => post('/api/routine/toggle', { date, assignee: r.ownerKey, nodeKey: r.nodeKey, checked: !r.checked });
+    const restore = (pKey: string, n: DutyNode) => post('/api/routine/restore', { date, assignee: pKey, nodeKey: n.key });
+    const doBypass = (pKey: string, n: DutyNode, reason: string, handoffTo?: string) => {
+      setPick(''); setHandoffKey('');
+      return post('/api/routine/bypass', { date, assignee: pKey, nodeKey: n.key, title: n.title, reason, handoffTo });
+    };
+    const onReason = (pKey: string, n: DutyNode, val: string) => {
+      if (!val) return;
+      if (val === 'ให้คนอื่นทำแทน') setHandoffKey(`${pKey}|${n.key}`);
+      else doBypass(pKey, n, val);
+    };
+    const toggleAdhoc = (t: AdhocTask) => post('/api/tasks/update', { id: t.id, status: t.status === 'done' ? 'pending' : 'done' });
+    const delAdhoc = (id: number) => post('/api/tasks/delete-one', { id });
+
+    // assign form
+    const [assignTo, setAssignTo] = useState('mam');
+    const [cat, setCat] = useState('production');
+    const [title, setTitle] = useState('');
+    const [loc, setLoc] = useState(LOCATIONS[0]);
+    const [prio, setPrio] = useState('normal');
+    const assign = async () => {
+      if (!title.trim()) return;
+      await post('/api/duty/assign', { date, assignTo, category: cat, title: title.trim(), location: loc, priority: prio, operator: operatorName });
+      setTitle('');
+    };
+
+    const sendTg = async () => {
+      setTgMsg('กำลังส่ง…');
+      try {
+        const r = await fetch(`${apiUrl}/api/duty/telegram`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date }) });
+        const d = await r.json();
+        setTgMsg(d.sent ? '✅ ส่งเข้า Telegram แล้ว' : '⚠️ ยังไม่ได้ตั้งค่า Telegram บนเซิร์ฟเวอร์');
+      } catch { setTgMsg('❌ ส่งไม่สำเร็จ'); }
+    };
+
+    // shared styles
+    const cb = (dis: boolean): React.CSSProperties => ({ width: 19, height: 19, flexShrink: 0, cursor: dis ? 'default' : 'pointer', opacity: dis ? 0.3 : 1, accentColor: '#2e7d32' });
+    const row: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0' };
+    const badge: React.CSSProperties = { fontSize: '0.6rem', fontWeight: 800, borderRadius: 20, padding: '2px 8px', flexShrink: 0, whiteSpace: 'nowrap' };
+    const bpBtn: React.CSSProperties = { border: 'none', background: 'none', color: '#b0b8bd', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', padding: '3px 7px', borderRadius: 7, flexShrink: 0 };
+    const sel: React.CSSProperties = { fontFamily: 'inherit', fontSize: '0.72rem', fontWeight: 700, color: '#ff6b00', background: '#fff3e9', border: '1px dashed #ff8c00', borderRadius: 9, padding: '5px 7px', flexShrink: 0 };
+    const subLbl: React.CSSProperties = { fontSize: '0.68rem', fontWeight: 800, letterSpacing: '.04em', color: '#9aa0a6', textTransform: 'uppercase', margin: '10px 0 2px' };
+    const chip = (on: boolean, color = '#ff6b00'): React.CSSProperties => ({ border: '2px solid', borderColor: on ? 'transparent' : '#e0e0e0', background: on ? color : '#fff', color: on ? '#fff' : '#666', borderRadius: 22, padding: '7px 13px', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer' });
+
+    if (!duty) return <div style={{ textAlign: 'center', color: '#bbb', padding: 24 }}>{loading ? 'กำลังโหลด…' : 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้'}</div>;
+
+    return (
+      <div>
+        {/* team overview */}
+        <div style={{ ...card, background: 'linear-gradient(135deg,#fff,#fff8f2)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+            <div><div style={subLbl}>ความคืบหน้าทีมวันนี้</div><div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#ff6b00' }}>{duty.team.pct}%<small style={{ fontSize: '0.8rem', color: '#9aa0a6', fontWeight: 600 }}> เสร็จ</small></div></div>
+            <div style={{ textAlign: 'right' }}><div style={subLbl}>งานคงค้าง</div><div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#e65100' }}>{duty.team.left}<small style={{ fontSize: '0.8rem', color: '#9aa0a6', fontWeight: 600 }}> งาน</small></div></div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+            {duty.people.map(p => { const col = DUTY_COLOR[p.key] || { c: '#607d8b', wash: '#eee', initial: p.name[0] }; return (
+              <div key={p.key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, padding: '9px 4px', border: '1px solid #eee', borderRadius: 12 }}>
+                <div style={{ width: 32, height: 32, borderRadius: '50%', display: 'grid', placeItems: 'center', fontWeight: 800, color: '#fff', fontSize: '0.85rem', background: col.c }}>{col.initial}</div>
+                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: col.c }}>{p.name}</div>
+                <div style={{ width: '100%', height: 5, borderRadius: 4, background: '#eceff1', overflow: 'hidden' }}><div style={{ height: '100%', width: `${p.pct}%`, background: col.c }} /></div>
+                <div style={{ fontSize: '0.7rem', color: '#9aa0a6', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{p.done}/{p.total}</div>
+              </div>
+            ); })}
+          </div>
+        </div>
+
+        {/* person cards */}
+        {duty.people.map(p => { const col = DUTY_COLOR[p.key] || { c: '#607d8b', wash: '#eee', initial: p.name[0] }; return (
+          <div key={p.key} style={{ ...card, padding: 0, overflow: 'hidden', borderTop: `3px solid ${col.c}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 15px', background: col.wash }}>
+              <div style={{ width: 38, height: 38, borderRadius: '50%', display: 'grid', placeItems: 'center', fontWeight: 800, color: '#fff', background: col.c }}>{col.initial}</div>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 800 }}>คุณ {p.name}</div><div style={{ fontSize: '0.72rem', color: '#78828a' }}>{p.role}</div></div>
+              <div style={{ fontWeight: 800, color: col.c, fontVariantNumeric: 'tabular-nums' }}>{p.pct}%</div>
+            </div>
+            <div style={{ padding: '8px 15px 14px' }}>
+              {p.nodes.map(n => { const gk = `${p.key}|${n.key}`; return (
+                <div key={gk} style={{ ...row, marginLeft: n.depth * 22 }}>
+                  <input type="checkbox" disabled={n.bypassed} checked={n.checked} onChange={() => toggleNode(p.key, n)} style={cb(n.bypassed)} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: '0.88rem', fontWeight: 500, fontFamily: n.mono ? 'ui-monospace, Menlo, monospace' : 'inherit', color: n.bypassed ? '#b0b8bd' : (n.checked ? '#9aa0a6' : '#37474f'), textDecoration: (n.checked || n.bypassed) ? 'line-through' : 'none' }}>{n.title}</span>
+                  {n.bypassed ? (<>
+                    <span style={{ ...badge, background: n.handoffTo ? col.c : '#eceff1', color: n.handoffTo ? '#fff' : '#607d8b' }}>{n.handoffTo ? `มอบให้ ${n.handoffToName}` : `ข้าม · ${n.bypassReason}`}</span>
+                    <button onClick={() => restore(p.key, n)} style={{ ...bpBtn, color: '#ff6b00' }}>คืนงาน</button>
+                  </>) : pick === gk ? (<>
+                    <select value="" onChange={e => onReason(p.key, n, e.target.value)} style={sel}>
+                      <option value="">เลือกเหตุผล…</option>
+                      {BYPASS_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                    {handoffKey === gk && (
+                      <select value="" onChange={e => e.target.value && doBypass(p.key, n, 'ให้คนอื่นทำแทน', e.target.value)} style={sel}>
+                        <option value="">เลือกคน…</option>
+                        {duty.people.filter(x => x.key !== p.key).map(x => <option key={x.key} value={x.key}>{x.name}</option>)}
+                      </select>
+                    )}
+                    <button onClick={() => { setPick(''); setHandoffKey(''); }} style={bpBtn}>✕</button>
+                  </>) : (
+                    <button onClick={() => { setPick(gk); setHandoffKey(''); }} style={bpBtn}>ข้าม</button>
+                  )}
+                </div>
+              ); })}
+
+              {p.received.length > 0 && <div style={subLbl}>🔁 รับมอบต่อ</div>}
+              {p.received.map(r => (
+                <div key={`${r.ownerKey}/${r.nodeKey}`} style={row}>
+                  <input type="checkbox" checked={r.checked} onChange={() => toggleReceived(r)} style={cb(false)} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: '0.88rem', fontWeight: 500, color: r.checked ? '#9aa0a6' : '#37474f', textDecoration: r.checked ? 'line-through' : 'none' }}>{r.title}</span>
+                  <span style={{ ...badge, background: '#e8eaf6', color: '#3949ab' }}>รับจาก {r.fromName}</span>
+                </div>
+              ))}
+
+              {p.adhoc.length > 0 && <div style={subLbl}>📌 งานมอบหมาย</div>}
+              {p.adhoc.map(t => { const c = CAT[t.category] || CAT.manual; return (
+                <div key={t.id} style={row}>
+                  <input type="checkbox" checked={t.status === 'done'} onChange={() => toggleAdhoc(t)} style={cb(false)} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: '0.88rem', fontWeight: 500, color: t.status === 'done' ? '#9aa0a6' : '#37474f', textDecoration: t.status === 'done' ? 'line-through' : 'none' }}>{c.icon} {t.title}{t.location ? <small style={{ color: '#9aa0a6' }}> · 📍{t.location}</small> : null}</span>
+                  {t.priority === 'urgent' && <span style={{ ...badge, background: '#ffebee', color: '#c62828' }}>🔴 ด่วน</span>}
+                  <button onClick={() => delAdhoc(t.id)} title="ลบ" style={{ ...bpBtn, fontSize: '1rem', color: '#ccc' }}>×</button>
+                </div>
+              ); })}
+            </div>
+          </div>
+        ); })}
+
+        {/* assign form */}
+        <div style={{ ...card }}>
+          <div style={{ fontWeight: 800, fontSize: '0.9rem', marginBottom: 12 }}>➕ มอบหมายงานระหว่างวัน</div>
+          <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a', marginBottom: 7 }}>ส่งให้</div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+            {duty.people.map(p => <button key={p.key} onClick={() => setAssignTo(p.key)} style={chip(assignTo === p.key, (DUTY_COLOR[p.key] || {}).c || '#ff6b00')}>{p.name}</button>)}
+          </div>
+          <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a', marginBottom: 7 }}>ประเภทงาน</div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+            {['production', 'cip', 'am', 'manual'].map(k => <button key={k} onClick={() => setCat(k)} style={chip(cat === k)}>{CAT[k].icon} {CAT[k].label}</button>)}
+          </div>
+          <input value={title} onChange={e => setTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && assign()} placeholder="ชื่องาน เช่น เปลี่ยนกรอง Line 3 ก่อนรอบบ่าย"
+            style={{ width: '100%', boxSizing: 'border-box', padding: '10px', border: '1px solid #ddd', borderRadius: 11, marginBottom: 10 }} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+            <select value={loc} onChange={e => setLoc(e.target.value)} style={{ padding: 10, border: '1px solid #ddd', borderRadius: 11 }}>{LOCATIONS.map(l => <option key={l}>{l}</option>)}</select>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setPrio('normal')} style={{ ...chip(prio === 'normal', '#546e7a'), flex: 1, textAlign: 'center' }}>ปกติ</button>
+              <button onClick={() => setPrio('urgent')} style={{ ...chip(prio === 'urgent', '#c62828'), flex: 1, textAlign: 'center' }}>🔴 ด่วน</button>
+            </div>
+          </div>
+          <button onClick={assign} style={{ width: '100%', border: 'none', borderRadius: 12, padding: 13, fontWeight: 800, fontSize: '0.92rem', color: '#fff', background: 'linear-gradient(135deg,#ff6b00,#ff8c00)', cursor: 'pointer' }}>📨 มอบหมายงาน &amp; แจ้งเตือน</button>
+        </div>
+
+        {/* telegram summary */}
+        <button onClick={sendTg} style={{ width: '100%', border: 'none', borderRadius: 12, padding: 13, fontWeight: 800, fontSize: '0.9rem', color: '#fff', background: '#229ed9', cursor: 'pointer' }}>✈ ส่งสรุปเข้า Telegram</button>
+        {tgMsg && <div style={{ textAlign: 'center', fontSize: '0.8rem', color: '#78828a', marginTop: 8 }}>{tgMsg}</div>}
       </div>
     );
   };
