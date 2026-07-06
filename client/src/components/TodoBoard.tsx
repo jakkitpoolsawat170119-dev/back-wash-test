@@ -39,6 +39,27 @@ type Received = { ownerKey: string; fromName: string; nodeKey: string; title: st
 type AdhocTask = { id: number; title: string; category: string; location: string | null; priority: string; status: string; handoffFrom: string | null };
 type DutyPerson = { key: string; name: string; role: string; nodes: DutyNode[]; received: Received[]; adhoc: AdhocTask[]; done: number; total: number; pct: number };
 type Duty = { date: string; people: DutyPerson[]; team: { done: number; total: number; left: number; pct: number } };
+
+// ─── Timeline: type + shift metadata ───────────────────────────
+const TL_TYPE: Record<string, { c: string; w: string; ic: string; lb: string }> = {
+  production: { c: '#2e7d32', w: '#e7f5e8', ic: '🏭', lb: 'ผลิต' },
+  cip: { c: '#0277bd', w: '#e1f2fb', ic: '💧', lb: 'CIP' },
+  handover: { c: '#ff6b00', w: '#fff3e9', ic: '📝', lb: 'ส่งเวร' },
+  task: { c: '#43a047', w: '#e8f5e9', ic: '✅', lb: 'ปิดงาน' },
+};
+const TL_SHIFT: Record<string, { ic: string; c: string }> = {
+  'เช้า': { ic: '🌅', c: '#ef8f00' }, 'บ่าย': { ic: '🌆', c: '#c2185b' }, 'ดึก': { ic: '🌙', c: '#3949ab' },
+};
+const SHIFT_ORDER = ['ดึก', 'เช้า', 'บ่าย'];
+// ดึง HH:MM จาก string เวลาแบบ robust (กัน 'Invalid Date' จาก endTime เพี้ยน)
+const parseHM = (s?: string): { h: number; hm: string } | null => {
+  const m = String(s || '').match(/(?:T|\s|^)(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  if (h > 23) return null;
+  return { h, hm: `${String(h).padStart(2, '0')}:${m[2]}` };
+};
+const shiftOfHour = (h: number) => (h >= 22 || h < 6 ? 'ดึก' : h < 14 ? 'เช้า' : 'บ่าย');
 interface Props { operatorName: string | null; onBackToMain: () => void; }
 
 const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
@@ -136,7 +157,7 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
   ({ date, operatorName, events, reload, card }) => {
     const [note, setNote] = useState('');
     const [shift, setShift] = useState('กะเช้า');
-    const timeOf = (iso: string) => { try { return new Date(iso).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' }); } catch { return iso; } };
+    const [filter, setFilter] = useState('all');
     const send = async () => {
       if (!note.trim()) return;
       await fetch(`${apiUrl}/api/handover`, {
@@ -145,30 +166,107 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
       });
       setNote(''); reload();
     };
+
+    // derive: parse time → hour/shift; sort; group
+    const evs = events.map(e => { const tm = parseHM(e.time); return { ...e, hm: tm?.hm || '—:—', hour: tm?.h ?? null }; })
+      .sort((a, b) => ((a.hour ?? 99) * 60) - ((b.hour ?? 99) * 60));
+    const shifted = (h: number | null) => (h == null ? 'ดึก' : shiftOfHour(h));
+
+    // shift summary counts
+    const sc: Record<string, { prod: number; cip: number; other: number }> = { 'เช้า': { prod: 0, cip: 0, other: 0 }, 'บ่าย': { prod: 0, cip: 0, other: 0 }, 'ดึก': { prod: 0, cip: 0, other: 0 } };
+    const hourCnt = Array(24).fill(0);
+    for (const e of evs) {
+      const s = shifted(e.hour);
+      if (e.type === 'production') sc[s].prod++; else if (e.type === 'cip') sc[s].cip++; else sc[s].other++;
+      if (e.hour != null) hourCnt[e.hour]++;
+    }
+    const maxCnt = Math.max(1, ...hourCnt);
+    const stripEmoji = (t: string) => t.replace(/^\S+\s/, '');
+
+    const filtered = evs.filter(e => filter === 'all' || e.type === filter);
+    const byShift: Record<string, typeof filtered> = {};
+    for (const e of filtered) (byShift[shifted(e.hour)] ||= []).push(e);
+
     return (
       <div>
+        {/* handover form */}
         <div style={{ ...card }}>
           <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#37474f', marginBottom: '8px' }}>📝 บันทึกส่งเวร</div>
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px' }}>
             <select value={shift} onChange={e => setShift(e.target.value)} style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '10px' }}>
               <option>กะเช้า</option><option>กะบ่าย</option><option>กะดึก</option>
             </select>
             <input value={note} onChange={e => setNote(e.target.value)} placeholder="ค้างอะไรไว้ / ต้องสานต่ออะไร"
-              style={{ flex: 1, padding: '8px', border: '1px solid #ddd', borderRadius: '10px' }} />
+              style={{ flex: 1, minWidth: 0, padding: '8px', border: '1px solid #ddd', borderRadius: '10px' }} />
             <button onClick={send} style={{ padding: '8px 14px', borderRadius: '10px', border: 'none', background: '#ff6b00', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>ส่ง</button>
           </div>
         </div>
-        <div style={{ position: 'relative', paddingLeft: '18px', marginTop: '8px' }}>
-          <div style={{ position: 'absolute', left: '6px', top: 0, bottom: 0, width: '2px', background: '#eee' }} />
-          {events.map((e, i) => (
-            <div key={i} style={{ position: 'relative', marginBottom: '14px' }}>
-              <div style={{ position: 'absolute', left: '-15px', top: '4px', width: '10px', height: '10px', borderRadius: '50%', background: e.type === 'handover' ? '#ff6b00' : e.type === 'production' ? '#2e7d32' : e.type === 'task' ? '#43a047' : '#01579b' }} />
-              <div style={{ fontSize: '0.7rem', color: '#9aa0a6' }}>{timeOf(e.time)}{e.operator ? ` · ${e.operator}` : ''}</div>
-              <div style={{ fontSize: '0.85rem', color: '#37474f' }}>{e.text}</div>
+
+        {/* shift summary cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '10px', marginBottom: '12px' }}>
+          {['เช้า', 'บ่าย', 'ดึก'].map(s => { const st = sc[s]; const tot = st.prod + st.cip + st.other; const m = TL_SHIFT[s]; return (
+            <div key={s} style={{ ...card, marginBottom: 0, padding: '12px', position: 'relative', overflow: 'hidden', textAlign: 'center' }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: m.c }} />
+              <div style={{ fontSize: '1.1rem' }}>{m.ic}</div>
+              <div style={{ fontSize: '0.78rem', fontWeight: 800, margin: '3px 0' }}>กะ{s}</div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: m.c }}>{tot}</div>
+              <div style={{ fontSize: '0.66rem', color: '#546e7a', fontWeight: 600 }}>🏭 {st.prod} · 💧 {st.cip}{st.other ? ` · 📝 ${st.other}` : ''}</div>
             </div>
-          ))}
-          {events.length === 0 && <div style={{ color: '#bbb', fontSize: '0.85rem' }}>ยังไม่มีเหตุการณ์ในวันนี้</div>}
+          ); })}
         </div>
+
+        {/* hourly heatmap */}
+        <div style={{ ...card }}>
+          <div style={{ fontSize: '0.76rem', fontWeight: 800, marginBottom: '10px' }}>🔥 ความถี่กิจกรรมรายชั่วโมง</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(24,1fr)', gap: '3px' }}>
+            {hourCnt.map((c, h) => (
+              <div key={h} title={`${String(h).padStart(2, '0')}:00 · ${c} รายการ`}
+                style={{ aspectRatio: '1', borderRadius: '3px', background: c ? `rgba(255,107,0,${0.22 + (c / maxCnt) * 0.78})` : '#eef1f4' }} />
+            ))}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(24,1fr)', gap: '3px', marginTop: '4px', fontSize: '0.5rem', color: '#90a4ae', textAlign: 'center' }}>
+            {Array.from({ length: 24 }, (_, h) => <div key={h}>{h % 6 === 0 ? h : ''}</div>)}
+          </div>
+        </div>
+
+        {/* filters */}
+        <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', marginBottom: '12px' }}>
+          {([['all', 'ทั้งหมด'], ['production', '🏭 ผลิต'], ['cip', '💧 CIP'], ['handover', '📝 ส่งเวร']] as [string, string][]).map(([k, l]) => (
+            <button key={k} onClick={() => setFilter(k)} style={{
+              flex: '0 0 auto', border: '2px solid', borderColor: filter === k ? 'transparent' : '#e0e0e0',
+              background: filter === k ? '#37474f' : '#fff', color: filter === k ? '#fff' : '#666',
+              borderRadius: '20px', padding: '7px 14px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+            }}>{l}</button>
+          ))}
+        </div>
+
+        {/* card feed grouped by shift */}
+        {SHIFT_ORDER.filter(s => byShift[s]?.length).map(s => { const m = TL_SHIFT[s]; return (
+          <div key={s}>
+            <div style={{ position: 'sticky', top: 0, background: 'linear-gradient(#f7f8fa,#f7f8fa 70%,transparent)', padding: '8px 4px', fontSize: '0.78rem', fontWeight: 800, color: '#546e7a', zIndex: 2, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {m.ic} กะ{s}<span style={{ marginLeft: 'auto', fontSize: '0.66rem', fontWeight: 700, color: '#90a4ae' }}>{byShift[s].length} รายการ</span>
+            </div>
+            {byShift[s].map((e, i) => { const T = TL_TYPE[e.type] || TL_TYPE.task; return (
+              <div key={i} style={{ display: 'flex', background: '#fff', border: '1px solid #e8edf0', borderRadius: '14px', boxShadow: '0 2px 10px rgba(0,0,0,0.04)', marginBottom: '10px', overflow: 'hidden' }}>
+                <div style={{ width: '5px', flexShrink: 0, background: T.c }} />
+                <div style={{ padding: '12px 14px', flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{e.hm}</span>
+                    <span style={{ fontSize: '0.6rem', fontWeight: 800, padding: '2px 8px', borderRadius: '20px', background: T.w, color: T.c }}>{T.ic} {T.lb}</span>
+                  </div>
+                  <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#37474f' }}>{stripEmoji(e.text)}</div>
+                  {e.operator && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '7px', fontSize: '0.68rem', color: '#90a4ae', fontWeight: 600 }}>
+                      <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#546e7a', color: '#fff', display: 'grid', placeItems: 'center', fontSize: '0.64rem', fontWeight: 800 }}>{e.operator[0]}</span>
+                      {e.operator}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ); })}
+          </div>
+        ); })}
+        {evs.length === 0 && <div style={{ textAlign: 'center', color: '#bbb', fontSize: '0.85rem', padding: '24px' }}>ยังไม่มีเหตุการณ์ในวันนี้</div>}
       </div>
     );
   };
