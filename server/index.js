@@ -1814,6 +1814,21 @@ app.get('/api/timeline', async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+const SHIFT_META = { 'กะเช้า': { ic: '🌅', next: 'กะบ่าย' }, 'กะบ่าย': { ic: '🌆', next: 'กะดึก' }, 'กะดึก': { ic: '🌙', next: 'กะเช้า' } };
+function buildHandoverText({ shift, operator, text, date }) {
+  const sm = SHIFT_META[shift] || { ic: '📝', next: '' };
+  const t = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' });
+  return [
+    `📋 <b>บันทึกส่งเวร</b>`,
+    `${sm.ic} <b>${escapeHtml(shift || '-')}</b>${sm.next ? ` <b>→</b> ${sm.next}` : ''}`,
+    ``,
+    `👤 ${escapeHtml(operator || '-')} · 🗓 ${thaiDate(date)} · ${t} น.`,
+    ``,
+    `📌 <b>ฝากต่อกะถัดไป</b>`,
+    `<i>${escapeHtml(text)}</i>`,
+  ].join('\n');
+}
+
 app.post('/api/handover', (req, res) => {
   const { date, shift, operator, text } = req.body;
   if (!text) return res.status(400).json({ error: 'text จำเป็น' });
@@ -1822,8 +1837,9 @@ app.post('/api/handover', (req, res) => {
     [d, shift || null, operator || null, text, nowBKK()],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
-      sendToTelegram(`📝 <b>ส่งเวร</b> (${escapeHtml(shift || '-')})\n👤 ${escapeHtml(operator || '-')} | 📅 ${escapeHtml(d)}\n${escapeHtml(text)}`);
-      res.json({ success: true, id: this.lastID });
+      const msg = buildHandoverText({ shift, operator, text, date: d });
+      sendToTelegram(msg);
+      res.json({ success: true, id: this.lastID, preview: msg });
     });
 });
 
