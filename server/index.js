@@ -1866,13 +1866,22 @@ app.post('/api/handover', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// เติมฟอร์มส่งกะอัตโนมัติจากการผลิตล่าสุดของวัน (รส/batch ล่าสุดต่อ Line)
+// เติมฟอร์มส่งกะอัตโนมัติ: รส/batch ล่าสุดต่อ Line + เวลา CIP ล่าสุด (ให้ client ตัดสินว่าไลน์ไหน "CIP ต่อ")
 app.get('/api/handover/prefill', async (req, res) => {
   const date = req.query.date || todayBKK();
+  const like = `${date}%`;
   try {
     const rows = await dbAll('SELECT line_name, flavor, batch, timestamp FROM production_logs WHERE substr(timestamp,1,10) = ? ORDER BY timestamp', [date]);
     const byLine = {};
-    for (const r of rows) byLine[r.line_name] = { flavor: r.flavor || '', batch: r.batch || '' };
+    for (const r of rows) byLine[r.line_name] = { flavor: r.flavor || '', batch: r.batch || '', prodTime: r.timestamp };
+    // เวลา CIP ล่าสุดต่อไลน์วันนี้ (Line 1 = ตารางแยก · Line 2/3 = cip_line2_sessions แยกด้วยคอลัมน์ line)
+    const maxT = async (sql, p) => { const r = await dbAll(sql, p); return r[0] && r[0].t ? r[0].t : null; };
+    const cip = {
+      'Line 1': await maxT('SELECT MAX(created_at) AS t FROM cip_line1_sessions WHERE date = ? OR created_at LIKE ?', [date, like]),
+      'Line 2': await maxT("SELECT MAX(created_at) AS t FROM cip_line2_sessions WHERE COALESCE(line,'Line 2') = 'Line 2' AND (date = ? OR created_at LIKE ?)", [date, like]),
+      'Line 3': await maxT("SELECT MAX(created_at) AS t FROM cip_line2_sessions WHERE line = 'Line 3' AND (date = ? OR created_at LIKE ?)", [date, like]),
+    };
+    for (const ln of ['Line 1', 'Line 2', 'Line 3']) if (cip[ln]) { byLine[ln] = byLine[ln] || {}; byLine[ln].cipTime = cip[ln]; }
     res.json({ date, lines: byLine });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

@@ -194,6 +194,17 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
 
+    // ข้อ 1: เปิดหน้ามา โหลดสถานะถังจากกะล่าสุดให้อัตโนมัติ (ยกมาต่อ — คงกะปัจจุบัน, ไม่ยกโน้ต)
+    useEffect(() => {
+      (async () => {
+        try {
+          const r = await fetch(`${apiUrl}/api/handover/last`);
+          const d = await r.json();
+          if (d.data) setHo(h => ({ ...h, lines: d.data.lines || h.lines, line4: d.data.line4 || h.line4 }));
+        } catch { /* offline */ }
+      })();
+    }, []);
+
     const setLine = (i: number, patch: Partial<HoLine>) => setHo(h => ({ ...h, lines: h.lines.map((l, j) => j === i ? { ...l, ...patch } : l) }));
     const setTank = (i: number, t: number, v: string) => setHo(h => ({ ...h, lines: h.lines.map((l, j) => j === i ? { ...l, tanks: l.tanks.map((x, k) => k === t ? v : x) } : l) }));
     const setStage = (i: number, v: string) => setHo(h => ({ ...h, line4: { ...h.line4, stages: h.line4.stages.map((x, k) => k === i ? v : x) } }));
@@ -205,10 +216,18 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
         const ln = d.lines || {};
         setHo(h => ({
           ...h,
-          lines: h.lines.map(l => ({ ...l, flavor: ln[l.line]?.flavor || l.flavor })),
+          lines: h.lines.map(l => {
+            const info = ln[l.line];
+            if (!info) return l;
+            // ข้อ 2/3: ไลน์ที่ทำ CIP ล่าสุด (หลังการผลิต/ไม่มีการผลิต) → รส "CIP ต่อ" + ถังว่างทั้งหมด
+            const isCip = info.cipTime && (!info.prodTime || info.cipTime > info.prodTime);
+            if (isCip) return { ...l, flavor: 'CIP ต่อ', tanks: ['ว่าง', 'ว่าง', 'ว่าง'] };
+            if (info.flavor) return { ...l, flavor: info.flavor };
+            return l;
+          }),
           line4: { ...h.line4, flavor: ln['Line 4']?.flavor || h.line4.flavor },
         }));
-        setMsg('เติมรสจากการผลิตล่าสุดแล้ว');
+        setMsg('เติมจากผลิต/CIP ล่าสุดแล้ว');
       } catch { setMsg('ดึงข้อมูลไม่ได้'); }
     };
     const copyLast = async () => {
