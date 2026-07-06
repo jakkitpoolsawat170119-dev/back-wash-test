@@ -402,9 +402,11 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
           const stages: string[] = l4.stages || [];
           const allEmpty = stages.every(s => !s || !String(s).trim());
           const isCip4 = /cip/i.test(l4.flavor || '') || allEmpty;
-          const bm = String(stages[4] || '').match(/Batch\s*([A-Za-z])/i); // stage index 4 = Storage
+          // batch ของ Line 4 อาจอยู่สเตชั่นไหนก็ได้ (ไหลจาก Mixing→…→Storage→Filling) — สแกนทุกช่อง
+          let l4batch = '';
+          for (const s of stages) { const bm = String(s || '').match(/Batch\s*([A-Za-z])/i); if (bm) l4batch = bm[1].toUpperCase(); }
           if (isCip4) seed(4, 'CIP', '', 'new');
-          else seed(4, l4.flavor || '', bm ? bm[1].toUpperCase() : '', 'handover');
+          else seed(4, l4.flavor || '', l4batch, 'handover');
         }
         return next;
       });
