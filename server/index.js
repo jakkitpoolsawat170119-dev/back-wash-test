@@ -226,6 +226,8 @@ async function initDb() {
     try { await db.exec(`ALTER TABLE daily_tasks ADD COLUMN ${col} TEXT`); }
     catch { /* มีคอลัมน์อยู่แล้ว — ข้าม */ }
   }
+  // migration: เก็บ JSON โครงสร้างส่งกะ (สำหรับ "คัดลอกจากกะก่อน")
+  try { await db.exec('ALTER TABLE handover_notes ADD COLUMN data TEXT'); } catch { /* มีแล้ว */ }
   // seed รายชื่อ operator (idempotent — ไม่ลบของเดิมเพื่อไม่ให้ข้อมูลหายตอน restart)
   for (const [name, pin] of DEFAULT_OPERATORS) {
     await db.exec("INSERT INTO operators (name, pin) VALUES (?, ?) ON CONFLICT (name) DO NOTHING", [name, pin]);
@@ -1815,32 +1817,72 @@ app.get('/api/timeline', async (req, res) => {
 });
 
 const SHIFT_META = { 'กะเช้า': { ic: '🌅', next: 'กะบ่าย' }, 'กะบ่าย': { ic: '🌆', next: 'กะดึก' }, 'กะดึก': { ic: '🌙', next: 'กะเช้า' } };
-function buildHandoverText({ shift, operator, text, date }) {
-  const sm = SHIFT_META[shift] || { ic: '📝', next: '' };
+const L4_STAGES = ['Mixing 1', 'Mixer', 'Pasteurizer', 'Mixing 2', 'Storage', 'Filling'];
+const HO_DIV = '  ————————————';
+
+// สร้างข้อความส่งกะ — รองรับทั้งฟอร์มโครงสร้าง (lines/line4) และโน้ตอิสระ (text)
+// html=true → ใส่ tag สำหรับ Telegram · false → plain text สำหรับเก็บ DB/ไทม์ไลน์
+function buildHandoverText(p, html) {
+  const esc = html ? escapeHtml : (s) => String(s ?? '');
+  const b = (s) => html ? `<b>${esc(s)}</b>` : esc(s);
+  const it = (s) => html ? `<i>${esc(s)}</i>` : esc(s);
+  const sm = SHIFT_META[p.shift] || { ic: '📝', next: '' };
   const t = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' });
-  return [
-    `📋 <b>บันทึกส่งเวร</b>`,
-    `${sm.ic} <b>${escapeHtml(shift || '-')}</b>${sm.next ? ` <b>→</b> ${sm.next}` : ''}`,
-    ``,
-    `👤 ${escapeHtml(operator || '-')} · 🗓 ${thaiDate(date)} · ${t} น.`,
-    ``,
-    `📌 <b>ฝากต่อกะถัดไป</b>`,
-    `<i>${escapeHtml(text)}</i>`,
-  ].join('\n');
+  const L = [`📋 ${b('ส่งกะ')}`, `${sm.ic} ${b(p.shift || '-')}${sm.next ? ` → ${esc(sm.next)}` : ''} · 👤 ${esc(p.operator || '-')} · ${t} น.`, ``];
+  if (Array.isArray(p.lines) && p.lines.length) {
+    for (const ln of p.lines) {
+      L.push(`▶️ ${b(ln.line)} ${esc(ln.flavor || '')}`.trimEnd());
+      (ln.tanks || []).forEach((tk, i) => L.push(`   ถัง ${i + 1} ${esc((tk || '').trim() || 'ว่าง')}`));
+      if (ln.note && ln.note.trim()) L.push(`   ${it('(' + ln.note.trim() + ')')}`);
+      L.push(HO_DIV);
+    }
+    if (p.line4) {
+      L.push(`▶️ ${b('Line 4')} ${esc(p.line4.flavor || '')}`.trimEnd());
+      L4_STAGES.forEach((nm, i) => L.push(`   ${nm} — ${esc(((p.line4.stages || [])[i] || '').trim() || 'ว่าง')}`));
+      L.push(HO_DIV);
+    }
+    if (p.note && p.note.trim()) L.push('', `📌 ${it(p.note.trim())}`);
+    return L.join('\n');
+  }
+  // โน้ตอิสระ (legacy)
+  L.push(`📌 ${b('ฝากต่อกะถัดไป')}`, it(p.text || ''));
+  return L.join('\n');
 }
 
-app.post('/api/handover', (req, res) => {
-  const { date, shift, operator, text } = req.body;
-  if (!text) return res.status(400).json({ error: 'text จำเป็น' });
-  const d = date || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
-  db.run('INSERT INTO handover_notes (note_date, shift, operator_name, text, created_at) VALUES (?, ?, ?, ?, ?)',
-    [d, shift || null, operator || null, text, nowBKK()],
-    function(err) {
-      if (err) return res.status(500).json({ error: err.message });
-      const msg = buildHandoverText({ shift, operator, text, date: d });
-      sendToTelegram(msg);
-      res.json({ success: true, id: this.lastID, preview: msg });
-    });
+app.post('/api/handover', async (req, res) => {
+  const { date, shift, operator, text, lines, line4, note } = req.body;
+  const structured = Array.isArray(lines) && lines.length > 0;
+  if (!structured && !text) return res.status(400).json({ error: 'text หรือ lines จำเป็น' });
+  const d = date || todayBKK();
+  const payload = { shift, operator, text, lines, line4, note, date: d };
+  const plain = buildHandoverText(payload, false);
+  const dataJson = structured ? JSON.stringify({ shift, lines, line4, note }) : null;
+  try {
+    await db.exec('INSERT INTO handover_notes (note_date, shift, operator_name, text, data, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [d, shift || null, operator || null, plain, dataJson, nowBKK()]);
+    const html = buildHandoverText(payload, true);
+    sendToTelegram(html);
+    res.json({ success: true, preview: html });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// เติมฟอร์มส่งกะอัตโนมัติจากการผลิตล่าสุดของวัน (รส/batch ล่าสุดต่อ Line)
+app.get('/api/handover/prefill', async (req, res) => {
+  const date = req.query.date || todayBKK();
+  try {
+    const rows = await dbAll('SELECT line_name, flavor, batch, timestamp FROM production_logs WHERE substr(timestamp,1,10) = ? ORDER BY timestamp', [date]);
+    const byLine = {};
+    for (const r of rows) byLine[r.line_name] = { flavor: r.flavor || '', batch: r.batch || '' };
+    res.json({ date, lines: byLine });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ดึงข้อมูลส่งกะครั้งล่าสุด (สำหรับปุ่ม "คัดลอกจากกะก่อน")
+app.get('/api/handover/last', async (req, res) => {
+  try {
+    const rows = await dbAll('SELECT data FROM handover_notes WHERE data IS NOT NULL ORDER BY id DESC LIMIT 1', []);
+    res.json({ data: rows[0] ? JSON.parse(rows[0].data) : null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── Endpoints: task templates (งานประจำ) ──────────────────────────────────

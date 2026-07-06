@@ -153,19 +153,155 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
 };
 
 // ─── Timeline + Handover ────────────────────────────────────────
+// ─── Structured shift-handover form ────────────────────────────
+const HO_L4_STAGES = ['Mixing 1', 'Mixer', 'Pasteurizer', 'Mixing 2', 'Storage', 'Filling'];
+const HO_SHIFT: Record<string, { ic: string; next: string }> = {
+  'กะเช้า': { ic: '🌅', next: 'กะบ่าย' }, 'กะบ่าย': { ic: '🌆', next: 'กะดึก' }, 'กะดึก': { ic: '🌙', next: 'กะเช้า' },
+};
+const HO_LINES = [
+  { line: 'Line 1', sub: 'Syrup', c: '#0d47a1' },
+  { line: 'Line 2', sub: 'Flavour', c: '#00838f' },
+  { line: 'Line 3', sub: 'Flavour', c: '#6a1b9a' },
+];
+type HoLine = { line: string; flavor: string; tanks: string[]; note: string };
+type HoState = { shift: string; lines: HoLine[]; line4: { flavor: string; stages: string[] }; note: string };
+const initHo = (): HoState => ({
+  shift: 'กะเช้า',
+  lines: HO_LINES.map(l => ({ line: l.line, flavor: '', tanks: ['', '', ''], note: '' })),
+  line4: { flavor: '', stages: ['', '', '', '', '', ''] },
+  note: '',
+});
+function hoPreview(h: HoState, op: string | null): string {
+  const sm = HO_SHIFT[h.shift] || { ic: '📝', next: '' };
+  const L = [`📋 ส่งกะ`, `${sm.ic} ${h.shift}${sm.next ? ` → ${sm.next}` : ''} · 👤 ${op || '-'}`, ''];
+  for (const ln of h.lines) {
+    L.push(`▶️ ${ln.line} ${ln.flavor}`.trimEnd());
+    ln.tanks.forEach((tk, i) => L.push(`   ถัง ${i + 1} ${tk.trim() || 'ว่าง'}`));
+    if (ln.note.trim()) L.push(`   (${ln.note.trim()})`);
+    L.push('  ————————————');
+  }
+  L.push(`▶️ Line 4 ${h.line4.flavor}`.trimEnd());
+  HO_L4_STAGES.forEach((nm, i) => L.push(`   ${nm} — ${(h.line4.stages[i] || '').trim() || 'ว่าง'}`));
+  L.push('  ————————————');
+  if (h.note.trim()) L.push('', `📌 ${h.note.trim()}`);
+  return L.join('\n');
+}
+
+const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload: () => void; card: React.CSSProperties }> =
+  ({ date, operatorName, reload, card }) => {
+    const [open, setOpen] = useState(false);
+    const [ho, setHo] = useState<HoState>(initHo);
+    const [busy, setBusy] = useState(false);
+    const [msg, setMsg] = useState('');
+
+    const setLine = (i: number, patch: Partial<HoLine>) => setHo(h => ({ ...h, lines: h.lines.map((l, j) => j === i ? { ...l, ...patch } : l) }));
+    const setTank = (i: number, t: number, v: string) => setHo(h => ({ ...h, lines: h.lines.map((l, j) => j === i ? { ...l, tanks: l.tanks.map((x, k) => k === t ? v : x) } : l) }));
+    const setStage = (i: number, v: string) => setHo(h => ({ ...h, line4: { ...h.line4, stages: h.line4.stages.map((x, k) => k === i ? v : x) } }));
+
+    const prefill = async () => {
+      try {
+        const r = await fetch(`${apiUrl}/api/handover/prefill?date=${date}`);
+        const d = await r.json();
+        const ln = d.lines || {};
+        setHo(h => ({
+          ...h,
+          lines: h.lines.map(l => ({ ...l, flavor: ln[l.line]?.flavor || l.flavor })),
+          line4: { ...h.line4, flavor: ln['Line 4']?.flavor || h.line4.flavor },
+        }));
+        setMsg('เติมรสจากการผลิตล่าสุดแล้ว');
+      } catch { setMsg('ดึงข้อมูลไม่ได้'); }
+    };
+    const copyLast = async () => {
+      try {
+        const r = await fetch(`${apiUrl}/api/handover/last`);
+        const d = await r.json();
+        if (d.data) { setHo({ shift: d.data.shift || 'กะเช้า', lines: d.data.lines || initHo().lines, line4: d.data.line4 || initHo().line4, note: d.data.note || '' }); setMsg('คัดลอกจากกะก่อนแล้ว'); }
+        else setMsg('ยังไม่มีกะก่อนหน้า');
+      } catch { setMsg('ดึงข้อมูลไม่ได้'); }
+    };
+    const send = async () => {
+      setBusy(true); setMsg('');
+      try {
+        await fetch(`${apiUrl}/api/handover`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, operator: operatorName, ...ho }) });
+        setMsg('✅ ส่งกะเข้า Telegram แล้ว'); setHo(initHo()); reload(); setTimeout(() => setOpen(false), 800);
+      } catch { setMsg('❌ ส่งไม่สำเร็จ'); } finally { setBusy(false); }
+    };
+
+    const inp: React.CSSProperties = { width: '100%', boxSizing: 'border-box', border: '1px solid #dde3e7', borderRadius: 10, padding: '9px 11px', fontSize: '0.88rem', fontFamily: 'inherit', color: '#263238' };
+    const qbtn: React.CSSProperties = { border: '1px solid #e8edf0', background: '#fff', borderRadius: 10, padding: '9px 12px', fontSize: '0.78rem', fontWeight: 700, color: '#546e7a', cursor: 'pointer' };
+    const flavIn: React.CSSProperties = { marginLeft: 'auto', width: '48%', border: 'none', borderRadius: 8, padding: '7px 9px', fontSize: '0.82rem', fontWeight: 700, fontFamily: 'inherit', boxSizing: 'border-box' };
+    const tag: React.CSSProperties = { fontSize: '0.62rem', fontWeight: 700, color: '#fff', background: 'rgba(255,255,255,.25)', padding: '2px 8px', borderRadius: 20 };
+
+    if (!open) return (
+      <button onClick={() => setOpen(true)} style={{ ...card, width: '100%', textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontWeight: 800, fontSize: '0.9rem', color: '#37474f' }}>
+        📋 บันทึกส่งกะ <span style={{ marginLeft: 'auto', fontSize: '0.74rem', color: '#90a4ae', fontWeight: 600 }}>แตะเพื่อกรอกสถานะรายไลน์ ›</span>
+      </button>
+    );
+
+    return (
+      <div style={{ ...card }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>📋 บันทึกส่งกะ</div>
+          <button onClick={() => setOpen(false)} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: '#90a4ae', cursor: 'pointer', fontSize: '1.1rem' }}>×</button>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          <select value={ho.shift} onChange={e => setHo(h => ({ ...h, shift: e.target.value }))} style={{ ...inp, width: 'auto' }}>
+            <option>กะเช้า</option><option>กะบ่าย</option><option>กะดึก</option>
+          </select>
+          <button onClick={prefill} style={qbtn}>⚡ ดึงจากผลิตล่าสุด</button>
+          <button onClick={copyLast} style={qbtn}>📋 คัดลอกกะก่อน</button>
+        </div>
+
+        {ho.lines.map((ln, i) => { const meta = HO_LINES[i]; return (
+          <div key={ln.line} style={{ border: '1px solid #e8edf0', borderRadius: 12, marginBottom: 10, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: meta.c }}>
+              <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.85rem' }}>▶️ {ln.line}</span>
+              <span style={tag}>{meta.sub}</span>
+              <input value={ln.flavor} onChange={e => setLine(i, { flavor: e.target.value })} placeholder="รส / สถานะ (เช่น CIP ต่อ)" style={flavIn} />
+            </div>
+            <div style={{ padding: '10px 12px' }}>
+              {ln.tanks.map((tk, t) => (
+                <div key={t} style={{ display: 'grid', gridTemplateColumns: '58px 1fr', alignItems: 'center', gap: 10, marginBottom: 7 }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#546e7a' }}>ถัง {t + 1}</label>
+                  <input value={tk} onChange={e => setTank(i, t, e.target.value)} placeholder="ว่าง" style={inp} />
+                </div>
+              ))}
+              <input value={ln.note} onChange={e => setLine(i, { note: e.target.value })} placeholder="หมายเหตุ (เช่น หลังเปลี่ยนกรอง Batch 2)" style={{ ...inp, border: '1px dashed #d3dae0', marginTop: 2 }} />
+            </div>
+          </div>
+        ); })}
+
+        <div style={{ border: '1px solid #e8edf0', borderRadius: 12, marginBottom: 12, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: '#4a7c59' }}>
+            <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.85rem' }}>▶️ Line 4</span>
+            <span style={tag}>Mixing / Pasteurizer</span>
+            <input value={ho.line4.flavor} onChange={e => setHo(h => ({ ...h, line4: { ...h.line4, flavor: e.target.value } }))} placeholder="รส / สถานะ" style={flavIn} />
+          </div>
+          <div style={{ padding: '10px 12px' }}>
+            {HO_L4_STAGES.map((nm, i) => (
+              <div key={nm} style={{ display: 'grid', gridTemplateColumns: '90px 1fr', alignItems: 'center', gap: 10, marginBottom: 7 }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#546e7a' }}>{nm}</label>
+                <input value={ho.line4.stages[i]} onChange={e => setStage(i, e.target.value)} placeholder="ว่าง / สถานะ" style={inp} />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <input value={ho.note} onChange={e => setHo(h => ({ ...h, note: e.target.value }))} placeholder="📌 หมายเหตุรวม (ถ้ามี)" style={{ ...inp, marginBottom: 12 }} />
+
+        <div style={{ background: '#0e1621', borderRadius: 12, padding: 12, marginBottom: 12 }}>
+          <div style={{ color: '#8fa6bd', fontSize: '0.64rem', fontWeight: 800, letterSpacing: '.04em', marginBottom: 6 }}>✈ พรีวิวข้อความ</div>
+          <div style={{ color: '#e6edf3', fontSize: '0.8rem', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{hoPreview(ho, operatorName)}</div>
+        </div>
+        <button onClick={send} disabled={busy} style={{ width: '100%', border: 'none', borderRadius: 12, padding: 13, fontWeight: 800, fontSize: '0.9rem', color: '#fff', background: '#229ed9', cursor: 'pointer', opacity: busy ? 0.6 : 1 }}>✈ ส่งกะเข้ากลุ่ม</button>
+        {msg && <div style={{ textAlign: 'center', fontSize: '0.78rem', color: '#546e7a', marginTop: 8 }}>{msg}</div>}
+      </div>
+    );
+  };
+
 const TimelineTab: React.FC<{ date: string; operatorName: string | null; events: TimelineEvent[]; reload: () => void; card: React.CSSProperties }> =
   ({ date, operatorName, events, reload, card }) => {
-    const [note, setNote] = useState('');
-    const [shift, setShift] = useState('กะเช้า');
     const [filter, setFilter] = useState('all');
-    const send = async () => {
-      if (!note.trim()) return;
-      await fetch(`${apiUrl}/api/handover`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, shift, operator: operatorName, text: note.trim() }),
-      });
-      setNote(''); reload();
-    };
 
     // derive: parse time → hour/shift; sort; group
     const evs = events.map(e => { const tm = parseHM(e.time); return { ...e, hm: tm?.hm || '—:—', hour: tm?.h ?? null }; })
@@ -189,18 +325,8 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
 
     return (
       <div>
-        {/* handover form */}
-        <div style={{ ...card }}>
-          <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#37474f', marginBottom: '8px' }}>📝 บันทึกส่งเวร</div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <select value={shift} onChange={e => setShift(e.target.value)} style={{ padding: '8px', border: '1px solid #ddd', borderRadius: '10px' }}>
-              <option>กะเช้า</option><option>กะบ่าย</option><option>กะดึก</option>
-            </select>
-            <input value={note} onChange={e => setNote(e.target.value)} placeholder="ค้างอะไรไว้ / ต้องสานต่ออะไร"
-              style={{ flex: 1, minWidth: 0, padding: '8px', border: '1px solid #ddd', borderRadius: '10px' }} />
-            <button onClick={send} style={{ padding: '8px 14px', borderRadius: '10px', border: 'none', background: '#ff6b00', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>ส่ง</button>
-          </div>
-        </div>
+        {/* handover form (structured, collapsible) */}
+        <HandoverForm date={date} operatorName={operatorName} reload={reload} card={card} />
 
         {/* shift summary cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '10px', marginBottom: '12px' }}>
