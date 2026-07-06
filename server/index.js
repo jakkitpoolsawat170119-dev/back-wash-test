@@ -1831,7 +1831,7 @@ function buildHandoverText(p, html) {
   const L = [`📋 ${b('ส่งกะ')}`, `${sm.ic} ${b(p.shift || '-')}${sm.next ? ` → ${esc(sm.next)}` : ''} · 👤 ${esc(p.operator || '-')} · ${t} น.`, ``];
   if (Array.isArray(p.lines) && p.lines.length) {
     for (const ln of p.lines) {
-      L.push(`▶️ ${b(ln.line)} ${esc(ln.flavor || '')}`.trimEnd());
+      L.push(`▶️ ${b(ln.line)} ${esc(ln.flavor || '')}${ln.batch ? ` (Batch ${esc(ln.batch)})` : ''}`.trimEnd());
       (ln.tanks || []).forEach((tk, i) => L.push(`   ถัง ${i + 1} ${esc((tk || '').trim() || 'ว่าง')}`));
       if (ln.note && ln.note.trim()) L.push(`   ${it('(' + ln.note.trim() + ')')}`);
       L.push(HO_DIV);

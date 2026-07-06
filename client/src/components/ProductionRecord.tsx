@@ -370,6 +370,38 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
   const planTotal = planItems.reduce((s, it) => s + (Number(it.plannedBatches) || 0), 0);
   const actualTotal = allHistory.length;
 
+  // ดึงจากบันทึกส่งกะล่าสุด → เติมรส + ตั้ง "รับช่วงต่อจาก Batch" ให้ไลน์ผลิต 1-3 (แก้เองได้)
+  const pullFromHandover = async () => {
+    try {
+      const r = await fetch(`${apiUrl}/api/handover/last`);
+      const d = await r.json();
+      const hoLines = d?.data?.lines;
+      if (!Array.isArray(hoLines) || hoLines.length === 0) { alert('ยังไม่มีข้อมูลส่งกะให้ดึง'); return; }
+      let n = 0;
+      setLines(prev => {
+        const next = { ...prev };
+        for (const ln of hoLines) {
+          const m = String(ln.line || '').match(/(\d)/);
+          if (!m) continue;
+          const id = Number(m[1]);
+          if (id < 1 || id > 3) continue;                        // เฉพาะไลน์ผลิต 1-3
+          const cur = next[id];
+          if (cur.isProcessing || cur.history.length > 0) continue; // ไม่ทับไลน์ที่เริ่มผลิตแล้ว
+          const isCip = /cip/i.test(ln.flavor || '');
+          next[id] = {
+            ...cur,
+            shiftMode: 'handover',
+            flavor: isCip ? cur.flavor : (ln.flavor || cur.flavor),
+            shiftBatch: ln.batch || cur.shiftBatch,
+          };
+          n++;
+        }
+        return next;
+      });
+      alert(n ? `📥 ดึงจากส่งกะแล้ว (${n} ไลน์) — ตรวจ/แก้ได้ตามต้องการ` : 'ไม่มีไลน์ที่ต้องอัปเดต (อาจเริ่มผลิตไปแล้ว)');
+    } catch { alert('ดึงข้อมูลส่งกะไม่สำเร็จ'); }
+  };
+
   return (
     <div style={{ paddingBottom: '120px' }}>
       {/* 1. หัวข้อหลักบนสุด */}
@@ -441,6 +473,14 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
             </div>
           </div>
         )}
+      </div>
+
+      {/* ดึงจากบันทึกส่งกะ */}
+      <div style={{ width: '95%', maxWidth: '900px', margin: '0 auto 16px auto' }}>
+        <button onClick={pullFromHandover}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#fff', color: '#0277bd', border: '2px solid #0277bd', borderRadius: '12px', padding: '12px', fontWeight: 'bold', fontSize: '0.95rem', cursor: 'pointer' }}>
+          📥 ดึงจากส่งกะ (เติมรส + รับช่วง Batch อัตโนมัติ)
+        </button>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', padding: '10px' }}>

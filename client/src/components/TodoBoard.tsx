@@ -163,11 +163,12 @@ const HO_LINES = [
   { line: 'Line 2', sub: 'Flavour', c: '#00838f' },
   { line: 'Line 3', sub: 'Flavour', c: '#6a1b9a' },
 ];
-type HoLine = { line: string; flavor: string; tanks: string[]; note: string };
+type HoLine = { line: string; flavor: string; batch: string; tanks: string[]; note: string };
 type HoState = { shift: string; lines: HoLine[]; line4: { flavor: string; stages: string[] }; note: string };
+const HO_BATCHES = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const initHo = (): HoState => ({
   shift: 'กะเช้า',
-  lines: HO_LINES.map(l => ({ line: l.line, flavor: '', tanks: ['', '', ''], note: '' })),
+  lines: HO_LINES.map(l => ({ line: l.line, flavor: '', batch: '', tanks: ['', '', ''], note: '' })),
   line4: { flavor: '', stages: ['', '', '', '', '', ''] },
   note: '',
 });
@@ -175,7 +176,7 @@ function hoPreview(h: HoState, op: string | null): string {
   const sm = HO_SHIFT[h.shift] || { ic: '📝', next: '' };
   const L = [`📋 ส่งกะ`, `${sm.ic} ${h.shift}${sm.next ? ` → ${sm.next}` : ''} · 👤 ${op || '-'}`, ''];
   for (const ln of h.lines) {
-    L.push(`▶️ ${ln.line} ${ln.flavor}`.trimEnd());
+    L.push(`▶️ ${ln.line} ${ln.flavor}${ln.batch ? ` (Batch ${ln.batch})` : ''}`.trimEnd());
     ln.tanks.forEach((tk, i) => L.push(`   ถัง ${i + 1} ${tk.trim() || 'ว่าง'}`));
     if (ln.note.trim()) L.push(`   (${ln.note.trim()})`);
     L.push('  ————————————');
@@ -209,27 +210,6 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
     const setTank = (i: number, t: number, v: string) => setHo(h => ({ ...h, lines: h.lines.map((l, j) => j === i ? { ...l, tanks: l.tanks.map((x, k) => k === t ? v : x) } : l) }));
     const setStage = (i: number, v: string) => setHo(h => ({ ...h, line4: { ...h.line4, stages: h.line4.stages.map((x, k) => k === i ? v : x) } }));
 
-    const prefill = async () => {
-      try {
-        const r = await fetch(`${apiUrl}/api/handover/prefill?date=${date}`);
-        const d = await r.json();
-        const ln = d.lines || {};
-        setHo(h => ({
-          ...h,
-          lines: h.lines.map(l => {
-            const info = ln[l.line];
-            if (!info) return l;
-            // ข้อ 2/3: ไลน์ที่ทำ CIP ล่าสุด (หลังการผลิต/ไม่มีการผลิต) → รส "CIP ต่อ" + ถังว่างทั้งหมด
-            const isCip = info.cipTime && (!info.prodTime || info.cipTime > info.prodTime);
-            if (isCip) return { ...l, flavor: 'CIP ต่อ', tanks: ['ว่าง', 'ว่าง', 'ว่าง'] };
-            if (info.flavor) return { ...l, flavor: info.flavor };
-            return l;
-          }),
-          line4: { ...h.line4, flavor: ln['Line 4']?.flavor || h.line4.flavor },
-        }));
-        setMsg('เติมจากผลิต/CIP ล่าสุดแล้ว');
-      } catch { setMsg('ดึงข้อมูลไม่ได้'); }
-    };
     const copyLast = async () => {
       try {
         const r = await fetch(`${apiUrl}/api/handover/last`);
@@ -267,7 +247,6 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
           <select value={ho.shift} onChange={e => setHo(h => ({ ...h, shift: e.target.value }))} style={{ ...inp, width: 'auto' }}>
             <option>กะเช้า</option><option>กะบ่าย</option><option>กะดึก</option>
           </select>
-          <button onClick={prefill} style={qbtn}>⚡ ดึงจากผลิตล่าสุด</button>
           <button onClick={copyLast} style={qbtn}>📋 คัดลอกกะก่อน</button>
         </div>
 
@@ -279,6 +258,13 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
               <input value={ln.flavor} onChange={e => setLine(i, { flavor: e.target.value })} placeholder="รส / สถานะ (เช่น CIP ต่อ)" style={flavIn} />
             </div>
             <div style={{ padding: '10px 12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '58px 1fr', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#546e7a' }}>Batch</label>
+                <select value={ln.batch || ''} onChange={e => setLine(i, { batch: e.target.value })} style={inp}>
+                  <option value="">— Batch ล่าสุดที่ค้าง (ส่งต่อหน้าผลิต) —</option>
+                  {HO_BATCHES.map(b => <option key={b} value={b}>Batch {b}</option>)}
+                </select>
+              </div>
               {ln.tanks.map((tk, t) => (
                 <div key={t} style={{ display: 'grid', gridTemplateColumns: '58px 1fr', alignItems: 'center', gap: 10, marginBottom: 7 }}>
                   <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#546e7a' }}>ถัง {t + 1}</label>
