@@ -213,7 +213,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     "MLH 02", "Freshy Pineapple", "Operator Name", "Freshy Grape",
     "Freshy Punch", "Freshy blue Lemon", "Senorita Fres Mint",
     "Freshy Orange", "Signature Rose", "Freshy Shine Muscat Grape", "Freshy Peach",
-    "Freshy Mango", "Dilute W-Molass",
+    "Freshy Mango", "Dilute W-Molass", "CIP",
   ];
 
   const flavorColors: Record<string, { bg: string; border: string }> = {
@@ -370,31 +370,41 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
   const planTotal = planItems.reduce((s, it) => s + (Number(it.plannedBatches) || 0), 0);
   const actualTotal = allHistory.length;
 
-  // ดึงจากบันทึกส่งกะล่าสุด → เติมรส + ตั้ง "รับช่วงต่อจาก Batch" ให้ไลน์ผลิต 1-3 (แก้เองได้)
+  // ดึงจากบันทึกส่งกะล่าสุด → เติมรส/CIP + ตั้ง "รับช่วงต่อจาก Batch" ให้ทุกไลน์ (แก้เองได้)
   const pullFromHandover = async () => {
     try {
       const r = await fetch(`${apiUrl}/api/handover/last`);
       const d = await r.json();
-      const hoLines = d?.data?.lines;
-      if (!Array.isArray(hoLines) || hoLines.length === 0) { alert('ยังไม่มีข้อมูลส่งกะให้ดึง'); return; }
+      const data = d?.data;
+      if (!data) { alert('ยังไม่มีข้อมูลส่งกะให้ดึง'); return; }
       let n = 0;
       setLines(prev => {
         const next = { ...prev };
-        for (const ln of hoLines) {
+        const seed = (id: number, flavor: string, batch: string, mode: 'new' | 'handover') => {
+          const cur = next[id];
+          if (!cur || cur.isProcessing || cur.history.length > 0) return; // ไม่ทับไลน์ที่เริ่มผลิตแล้ว
+          next[id] = { ...cur, shiftMode: mode, flavor: flavor || cur.flavor, shiftBatch: batch, cookingBatch: '' };
+          n++;
+        };
+        // Line 1-3 (batch จากช่อง "Batch ล่าสุด")
+        for (const ln of (data.lines || [])) {
           const m = String(ln.line || '').match(/(\d)/);
           if (!m) continue;
           const id = Number(m[1]);
-          if (id < 1 || id > 3) continue;                        // เฉพาะไลน์ผลิต 1-3
-          const cur = next[id];
-          if (cur.isProcessing || cur.history.length > 0) continue; // ไม่ทับไลน์ที่เริ่มผลิตแล้ว
+          if (id < 1 || id > 3) continue;
           const isCip = /cip/i.test(ln.flavor || '');
-          next[id] = {
-            ...cur,
-            shiftMode: 'handover',
-            flavor: isCip ? cur.flavor : (ln.flavor || cur.flavor),
-            shiftBatch: ln.batch || cur.shiftBatch,
-          };
-          n++;
+          if (isCip) seed(id, 'CIP', '', 'new');
+          else seed(id, ln.flavor || '', ln.batch || '', 'handover');
+        }
+        // Line 4 (batch อยู่ที่ Storage · CIP = ทุก stage ว่าง)
+        const l4 = data.line4;
+        if (l4) {
+          const stages: string[] = l4.stages || [];
+          const allEmpty = stages.every(s => !s || !String(s).trim());
+          const isCip4 = /cip/i.test(l4.flavor || '') || allEmpty;
+          const bm = String(stages[4] || '').match(/Batch\s*([A-Za-z])/i); // stage index 4 = Storage
+          if (isCip4) seed(4, 'CIP', '', 'new');
+          else seed(4, l4.flavor || '', bm ? bm[1].toUpperCase() : '', 'handover');
         }
         return next;
       });
