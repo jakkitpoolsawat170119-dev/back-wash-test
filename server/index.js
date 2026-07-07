@@ -1295,13 +1295,16 @@ async function syncTaskProgress(date) {
 
 // รวมเหตุการณ์ของวันเป็นไทม์ไลน์เดียว (ผลิต + CIP + batch ทดลอง + โน้ตส่งเวร + งานเสร็จ)
 async function buildTimeline(date) {
+  // ไทม์ไลน์ตาม "วันทำงาน" = 06:00 ของวันนี้ → 06:00 ของวันถัดไป (ตรงกับ duty/กะดึก)
+  const next = addDaysStr(date, 1);
+  const start = `${date}T06:00:00`, end = `${next}T06:00:00`;
   const events = [];
-  const prod = await dbAll(`SELECT timestamp, line_name, flavor, batch, operator_name FROM production_logs WHERE substr(timestamp,1,10) = ?`, [date]);
+  const prod = await dbAll(`SELECT timestamp, line_name, flavor, batch, operator_name FROM production_logs WHERE substr(timestamp,1,10) IN (?, ?)`, [date, next]);
   for (const p of prod) events.push({ time: p.timestamp, type: 'production', line: p.line_name,
     text: `🏭 ผลิต ${p.flavor || ''} (Batch ${p.batch || '-'}) — ${p.line_name || ''}`, operator: p.operator_name });
 
   const pushCipRows = async (table, sessTable, withLine) => {
-    const sess = await dbAll(`SELECT * FROM ${sessTable} WHERE date = ? OR created_at LIKE ?`, [date, `${date}%`]);
+    const sess = await dbAll(`SELECT * FROM ${sessTable} WHERE date IN (?, ?) OR created_at LIKE ? OR created_at LIKE ?`, [date, next, `${date}%`, `${next}%`]);
     if (!sess.length) return;
     const ids = sess.map(s => s.id);
     const byId = {}; sess.forEach(s => { byId[s.id] = s; });
@@ -1318,15 +1321,17 @@ async function buildTimeline(date) {
   await pushCipRows('cip_line1_rows', 'cip_line1_sessions', false);
   await pushCipRows('cip_line2_rows', 'cip_line2_sessions', true);
 
-  const notes = await dbAll('SELECT * FROM handover_notes WHERE note_date = ? ORDER BY created_at', [date]);
+  const notes = await dbAll('SELECT * FROM handover_notes WHERE note_date IN (?, ?) ORDER BY created_at', [date, next]);
   for (const n of notes) events.push({ time: n.created_at, type: 'handover', line: '',
     text: `📝 ส่งเวร (${n.shift || '-'}): ${n.text}`, operator: n.operator_name });
 
-  const doneTasks = await dbAll(`SELECT * FROM daily_tasks WHERE task_date = ? AND status = 'done' AND completed_at IS NOT NULL`, [date]);
+  const doneTasks = await dbAll(`SELECT * FROM daily_tasks WHERE task_date IN (?, ?) AND status = 'done' AND completed_at IS NOT NULL`, [date, next]);
   for (const t of doneTasks) events.push({ time: t.completed_at, type: 'task', line: t.line_name,
     text: `✅ ${t.title}`, operator: t.created_by });
 
-  return events.filter(e => e.time).sort((a, b) => String(a.time).localeCompare(String(b.time)));
+  // กรองเฉพาะเหตุการณ์ในหน้าต่างวันทำงาน [06:00 วันนี้, 06:00 วันถัดไป)
+  return events.filter(e => e.time && String(e.time) >= start && String(e.time) < end)
+    .sort((a, b) => String(a.time).localeCompare(String(b.time)));
 }
 
 // ── Endpoints: tasks ──────────────────────────────────────────────────────
@@ -1846,7 +1851,7 @@ app.post('/api/telegram/duty-update', (req, res) => {
 
 // ── Endpoints: timeline + handover ────────────────────────────────────────
 app.get('/api/timeline', async (req, res) => {
-  const date = req.query.date || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+  const date = req.query.date || workDayBKK();
   try { res.json({ date, events: await buildTimeline(date) }); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });

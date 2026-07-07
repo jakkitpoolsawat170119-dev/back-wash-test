@@ -317,7 +317,12 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
     // derive: parse time → hour/shift; sort; group
     const evs = events.map(e => { const tm = parseHM(e.time); return { ...e, hm: tm?.hm || '—:—', hour: tm?.h ?? null }; })
       .sort((a, b) => ((a.hour ?? 99) * 60) - ((b.hour ?? 99) * 60));
-    const shifted = (h: number | null) => shiftInfo(date, h ?? 3).shift || shiftKeys[shiftKeys.length - 1] || 'ดึก';
+    // จัดเหตุการณ์เข้ากะของ "วันทำงาน" ที่เลือก (เหตุการณ์ทั้งหมดอยู่ในหน้าต่าง 06:00→06:00 แล้ว)
+    const shifted = (h: number | null) => {
+      const hr = h ?? 3;
+      for (const s of dayShifts) { const inIt = s.start < s.end ? (hr >= s.start && hr < s.end) : (hr >= s.start || hr < s.end); if (inIt) return s.key; }
+      return shiftKeys[shiftKeys.length - 1] || 'ดึก';
+    };
 
     // shift summary counts
     const sc: Record<string, { prod: number; cip: number; other: number }> = {};
