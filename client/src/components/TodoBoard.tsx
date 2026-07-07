@@ -22,9 +22,23 @@ const CAT: Record<string, { icon: string; label: string }> = {
   production: { icon: '🏭', label: 'ผลิต' },
   cip: { icon: '💧', label: 'CIP' },
   backwash: { icon: '🧴', label: 'Backwash' },
-  am: { icon: '🛠', label: 'AM' },
+  mixing: { icon: '🥤', label: 'ส่วนผสม' },
+  packing: { icon: '📦', label: 'บรรจุ' },
   maintenance: { icon: '🔧', label: 'ซ่อมบำรุง' },
   manual: { icon: '📌', label: 'ทั่วไป' },
+  am: { icon: '🔧', label: 'ซ่อมบำรุง' }, // legacy alias — ข้อมูลเก่าที่บันทึกเป็น 'am' ให้แสดงเป็นซ่อมบำรุง
+};
+// ลำดับหมวดที่ใช้เลือกใน UI (ไม่รวม alias 'am')
+const CAT_KEYS = ['production', 'cip', 'backwash', 'mixing', 'packing', 'maintenance', 'manual'];
+// สีประจำหมวด (ยังไม่เลือก = tint อ่อน, เลือกแล้ว = ส้ม)
+const CAT_COLOR: Record<string, { c: string; w: string }> = {
+  production: { c: '#2e7d32', w: '#e8f5e9' },
+  cip: { c: '#0277bd', w: '#e1f2fb' },
+  backwash: { c: '#00897b', w: '#e0f2f1' },
+  mixing: { c: '#8e24aa', w: '#f5e9fa' },
+  packing: { c: '#8d5524', w: '#f3ead9' },
+  maintenance: { c: '#546e7a', w: '#eceff1' },
+  manual: { c: '#90a4ae', w: '#f0f3f5' },
 };
 // สีประจำตัวผู้รับผิดชอบ (duty board)
 const DUTY_COLOR: Record<string, { c: string; wash: string; initial: string }> = {
@@ -114,7 +128,7 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
       {/* tabs */}
       <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', marginBottom: '14px' }}>
         {([
-          ['today', '👥 หน้าที่'], ['calendar', '📅 ปฏิทิน'], ['report', '📤 ส่งรายงาน'], ['timeline', '🕐 ไทม์ไลน์'], ['recurring', '🔁 งานประจำ'], ['ai', '🤖 ผู้ช่วย AI'],
+          ['today', '✅ งานวันนี้'], ['recurring', '🔁 งานประจำ'], ['timeline', '🕐 ไทม์ไลน์'], ['calendar', '📊 สรุป & KPI'], ['report', '📤 ส่งรายงาน'], ['ai', '🤖 ผู้ช่วย AI'],
         ] as [typeof tab, string][]).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)} style={{
             flex: '0 0 auto', padding: '7px 13px', borderRadius: '20px', border: '2px solid',
@@ -421,6 +435,7 @@ const RecurringTab: React.FC<{ templates: Template[]; tasks: Task[]; reload: () 
     const [title, setTitle] = useState('');
     const [cadence, setCadence] = useState('daily');
     const [line, setLine] = useState('');
+    const [rcat, setRcat] = useState('maintenance');
     const recTasks = tasks.filter(t => t.source === 'recurring');
     const recDone = recTasks.filter(t => t.status === 'done').length;
     const pct = recTasks.length ? Math.round((recDone / recTasks.length) * 100) : 0;
@@ -428,7 +443,7 @@ const RecurringTab: React.FC<{ templates: Template[]; tasks: Task[]; reload: () 
       if (!title.trim()) return;
       await fetch(`${apiUrl}/api/task-templates`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: title.trim(), line, category: 'maintenance', cadence }),
+        body: JSON.stringify({ title: title.trim(), line, category: rcat, cadence }),
       });
       setTitle(''); reload();
     };
@@ -456,6 +471,9 @@ const RecurringTab: React.FC<{ templates: Template[]; tasks: Task[]; reload: () 
           <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#37474f', marginBottom: '8px' }}>➕ เทมเพลตงานประจำ</div>
           <input value={title} onChange={e => setTitle(e.target.value)} placeholder="เช่น Deep clean ถังผสม"
             style={{ width: '100%', boxSizing: 'border-box', padding: '8px', border: '1px solid #ddd', borderRadius: '10px', marginBottom: '8px' }} />
+          <select value={rcat} onChange={e => setRcat(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '8px', border: '1px solid #ddd', borderRadius: '10px', marginBottom: '8px' }}>
+            {CAT_KEYS.map(k => <option key={k} value={k}>{CAT[k].icon} {CAT[k].label}</option>)}
+          </select>
           <div style={{ display: 'flex', gap: '8px' }}>
             <select value={line} onChange={e => setLine(e.target.value)} style={{ flex: 1, padding: '8px', border: '1px solid #ddd', borderRadius: '10px' }}>
               <option value="">ทั่วไป</option><option>Line 1</option><option>Line 2</option><option>Line 3</option><option>Line 4</option>
@@ -469,7 +487,7 @@ const RecurringTab: React.FC<{ templates: Template[]; tasks: Task[]; reload: () 
         {templates.map(t => (
           <div key={t.id} style={{ ...card, display: 'flex', alignItems: 'center', gap: '10px', opacity: t.active ? 1 : 0.5 }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600, color: '#37474f' }}>🔧 {t.title}</div>
+              <div style={{ fontWeight: 600, color: '#37474f' }}>{(CAT[t.category] || CAT.maintenance).icon} {t.title}</div>
               <div style={{ fontSize: '0.72rem', color: '#9aa0a6' }}>{t.line_name || 'ทั่วไป'} · {t.cadence === 'daily' ? 'ทุกวัน' : t.cadence === 'weekly' ? 'ทุกสัปดาห์' : 'ทุกเดือน'}</div>
             </div>
             <button onClick={() => toggleActive(t)} style={{ border: '1px solid #eee', background: '#fff', borderRadius: '8px', padding: '4px 10px', cursor: 'pointer', fontSize: '0.75rem' }}>{t.active ? 'ปิด' : 'เปิด'}</button>
@@ -511,7 +529,6 @@ const CalendarTab: React.FC<{ card: React.CSSProperties; onOpenDate: (date: stri
   const [selected, setSelected] = useState(todayBKK());
   const [duty, setDuty] = useState<Duty | null>(null);
   const [loading, setLoading] = useState(false);
-  const [tgMsg, setTgMsg] = useState('');
   const today = todayBKK();
   const daysInMonth = new Date(view.y, view.m + 1, 0).getDate();
   const startWeekday = new Date(view.y, view.m, 1).getDay();
@@ -546,12 +563,6 @@ const CalendarTab: React.FC<{ card: React.CSSProperties; onOpenDate: (date: stri
   const yKey = (() => { const d = new Date(selD); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })();
   const diff = duty && hist[yKey] ? duty.team.pct - hist[yKey].pct : null;
   const trend = Array.from({ length: 7 }, (_, i) => { const d = new Date(selD); d.setDate(d.getDate() - (6 - i)); const ds = d.toISOString().slice(0, 10); return { ds, pct: hist[ds]?.pct ?? 0 }; });
-
-  const sendTg = async () => {
-    setTgMsg('กำลังส่ง…');
-    try { const r = await fetch(`${apiUrl}/api/duty/telegram`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: selected }) }); const d = await r.json(); setTgMsg(d.sent ? '✅ ส่งแล้ว' : '⚠️ ยังไม่ได้ตั้งค่า Telegram'); }
-    catch { setTgMsg('❌ ส่งไม่สำเร็จ'); }
-  };
 
   const eyebrow = (t: string, r?: string) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '18px 2px 10px' }}>
@@ -717,9 +728,6 @@ const CalendarTab: React.FC<{ card: React.CSSProperties; onOpenDate: (date: stri
             </div>
           </div>
         )}
-
-        <button onClick={sendTg} style={{ width: '100%', border: 'none', borderRadius: 12, padding: 13, fontWeight: 800, fontSize: '.9rem', color: '#fff', background: '#229ed9', cursor: 'pointer' }}>✈ ส่งสรุปวันนี้เข้า Telegram</button>
-        {tgMsg && <div style={{ textAlign: 'center', fontSize: '.8rem', color: '#78828a', marginTop: 8 }}>{tgMsg}</div>}
       </>)}
     </div>
   );
@@ -970,7 +978,9 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
           </div>
           <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a', marginBottom: 7 }}>ประเภทงาน</div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-            {['production', 'cip', 'am', 'manual'].map(k => <button key={k} onClick={() => setCat(k)} style={chip(cat === k)}>{CAT[k].icon} {CAT[k].label}</button>)}
+            {CAT_KEYS.map(k => { const cc = CAT_COLOR[k] || { c: '#ff6b00', w: '#fff3e9' }; const on = cat === k; return (
+              <button key={k} onClick={() => setCat(k)} style={{ border: '2px solid', borderColor: on ? 'transparent' : '#e0e0e0', background: on ? '#ff6b00' : cc.w, color: on ? '#fff' : cc.c, borderRadius: 22, padding: '7px 13px', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer' }}>{CAT[k].icon} {CAT[k].label}</button>
+            ); })}
           </div>
           <input value={title} onChange={e => setTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && assign()} placeholder="ชื่องาน เช่น เปลี่ยนกรอง Line 3 ก่อนรอบบ่าย"
             style={{ width: '100%', boxSizing: 'border-box', padding: '10px', border: '1px solid #ddd', borderRadius: 11, marginBottom: 10 }} />
