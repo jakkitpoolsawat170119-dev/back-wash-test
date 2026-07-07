@@ -197,6 +197,7 @@ const SCHEMA = [
       times TEXT DEFAULT '[]',
       weekdays TEXT DEFAULT '[1,2,3,4,5]',
       only_if_pending INTEGER DEFAULT 0,
+      auto_at_shift_end INTEGER DEFAULT 0,
       updated_at TEXT
     )`,
   // นัดส่งรายงานครั้งเดียว (run_at = 'YYYY-MM-DDTHH:MM')
@@ -228,6 +229,8 @@ async function initDb() {
   }
   // migration: เก็บ JSON โครงสร้างส่งกะ (สำหรับ "คัดลอกจากกะก่อน")
   try { await db.exec('ALTER TABLE handover_notes ADD COLUMN data TEXT'); } catch { /* มีแล้ว */ }
+  // migration: ส่งรายงานอัตโนมัติตอนสิ้นกะ (ตามตารางกะจริง)
+  try { await db.exec('ALTER TABLE report_config ADD COLUMN auto_at_shift_end INTEGER DEFAULT 0'); } catch { /* มีแล้ว */ }
   // seed รายชื่อ operator (idempotent — ไม่ลบของเดิมเพื่อไม่ให้ข้อมูลหายตอน restart)
   for (const [name, pin] of DEFAULT_OPERATORS) {
     await db.exec("INSERT INTO operators (name, pin) VALUES (?, ?) ON CONFLICT (name) DO NOTHING", [name, pin]);
@@ -1187,6 +1190,29 @@ const nowBKK = () => new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangko
 const weekdayOf = (dateStr) => { try { return new Date(`${dateStr}T12:00:00`).getDay(); } catch { return null; } };
 const dayOfMonth = (dateStr) => { try { return new Date(`${dateStr}T12:00:00`).getDate(); } catch { return null; } };
 
+// ── ตารางกะโรงงาน (แหล่งความจริง — ตรงกับ client/src/shiftSchedule.ts · ดู memory shift-schedule) ──
+// จ–พฤ: เช้า06-14/บ่าย14-22/ดึก22-06 · ศ,อา: เช้า06-18/ดึก18-06 · เสาร์หยุด · วันทำงาน=06:00→06:00
+function shiftsForWeekday(wd) {
+  if (wd === 6) return [];
+  if (wd === 5 || wd === 0) return [{ key: 'เช้า', start: 6, end: 18 }, { key: 'ดึก', start: 18, end: 6 }];
+  return [{ key: 'เช้า', start: 6, end: 14 }, { key: 'บ่าย', start: 14, end: 22 }, { key: 'ดึก', start: 22, end: 6 }];
+}
+const addDaysStr = (dateStr, n) => { const d = new Date(`${dateStr}T12:00:00`); d.setDate(d.getDate() + n); return d.toLocaleDateString('sv-SE'); };
+// วันทำงานปัจจุบัน (ก่อน 06:00 = วันก่อนหน้า)
+function workDayBKK() {
+  const bkk = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }); // "YYYY-MM-DD HH:MM:SS"
+  const today = bkk.slice(0, 10), hour = Number(bkk.slice(11, 13));
+  return hour < 6 ? addDaysStr(today, -1) : today;
+}
+function nextShiftName(shiftThai, dateStr) {
+  const key = String(shiftThai || '').replace('กะ', '');
+  const shifts = shiftsForWeekday(weekdayOf(dateStr));
+  if (!shifts.length) return '';
+  const idx = shifts.findIndex(s => s.key === key);
+  return idx < 0 ? '' : 'กะ' + shifts[(idx + 1) % shifts.length].key;
+}
+const shiftEndsForWeekday = (wd) => shiftsForWeekday(wd).map(s => `${String(s.end).padStart(2, '0')}:00`);
+
 // upsert งานเข้า daily_tasks แบบไม่ทับ status/actual ที่มีอยู่ (idempotent)
 const upsertTask = (t) => db.exec(
   `INSERT INTO daily_tasks (task_date, line_name, category, flavor, title, detail, target_count, source, recurring_id, created_by, created_at)
@@ -1200,6 +1226,7 @@ const upsertTask = (t) => db.exec(
 // สร้างงานประจำ (recurring) ของวันตามเทมเพลตที่ active — daily/weekly/monthly
 // แยกออกมาเพื่อเรียกตอนโหลด /api/tasks ได้ → งานประจำโผล่เองทุกวัน แม้ไม่มีแผนผลิต
 async function generateRecurringForDate(date) {
+  if (weekdayOf(date) === 6) return; // เสาร์หยุด — ไม่สร้างงานประจำ
   const templates = await dbAll('SELECT * FROM task_templates WHERE active = 1', []);
   const wd = weekdayOf(date), dom = dayOfMonth(date);
   for (const tpl of templates) {
@@ -1473,11 +1500,11 @@ async function buildDuty(date) {
     teamDone += done; teamTotal += total;
     return { ...p, nodes, received, adhoc: myAdhoc, done, total, pct: total ? Math.round(done / total * 100) : 100 };
   });
-  return { date, people, team: { done: teamDone, total: teamTotal, left: teamTotal - teamDone, pct: teamTotal ? Math.round(teamDone / teamTotal * 100) : 100 } };
+  return { date, holiday: weekdayOf(date) === 6, people, team: { done: teamDone, total: teamTotal, left: teamTotal - teamDone, pct: teamTotal ? Math.round(teamDone / teamTotal * 100) : 100 } };
 }
 
 app.get('/api/duty', async (req, res) => {
-  const date = req.query.date || todayBKK();
+  const date = req.query.date || workDayBKK();
   try { res.json(await buildDuty(date)); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1574,6 +1601,7 @@ const thaiDate = (d) => { const [y, m, day] = String(d).split('-').map(Number); 
 const DUTY_DOT = { mam: '🟢', nai: '🔵', pluk: '🟣' };
 
 function buildDutyText(duty) {
+  if (duty.holiday) return `📋 <b>สรุปงานตามหน้าที่</b>\n🗓 ${thaiDate(duty.date)}\n\n🚫 <b>วันเสาร์ — วันหยุด</b> (ไม่มีกะทำงาน)`;
   const t = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' });
   let bypass = 0;
   for (const p of duty.people) bypass += p.nodes.filter(n => n.bypassed).length;
@@ -1601,7 +1629,7 @@ function buildDutyText(duty) {
 }
 
 app.post('/api/duty/telegram', async (req, res) => {
-  const date = req.body.date || req.query.date || todayBKK();
+  const date = req.body.date || req.query.date || workDayBKK();
   try {
     const duty = await buildDuty(date);
     const text = buildDutyText(duty);
@@ -1620,6 +1648,7 @@ async function getReportConfig() {
     times: (() => { try { return JSON.parse(r.times || '[]'); } catch { return []; } })(),
     weekdays: (() => { try { return JSON.parse(r.weekdays || '[]'); } catch { return []; } })(),
     onlyIfPending: !!r.only_if_pending,
+    autoAtShiftEnd: !!r.auto_at_shift_end,
   };
 }
 app.get('/api/report/config', async (req, res) => {
@@ -1630,11 +1659,11 @@ app.get('/api/report/config', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.post('/api/report/config', async (req, res) => {
-  const { autoEnabled, times, weekdays, onlyIfPending } = req.body;
+  const { autoEnabled, times, weekdays, onlyIfPending, autoAtShiftEnd } = req.body;
   try {
     const cfg = await getReportConfig();
-    await db.exec('UPDATE report_config SET auto_enabled = ?, times = ?, weekdays = ?, only_if_pending = ?, updated_at = ? WHERE id = ?',
-      [autoEnabled ? 1 : 0, JSON.stringify(times || []), JSON.stringify(weekdays || []), onlyIfPending ? 1 : 0, nowBKK(), cfg.id]);
+    await db.exec('UPDATE report_config SET auto_enabled = ?, times = ?, weekdays = ?, only_if_pending = ?, auto_at_shift_end = ?, updated_at = ? WHERE id = ?',
+      [autoEnabled ? 1 : 0, JSON.stringify(times || []), JSON.stringify(weekdays || []), onlyIfPending ? 1 : 0, autoAtShiftEnd ? 1 : 0, nowBKK(), cfg.id]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1663,14 +1692,19 @@ async function reportTick() {
   try {
     const bkk = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }); // "YYYY-MM-DD HH:MM:SS"
     const date = bkk.slice(0, 10), hm = bkk.slice(11, 16);
-    const weekday = new Date(date + 'T12:00:00Z').getUTCDay(); // 0=Sun
-    // auto (recurring)
+    const H = Number(hm.slice(0, 2));
+    // รายงานสรุป "วันทำงาน" ที่กะกำลังจบ — 06:00 และหลังเที่ยงคืน = กะดึกของวันก่อนหน้า
+    const sendDay = (H < 6 || hm === '06:00') ? addDaysStr(date, -1) : date;
+    const wd = weekdayOf(sendDay);
+    // auto: ตามเวลากำหนดเอง (+วันที่เลือก) หรือ "สิ้นกะอัตโนมัติ" (ตามตารางจริงของวันนั้น)
     const cfg = await getReportConfig();
-    if (cfg.autoEnabled && cfg.weekdays.includes(weekday) && cfg.times.includes(hm)) {
-      const key = `${date} ${hm}`;
+    const shiftEndNow = cfg.autoAtShiftEnd && shiftEndsForWeekday(wd).includes(hm);
+    const manualNow = cfg.times.includes(hm) && cfg.weekdays.includes(wd);
+    if (cfg.autoEnabled && (shiftEndNow || manualNow)) {
+      const key = `${sendDay} ${hm}`;
       if (!_sentAutoKeys.has(key)) {
         _sentAutoKeys.add(key);
-        const sent = await sendDutyReport(date, cfg.onlyIfPending);
+        const sent = await sendDutyReport(sendDay, cfg.onlyIfPending);
         console.log(`[report] auto ${key} → ${sent ? 'sent' : 'skipped (no pending)'}`);
       }
     }
@@ -1679,7 +1713,7 @@ async function reportTick() {
     const due = await dbAll("SELECT id, run_at FROM report_once WHERE sent = 0 AND run_at <= ?", [nowKey]);
     for (const row of due) {
       await db.exec('UPDATE report_once SET sent = 1 WHERE id = ?', [row.id]);
-      await sendDutyReport(date, false);
+      await sendDutyReport(sendDay, false);
       console.log(`[report] once ${row.run_at} → sent`);
     }
   } catch (e) { console.error('[report] tick error', e.message); }
@@ -1701,6 +1735,7 @@ const clip = (s) => (s.length > 60 ? s.slice(0, 59) + '…' : s);
 // ── หน้า "เลือกคน" (home) — เมนูรายบุคคล + แถบทีม + ปุ่มส่งสรุป ──
 // callback: p:<key> = เปิดหน้าคน, p:home = กลับ, sum = ส่งสรุป, t:<page>:<r|a>:<ref> = ปิด/เปิดงาน
 function buildDutyHome(duty) {
+  if (duty.holiday) return { text: `📋 <b>งานตามหน้าที่</b> · ${duty.date}\n🚫 วันเสาร์ — วันหยุด`, keyboard: [] };
   const rows = duty.people.map(p => {
     const done = p.total > 0 && p.done >= p.total;
     return [{ text: clip(`👤 ${p.name}　${p.done}/${p.total}${done ? ' ✅' : ''}`), callback_data: `p:${p.key}` }];
@@ -1753,7 +1788,7 @@ async function toggleRoutineDone(owner, nodeKey, date) {
 // GET keyboard (สำหรับทดสอบ) — ?person=<key> = หน้ารายบุคคล, ไม่ใส่ = หน้า home
 app.get('/api/duty/keyboard', async (req, res) => {
   try {
-    const duty = await buildDuty(req.query.date || todayBKK());
+    const duty = await buildDuty(req.query.date || workDayBKK());
     res.json(req.query.person ? buildDutyPerson(duty, req.query.person) : buildDutyHome(duty));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1765,7 +1800,7 @@ app.post('/api/telegram/duty-update', (req, res) => {
   (async () => {
     try {
       const upd = req.body || {};
-      const date = todayBKK();
+      const date = workDayBKK();
       if (upd.callback_query) {
         const cq = upd.callback_query;
         const data = cq.data || '';
@@ -1816,7 +1851,7 @@ app.get('/api/timeline', async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-const SHIFT_META = { 'กะเช้า': { ic: '🌅', next: 'กะบ่าย' }, 'กะบ่าย': { ic: '🌆', next: 'กะดึก' }, 'กะดึก': { ic: '🌙', next: 'กะเช้า' } };
+const SHIFT_META = { 'กะเช้า': { ic: '🌅' }, 'กะบ่าย': { ic: '🌆' }, 'กะดึก': { ic: '🌙' } };
 const L4_STAGES = ['Mixing 1', 'Mixer', 'Pasteurizer', 'Mixing 2', 'Storage', 'Filling'];
 const HO_DIV = '  ————————————';
 
@@ -1826,9 +1861,10 @@ function buildHandoverText(p, html) {
   const esc = html ? escapeHtml : (s) => String(s ?? '');
   const b = (s) => html ? `<b>${esc(s)}</b>` : esc(s);
   const it = (s) => html ? `<i>${esc(s)}</i>` : esc(s);
-  const sm = SHIFT_META[p.shift] || { ic: '📝', next: '' };
+  const sm = SHIFT_META[p.shift] || { ic: '📝' };
+  const nextSh = nextShiftName(p.shift, p.date);
   const t = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' });
-  const L = [`📋 ${b('ส่งกะ')}`, `${sm.ic} ${b(p.shift || '-')}${sm.next ? ` → ${esc(sm.next)}` : ''} · 👤 ${esc(p.operator || '-')} · ${t} น.`, ``];
+  const L = [`📋 ${b('ส่งกะ')}`, `${sm.ic} ${b(p.shift || '-')}${nextSh ? ` → ${esc(nextSh)}` : ''} · 👤 ${esc(p.operator || '-')} · ${t} น.`, ``];
   if (Array.isArray(p.lines) && p.lines.length) {
     for (const ln of p.lines) {
       L.push(`▶️ ${b(ln.line)} ${esc(ln.flavor || '')}${ln.batch ? ` (Batch ${esc(ln.batch)})` : ''}`.trimEnd());

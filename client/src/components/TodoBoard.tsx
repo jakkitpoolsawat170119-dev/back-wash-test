@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { currentWorkDay, shiftInfo, shiftsForWeekday, weekdayOf, nextShiftName } from '../shiftSchedule';
 
 // ใช้ Render เป็นค่าเริ่มต้น; override ด้วย VITE_API_BASE เวลาทดสอบ local
 const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
@@ -38,7 +39,7 @@ type DutyNode = { key: string; title: string; depth: number; mono: boolean; chec
 type Received = { ownerKey: string; fromName: string; nodeKey: string; title: string; checked: boolean };
 type AdhocTask = { id: number; title: string; category: string; location: string | null; priority: string; status: string; handoffFrom: string | null };
 type DutyPerson = { key: string; name: string; role: string; nodes: DutyNode[]; received: Received[]; adhoc: AdhocTask[]; done: number; total: number; pct: number };
-type Duty = { date: string; people: DutyPerson[]; team: { done: number; total: number; left: number; pct: number } };
+type Duty = { date: string; holiday?: boolean; people: DutyPerson[]; team: { done: number; total: number; left: number; pct: number } };
 
 // ─── Timeline: type + shift metadata ───────────────────────────
 const TL_TYPE: Record<string, { c: string; w: string; ic: string; lb: string }> = {
@@ -50,7 +51,6 @@ const TL_TYPE: Record<string, { c: string; w: string; ic: string; lb: string }> 
 const TL_SHIFT: Record<string, { ic: string; c: string }> = {
   'เช้า': { ic: '🌅', c: '#ef8f00' }, 'บ่าย': { ic: '🌆', c: '#c2185b' }, 'ดึก': { ic: '🌙', c: '#3949ab' },
 };
-const SHIFT_ORDER = ['ดึก', 'เช้า', 'บ่าย'];
 // ดึง HH:MM จาก string เวลาแบบ robust (กัน 'Invalid Date' จาก endTime เพี้ยน)
 const parseHM = (s?: string): { h: number; hm: string } | null => {
   const m = String(s || '').match(/(?:T|\s|^)(\d{1,2}):(\d{2})/);
@@ -59,12 +59,11 @@ const parseHM = (s?: string): { h: number; hm: string } | null => {
   if (h > 23) return null;
   return { h, hm: `${String(h).padStart(2, '0')}:${m[2]}` };
 };
-const shiftOfHour = (h: number) => (h >= 22 || h < 6 ? 'ดึก' : h < 14 ? 'เช้า' : 'บ่าย');
 interface Props { operatorName: string | null; onBackToMain: () => void; }
 
 const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
   const [tab, setTab] = useState<'today' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai'>('today');
-  const [date, setDate] = useState(todayBKK());
+  const [date, setDate] = useState(currentWorkDay());
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -155,8 +154,8 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
 // ─── Timeline + Handover ────────────────────────────────────────
 // ─── Structured shift-handover form ────────────────────────────
 const HO_L4_STAGES = ['Mixing 1', 'Mixer', 'Pasteurizer', 'Mixing 2', 'Storage', 'Filling'];
-const HO_SHIFT: Record<string, { ic: string; next: string }> = {
-  'กะเช้า': { ic: '🌅', next: 'กะบ่าย' }, 'กะบ่าย': { ic: '🌆', next: 'กะดึก' }, 'กะดึก': { ic: '🌙', next: 'กะเช้า' },
+const HO_SHIFT: Record<string, { ic: string }> = {
+  'กะเช้า': { ic: '🌅' }, 'กะบ่าย': { ic: '🌆' }, 'กะดึก': { ic: '🌙' },
 };
 const HO_LINES = [
   { line: 'Line 1', sub: 'Syrup', c: '#0d47a1' },
@@ -172,9 +171,10 @@ const initHo = (): HoState => ({
   line4: { flavor: '', stages: ['', '', '', '', '', ''] },
   note: '',
 });
-function hoPreview(h: HoState, op: string | null): string {
-  const sm = HO_SHIFT[h.shift] || { ic: '📝', next: '' };
-  const L = [`📋 ส่งกะ`, `${sm.ic} ${h.shift}${sm.next ? ` → ${sm.next}` : ''} · 👤 ${op || '-'}`, ''];
+function hoPreview(h: HoState, op: string | null, date: string): string {
+  const sm = HO_SHIFT[h.shift] || { ic: '📝' };
+  const next = nextShiftName(h.shift, date);
+  const L = [`📋 ส่งกะ`, `${sm.ic} ${h.shift}${next ? ` → ${next}` : ''} · 👤 ${op || '-'}`, ''];
   for (const ln of h.lines) {
     L.push(`▶️ ${ln.line} ${ln.flavor}${ln.batch ? ` (Batch ${ln.batch})` : ''}`.trimEnd());
     ln.tanks.forEach((tk, i) => L.push(`   ถัง ${i + 1} ${tk.trim() || 'ว่าง'}`));
@@ -195,14 +195,16 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
 
-    // ข้อ 1: เปิดหน้ามา โหลดสถานะถังจากกะล่าสุดให้อัตโนมัติ (ยกมาต่อ — คงกะปัจจุบัน, ไม่ยกโน้ต)
+    // เปิดหน้ามา: เดากะปัจจุบันจากเวลา + โหลดสถานะถังจากกะล่าสุด (ยกมาต่อ, ไม่ยกโน้ต)
     useEffect(() => {
+      const bkk = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
+      const cs = shiftInfo(currentWorkDay(), bkk.getHours()).shift;
       (async () => {
         try {
           const r = await fetch(`${apiUrl}/api/handover/last`);
           const d = await r.json();
-          if (d.data) setHo(h => ({ ...h, lines: d.data.lines || h.lines, line4: d.data.line4 || h.line4 }));
-        } catch { /* offline */ }
+          setHo(h => ({ ...h, shift: cs ? 'กะ' + cs : h.shift, lines: d.data?.lines || h.lines, line4: d.data?.line4 || h.line4 }));
+        } catch { setHo(h => (cs ? { ...h, shift: 'กะ' + cs } : h)); }
       })();
     }, []);
 
@@ -245,7 +247,7 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
         </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
           <select value={ho.shift} onChange={e => setHo(h => ({ ...h, shift: e.target.value }))} style={{ ...inp, width: 'auto' }}>
-            <option>กะเช้า</option><option>กะบ่าย</option><option>กะดึก</option>
+            {(() => { const s = shiftsForWeekday(weekdayOf(date)).map(x => x.key); return (s.length ? s : ['เช้า', 'บ่าย', 'ดึก']); })().map(k => <option key={k} value={'กะ' + k}>กะ{k}</option>)}
           </select>
           <button onClick={copyLast} style={qbtn}>📋 คัดลอกกะก่อน</button>
         </div>
@@ -296,7 +298,7 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
 
         <div style={{ background: '#0e1621', borderRadius: 12, padding: 12, marginBottom: 12 }}>
           <div style={{ color: '#8fa6bd', fontSize: '0.64rem', fontWeight: 800, letterSpacing: '.04em', marginBottom: 6 }}>✈ พรีวิวข้อความ</div>
-          <div style={{ color: '#e6edf3', fontSize: '0.8rem', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{hoPreview(ho, operatorName)}</div>
+          <div style={{ color: '#e6edf3', fontSize: '0.8rem', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{hoPreview(ho, operatorName, date)}</div>
         </div>
         <button onClick={send} disabled={busy} style={{ width: '100%', border: 'none', borderRadius: 12, padding: 13, fontWeight: 800, fontSize: '0.9rem', color: '#fff', background: '#229ed9', cursor: 'pointer', opacity: busy ? 0.6 : 1 }}>✈ ส่งกะเข้ากลุ่ม</button>
         {msg && <div style={{ textAlign: 'center', fontSize: '0.78rem', color: '#546e7a', marginTop: 8 }}>{msg}</div>}
@@ -308,17 +310,22 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
   ({ date, operatorName, events, reload, card }) => {
     const [filter, setFilter] = useState('all');
 
+    // กะของวันนี้ (ตามตารางจริง — จ-พฤ 3 กะ, ศ/อา 2 กะ, เสาร์หยุด)
+    const dayShifts = shiftsForWeekday(weekdayOf(date));
+    const shiftKeys = dayShifts.map(s => s.key);
+    const isHoliday = dayShifts.length === 0;
     // derive: parse time → hour/shift; sort; group
     const evs = events.map(e => { const tm = parseHM(e.time); return { ...e, hm: tm?.hm || '—:—', hour: tm?.h ?? null }; })
       .sort((a, b) => ((a.hour ?? 99) * 60) - ((b.hour ?? 99) * 60));
-    const shifted = (h: number | null) => (h == null ? 'ดึก' : shiftOfHour(h));
+    const shifted = (h: number | null) => shiftInfo(date, h ?? 3).shift || shiftKeys[shiftKeys.length - 1] || 'ดึก';
 
     // shift summary counts
-    const sc: Record<string, { prod: number; cip: number; other: number }> = { 'เช้า': { prod: 0, cip: 0, other: 0 }, 'บ่าย': { prod: 0, cip: 0, other: 0 }, 'ดึก': { prod: 0, cip: 0, other: 0 } };
+    const sc: Record<string, { prod: number; cip: number; other: number }> = {};
+    for (const k of shiftKeys) sc[k] = { prod: 0, cip: 0, other: 0 };
     const hourCnt = Array(24).fill(0);
     for (const e of evs) {
       const s = shifted(e.hour);
-      if (e.type === 'production') sc[s].prod++; else if (e.type === 'cip') sc[s].cip++; else sc[s].other++;
+      if (sc[s]) { if (e.type === 'production') sc[s].prod++; else if (e.type === 'cip') sc[s].cip++; else sc[s].other++; }
       if (e.hour != null) hourCnt[e.hour]++;
     }
     const maxCnt = Math.max(1, ...hourCnt);
@@ -333,9 +340,10 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
         {/* handover form (structured, collapsible) */}
         <HandoverForm date={date} operatorName={operatorName} reload={reload} card={card} />
 
-        {/* shift summary cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '10px', marginBottom: '12px' }}>
-          {['เช้า', 'บ่าย', 'ดึก'].map(s => { const st = sc[s]; const tot = st.prod + st.cip + st.other; const m = TL_SHIFT[s]; return (
+        {/* shift summary cards (ตามตารางจริงของวันนั้น) */}
+        {isHoliday && <div style={{ ...card, textAlign: 'center', color: '#90a4ae', fontWeight: 700 }}>🚫 วันเสาร์ — วันหยุด (ไม่มีกะทำงาน)</div>}
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.max(1, shiftKeys.length)},1fr)`, gap: '10px', marginBottom: '12px' }}>
+          {shiftKeys.map(s => { const st = sc[s]; const tot = st.prod + st.cip + st.other; const m = TL_SHIFT[s]; return (
             <div key={s} style={{ ...card, marginBottom: 0, padding: '12px', position: 'relative', overflow: 'hidden', textAlign: 'center' }}>
               <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: m.c }} />
               <div style={{ fontSize: '1.1rem' }}>{m.ic}</div>
@@ -371,8 +379,8 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
           ))}
         </div>
 
-        {/* card feed grouped by shift */}
-        {SHIFT_ORDER.filter(s => byShift[s]?.length).map(s => { const m = TL_SHIFT[s]; return (
+        {/* card feed grouped by shift (เรียงตามกะของวันนั้น) */}
+        {shiftKeys.filter(s => byShift[s]?.length).map(s => { const m = TL_SHIFT[s]; return (
           <div key={s}>
             <div style={{ position: 'sticky', top: 0, background: 'linear-gradient(#f7f8fa,#f7f8fa 70%,transparent)', padding: '8px 4px', fontSize: '0.78rem', fontWeight: 800, color: '#546e7a', zIndex: 2, display: 'flex', alignItems: 'center', gap: '8px' }}>
               {m.ic} กะ{s}<span style={{ marginLeft: 'auto', fontSize: '0.66rem', fontWeight: 700, color: '#90a4ae' }}>{byShift[s].length} รายการ</span>
@@ -713,8 +721,8 @@ const CalendarTab: React.FC<{ card: React.CSSProperties; onOpenDate: (date: stri
 };
 
 // ─── Report scheduling ─────────────────────────────────────────
-type ReportCfg = { autoEnabled: boolean; times: string[]; weekdays: number[]; onlyIfPending: boolean; once: { id: number; run_at: string }[] };
-const SHIFT_TIMES: [string, string][] = [['14:00', '🌅 สิ้นกะเช้า'], ['22:00', '🌆 สิ้นกะบ่าย'], ['06:00', '🌙 สิ้นกะดึก']];
+type ReportCfg = { autoEnabled: boolean; times: string[]; weekdays: number[]; onlyIfPending: boolean; autoAtShiftEnd: boolean; once: { id: number; run_at: string }[] };
+const SHIFT_TIMES: [string, string][] = [['14:00', '14:00'], ['18:00', '18:00'], ['22:00', '22:00'], ['06:00', '06:00']];
 const WEEKDAY_OPTS: [number, string][] = [[1, 'จ'], [2, 'อ'], [3, 'พ'], [4, 'พฤ'], [5, 'ศ'], [6, 'ส'], [0, 'อา']];
 
 const ReportTab: React.FC<{ card: React.CSSProperties }> = ({ card }) => {
@@ -728,7 +736,7 @@ const ReportTab: React.FC<{ card: React.CSSProperties }> = ({ card }) => {
 
   const saveCfg = async (patch: Partial<ReportCfg>) => {
     if (!cfg) return; const next = { ...cfg, ...patch }; setCfg(next);
-    await fetch(`${apiUrl}/api/report/config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ autoEnabled: next.autoEnabled, times: next.times, weekdays: next.weekdays, onlyIfPending: next.onlyIfPending }) });
+    await fetch(`${apiUrl}/api/report/config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ autoEnabled: next.autoEnabled, times: next.times, weekdays: next.weekdays, onlyIfPending: next.onlyIfPending, autoAtShiftEnd: next.autoAtShiftEnd }) });
   };
   const sendNow = async () => { setMsg('กำลังส่ง…'); try { const r = await fetch(`${apiUrl}/api/duty/telegram`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: todayBKK() }) }); const d = await r.json(); setMsg(d.sent ? '✅ ส่งเข้า Telegram แล้ว' : '⚠️ ยังไม่ได้ตั้งค่า Telegram บนเซิร์ฟเวอร์'); } catch { setMsg('❌ ส่งไม่สำเร็จ'); } };
   const addOnce = async () => { await fetch(`${apiUrl}/api/report/schedule`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runAt: `${oDate}T${oTime}` }) }); await load(); };
@@ -775,14 +783,18 @@ const ReportTab: React.FC<{ card: React.CSSProperties }> = ({ card }) => {
           <Toggle on={cfg.autoEnabled} onClick={() => saveCfg({ autoEnabled: !cfg.autoEnabled })} />
         </div>
         <div style={{ borderTop: '1px solid #eee', paddingTop: 12, opacity: cfg.autoEnabled ? 1 : 0.5, pointerEvents: cfg.autoEnabled ? 'auto' : 'none' }}>
-          <label style={{ display: 'block', fontSize: '.74rem', fontWeight: 700, color: '#546e7a', marginBottom: 7 }}>ส่งตอนสิ้นกะ</label>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            <div><div style={{ fontSize: '.82rem', fontWeight: 800, color: '#37474f' }}>⏰ ส่งตอนสิ้นกะอัตโนมัติ</div><div style={{ fontSize: '.68rem', color: '#9aa0a6' }}>ตามตารางจริง (จ–พฤ 14/22/06 · ศ-อา 18/06 · เสาร์หยุด)</div></div>
+            <Toggle on={cfg.autoAtShiftEnd} onClick={() => saveCfg({ autoAtShiftEnd: !cfg.autoAtShiftEnd })} />
+          </div>
+          <label style={{ display: 'block', fontSize: '.74rem', fontWeight: 700, color: '#546e7a', margin: '14px 0 7px' }}>หรือกำหนดเวลาเพิ่มเอง</label>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
             {SHIFT_TIMES.map(([t, l]) => { const on = cfg.times.includes(t); return (
               <button key={t} onClick={() => saveCfg({ times: on ? cfg.times.filter(x => x !== t) : [...cfg.times, t] })}
-                style={{ border: '2px solid', borderColor: on ? 'transparent' : '#e0e0e0', background: on ? '#ff6b00' : '#fff', color: on ? '#fff' : '#666', borderRadius: 22, padding: '8px 13px', fontSize: '.8rem', fontWeight: 700, cursor: 'pointer' }}>{l} · {t}</button>
+                style={{ border: '2px solid', borderColor: on ? 'transparent' : '#e0e0e0', background: on ? '#ff6b00' : '#fff', color: on ? '#fff' : '#666', borderRadius: 22, padding: '8px 13px', fontSize: '.8rem', fontWeight: 700, cursor: 'pointer' }}>{l}</button>
             ); })}
           </div>
-          <label style={{ display: 'block', fontSize: '.74rem', fontWeight: 700, color: '#546e7a', marginBottom: 7 }}>วันที่ส่ง</label>
+          <label style={{ display: 'block', fontSize: '.74rem', fontWeight: 700, color: '#546e7a', marginBottom: 7 }}>วันที่ส่ง (เฉพาะเวลากำหนดเอง)</label>
           <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
             {WEEKDAY_OPTS.map(([w, l]) => { const on = cfg.weekdays.includes(w); return (
               <div key={w} onClick={() => saveCfg({ weekdays: on ? cfg.weekdays.filter(x => x !== w) : [...cfg.weekdays, w] })}
@@ -866,6 +878,7 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
     const chip = (on: boolean, color = '#ff6b00'): React.CSSProperties => ({ border: '2px solid', borderColor: on ? 'transparent' : '#e0e0e0', background: on ? color : '#fff', color: on ? '#fff' : '#666', borderRadius: 22, padding: '7px 13px', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer' });
 
     if (!duty) return <div style={{ textAlign: 'center', color: '#bbb', padding: 24 }}>{loading ? 'กำลังโหลด…' : 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้'}</div>;
+    if (duty.holiday) return <div style={{ ...card, textAlign: 'center', padding: 40 }}><div style={{ fontSize: '2rem' }}>🚫</div><div style={{ fontWeight: 800, marginTop: 8 }}>วันเสาร์ — วันหยุด</div><div style={{ fontSize: '0.8rem', color: '#90a4ae', marginTop: 4 }}>ไม่มีกะทำงาน</div></div>;
 
     return (
       <div>
