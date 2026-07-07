@@ -229,6 +229,7 @@ async function initDb() {
   }
   // migration: เก็บ JSON โครงสร้างส่งกะ (สำหรับ "คัดลอกจากกะก่อน")
   try { await db.exec('ALTER TABLE handover_notes ADD COLUMN data TEXT'); } catch { /* มีแล้ว */ }
+  try { await db.exec("ALTER TABLE handover_notes ADD COLUMN kind TEXT DEFAULT 'out'"); } catch { /* มีแล้ว */ }
   // migration: ส่งรายงานอัตโนมัติตอนสิ้นกะ (ตามตารางกะจริง)
   try { await db.exec('ALTER TABLE report_config ADD COLUMN auto_at_shift_end INTEGER DEFAULT 0'); } catch { /* มีแล้ว */ }
   // seed รายชื่อ operator (idempotent — ไม่ลบของเดิมเพื่อไม่ให้ข้อมูลหายตอน restart)
@@ -1322,8 +1323,11 @@ async function buildTimeline(date) {
   await pushCipRows('cip_line2_rows', 'cip_line2_sessions', true);
 
   const notes = await dbAll('SELECT * FROM handover_notes WHERE note_date IN (?, ?) ORDER BY created_at', [date, next]);
-  for (const n of notes) events.push({ time: n.created_at, type: 'handover', line: '',
-    text: `📝 ส่งเวร (${n.shift || '-'}): ${n.text}`, operator: n.operator_name });
+  for (const n of notes) {
+    const isIn = n.kind === 'in';
+    events.push({ time: n.created_at, type: isIn ? 'handover-in' : 'handover', line: '',
+      text: `${isIn ? '📥 รับกะ' : '📝 ส่งกะ'} (${n.shift || '-'})`, operator: n.operator_name });
+  }
 
   const doneTasks = await dbAll(`SELECT * FROM daily_tasks WHERE task_date IN (?, ?) AND status = 'done' AND completed_at IS NOT NULL`, [date, next]);
   for (const t of doneTasks) events.push({ time: t.completed_at, type: 'task', line: t.line_name,
@@ -1869,7 +1873,13 @@ function buildHandoverText(p, html) {
   const sm = SHIFT_META[p.shift] || { ic: '📝' };
   const nextSh = nextShiftName(p.shift, p.date);
   const t = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' });
-  const L = [`📋 ${b('ส่งกะ')}`, `${sm.ic} ${b(p.shift || '-')}${nextSh ? ` → ${esc(nextSh)}` : ''} · 👤 ${esc(p.operator || '-')} · ${t} น.`, ``];
+  const isIn = p.kind === 'in';
+  const head = isIn ? `📥 ${b('รับกะ')}` : `📋 ${b('ส่งกะ')}`;
+  // ส่งกะ = ส่งต่อกะถัดไป (→ next) · รับกะ = เริ่มกะของตัวเอง (ไม่มี →)
+  const shiftLine = isIn
+    ? `${sm.ic} ${b(p.shift || '-')} · 👤 ${esc(p.operator || '-')} · ${t} น.`
+    : `${sm.ic} ${b(p.shift || '-')}${nextSh ? ` → ${esc(nextSh)}` : ''} · 👤 ${esc(p.operator || '-')} · ${t} น.`;
+  const L = [head, shiftLine, ``];
   if (Array.isArray(p.lines) && p.lines.length) {
     for (const ln of p.lines) {
       L.push(`▶️ ${b(ln.line)} ${esc(ln.flavor || '')}${ln.batch ? ` (Batch ${esc(ln.batch)})` : ''}`.trimEnd());
@@ -1883,24 +1893,27 @@ function buildHandoverText(p, html) {
       L.push(HO_DIV);
     }
     if (p.note && p.note.trim()) L.push('', `📌 ${it(p.note.trim())}`);
+    if (isIn) L.push('', `✅ ${b('รับทราบสถานะครบ')}`);
     return L.join('\n');
   }
   // โน้ตอิสระ (legacy)
   L.push(`📌 ${b('ฝากต่อกะถัดไป')}`, it(p.text || ''));
+  if (isIn) L.push('', `✅ ${b('รับทราบสถานะครบ')}`);
   return L.join('\n');
 }
 
 app.post('/api/handover', async (req, res) => {
-  const { date, shift, operator, text, lines, line4, note } = req.body;
+  const { date, shift, operator, text, lines, line4, note, kind } = req.body;
   const structured = Array.isArray(lines) && lines.length > 0;
   if (!structured && !text) return res.status(400).json({ error: 'text หรือ lines จำเป็น' });
   const d = date || todayBKK();
-  const payload = { shift, operator, text, lines, line4, note, date: d };
+  const k = kind === 'in' ? 'in' : 'out'; // 'in' = รับกะ · 'out' = ส่งกะ (ค่าเริ่มต้น)
+  const payload = { shift, operator, text, lines, line4, note, date: d, kind: k };
   const plain = buildHandoverText(payload, false);
   const dataJson = structured ? JSON.stringify({ shift, lines, line4, note }) : null;
   try {
-    await db.exec('INSERT INTO handover_notes (note_date, shift, operator_name, text, data, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [d, shift || null, operator || null, plain, dataJson, nowBKK()]);
+    await db.exec('INSERT INTO handover_notes (note_date, shift, operator_name, text, data, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [d, shift || null, operator || null, plain, dataJson, k, nowBKK()]);
     const html = buildHandoverText(payload, true);
     sendToTelegram(html);
     res.json({ success: true, preview: html });

@@ -59,7 +59,8 @@ type Duty = { date: string; holiday?: boolean; people: DutyPerson[]; team: { don
 const TL_TYPE: Record<string, { c: string; w: string; ic: string; lb: string }> = {
   production: { c: '#2e7d32', w: '#e7f5e8', ic: '🏭', lb: 'ผลิต' },
   cip: { c: '#0277bd', w: '#e1f2fb', ic: '💧', lb: 'CIP' },
-  handover: { c: '#ff6b00', w: '#fff3e9', ic: '📝', lb: 'ส่งเวร' },
+  handover: { c: '#ff6b00', w: '#fff3e9', ic: '📤', lb: 'ส่งกะ' },
+  'handover-in': { c: '#00897b', w: '#e0f2f1', ic: '📥', lb: 'รับกะ' },
   task: { c: '#43a047', w: '#e8f5e9', ic: '✅', lb: 'ปิดงาน' },
 };
 const TL_SHIFT: Record<string, { ic: string; c: string }> = {
@@ -185,10 +186,14 @@ const initHo = (): HoState => ({
   line4: { flavor: '', stages: ['', '', '', '', '', ''] },
   note: '',
 });
-function hoPreview(h: HoState, op: string | null, date: string): string {
+function hoPreview(h: HoState, op: string | null, date: string, kind: 'in' | 'out' = 'out'): string {
   const sm = HO_SHIFT[h.shift] || { ic: '📝' };
   const next = nextShiftName(h.shift, date);
-  const L = [`📋 ส่งกะ`, `${sm.ic} ${h.shift}${next ? ` → ${next}` : ''} · 👤 ${op || '-'}`, ''];
+  const head = kind === 'in' ? '📥 รับกะ' : '📋 ส่งกะ';
+  const shiftLine = kind === 'in'
+    ? `${sm.ic} ${h.shift} · 👤 ${op || '-'}`
+    : `${sm.ic} ${h.shift}${next ? ` → ${next}` : ''} · 👤 ${op || '-'}`;
+  const L = [head, shiftLine, ''];
   for (const ln of h.lines) {
     L.push(`▶️ ${ln.line} ${ln.flavor}${ln.batch ? ` (Batch ${ln.batch})` : ''}`.trimEnd());
     ln.tanks.forEach((tk, i) => L.push(`   ถัง ${i + 1} ${tk.trim() || 'ว่าง'}`));
@@ -199,71 +204,98 @@ function hoPreview(h: HoState, op: string | null, date: string): string {
   HO_L4_STAGES.forEach((nm, i) => L.push(`   ${nm} — ${(h.line4.stages[i] || '').trim() || 'ว่าง'}`));
   L.push('  ————————————');
   if (h.note.trim()) L.push('', `📌 ${h.note.trim()}`);
+  if (kind === 'in') L.push('', '✅ รับทราบสถานะครบ');
   return L.join('\n');
+}
+// map ผลจาก /api/handover/prefill (รส/batch ล่าสุดต่อไลน์) → HoState สำหรับโหมดส่งกะ
+type PrefillLine = { flavor?: string; batch?: string; cipTime?: string };
+function hoFromPrefill(prefill: Record<string, PrefillLine>, carry?: HoState | null): HoState {
+  const base = carry || initHo();
+  return {
+    ...base,
+    lines: HO_LINES.map((l, i) => {
+      const pf = prefill[l.line] || {};
+      const prev = base.lines[i] || { line: l.line, flavor: '', batch: '', tanks: ['', '', ''], note: '' };
+      return { ...prev, line: l.line, flavor: pf.flavor || prev.flavor || '', batch: pf.batch || prev.batch || '' };
+    }),
+  };
 }
 
 const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload: () => void; card: React.CSSProperties }> =
   ({ date, operatorName, reload, card }) => {
     const [open, setOpen] = useState(false);
+    const [mode, setMode] = useState<'in' | 'out'>('out'); // 📥 รับกะ · 📤 ส่งกะ
     const [ho, setHo] = useState<HoState>(initHo);
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
+    const lastRef = useRef<HoState | null>(null);                 // สถานะกะก่อน (สำหรับ รับกะ)
+    const prefillRef = useRef<Record<string, PrefillLine>>({});   // รส/batch ล่าสุด (สำหรับ ส่งกะ)
 
-    // เปิดหน้ามา: เดากะปัจจุบันจากเวลา + โหลดสถานะถังจากกะล่าสุด (ยกมาต่อ, ไม่ยกโน้ต)
+    // เปิดหน้ามา: เดากะปัจจุบัน + โหลดกะก่อน (รับกะ) และรส/batch ล่าสุด (ส่งกะ) พร้อมกัน
     useEffect(() => {
       const bkk = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
       const cs = shiftInfo(currentWorkDay(), bkk.getHours()).shift;
+      const shift = cs ? 'กะ' + cs : 'กะเช้า';
       (async () => {
-        try {
-          const r = await fetch(`${apiUrl}/api/handover/last`);
-          const d = await r.json();
-          setHo(h => ({ ...h, shift: cs ? 'กะ' + cs : h.shift, lines: d.data?.lines || h.lines, line4: d.data?.line4 || h.line4 }));
-        } catch { setHo(h => (cs ? { ...h, shift: 'กะ' + cs } : h)); }
+        let last: HoState | null = null;
+        let prefill: Record<string, PrefillLine> = {};
+        try { const d = await (await fetch(`${apiUrl}/api/handover/last`)).json(); if (d.data) last = { shift, lines: d.data.lines || initHo().lines, line4: d.data.line4 || initHo().line4, note: '' }; } catch { /* offline */ }
+        try { const d = await (await fetch(`${apiUrl}/api/handover/prefill?date=${date}`)).json(); prefill = d.lines || {}; } catch { /* offline */ }
+        lastRef.current = last; prefillRef.current = prefill;
+        setHo({ ...hoFromPrefill(prefill, last), shift }); // เริ่มโหมดส่งกะ
       })();
-    }, []);
+    }, [date]);
+
+    // สลับโหมด: รับกะ = สถานะกะก่อน · ส่งกะ = รส/batch ล่าสุด + ยกถังจากกะก่อน
+    const applyMode = (m: 'in' | 'out') => {
+      setMode(m); setMsg('');
+      setHo(h => m === 'in'
+        ? (lastRef.current ? { ...lastRef.current, shift: h.shift } : initHo())
+        : { ...hoFromPrefill(prefillRef.current, lastRef.current), shift: h.shift });
+    };
 
     const setLine = (i: number, patch: Partial<HoLine>) => setHo(h => ({ ...h, lines: h.lines.map((l, j) => j === i ? { ...l, ...patch } : l) }));
     const setTank = (i: number, t: number, v: string) => setHo(h => ({ ...h, lines: h.lines.map((l, j) => j === i ? { ...l, tanks: l.tanks.map((x, k) => k === t ? v : x) } : l) }));
     const setStage = (i: number, v: string) => setHo(h => ({ ...h, line4: { ...h.line4, stages: h.line4.stages.map((x, k) => k === i ? v : x) } }));
 
-    const copyLast = async () => {
-      try {
-        const r = await fetch(`${apiUrl}/api/handover/last`);
-        const d = await r.json();
-        if (d.data) { setHo({ shift: d.data.shift || 'กะเช้า', lines: d.data.lines || initHo().lines, line4: d.data.line4 || initHo().line4, note: d.data.note || '' }); setMsg('คัดลอกจากกะก่อนแล้ว'); }
-        else setMsg('ยังไม่มีกะก่อนหน้า');
-      } catch { setMsg('ดึงข้อมูลไม่ได้'); }
-    };
     const send = async () => {
       setBusy(true); setMsg('');
       try {
-        await fetch(`${apiUrl}/api/handover`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, operator: operatorName, ...ho }) });
-        setMsg('✅ ส่งกะเข้า Telegram แล้ว'); setHo(initHo()); reload(); setTimeout(() => setOpen(false), 800);
+        await fetch(`${apiUrl}/api/handover`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, operator: operatorName, kind: mode, ...ho }) });
+        setMsg(mode === 'in' ? '✅ รับกะ & แจ้งกลุ่มแล้ว' : '✅ ส่งกะเข้า Telegram แล้ว'); reload(); setTimeout(() => setOpen(false), 900);
       } catch { setMsg('❌ ส่งไม่สำเร็จ'); } finally { setBusy(false); }
     };
 
     const inp: React.CSSProperties = { width: '100%', boxSizing: 'border-box', border: '1px solid #dde3e7', borderRadius: 10, padding: '9px 11px', fontSize: '0.88rem', fontFamily: 'inherit', color: '#263238' };
-    const qbtn: React.CSSProperties = { border: '1px solid #e8edf0', background: '#fff', borderRadius: 10, padding: '9px 12px', fontSize: '0.78rem', fontWeight: 700, color: '#546e7a', cursor: 'pointer' };
     const flavIn: React.CSSProperties = { marginLeft: 'auto', width: '48%', border: 'none', borderRadius: 8, padding: '7px 9px', fontSize: '0.82rem', fontWeight: 700, fontFamily: 'inherit', boxSizing: 'border-box' };
     const tag: React.CSSProperties = { fontSize: '0.62rem', fontWeight: 700, color: '#fff', background: 'rgba(255,255,255,.25)', padding: '2px 8px', borderRadius: 20 };
 
     if (!open) return (
       <button onClick={() => setOpen(true)} style={{ ...card, width: '100%', textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontWeight: 800, fontSize: '0.9rem', color: '#37474f' }}>
-        📋 บันทึกส่งกะ <span style={{ marginLeft: 'auto', fontSize: '0.74rem', color: '#90a4ae', fontWeight: 600 }}>แตะเพื่อกรอกสถานะรายไลน์ ›</span>
+        📋 บันทึกกะ <span style={{ marginLeft: 'auto', fontSize: '0.74rem', color: '#90a4ae', fontWeight: 600 }}>แตะเพื่อ รับกะ / ส่งกะ ›</span>
       </button>
     );
 
+    const modeC = mode === 'in' ? '#00897b' : '#ff6b00';
     return (
       <div style={{ ...card }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-          <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>📋 บันทึกส่งกะ</div>
+          <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>📋 บันทึกกะ</div>
           <button onClick={() => setOpen(false)} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: '#90a4ae', cursor: 'pointer', fontSize: '1.1rem' }}>×</button>
+        </div>
+        {/* segmented: รับกะ / ส่งกะ */}
+        <div style={{ display: 'flex', gap: 5, background: '#eef1f4', borderRadius: 12, padding: 4, marginBottom: 10 }}>
+          {([['in', '📥 รับกะ'], ['out', '📤 ส่งกะ']] as ['in' | 'out', string][]).map(([m, lb]) => (
+            <button key={m} onClick={() => applyMode(m)} style={{ flex: 1, border: 'none', borderRadius: 9, padding: '8px 6px', fontSize: '0.82rem', fontWeight: 800, cursor: 'pointer', background: mode === m ? '#fff' : 'transparent', color: mode === m ? (m === 'in' ? '#00897b' : '#ff6b00') : '#78828a', boxShadow: mode === m ? '0 1px 4px rgba(0,0,0,.1)' : 'none' }}>{lb}</button>
+          ))}
+        </div>
+        <div style={{ fontSize: '0.72rem', color: '#78828a', marginBottom: 10 }}>
+          {mode === 'in' ? '📥 สถานะจากกะก่อน — ตรวจ/แก้ แล้วกดรับทราบ' : '📤 เติมรส/Batch ล่าสุดให้อัตโนมัติ — แก้ได้ตามจริง'}
         </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
           <select value={ho.shift} onChange={e => setHo(h => ({ ...h, shift: e.target.value }))} style={{ ...inp, width: 'auto' }}>
             {(() => { const s = shiftsForWeekday(weekdayOf(date)).map(x => x.key); return (s.length ? s : ['เช้า', 'บ่าย', 'ดึก']); })().map(k => <option key={k} value={'กะ' + k}>กะ{k}</option>)}
           </select>
-          <button onClick={copyLast} style={qbtn}>📋 คัดลอกกะก่อน</button>
         </div>
 
         {ho.lines.map((ln, i) => { const meta = HO_LINES[i]; return (
@@ -312,9 +344,9 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
 
         <div style={{ background: '#0e1621', borderRadius: 12, padding: 12, marginBottom: 12 }}>
           <div style={{ color: '#8fa6bd', fontSize: '0.64rem', fontWeight: 800, letterSpacing: '.04em', marginBottom: 6 }}>✈ พรีวิวข้อความ</div>
-          <div style={{ color: '#e6edf3', fontSize: '0.8rem', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{hoPreview(ho, operatorName, date)}</div>
+          <div style={{ color: '#e6edf3', fontSize: '0.8rem', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{hoPreview(ho, operatorName, date, mode)}</div>
         </div>
-        <button onClick={send} disabled={busy} style={{ width: '100%', border: 'none', borderRadius: 12, padding: 13, fontWeight: 800, fontSize: '0.9rem', color: '#fff', background: '#229ed9', cursor: 'pointer', opacity: busy ? 0.6 : 1 }}>✈ ส่งกะเข้ากลุ่ม</button>
+        <button onClick={send} disabled={busy} style={{ width: '100%', border: 'none', borderRadius: 12, padding: 13, fontWeight: 800, fontSize: '0.9rem', color: '#fff', background: mode === 'in' ? modeC : '#229ed9', cursor: 'pointer', opacity: busy ? 0.6 : 1 }}>{mode === 'in' ? '✅ รับทราบ & เริ่มกะ · ส่งกลุ่ม' : '✈ ส่งกะเข้ากลุ่ม'}</button>
         {msg && <div style={{ textAlign: 'center', fontSize: '0.78rem', color: '#546e7a', marginTop: 8 }}>{msg}</div>}
       </div>
     );
@@ -323,6 +355,9 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
 const TimelineTab: React.FC<{ date: string; operatorName: string | null; events: TimelineEvent[]; reload: () => void; card: React.CSSProperties }> =
   ({ date, operatorName, events, reload, card }) => {
     const [filter, setFilter] = useState('all');
+
+    // auto-refresh ไทม์ไลน์ทุก 20 วิ ระหว่างเปิดแท็บนี้ (ล้าง interval ตอนออก)
+    useEffect(() => { const id = setInterval(reload, 20000); return () => clearInterval(id); }, [reload]);
 
     // กะของวันนี้ (ตามตารางจริง — จ-พฤ 3 กะ, ศ/อา 2 กะ, เสาร์หยุด)
     const dayShifts = shiftsForWeekday(weekdayOf(date));
@@ -350,14 +385,17 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
     const maxCnt = Math.max(1, ...hourCnt);
     const stripEmoji = (t: string) => t.replace(/^\S+\s/, '');
 
-    const filtered = evs.filter(e => filter === 'all' || e.type === filter);
+    const filtered = evs.filter(e => filter === 'all' || (filter === 'handover' ? e.type.startsWith('handover') : e.type === filter));
     const byShift: Record<string, typeof filtered> = {};
     for (const e of filtered) (byShift[shifted(e.hour)] ||= []).push(e);
 
     return (
       <div>
-        {/* handover form (structured, collapsible) */}
+        {/* handover form (รับกะ/ส่งกะ, collapsible) */}
         <HandoverForm date={date} operatorName={operatorName} reload={reload} card={card} />
+
+        {/* live status board (สด, auto-refresh) */}
+        {!isHoliday && <LiveBoard date={date} card={card} />}
 
         {/* shift summary cards (ตามตารางจริงของวันนั้น) */}
         {isHoliday && <div style={{ ...card, textAlign: 'center', color: '#90a4ae', fontWeight: 700 }}>🚫 วันเสาร์ — วันหยุด (ไม่มีกะทำงาน)</div>}
@@ -373,23 +411,9 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
           ); })}
         </div>
 
-        {/* hourly heatmap */}
-        <div style={{ ...card }}>
-          <div style={{ fontSize: '0.76rem', fontWeight: 800, marginBottom: '10px' }}>🔥 ความถี่กิจกรรมรายชั่วโมง</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(24,1fr)', gap: '3px' }}>
-            {hourCnt.map((c, h) => (
-              <div key={h} title={`${String(h).padStart(2, '0')}:00 · ${c} รายการ`}
-                style={{ aspectRatio: '1', borderRadius: '3px', background: c ? `rgba(255,107,0,${0.22 + (c / maxCnt) * 0.78})` : '#eef1f4' }} />
-            ))}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(24,1fr)', gap: '3px', marginTop: '4px', fontSize: '0.5rem', color: '#90a4ae', textAlign: 'center' }}>
-            {Array.from({ length: 24 }, (_, h) => <div key={h}>{h % 6 === 0 ? h : ''}</div>)}
-          </div>
-        </div>
-
-        {/* filters */}
+        {/* view segmented (filters) */}
         <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', marginBottom: '12px' }}>
-          {([['all', 'ทั้งหมด'], ['production', '🏭 ผลิต'], ['cip', '💧 CIP'], ['handover', '📝 ส่งเวร']] as [string, string][]).map(([k, l]) => (
+          {([['all', 'ทั้งหมด'], ['production', '🏭 ผลิต'], ['cip', '💧 CIP'], ['handover', '📋 กะ']] as [string, string][]).map(([k, l]) => (
             <button key={k} onClick={() => setFilter(k)} style={{
               flex: '0 0 auto', border: '2px solid', borderColor: filter === k ? 'transparent' : '#e0e0e0',
               background: filter === k ? '#37474f' : '#fff', color: filter === k ? '#fff' : '#666',
@@ -425,9 +449,82 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
           </div>
         ); })}
         {evs.length === 0 && <div style={{ textAlign: 'center', color: '#bbb', fontSize: '0.85rem', padding: '24px' }}>ยังไม่มีเหตุการณ์ในวันนี้</div>}
+
+        {/* hourly heatmap (analytics — ท้ายหน้า) */}
+        <div style={{ ...card, marginTop: 12 }}>
+          <div style={{ fontSize: '0.76rem', fontWeight: 800, marginBottom: '10px' }}>🔥 ความถี่กิจกรรมรายชั่วโมง</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(24,1fr)', gap: '3px' }}>
+            {hourCnt.map((c, h) => (
+              <div key={h} title={`${String(h).padStart(2, '0')}:00 · ${c} รายการ`}
+                style={{ aspectRatio: '1', borderRadius: '3px', background: c ? `rgba(255,107,0,${0.22 + (c / maxCnt) * 0.78})` : '#eef1f4' }} />
+            ))}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(24,1fr)', gap: '3px', marginTop: '4px', fontSize: '0.5rem', color: '#90a4ae', textAlign: 'center' }}>
+            {Array.from({ length: 24 }, (_, h) => <div key={h}>{h % 6 === 0 ? h : ''}</div>)}
+          </div>
+        </div>
       </div>
     );
   };
+
+// ─── Live status board (สถานะสดต่อไลน์, auto-refresh) ─────────────
+const LIVE_LINES = ['Line 1', 'Line 2', 'Line 3', 'Line 4'];
+type LiveLine = { flavor?: string; batch?: string; prodTime?: string; cipTime?: string };
+const LiveBoard: React.FC<{ date: string; card: React.CSSProperties }> = ({ date, card }) => {
+  const [lines, setLines] = useState<Record<string, LiveLine>>({});
+  const [updated, setUpdated] = useState('');
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch(`${apiUrl}/api/handover/prefill?date=${date}`);
+      const d = await r.json();
+      setLines(d.lines || {});
+      setUpdated(new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' }));
+    } catch { /* offline */ }
+  }, [date]);
+  useEffect(() => { load(); const id = setInterval(load, 20000); return () => clearInterval(id); }, [load]);
+
+  // อนุมานสถานะจากบันทึกล่าสุด (แอปไม่ได้ต่อ PLC): เทียบเวลาผลิต vs CIP ล่าสุด
+  const statusOf = (d?: LiveLine): 'prod' | 'cip' | 'idle' => {
+    if (!d) return 'idle';
+    const p = d.prodTime || '', c = d.cipTime || '';
+    if (c && c >= p) return 'cip';
+    if (p) return 'prod';
+    return 'idle';
+  };
+  const S = {
+    prod: { c: '#2e7d32', w: '#e8f5e9', lb: '🟢 ผลิตอยู่' },
+    cip: { c: '#0277bd', w: '#e1f2fb', lb: '💧 CIP' },
+    idle: { c: '#90a4ae', w: '#eef1f4', lb: '⚪ ว่าง' },
+  } as const;
+
+  return (
+    <div style={{ ...card }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#e53935', boxShadow: '0 0 0 3px rgba(229,57,53,.18)' }} />
+        <span style={{ fontSize: '0.68rem', fontWeight: 800, letterSpacing: '.05em', color: '#e53935' }}>LIVE · สถานะสด</span>
+        <span style={{ marginLeft: 'auto', fontSize: '0.66rem', color: '#90a4ae', fontWeight: 600 }}>{updated ? `อัปเดต ${updated}` : 'กำลังโหลด…'}</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        {LIVE_LINES.map(ln => {
+          const d = lines[ln]; const st = statusOf(d); const meta = S[st];
+          const cipHM = d?.cipTime ? (parseHM(d.cipTime)?.hm || '') : '';
+          return (
+            <div key={ln} style={{ border: '1px solid #eee', borderRadius: 11, padding: '9px 10px', position: 'relative', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: meta.c }} />
+              <div style={{ fontSize: '0.74rem', fontWeight: 800, color: '#37474f' }}>{ln}</div>
+              <span style={{ display: 'inline-block', fontSize: '0.6rem', fontWeight: 800, borderRadius: 20, padding: '2px 8px', marginTop: 4, background: meta.w, color: meta.c }}>{meta.lb}</span>
+              <div style={{ fontSize: '0.68rem', color: '#546e7a', marginTop: 5 }}>
+                {st === 'prod' ? `${d?.flavor || '-'}${d?.batch ? ` · Batch ${d.batch}` : ''}`
+                  : st === 'cip' ? <>CIP <small style={{ color: '#90a4ae' }}>{cipHM && `· ${cipHM}`}</small></>
+                    : <small style={{ color: '#90a4ae' }}>{cipHM ? `CIP ล่าสุด ${cipHM}` : 'ยังไม่มีบันทึกวันนี้'}</small>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
 
 // ─── Recurring templates + compliance ──────────────────────────
 const RecurringTab: React.FC<{ templates: Template[]; tasks: Task[]; reload: () => void; card: React.CSSProperties }> =
