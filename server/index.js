@@ -1914,17 +1914,19 @@ function buildHandoverText(p, html) {
   const shiftLine = isIn
     ? `${sm.ic} ${b(p.shift || '-')} · 👤 ${esc(p.operator || '-')} · ${t} น.`
     : `${sm.ic} ${b(p.shift || '-')}${nextSh ? ` → ${esc(nextSh)}` : ''} · 👤 ${esc(p.operator || '-')} · ${t} น.`;
-  const L = [head, shiftLine, ...(p.lotNo ? [`📅 Lot ${esc(p.lotNo)}`] : []), ``];
+  const L = [head, shiftLine, ``];
   if (Array.isArray(p.lines) && p.lines.length) {
     for (const ln of p.lines) {
       L.push(`▶️ ${b(ln.line)} ${esc(ln.flavor || '')}${ln.batch ? ` (Batch ${esc(ln.batch)})` : ''}`.trimEnd());
       (ln.tanks || []).forEach((tk, i) => L.push(`   ถัง ${i + 1} ${esc((tk || '').trim() || 'ว่าง')}`));
       if (ln.note && ln.note.trim()) L.push(`   ${it('(' + ln.note.trim() + ')')}`);
+      if (ln.lotNo && String(ln.lotNo).trim()) L.push(`   ${it('(Lot no ' + String(ln.lotNo).trim() + ')')}`);
       L.push(HO_DIV);
     }
     if (p.line4) {
       L.push(`▶️ ${b('Line 4')} ${esc(p.line4.flavor || '')}`.trimEnd());
       L4_STAGES.forEach((nm, i) => L.push(`   ${nm} — ${esc(((p.line4.stages || [])[i] || '').trim() || 'ว่าง')}`));
+      if (p.line4.lotNo && String(p.line4.lotNo).trim()) L.push(`   ${it('(Lot no ' + String(p.line4.lotNo).trim() + ')')}`);
       L.push(HO_DIV);
     }
     if (p.note && p.note.trim()) L.push('', `📌 ${it(p.note.trim())}`);
@@ -1938,14 +1940,14 @@ function buildHandoverText(p, html) {
 }
 
 app.post('/api/handover', async (req, res) => {
-  const { date, shift, operator, text, lines, line4, note, kind, lotNo } = req.body;
+  const { date, shift, operator, text, lines, line4, note, kind } = req.body;
   const structured = Array.isArray(lines) && lines.length > 0;
   if (!structured && !text) return res.status(400).json({ error: 'text หรือ lines จำเป็น' });
   const d = date || todayBKK();
   const k = kind === 'in' ? 'in' : 'out'; // 'in' = รับกะ · 'out' = ส่งกะ (ค่าเริ่มต้น)
-  const payload = { shift, operator, text, lines, line4, note, date: d, kind: k, lotNo };
+  const payload = { shift, operator, text, lines, line4, note, date: d, kind: k }; // Lot No. อยู่รายไลน์ใน lines[]/line4
   const plain = buildHandoverText(payload, false);
-  const dataJson = structured ? JSON.stringify({ shift, lines, line4, note, lotNo }) : null;
+  const dataJson = structured ? JSON.stringify({ shift, lines, line4, note }) : null;
   try {
     await db.exec('INSERT INTO handover_notes (note_date, shift, operator_name, text, data, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [d, shift || null, operator || null, plain, dataJson, k, nowBKK()]);

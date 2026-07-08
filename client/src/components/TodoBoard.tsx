@@ -177,15 +177,14 @@ const HO_LINES = [
   { line: 'Line 2', sub: 'Flavour', c: '#00838f' },
   { line: 'Line 3', sub: 'Flavour', c: '#6a1b9a' },
 ];
-type HoLine = { line: string; flavor: string; batch: string; tanks: string[]; note: string };
-type HoState = { shift: string; lines: HoLine[]; line4: { flavor: string; stages: string[] }; note: string; lotNo: string };
+type HoLine = { line: string; flavor: string; batch: string; tanks: string[]; note: string; lotNo: string };
+type HoState = { shift: string; lines: HoLine[]; line4: { flavor: string; stages: string[]; lotNo: string }; note: string };
 const HO_BATCHES = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const initHo = (): HoState => ({
   shift: 'กะเช้า',
-  lines: HO_LINES.map(l => ({ line: l.line, flavor: '', batch: '', tanks: ['', '', ''], note: '' })),
-  line4: { flavor: '', stages: ['', '', '', '', '', ''] },
+  lines: HO_LINES.map(l => ({ line: l.line, flavor: '', batch: '', tanks: ['', '', ''], note: '', lotNo: '' })),
+  line4: { flavor: '', stages: ['', '', '', '', '', ''], lotNo: '' },
   note: '',
-  lotNo: '',
 });
 function hoPreview(h: HoState, op: string | null, date: string, kind: 'in' | 'out' = 'out'): string {
   const sm = HO_SHIFT[h.shift] || { ic: '📝' };
@@ -194,15 +193,17 @@ function hoPreview(h: HoState, op: string | null, date: string, kind: 'in' | 'ou
   const shiftLine = kind === 'in'
     ? `${sm.ic} ${h.shift} · 👤 ${op || '-'}`
     : `${sm.ic} ${h.shift}${next ? ` → ${next}` : ''} · 👤 ${op || '-'}`;
-  const L = [head, shiftLine, ...(h.lotNo ? [`📅 Lot ${h.lotNo}`] : []), ''];
+  const L = [head, shiftLine, ''];
   for (const ln of h.lines) {
     L.push(`▶️ ${ln.line} ${ln.flavor}${ln.batch ? ` (Batch ${ln.batch})` : ''}`.trimEnd());
     ln.tanks.forEach((tk, i) => L.push(`   ถัง ${i + 1} ${tk.trim() || 'ว่าง'}`));
     if (ln.note.trim()) L.push(`   (${ln.note.trim()})`);
+    if ((ln.lotNo || '').trim()) L.push(`   (Lot no ${ln.lotNo.trim()})`);
     L.push('  ————————————');
   }
   L.push(`▶️ Line 4 ${h.line4.flavor}`.trimEnd());
   HO_L4_STAGES.forEach((nm, i) => L.push(`   ${nm} — ${(h.line4.stages[i] || '').trim() || 'ว่าง'}`));
+  if ((h.line4.lotNo || '').trim()) L.push(`   (Lot no ${h.line4.lotNo.trim()})`);
   L.push('  ————————————');
   if (h.note.trim()) L.push('', `📌 ${h.note.trim()}`);
   if (kind === 'in') L.push('', '✅ รับทราบสถานะครบ');
@@ -216,11 +217,17 @@ function hoFromPrefill(prefill: Record<string, PrefillLine>, carry?: HoState | n
     ...base,
     lines: HO_LINES.map((l, i) => {
       const pf = prefill[l.line] || {};
-      const prev = base.lines[i] || { line: l.line, flavor: '', batch: '', tanks: ['', '', ''], note: '' };
+      const prev = base.lines[i] || { line: l.line, flavor: '', batch: '', tanks: ['', '', ''], note: '', lotNo: '' };
       return { ...prev, line: l.line, flavor: pf.flavor || prev.flavor || '', batch: pf.batch || prev.batch || '' };
     }),
   };
 }
+// เติม Lot No. รายไลน์ให้เป็นค่าเริ่มต้น (ddmmyy) ถ้ายังว่าง + กัน field undefined จากข้อมูลเก่า
+const fillLot = (h: HoState, lot: string): HoState => ({
+  ...h,
+  lines: h.lines.map(l => ({ ...l, lotNo: l.lotNo || lot })),
+  line4: { ...h.line4, lotNo: h.line4.lotNo || lot },
+});
 
 const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload: () => void; card: React.CSSProperties; onLiveChange?: (ho: HoState) => void }> =
   ({ date, operatorName, reload, card, onLiveChange }) => {
@@ -240,10 +247,10 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
       (async () => {
         let last: HoState | null = null;
         let prefill: Record<string, PrefillLine> = {};
-        try { const d = await (await fetch(`${apiUrl}/api/handover/last`)).json(); if (d.data) last = { shift, lines: d.data.lines || initHo().lines, line4: d.data.line4 || initHo().line4, note: '', lotNo: d.data.lotNo || '' }; } catch { /* offline */ }
+        try { const d = await (await fetch(`${apiUrl}/api/handover/last`)).json(); if (d.data) last = fillLot({ shift, lines: d.data.lines || initHo().lines, line4: d.data.line4 || initHo().line4, note: '' }, ''); } catch { /* offline */ }
         try { const d = await (await fetch(`${apiUrl}/api/handover/prefill?date=${date}`)).json(); prefill = d.lines || {}; } catch { /* offline */ }
         lastRef.current = last; prefillRef.current = prefill;
-        setHo({ ...hoFromPrefill(prefill, last), shift, lotNo: pkLot(date) }); // เริ่มโหมดส่งกะ
+        setHo(fillLot({ ...hoFromPrefill(prefill, last), shift }, pkLot(date))); // เริ่มโหมดส่งกะ
       })();
     }, [date]);
 
@@ -253,9 +260,9 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
     // สลับโหมด: รับกะ = สถานะกะก่อน · ส่งกะ = รส/batch ล่าสุด + ยกถังจากกะก่อน
     const applyMode = (m: 'in' | 'out') => {
       setMode(m); setMsg('');
-      setHo(h => m === 'in'
-        ? (lastRef.current ? { ...lastRef.current, shift: h.shift, lotNo: h.lotNo } : { ...initHo(), lotNo: h.lotNo })
-        : { ...hoFromPrefill(prefillRef.current, lastRef.current), shift: h.shift, lotNo: h.lotNo });
+      setHo(h => fillLot(m === 'in'
+        ? (lastRef.current ? { ...lastRef.current, shift: h.shift } : initHo())
+        : { ...hoFromPrefill(prefillRef.current, lastRef.current), shift: h.shift }, pkLot(date)));
     };
 
     const setLine = (i: number, patch: Partial<HoLine>) => setHo(h => ({ ...h, lines: h.lines.map((l, j) => j === i ? { ...l, ...patch } : l) }));
@@ -300,10 +307,6 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
           <select value={ho.shift} onChange={e => setHo(h => ({ ...h, shift: e.target.value }))} style={{ ...inp, width: 'auto' }}>
             {(() => { const s = shiftsForWeekday(weekdayOf(date)).map(x => x.key); return (s.length ? s : ['เช้า', 'บ่าย', 'ดึก']); })().map(k => <option key={k} value={'กะ' + k}>กะ{k}</option>)}
           </select>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 120 }}>
-            <label style={{ fontSize: '0.76rem', fontWeight: 700, color: '#546e7a' }}>Lot No.</label>
-            <input value={ho.lotNo} onChange={e => setHo(h => ({ ...h, lotNo: e.target.value }))} placeholder="เช่น 080726" style={{ ...inp, flex: 1, minWidth: 0 }} />
-          </div>
         </div>
 
         {ho.lines.map((ln, i) => { const meta = HO_LINES[i]; return (
@@ -327,6 +330,10 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
                   <input value={tk} onChange={e => setTank(i, t, e.target.value)} placeholder="ว่าง" style={inp} />
                 </div>
               ))}
+              <div style={{ display: 'grid', gridTemplateColumns: '58px 1fr', alignItems: 'center', gap: 10, marginBottom: 7 }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#546e7a' }}>Lot No.</label>
+                <input value={ln.lotNo || ''} onChange={e => setLine(i, { lotNo: e.target.value })} placeholder="เช่น 080726" style={inp} />
+              </div>
               <input value={ln.note} onChange={e => setLine(i, { note: e.target.value })} placeholder="หมายเหตุ (เช่น หลังเปลี่ยนกรอง Batch 2)" style={{ ...inp, border: '1px dashed #d3dae0', marginTop: 2 }} />
             </div>
           </div>
@@ -345,6 +352,10 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
                 <input value={ho.line4.stages[i]} onChange={e => setStage(i, e.target.value)} placeholder="ว่าง / สถานะ" style={inp} />
               </div>
             ))}
+            <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', alignItems: 'center', gap: 10, marginBottom: 7 }}>
+              <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#546e7a' }}>Lot No.</label>
+              <input value={ho.line4.lotNo || ''} onChange={e => setHo(h => ({ ...h, line4: { ...h.line4, lotNo: e.target.value } }))} placeholder="เช่น 080726" style={inp} />
+            </div>
           </div>
         </div>
 
@@ -370,8 +381,8 @@ const PK_LINES = [
 const PK_BATCHES = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const PK_NUM = ['1️⃣', '2️⃣', '3️⃣', '4️⃣'];
 type PkRow = { batch: string; amount: string };
-type PkLineState = { flavor: string; rows: PkRow[] };
-const pkInit = (): PkLineState[] => PK_LINES.map(() => ({ flavor: '', rows: [{ batch: '', amount: '' }] }));
+type PkLineState = { flavor: string; rows: PkRow[]; lotNo: string };
+const pkInit = (): PkLineState[] => PK_LINES.map(() => ({ flavor: '', rows: [{ batch: '', amount: '' }], lotNo: '' }));
 const isCipFlavor = (f: string) => /^\s*cip\b/i.test((f || '').trim());
 // สูตร: L1 %×1 · L2 Freshy kg÷12 / Senorita kg×0.15 · L3 Freshy kg×0.08 / Senorita kg×0.16 · L4 Freshy %×2.5 / Senorita %×5
 const pkFactor = (line: number, flavor: string): number => {
@@ -396,27 +407,28 @@ const pkParse = (s: string): PkRow | null => {
   const am = str.match(/(\d+(?:\.\d+)?)/);
   return { batch: bm[1].toUpperCase(), amount: am ? am[1] : '' };
 };
-// แปลงข้อมูลรับกะล่าสุด (lines[].tanks + line4.stages) → แถวของฟอร์มบรรจุ
-type HoData = { lines?: { flavor?: string; tanks?: string[] }[]; line4?: { flavor?: string; stages?: string[] }; lotNo?: string };
+// แปลงข้อมูลรับกะล่าสุด (lines[].tanks + line4.stages) → แถวของฟอร์มบรรจุ + Lot รายไลน์
+type HoData = { lines?: { flavor?: string; tanks?: string[]; lotNo?: string }[]; line4?: { flavor?: string; stages?: string[]; lotNo?: string } };
 const pkFromHandover = (d: HoData): PkLineState[] => PK_LINES.map((_, i) => {
   const src = i < 3 ? (d.lines?.[i] || {}) : (d.line4 || {});
   const cells: string[] = i < 3 ? ((d.lines?.[i]?.tanks) || []) : ((d.line4?.stages) || []);
   const rows = cells.map(pkParse).filter((r): r is PkRow => !!r);
-  return { flavor: src.flavor || '', rows: rows.length ? rows : [{ batch: '', amount: '' }] };
+  return { flavor: src.flavor || '', rows: rows.length ? rows : [{ batch: '', amount: '' }], lotNo: src.lotNo || '' };
 });
-const pkBuild = (lines: PkLineState[], lotNo: string): { text: string; total: number } => {
-  const L = ['📦 รายงานพนักงานบรรจุ', `📅 Lot ${lotNo || '-'}`, '────────────'];
+const PK_DIV = '────────────';
+const pkBuild = (lines: PkLineState[]): { text: string; total: number } => {
+  const L = ['📦 รายงานพนักงานบรรจุ'];
   let total = 0;
   lines.forEach((ls, i) => {
-    const lineNo = i + 1;
-    if (i > 0) L.push(''); // เว้นบรรทัดคั่นแต่ละ Line ให้อ่านง่าย
-    L.push(`${PK_NUM[i]} Line ${lineNo} · ${ls.flavor || '-'}`);
-    if (isCipFlavor(ls.flavor)) { L.push('   CIP'); return; }
+    const cip = isCipFlavor(ls.flavor);
     const valid = ls.rows.filter(r => r.batch && parseFloat(r.amount) > 0);
-    if (!valid.length) { L.push('   —'); return; }
-    for (const r of valid) { const b = pkBoxes(lineNo, ls.flavor, r.amount); total += b; L.push(`   Batch ${r.batch}: ${b} Boxes`); }
+    if (!ls.flavor.trim() && !valid.length && !cip) return; // ข้ามไลน์ที่ไม่มีข้อมูล
+    L.push(PK_DIV, ls.flavor.trim() || '-');
+    if (cip) return; // CIP: ไม่คิด Boxes / ไม่มี Lot
+    for (const r of valid) { const b = pkBoxes(i + 1, ls.flavor, r.amount); total += b; L.push(`Batch ${r.batch} ${b} Boxes`); }
+    if ((ls.lotNo || '').trim()) L.push(`(Lot no ${ls.lotNo.trim()})`);
   });
-  L.push('────────────', `รวม ${total} Boxes`);
+  L.push(PK_DIV, `รวม ${total} Boxes`);
   return { text: L.join('\n'), total };
 };
 
@@ -424,27 +436,26 @@ const PackingReportForm: React.FC<{ date: string; operatorName: string | null; r
   ({ date, operatorName, reload, card, source }) => {
     const [open, setOpen] = useState(false);
     const [lines, setLines] = useState<PkLineState[]>(pkInit);
-    const [lotNo, setLotNo] = useState('');
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
 
-    // ซิงค์สดจากฟอร์มรับกะ: รส + แกะ Batch/จำนวน จากสถานะถัง (แก้ด้วยมือได้ · จะรีเซ็ตเมื่อรับกะเปลี่ยนอีก)
+    // ซิงค์สดจากฟอร์มรับกะ: รส + แกะ Batch/จำนวน + Lot รายไลน์ จากสถานะถัง (แก้ด้วยมือได้ · รีเซ็ตเมื่อรับกะเปลี่ยนอีก)
     const applySource = useCallback((): boolean => {
       if (!source) return false;
-      setLines(pkFromHandover(source));
-      setLotNo(source.lotNo || pkLot(date));
+      setLines(pkFromHandover(source).map(l => ({ ...l, lotNo: l.lotNo || pkLot(date) })));
       return true;
     }, [source, date]);
 
-    // เด้งอัตโนมัติทุกครั้งที่รับกะเปลี่ยน (ไม่ต้องกดส่งก่อน) + Lot สำรองจากวันที่
-    useEffect(() => { if (!applySource()) setLotNo(l => l || pkLot(date)); }, [applySource, date]);
+    // เด้งอัตโนมัติทุกครั้งที่รับกะเปลี่ยน (ไม่ต้องกดส่งก่อน)
+    useEffect(() => { applySource(); }, [applySource]);
 
     const setFlavor = (i: number, v: string) => setLines(ls => ls.map((l, j) => j === i ? { ...l, flavor: v } : l));
+    const setLot = (i: number, v: string) => setLines(ls => ls.map((l, j) => j === i ? { ...l, lotNo: v } : l));
     const setRow = (i: number, r: number, patch: Partial<PkRow>) => setLines(ls => ls.map((l, j) => j === i ? { ...l, rows: l.rows.map((x, k) => k === r ? { ...x, ...patch } : x) } : l));
     const addRow = (i: number) => setLines(ls => ls.map((l, j) => j === i ? { ...l, rows: [...l.rows, { batch: '', amount: '' }] } : l));
     const delRow = (i: number, r: number) => setLines(ls => ls.map((l, j) => j === i ? { ...l, rows: l.rows.filter((_, k) => k !== r) } : l));
 
-    const { text, total } = pkBuild(lines, lotNo);
+    const { text, total } = pkBuild(lines);
 
     const send = async () => {
       setBusy(true); setMsg('');
@@ -498,15 +509,14 @@ const PackingReportForm: React.FC<{ date: string; operatorName: string | null; r
                   </div>
                 ); })}
                 <button onClick={() => addRow(i)} style={{ border: '1px dashed #cbd3d9', background: '#fff', color: '#78828a', borderRadius: 9, padding: '6px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', width: '100%' }}>+ เพิ่ม Batch</button>
+                <div style={{ display: 'grid', gridTemplateColumns: '58px 1fr', alignItems: 'center', gap: 7, marginTop: 8 }}>
+                  <label style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a' }}>Lot No.</label>
+                  <input value={ls.lotNo || ''} onChange={e => setLot(i, e.target.value)} placeholder="เช่น 080726" style={inp} />
+                </div>
               </>)}
             </div>
           </div>
         ); })}
-
-        <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', alignItems: 'center', gap: 9, marginBottom: 12 }}>
-          <label style={{ fontSize: '0.76rem', fontWeight: 700, color: '#546e7a' }}>Lot No.</label>
-          <input value={lotNo} onChange={e => setLotNo(e.target.value)} style={{ ...inp, width: '100%', boxSizing: 'border-box' }} />
-        </div>
 
         <div style={{ background: '#0e1621', borderRadius: 12, padding: 12, marginBottom: 12 }}>
           <div style={{ color: '#8fa6bd', fontSize: '0.64rem', fontWeight: 800, letterSpacing: '.04em', marginBottom: 6 }}>✈ พรีวิว · รวม {total} Boxes</div>
