@@ -1358,8 +1358,10 @@ async function buildTimeline(date) {
   const notes = await dbAll('SELECT * FROM handover_notes WHERE note_date IN (?, ?) ORDER BY created_at', [date, next]);
   for (const n of notes) {
     const isIn = n.kind === 'in';
+    const isPacking = isIn && /บรรจุ/.test(n.text || '');
+    const label = isPacking ? '📦 รายงานบรรจุ' : isIn ? '📥 รับกะ' : '📝 ส่งกะ';
     events.push({ time: n.created_at, type: isIn ? 'handover-in' : 'handover', line: '',
-      text: `${isIn ? '📥 รับกะ' : '📝 ส่งกะ'} (${n.shift || '-'})`, operator: n.operator_name });
+      text: `${label} (${n.shift || '-'})`, operator: n.operator_name });
   }
 
   const doneTasks = await dbAll(`SELECT * FROM daily_tasks WHERE task_date IN (?, ?) AND status = 'done' AND completed_at IS NOT NULL`, [date, next]);
@@ -1950,6 +1952,20 @@ app.post('/api/handover', async (req, res) => {
     const html = buildHandoverText(payload, true);
     sendToTelegram(html);
     res.json({ success: true, preview: html });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// รายงานพนักงานบรรจุ (แอปคำนวณ Boxes มาแล้ว) → ส่งกลุ่ม Production report + ขึ้น timeline ช่อง [รับกะ]
+app.post('/api/packing-report', async (req, res) => {
+  const { date, operator, shift, text } = req.body;
+  if (!text) return res.status(400).json({ error: 'text จำเป็น' });
+  const d = date || todayBKK();
+  try {
+    // บันทึกเป็น handover kind='in' → โผล่ในไทม์ไลน์เป็น 📦 รายงานบรรจุ (ช่องรับกะ)
+    await db.exec('INSERT INTO handover_notes (note_date, shift, operator_name, text, data, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [d, shift || null, operator || null, text, null, 'in', nowBKK()]);
+    sendToTelegram(escapeHtml(text));
+    res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

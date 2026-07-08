@@ -352,6 +352,146 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
     );
   };
 
+// ─── Packing-staff report (แปลงสถานะถัง %/kg → Boxes, แอปคำนวณล้วน) ─────────
+const PK_LINES = [
+  { line: 1, unit: '%', c: '#0d47a1' },
+  { line: 2, unit: 'kg', c: '#00838f' },
+  { line: 3, unit: 'kg', c: '#6a1b9a' },
+  { line: 4, unit: '%', c: '#4a7c59' },
+];
+const PK_BATCHES = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+const PK_NUM = ['1️⃣', '2️⃣', '3️⃣', '4️⃣'];
+type PkRow = { batch: string; amount: string };
+type PkLineState = { flavor: string; rows: PkRow[] };
+const pkInit = (): PkLineState[] => PK_LINES.map(() => ({ flavor: '', rows: [{ batch: '', amount: '' }] }));
+const isCipFlavor = (f: string) => /^\s*cip\b/i.test((f || '').trim());
+// สูตร: L1 %×1 · L2 Freshy kg÷12 / Senorita kg×0.15 · L3 Freshy kg×0.08 / Senorita kg×0.16 · L4 Freshy %×2.5 / Senorita %×5
+const pkFactor = (line: number, flavor: string): number => {
+  const sen = /senorita/i.test(flavor);
+  if (line === 1) return 1;
+  if (line === 2) return sen ? 0.15 : 1 / 12;
+  if (line === 3) return sen ? 0.16 : 0.08;
+  if (line === 4) return sen ? 5 : 2.5;
+  return 0;
+};
+const pkBoxes = (line: number, flavor: string, amount: string): number => {
+  const a = parseFloat(amount);
+  if (!isFinite(a) || a <= 0) return 0;
+  return Math.floor(a * pkFactor(line, flavor)); // ปัดลงเสมอ
+};
+const pkLot = (d: string): string => { const p = (d || '').split('-'); return p.length === 3 ? `${p[2]}${p[1]}${p[0].slice(2)}` : ''; };
+const pkBuild = (lines: PkLineState[], lotNo: string): { text: string; total: number } => {
+  const L = ['📦 รายงานพนักงานบรรจุ', `📅 Lot ${lotNo || '-'}`, '────────────'];
+  let total = 0;
+  lines.forEach((ls, i) => {
+    const lineNo = i + 1;
+    L.push(`${PK_NUM[i]} Line ${lineNo} · ${ls.flavor || '-'}`);
+    if (isCipFlavor(ls.flavor)) { L.push('   CIP'); return; }
+    const valid = ls.rows.filter(r => r.batch && parseFloat(r.amount) > 0);
+    if (!valid.length) { L.push('   —'); return; }
+    for (const r of valid) { const b = pkBoxes(lineNo, ls.flavor, r.amount); total += b; L.push(`   Batch ${r.batch}: ${b} Boxes`); }
+  });
+  L.push('────────────', `รวม ${total} Boxes`);
+  return { text: L.join('\n'), total };
+};
+
+const PackingReportForm: React.FC<{ date: string; operatorName: string | null; reload: () => void; card: React.CSSProperties }> =
+  ({ date, operatorName, reload, card }) => {
+    const [open, setOpen] = useState(false);
+    const [lines, setLines] = useState<PkLineState[]>(pkInit);
+    const [lotNo, setLotNo] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [msg, setMsg] = useState('');
+
+    // เปิดมา: เติมรส/Batch ล่าสุดต่อไลน์ (จำนวนกรอกเองจากถังจริง) + Lot จากวันที่
+    useEffect(() => {
+      setLotNo(pkLot(date));
+      (async () => {
+        try {
+          const d = await (await fetch(`${apiUrl}/api/handover/prefill?date=${date}`)).json();
+          const pf = d.lines || {};
+          setLines(PK_LINES.map(l => { const info = pf[`Line ${l.line}`] || {}; return { flavor: info.flavor || '', rows: [{ batch: info.batch || '', amount: '' }] }; }));
+        } catch { /* offline */ }
+      })();
+    }, [date]);
+
+    const setFlavor = (i: number, v: string) => setLines(ls => ls.map((l, j) => j === i ? { ...l, flavor: v } : l));
+    const setRow = (i: number, r: number, patch: Partial<PkRow>) => setLines(ls => ls.map((l, j) => j === i ? { ...l, rows: l.rows.map((x, k) => k === r ? { ...x, ...patch } : x) } : l));
+    const addRow = (i: number) => setLines(ls => ls.map((l, j) => j === i ? { ...l, rows: [...l.rows, { batch: '', amount: '' }] } : l));
+    const delRow = (i: number, r: number) => setLines(ls => ls.map((l, j) => j === i ? { ...l, rows: l.rows.filter((_, k) => k !== r) } : l));
+
+    const { text, total } = pkBuild(lines, lotNo);
+
+    const send = async () => {
+      setBusy(true); setMsg('');
+      try {
+        const bkk = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
+        const cs = shiftInfo(currentWorkDay(), bkk.getHours()).shift;
+        await fetch(`${apiUrl}/api/packing-report`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, operator: operatorName, shift: cs ? 'กะ' + cs : '', text }) });
+        setMsg('✅ ส่งรายงานเข้ากลุ่มแล้ว'); reload(); setTimeout(() => setOpen(false), 900);
+      } catch { setMsg('❌ ส่งไม่สำเร็จ'); } finally { setBusy(false); }
+    };
+
+    const inp: React.CSSProperties = { border: '1px solid #dde3e7', borderRadius: 9, padding: '7px 9px', fontSize: '0.8rem', fontFamily: 'inherit', color: '#37474f', background: '#fff' };
+
+    if (!open) return (
+      <button onClick={() => setOpen(true)} style={{ ...card, width: '100%', textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontWeight: 800, fontSize: '0.9rem', color: '#37474f' }}>
+        📦 รายงานพนักงานบรรจุ <span style={{ marginLeft: 'auto', fontSize: '0.74rem', color: '#90a4ae', fontWeight: 600 }}>แปลง %/kg → Boxes ›</span>
+      </button>
+    );
+
+    return (
+      <div style={{ ...card }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
+          <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>📦 รายงานพนักงานบรรจุ</div>
+          <button onClick={() => setOpen(false)} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: '#90a4ae', cursor: 'pointer', fontSize: '1.1rem' }}>×</button>
+        </div>
+        <div style={{ fontSize: '0.72rem', color: '#78828a', marginBottom: 10 }}>แอปคำนวณ Boxes ให้อัตโนมัติ (ปัดลง) · จำนวนกรอกจากถังจริง</div>
+
+        {PK_LINES.map((meta, i) => { const ls = lines[i]; const cip = isCipFlavor(ls.flavor); return (
+          <div key={meta.line} style={{ border: '1px solid #e8edf0', borderRadius: 12, marginBottom: 10, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 11px', background: meta.c }}>
+              <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.82rem' }}>{PK_NUM[i]} Line {meta.line}</span>
+              <span style={{ fontSize: '0.56rem', fontWeight: 800, color: '#fff', background: 'rgba(255,255,255,.28)', borderRadius: 20, padding: '2px 7px' }}>{meta.unit}</span>
+              <input value={ls.flavor} onChange={e => setFlavor(i, e.target.value)} placeholder="รส / CIP" style={{ marginLeft: 'auto', width: '52%', border: 'none', borderRadius: 7, padding: '6px 9px', fontSize: '0.8rem', fontWeight: 700, fontFamily: 'inherit', boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ padding: '9px 11px' }}>
+              {cip ? <div style={{ fontSize: '0.76rem', color: '#78828a' }}>🧼 CIP — ไม่คิด Boxes</div> : (<>
+                {ls.rows.map((r, ri) => { const boxes = pkBoxes(meta.line, ls.flavor, r.amount); return (
+                  <div key={ri} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 76px 26px', gap: 7, alignItems: 'center', marginBottom: 7 }}>
+                    <select value={r.batch} onChange={e => setRow(i, ri, { batch: e.target.value })} style={{ ...inp, fontWeight: 700 }}>
+                      <option value="">Batch</option>
+                      {PK_BATCHES.map(b => <option key={b} value={b}>Batch {b}</option>)}
+                    </select>
+                    <div style={{ display: 'flex', alignItems: 'center', border: '1px solid #dde3e7', borderRadius: 9, overflow: 'hidden' }}>
+                      <input type="number" value={r.amount} onChange={e => setRow(i, ri, { amount: e.target.value })} placeholder="จำนวน" style={{ border: 'none', padding: '7px 9px', fontSize: '0.8rem', width: '100%', fontFamily: 'inherit', color: '#37474f', minWidth: 0 }} />
+                      <span style={{ fontSize: '0.66rem', fontWeight: 800, color: '#9aa4ad', padding: '0 8px', background: '#f4f6f8', alignSelf: 'stretch', display: 'flex', alignItems: 'center' }}>{meta.unit}</span>
+                    </div>
+                    <div style={{ textAlign: 'center', fontWeight: 800, fontSize: '0.8rem', color: '#8d5524', background: '#f3ead9', borderRadius: 9, padding: '5px 2px' }}>{boxes}<div style={{ fontSize: '0.5rem', color: '#9aa4ad', fontWeight: 700 }}>Boxes</div></div>
+                    <button onClick={() => delRow(i, ri)} disabled={ls.rows.length <= 1} style={{ border: 'none', background: 'none', color: ls.rows.length <= 1 ? '#e5e5e5' : '#ccc', cursor: ls.rows.length <= 1 ? 'default' : 'pointer', fontSize: '1.05rem' }}>×</button>
+                  </div>
+                ); })}
+                <button onClick={() => addRow(i)} style={{ border: '1px dashed #cbd3d9', background: '#fff', color: '#78828a', borderRadius: 9, padding: '6px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', width: '100%' }}>+ เพิ่ม Batch</button>
+              </>)}
+            </div>
+          </div>
+        ); })}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', alignItems: 'center', gap: 9, marginBottom: 12 }}>
+          <label style={{ fontSize: '0.76rem', fontWeight: 700, color: '#546e7a' }}>Lot No.</label>
+          <input value={lotNo} onChange={e => setLotNo(e.target.value)} style={{ ...inp, width: '100%', boxSizing: 'border-box' }} />
+        </div>
+
+        <div style={{ background: '#0e1621', borderRadius: 12, padding: 12, marginBottom: 12 }}>
+          <div style={{ color: '#8fa6bd', fontSize: '0.64rem', fontWeight: 800, letterSpacing: '.04em', marginBottom: 6 }}>✈ พรีวิว · รวม {total} Boxes</div>
+          <div style={{ color: '#e6edf3', fontSize: '0.8rem', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{text}</div>
+        </div>
+        <button onClick={send} disabled={busy} style={{ width: '100%', border: 'none', borderRadius: 12, padding: 13, fontWeight: 800, fontSize: '0.9rem', color: '#fff', background: '#229ed9', cursor: 'pointer', opacity: busy ? 0.6 : 1 }}>✈ ส่งรายงานเข้ากลุ่ม + timeline</button>
+        {msg && <div style={{ textAlign: 'center', fontSize: '0.78rem', color: '#546e7a', marginTop: 8 }}>{msg}</div>}
+      </div>
+    );
+  };
+
 const TimelineTab: React.FC<{ date: string; operatorName: string | null; events: TimelineEvent[]; reload: () => void; card: React.CSSProperties }> =
   ({ date, operatorName, events, reload, card }) => {
     const [filter, setFilter] = useState('all');
@@ -393,6 +533,9 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
       <div>
         {/* handover form (รับกะ/ส่งกะ, collapsible) */}
         <HandoverForm date={date} operatorName={operatorName} reload={reload} card={card} />
+
+        {/* packing-staff report (แปลง %/kg → Boxes) */}
+        <PackingReportForm date={date} operatorName={operatorName} reload={reload} card={card} />
 
         {/* live status board (สด, auto-refresh) */}
         {!isHoliday && <LiveBoard date={date} card={card} />}
