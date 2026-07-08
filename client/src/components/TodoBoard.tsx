@@ -222,8 +222,8 @@ function hoFromPrefill(prefill: Record<string, PrefillLine>, carry?: HoState | n
   };
 }
 
-const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload: () => void; card: React.CSSProperties }> =
-  ({ date, operatorName, reload, card }) => {
+const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload: () => void; card: React.CSSProperties; onLiveChange?: (ho: HoState) => void }> =
+  ({ date, operatorName, reload, card, onLiveChange }) => {
     const [open, setOpen] = useState(false);
     const [mode, setMode] = useState<'in' | 'out'>('out'); // 📥 รับกะ · 📤 ส่งกะ
     const [ho, setHo] = useState<HoState>(initHo);
@@ -246,6 +246,9 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
         setHo({ ...hoFromPrefill(prefill, last), shift, lotNo: pkLot(date) }); // เริ่มโหมดส่งกะ
       })();
     }, [date]);
+
+    // ส่งสถานะรับกะสดๆ ขึ้นไปให้ฟอร์มบรรจุใช้ (real-time, ไม่ต้องกดส่ง)
+    useEffect(() => { onLiveChange?.(ho); }, [ho, onLiveChange]);
 
     // สลับโหมด: รับกะ = สถานะกะก่อน · ส่งกะ = รส/batch ล่าสุด + ยกถังจากกะก่อน
     const applyMode = (m: 'in' | 'out') => {
@@ -417,25 +420,24 @@ const pkBuild = (lines: PkLineState[], lotNo: string): { text: string; total: nu
   return { text: L.join('\n'), total };
 };
 
-const PackingReportForm: React.FC<{ date: string; operatorName: string | null; reload: () => void; card: React.CSSProperties }> =
-  ({ date, operatorName, reload, card }) => {
+const PackingReportForm: React.FC<{ date: string; operatorName: string | null; reload: () => void; card: React.CSSProperties; source: HoState | null }> =
+  ({ date, operatorName, reload, card, source }) => {
     const [open, setOpen] = useState(false);
     const [lines, setLines] = useState<PkLineState[]>(pkInit);
     const [lotNo, setLotNo] = useState('');
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
 
-    // ดึงข้อมูลจากรับกะล่าสุด: รส + แกะ Batch/จำนวน จากสถานะถัง + Lot No.
-    const pullFromHandover = useCallback(async (): Promise<boolean> => {
-      try {
-        const j = await (await fetch(`${apiUrl}/api/handover/last`)).json();
-        if (j.data) { setLines(pkFromHandover(j.data)); setLotNo(j.data.lotNo || pkLot(date)); return true; }
-      } catch { /* offline */ }
-      return false;
-    }, [date]);
+    // ซิงค์สดจากฟอร์มรับกะ: รส + แกะ Batch/จำนวน จากสถานะถัง (แก้ด้วยมือได้ · จะรีเซ็ตเมื่อรับกะเปลี่ยนอีก)
+    const applySource = useCallback((): boolean => {
+      if (!source) return false;
+      setLines(pkFromHandover(source));
+      setLotNo(source.lotNo || pkLot(date));
+      return true;
+    }, [source, date]);
 
-    // เปิดมา: เติมอัตโนมัติจากรับกะ (แก้ด้วยมือได้) + Lot จากวันที่
-    useEffect(() => { setLotNo(pkLot(date)); pullFromHandover(); }, [date, pullFromHandover]);
+    // เด้งอัตโนมัติทุกครั้งที่รับกะเปลี่ยน (ไม่ต้องกดส่งก่อน) + Lot สำรองจากวันที่
+    useEffect(() => { if (!applySource()) setLotNo(l => l || pkLot(date)); }, [applySource, date]);
 
     const setFlavor = (i: number, v: string) => setLines(ls => ls.map((l, j) => j === i ? { ...l, flavor: v } : l));
     const setRow = (i: number, r: number, patch: Partial<PkRow>) => setLines(ls => ls.map((l, j) => j === i ? { ...l, rows: l.rows.map((x, k) => k === r ? { ...x, ...patch } : x) } : l));
@@ -469,8 +471,8 @@ const PackingReportForm: React.FC<{ date: string; operatorName: string | null; r
           <button onClick={() => setOpen(false)} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: '#90a4ae', cursor: 'pointer', fontSize: '1.1rem' }}>×</button>
         </div>
         <div style={{ fontSize: '0.72rem', color: '#78828a', marginBottom: 8 }}>แอปคำนวณ Boxes ให้อัตโนมัติ (ปัดลง) · เติมจากรับกะให้ แก้ด้วยมือได้</div>
-        <button onClick={async () => { const ok = await pullFromHandover(); setMsg(ok ? '📥 ดึงจากรับกะล่าสุดแล้ว' : 'ยังไม่มีข้อมูลรับกะ'); }}
-          style={{ border: '1px solid #e8edf0', background: '#fff', borderRadius: 10, padding: '8px 12px', fontSize: '0.78rem', fontWeight: 700, color: '#546e7a', cursor: 'pointer', marginBottom: 10 }}>📥 ดึงจากรับกะล่าสุด</button>
+        <button onClick={() => setMsg(applySource() ? '📥 ดึงจากรับกะแล้ว' : 'ยังไม่มีข้อมูลรับกะ')}
+          style={{ border: '1px solid #e8edf0', background: '#fff', borderRadius: 10, padding: '8px 12px', fontSize: '0.78rem', fontWeight: 700, color: '#546e7a', cursor: 'pointer', marginBottom: 10 }}>📥 ดึงจากรับกะ</button>
 
         {PK_LINES.map((meta, i) => { const ls = lines[i]; const cip = isCipFlavor(ls.flavor); return (
           <div key={meta.line} style={{ border: '1px solid #e8edf0', borderRadius: 12, marginBottom: 10, overflow: 'hidden' }}>
@@ -519,6 +521,7 @@ const PackingReportForm: React.FC<{ date: string; operatorName: string | null; r
 const TimelineTab: React.FC<{ date: string; operatorName: string | null; events: TimelineEvent[]; reload: () => void; card: React.CSSProperties }> =
   ({ date, operatorName, events, reload, card }) => {
     const [filter, setFilter] = useState('all');
+    const [hoData, setHoData] = useState<HoState | null>(null); // สถานะรับกะสด → ป้อนฟอร์มบรรจุ
 
     // auto-refresh ไทม์ไลน์ทุก 20 วิ ระหว่างเปิดแท็บนี้ (ล้าง interval ตอนออก)
     useEffect(() => { const id = setInterval(reload, 20000); return () => clearInterval(id); }, [reload]);
@@ -555,11 +558,11 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
 
     return (
       <div>
-        {/* handover form (รับกะ/ส่งกะ, collapsible) */}
-        <HandoverForm date={date} operatorName={operatorName} reload={reload} card={card} />
+        {/* handover form (รับกะ/ส่งกะ, collapsible) — เผยแพร่สถานะสดให้ฟอร์มบรรจุ */}
+        <HandoverForm date={date} operatorName={operatorName} reload={reload} card={card} onLiveChange={setHoData} />
 
-        {/* packing-staff report (แปลง %/kg → Boxes) */}
-        <PackingReportForm date={date} operatorName={operatorName} reload={reload} card={card} />
+        {/* packing-staff report (แปลง %/kg → Boxes) — ซิงค์สดจากรับกะ */}
+        <PackingReportForm date={date} operatorName={operatorName} reload={reload} card={card} source={hoData} />
 
         {/* live status board (สด, auto-refresh) */}
         {!isHoliday && <LiveBoard date={date} card={card} />}
