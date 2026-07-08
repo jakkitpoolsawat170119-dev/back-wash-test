@@ -101,6 +101,8 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
       if (data.sessionId) {
         setSessionId(data.sessionId);
         onStatusChange(true);
+        // แจ้ง Live board ว่า line นี้กำลัง CIP (best-effort)
+        fetch(`${apiUrl}/api/line-state`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ line, status: 'cip', flavor: 'CIP', batch: sku, operator: operatorName }) }).catch(() => {});
         return data.sessionId;
       }
     } catch (e) { console.error(e); }
@@ -199,6 +201,8 @@ const CipLine2Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
         backwashBatches,
       }),
     });
+    // เคลียร์สถานะ CIP ของ line นี้ → ว่าง (best-effort)
+    fetch(`${apiUrl}/api/line-state`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ line, status: 'idle', flavor: 'CIP', batch: sku, operator: operatorName }) }).catch(() => {});
     alert(`บันทึก CIP ${line} สำเร็จ!`);
     try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
     // รีเซ็ตสถานะในหน้าให้เริ่มงานใหม่ได้สะอาด — คอมโพเนนต์นี้ไม่ได้ unmount ตอนสลับหน้า (App.tsx ใช้ display:none)

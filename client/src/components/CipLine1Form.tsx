@@ -77,7 +77,12 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
     try {
       const res = await fetch(`${apiUrl}/api/cip-line1/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ operatorName, date, sku }) });
       const data = await res.json();
-      if (data.sessionId) { setSessionId(data.sessionId); onStatusChange(true); return data.sessionId; }
+      if (data.sessionId) {
+        setSessionId(data.sessionId); onStatusChange(true);
+        // แจ้ง Live board ว่า Line 1 กำลัง CIP (best-effort)
+        fetch(`${apiUrl}/api/line-state`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ line: 'Line 1', status: 'cip', flavor: 'CIP', batch: sku, operator: operatorName }) }).catch(() => {});
+        return data.sessionId;
+      }
     } catch (e) { console.error(e); }
     return null;
   };
@@ -156,6 +161,8 @@ const CipLine1Form: React.FC<Props> = ({ operatorName, onBackToMain, onStatusCha
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId: sid, operatorName, date, sku, startTime: sessionStartTime, endTime, totalDuration }),
     });
+    // เคลียร์สถานะ CIP ของ Line 1 → ว่าง (best-effort)
+    fetch(`${apiUrl}/api/line-state`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ line: 'Line 1', status: 'idle', flavor: 'CIP', batch: sku, operator: operatorName }) }).catch(() => {});
     alert('บันทึก CIP Line 1 สำเร็จ!');
     try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
     // รีเซ็ตสถานะในหน้าให้เริ่มงานใหม่ได้สะอาด — คอมโพเนนต์นี้ไม่ได้ unmount ตอนสลับหน้า (App.tsx ใช้ display:none)
