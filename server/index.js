@@ -60,6 +60,15 @@ const SCHEMA = [
       brix REAL,
       ph REAL
     )`,
+  `CREATE TABLE IF NOT EXISTS line_state (
+      line_name TEXT PRIMARY KEY,
+      status TEXT DEFAULT 'idle',
+      flavor TEXT,
+      batch TEXT,
+      operator_name TEXT,
+      since TEXT,
+      updated_at TEXT
+    )`,
   `CREATE TABLE IF NOT EXISTS production_plans (
       id ${db.pk},
       plan_date TEXT,
@@ -1103,6 +1112,30 @@ app.post('/api/production/log', (req, res) => {
       cipCount: cipCount || '',
     });
     res.json({ success: true, logId: this.lastID });
+  });
+});
+
+// ── สถานะไลน์แบบ real-time (Live board) ─────────────────────────
+// อัปเดตเมื่อกด Start (producing/cip) / Done (idle) ในหน้า Production Control
+app.post('/api/line-state', (req, res) => {
+  const { line, status, flavor, batch, operator } = req.body;
+  if (!line) return res.status(400).json({ error: 'line จำเป็น' });
+  const now = nowBKK();
+  db.run(
+    `INSERT INTO line_state (line_name, status, flavor, batch, operator_name, since, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(line_name) DO UPDATE SET status = excluded.status, flavor = excluded.flavor, batch = excluded.batch, operator_name = excluded.operator_name, since = excluded.since, updated_at = excluded.updated_at`,
+    [line, status || 'idle', flavor || null, batch || null, operator || null, now, now],
+    (err) => { if (err) return res.status(500).json({ error: err.message }); res.json({ success: true }); }
+  );
+});
+
+app.get('/api/line-state', (req, res) => {
+  db.all('SELECT * FROM line_state', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    const map = {};
+    for (const r of rows) map[r.line_name] = { status: r.status, flavor: r.flavor, batch: r.batch, operator: r.operator_name, since: r.since, updatedAt: r.updated_at };
+    res.json({ lines: map });
   });
 });
 

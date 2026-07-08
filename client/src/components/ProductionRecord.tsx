@@ -281,6 +281,8 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     const now = new Date();
     const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
     setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], startTime: timeStr, startRaw: now, doneTime: null, isProcessing: true } }));
+    // ทิ้งสถานะ "กำลังเดินเครื่อง" ไว้ที่ server ให้ Live board เห็นแบบ real-time (best-effort)
+    fetch(`${apiUrl}/api/line-state`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ line: `Line ${lineId}`, status: line.flavor === 'CIP' ? 'cip' : 'producing', flavor: line.flavor, batch: line.cookingBatch, operator: operatorName }) }).catch(() => {});
   };
 
   const handleDone = async (lineId: number) => {
@@ -300,6 +302,8 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     releaseLock(lineId);
     try {
       await fetch(`${apiUrl}/api/production/log`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ line: `Line ${lineId}`, flavor: line.flavor, batch: line.cookingBatch, operator: operatorName, timestamp: new Date().toISOString(), duration: diffMins, brix: line.brix, ph: line.ph, cipCount: isCip ? "1 Batch" : "-", lotNo: formattedLotNo, startTime: line.startTime, endTime: timeStr }) });
+      // เคลียร์สถานะ "กำลังเดินเครื่อง" → ว่าง เมื่อ Done (best-effort)
+      fetch(`${apiUrl}/api/line-state`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ line: `Line ${lineId}`, status: 'idle', flavor: line.flavor, batch: line.cookingBatch, operator: operatorName }) }).catch(() => {});
     } catch (error) { console.error("Failed to log:", error); }
   };
 

@@ -470,32 +470,52 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
 // ─── Live status board (สถานะสดต่อไลน์, auto-refresh) ─────────────
 const LIVE_LINES = ['Line 1', 'Line 2', 'Line 3', 'Line 4'];
 type LiveLine = { flavor?: string; batch?: string; prodTime?: string; cipTime?: string };
+type LineState = { status?: string; flavor?: string; batch?: string; since?: string };
+const LIVE_STALE_MS = 8 * 3600 * 1000; // Start ที่ค้างเกิน 8 ชม. (ลืมกด Done) → ถือว่าไม่สด
+// since/nowBKK เป็นเวลา "นาฬิกา" ของกรุงเทพทั้งคู่ → parse แบบเดียวกัน ผลต่างจึงถูกไม่ว่า viewer อยู่โซนไหน
+const freshMs = (since?: string): number => {
+  if (!since) return Infinity;
+  const s = Date.parse(since), n = Date.parse(new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T'));
+  return (isNaN(s) || isNaN(n)) ? Infinity : n - s;
+};
+
 const LiveBoard: React.FC<{ date: string; card: React.CSSProperties }> = ({ date, card }) => {
-  const [lines, setLines] = useState<Record<string, LiveLine>>({});
+  const [prefill, setPrefill] = useState<Record<string, LiveLine>>({});
+  const [state, setState] = useState<Record<string, LineState>>({});
   const [updated, setUpdated] = useState('');
   const load = useCallback(async () => {
-    try {
-      const r = await fetch(`${apiUrl}/api/handover/prefill?date=${date}`);
-      const d = await r.json();
-      setLines(d.lines || {});
-      setUpdated(new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' }));
-    } catch { /* offline */ }
+    const [pf, ls] = await Promise.all([
+      fetch(`${apiUrl}/api/handover/prefill?date=${date}`).then(r => r.json()).catch(() => ({})),
+      fetch(`${apiUrl}/api/line-state`).then(r => r.json()).catch(() => ({})),
+    ]);
+    setPrefill(pf.lines || {});
+    setState(ls.lines || {});
+    setUpdated(new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' }));
   }, [date]);
   useEffect(() => { load(); const id = setInterval(load, 20000); return () => clearInterval(id); }, [load]);
 
-  // อนุมานสถานะจากบันทึกล่าสุด (แอปไม่ได้ต่อ PLC): เทียบเวลาผลิต vs CIP ล่าสุด
-  const statusOf = (d?: LiveLine): 'prod' | 'cip' | 'idle' => {
-    if (!d) return 'idle';
-    const p = d.prodTime || '', c = d.cipTime || '';
-    if (c && c >= p) return 'cip';
-    if (p) return 'prod';
-    return 'idle';
-  };
   const S = {
-    prod: { c: '#2e7d32', w: '#e8f5e9', lb: '🟢 ผลิตอยู่' },
-    cip: { c: '#0277bd', w: '#e1f2fb', lb: '💧 CIP' },
+    producing: { c: '#2e7d32', w: '#e8f5e9', lb: '🟢 กำลังผลิต' },
+    cip: { c: '#0277bd', w: '#e1f2fb', lb: '💧 กำลัง CIP' },
     idle: { c: '#90a4ae', w: '#eef1f4', lb: '⚪ ว่าง' },
   } as const;
+
+  // สถานะสด: ใช้ line_state (Start/Done) ถ้ายังสด; ไม่งั้น = ว่าง + โน้ตกิจกรรมล่าสุดจาก prefill
+  const viewOf = (ln: string) => {
+    const st = state[ln];
+    if (st && (st.status === 'producing' || st.status === 'cip') && freshMs(st.since) < LIVE_STALE_MS) {
+      return { kind: st.status as 'producing' | 'cip', flavor: st.flavor || '', batch: st.batch || '', sinceHM: parseHM(st.since)?.hm || '', note: '' };
+    }
+    const pf = prefill[ln];
+    let note = 'ยังไม่มีบันทึกวันนี้';
+    if (pf) {
+      const prodHM = pf.prodTime ? (parseHM(pf.prodTime)?.hm || '') : '';
+      const cipHM = pf.cipTime ? (parseHM(pf.cipTime)?.hm || '') : '';
+      if (pf.cipTime && (!pf.prodTime || pf.cipTime >= pf.prodTime)) note = `CIP ล่าสุด ${cipHM}`;
+      else if (pf.prodTime) note = `ผลิตล่าสุด ${pf.flavor || ''}${pf.batch ? ` · Batch ${pf.batch}` : ''}${prodHM ? ` · ${prodHM}` : ''}`.trim();
+    }
+    return { kind: 'idle' as const, flavor: '', batch: '', sinceHM: '', note };
+  };
 
   return (
     <div style={{ ...card }}>
@@ -506,17 +526,16 @@ const LiveBoard: React.FC<{ date: string; card: React.CSSProperties }> = ({ date
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         {LIVE_LINES.map(ln => {
-          const d = lines[ln]; const st = statusOf(d); const meta = S[st];
-          const cipHM = d?.cipTime ? (parseHM(d.cipTime)?.hm || '') : '';
+          const v = viewOf(ln); const meta = S[v.kind];
           return (
             <div key={ln} style={{ border: '1px solid #eee', borderRadius: 11, padding: '9px 10px', position: 'relative', overflow: 'hidden' }}>
               <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: meta.c }} />
               <div style={{ fontSize: '0.74rem', fontWeight: 800, color: '#37474f' }}>{ln}</div>
               <span style={{ display: 'inline-block', fontSize: '0.6rem', fontWeight: 800, borderRadius: 20, padding: '2px 8px', marginTop: 4, background: meta.w, color: meta.c }}>{meta.lb}</span>
               <div style={{ fontSize: '0.68rem', color: '#546e7a', marginTop: 5 }}>
-                {st === 'prod' ? `${d?.flavor || '-'}${d?.batch ? ` · Batch ${d.batch}` : ''}`
-                  : st === 'cip' ? <>CIP <small style={{ color: '#90a4ae' }}>{cipHM && `· ${cipHM}`}</small></>
-                    : <small style={{ color: '#90a4ae' }}>{cipHM ? `CIP ล่าสุด ${cipHM}` : 'ยังไม่มีบันทึกวันนี้'}</small>}
+                {v.kind === 'producing' ? `${v.flavor || '-'}${v.batch ? ` · Batch ${v.batch}` : ''}${v.sinceHM ? ` · เริ่ม ${v.sinceHM}` : ''}`
+                  : v.kind === 'cip' ? <>CIP{v.sinceHM ? <small style={{ color: '#90a4ae' }}> · เริ่ม {v.sinceHM}</small> : null}</>
+                    : <small style={{ color: '#90a4ae' }}>{v.note}</small>}
               </div>
             </div>
           );
