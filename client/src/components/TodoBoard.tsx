@@ -178,13 +178,14 @@ const HO_LINES = [
   { line: 'Line 3', sub: 'Flavour', c: '#6a1b9a' },
 ];
 type HoLine = { line: string; flavor: string; batch: string; tanks: string[]; note: string };
-type HoState = { shift: string; lines: HoLine[]; line4: { flavor: string; stages: string[] }; note: string };
+type HoState = { shift: string; lines: HoLine[]; line4: { flavor: string; stages: string[] }; note: string; lotNo: string };
 const HO_BATCHES = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const initHo = (): HoState => ({
   shift: 'กะเช้า',
   lines: HO_LINES.map(l => ({ line: l.line, flavor: '', batch: '', tanks: ['', '', ''], note: '' })),
   line4: { flavor: '', stages: ['', '', '', '', '', ''] },
   note: '',
+  lotNo: '',
 });
 function hoPreview(h: HoState, op: string | null, date: string, kind: 'in' | 'out' = 'out'): string {
   const sm = HO_SHIFT[h.shift] || { ic: '📝' };
@@ -193,7 +194,7 @@ function hoPreview(h: HoState, op: string | null, date: string, kind: 'in' | 'ou
   const shiftLine = kind === 'in'
     ? `${sm.ic} ${h.shift} · 👤 ${op || '-'}`
     : `${sm.ic} ${h.shift}${next ? ` → ${next}` : ''} · 👤 ${op || '-'}`;
-  const L = [head, shiftLine, ''];
+  const L = [head, shiftLine, ...(h.lotNo ? [`📅 Lot ${h.lotNo}`] : []), ''];
   for (const ln of h.lines) {
     L.push(`▶️ ${ln.line} ${ln.flavor}${ln.batch ? ` (Batch ${ln.batch})` : ''}`.trimEnd());
     ln.tanks.forEach((tk, i) => L.push(`   ถัง ${i + 1} ${tk.trim() || 'ว่าง'}`));
@@ -239,10 +240,10 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
       (async () => {
         let last: HoState | null = null;
         let prefill: Record<string, PrefillLine> = {};
-        try { const d = await (await fetch(`${apiUrl}/api/handover/last`)).json(); if (d.data) last = { shift, lines: d.data.lines || initHo().lines, line4: d.data.line4 || initHo().line4, note: '' }; } catch { /* offline */ }
+        try { const d = await (await fetch(`${apiUrl}/api/handover/last`)).json(); if (d.data) last = { shift, lines: d.data.lines || initHo().lines, line4: d.data.line4 || initHo().line4, note: '', lotNo: d.data.lotNo || '' }; } catch { /* offline */ }
         try { const d = await (await fetch(`${apiUrl}/api/handover/prefill?date=${date}`)).json(); prefill = d.lines || {}; } catch { /* offline */ }
         lastRef.current = last; prefillRef.current = prefill;
-        setHo({ ...hoFromPrefill(prefill, last), shift }); // เริ่มโหมดส่งกะ
+        setHo({ ...hoFromPrefill(prefill, last), shift, lotNo: pkLot(date) }); // เริ่มโหมดส่งกะ
       })();
     }, [date]);
 
@@ -250,8 +251,8 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
     const applyMode = (m: 'in' | 'out') => {
       setMode(m); setMsg('');
       setHo(h => m === 'in'
-        ? (lastRef.current ? { ...lastRef.current, shift: h.shift } : initHo())
-        : { ...hoFromPrefill(prefillRef.current, lastRef.current), shift: h.shift });
+        ? (lastRef.current ? { ...lastRef.current, shift: h.shift, lotNo: h.lotNo } : { ...initHo(), lotNo: h.lotNo })
+        : { ...hoFromPrefill(prefillRef.current, lastRef.current), shift: h.shift, lotNo: h.lotNo });
     };
 
     const setLine = (i: number, patch: Partial<HoLine>) => setHo(h => ({ ...h, lines: h.lines.map((l, j) => j === i ? { ...l, ...patch } : l) }));
@@ -296,6 +297,10 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
           <select value={ho.shift} onChange={e => setHo(h => ({ ...h, shift: e.target.value }))} style={{ ...inp, width: 'auto' }}>
             {(() => { const s = shiftsForWeekday(weekdayOf(date)).map(x => x.key); return (s.length ? s : ['เช้า', 'บ่าย', 'ดึก']); })().map(k => <option key={k} value={'กะ' + k}>กะ{k}</option>)}
           </select>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 120 }}>
+            <label style={{ fontSize: '0.76rem', fontWeight: 700, color: '#546e7a' }}>Lot No.</label>
+            <input value={ho.lotNo} onChange={e => setHo(h => ({ ...h, lotNo: e.target.value }))} placeholder="เช่น 080726" style={{ ...inp, flex: 1, minWidth: 0 }} />
+          </div>
         </div>
 
         {ho.lines.map((ln, i) => { const meta = HO_LINES[i]; return (
@@ -380,11 +385,28 @@ const pkBoxes = (line: number, flavor: string, amount: string): number => {
   return Math.floor(a * pkFactor(line, flavor)); // ปัดลงเสมอ
 };
 const pkLot = (d: string): string => { const p = (d || '').split('-'); return p.length === 3 ? `${p[2]}${p[1]}${p[0].slice(2)}` : ''; };
+// แกะ "Batch B 100%" / "Batch A 50%" / "Batch I 1200kg" → { batch, amount }
+const pkParse = (s: string): PkRow | null => {
+  const str = String(s || '');
+  const bm = str.match(/Batch\s*([A-Za-z])/i);
+  if (!bm) return null;
+  const am = str.match(/(\d+(?:\.\d+)?)/);
+  return { batch: bm[1].toUpperCase(), amount: am ? am[1] : '' };
+};
+// แปลงข้อมูลรับกะล่าสุด (lines[].tanks + line4.stages) → แถวของฟอร์มบรรจุ
+type HoData = { lines?: { flavor?: string; tanks?: string[] }[]; line4?: { flavor?: string; stages?: string[] }; lotNo?: string };
+const pkFromHandover = (d: HoData): PkLineState[] => PK_LINES.map((_, i) => {
+  const src = i < 3 ? (d.lines?.[i] || {}) : (d.line4 || {});
+  const cells: string[] = i < 3 ? ((d.lines?.[i]?.tanks) || []) : ((d.line4?.stages) || []);
+  const rows = cells.map(pkParse).filter((r): r is PkRow => !!r);
+  return { flavor: src.flavor || '', rows: rows.length ? rows : [{ batch: '', amount: '' }] };
+});
 const pkBuild = (lines: PkLineState[], lotNo: string): { text: string; total: number } => {
   const L = ['📦 รายงานพนักงานบรรจุ', `📅 Lot ${lotNo || '-'}`, '────────────'];
   let total = 0;
   lines.forEach((ls, i) => {
     const lineNo = i + 1;
+    if (i > 0) L.push(''); // เว้นบรรทัดคั่นแต่ละ Line ให้อ่านง่าย
     L.push(`${PK_NUM[i]} Line ${lineNo} · ${ls.flavor || '-'}`);
     if (isCipFlavor(ls.flavor)) { L.push('   CIP'); return; }
     const valid = ls.rows.filter(r => r.batch && parseFloat(r.amount) > 0);
@@ -403,17 +425,17 @@ const PackingReportForm: React.FC<{ date: string; operatorName: string | null; r
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
 
-    // เปิดมา: เติมรส/Batch ล่าสุดต่อไลน์ (จำนวนกรอกเองจากถังจริง) + Lot จากวันที่
-    useEffect(() => {
-      setLotNo(pkLot(date));
-      (async () => {
-        try {
-          const d = await (await fetch(`${apiUrl}/api/handover/prefill?date=${date}`)).json();
-          const pf = d.lines || {};
-          setLines(PK_LINES.map(l => { const info = pf[`Line ${l.line}`] || {}; return { flavor: info.flavor || '', rows: [{ batch: info.batch || '', amount: '' }] }; }));
-        } catch { /* offline */ }
-      })();
+    // ดึงข้อมูลจากรับกะล่าสุด: รส + แกะ Batch/จำนวน จากสถานะถัง + Lot No.
+    const pullFromHandover = useCallback(async (): Promise<boolean> => {
+      try {
+        const j = await (await fetch(`${apiUrl}/api/handover/last`)).json();
+        if (j.data) { setLines(pkFromHandover(j.data)); setLotNo(j.data.lotNo || pkLot(date)); return true; }
+      } catch { /* offline */ }
+      return false;
     }, [date]);
+
+    // เปิดมา: เติมอัตโนมัติจากรับกะ (แก้ด้วยมือได้) + Lot จากวันที่
+    useEffect(() => { setLotNo(pkLot(date)); pullFromHandover(); }, [date, pullFromHandover]);
 
     const setFlavor = (i: number, v: string) => setLines(ls => ls.map((l, j) => j === i ? { ...l, flavor: v } : l));
     const setRow = (i: number, r: number, patch: Partial<PkRow>) => setLines(ls => ls.map((l, j) => j === i ? { ...l, rows: l.rows.map((x, k) => k === r ? { ...x, ...patch } : x) } : l));
@@ -446,7 +468,9 @@ const PackingReportForm: React.FC<{ date: string; operatorName: string | null; r
           <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>📦 รายงานพนักงานบรรจุ</div>
           <button onClick={() => setOpen(false)} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: '#90a4ae', cursor: 'pointer', fontSize: '1.1rem' }}>×</button>
         </div>
-        <div style={{ fontSize: '0.72rem', color: '#78828a', marginBottom: 10 }}>แอปคำนวณ Boxes ให้อัตโนมัติ (ปัดลง) · จำนวนกรอกจากถังจริง</div>
+        <div style={{ fontSize: '0.72rem', color: '#78828a', marginBottom: 8 }}>แอปคำนวณ Boxes ให้อัตโนมัติ (ปัดลง) · เติมจากรับกะให้ แก้ด้วยมือได้</div>
+        <button onClick={async () => { const ok = await pullFromHandover(); setMsg(ok ? '📥 ดึงจากรับกะล่าสุดแล้ว' : 'ยังไม่มีข้อมูลรับกะ'); }}
+          style={{ border: '1px solid #e8edf0', background: '#fff', borderRadius: 10, padding: '8px 12px', fontSize: '0.78rem', fontWeight: 700, color: '#546e7a', cursor: 'pointer', marginBottom: 10 }}>📥 ดึงจากรับกะล่าสุด</button>
 
         {PK_LINES.map((meta, i) => { const ls = lines[i]; const cip = isCipFlavor(ls.flavor); return (
           <div key={meta.line} style={{ border: '1px solid #e8edf0', borderRadius: 12, marginBottom: 10, overflow: 'hidden' }}>

@@ -1914,7 +1914,7 @@ function buildHandoverText(p, html) {
   const shiftLine = isIn
     ? `${sm.ic} ${b(p.shift || '-')} · 👤 ${esc(p.operator || '-')} · ${t} น.`
     : `${sm.ic} ${b(p.shift || '-')}${nextSh ? ` → ${esc(nextSh)}` : ''} · 👤 ${esc(p.operator || '-')} · ${t} น.`;
-  const L = [head, shiftLine, ``];
+  const L = [head, shiftLine, ...(p.lotNo ? [`📅 Lot ${esc(p.lotNo)}`] : []), ``];
   if (Array.isArray(p.lines) && p.lines.length) {
     for (const ln of p.lines) {
       L.push(`▶️ ${b(ln.line)} ${esc(ln.flavor || '')}${ln.batch ? ` (Batch ${esc(ln.batch)})` : ''}`.trimEnd());
@@ -1938,14 +1938,14 @@ function buildHandoverText(p, html) {
 }
 
 app.post('/api/handover', async (req, res) => {
-  const { date, shift, operator, text, lines, line4, note, kind } = req.body;
+  const { date, shift, operator, text, lines, line4, note, kind, lotNo } = req.body;
   const structured = Array.isArray(lines) && lines.length > 0;
   if (!structured && !text) return res.status(400).json({ error: 'text หรือ lines จำเป็น' });
   const d = date || todayBKK();
   const k = kind === 'in' ? 'in' : 'out'; // 'in' = รับกะ · 'out' = ส่งกะ (ค่าเริ่มต้น)
-  const payload = { shift, operator, text, lines, line4, note, date: d, kind: k };
+  const payload = { shift, operator, text, lines, line4, note, date: d, kind: k, lotNo };
   const plain = buildHandoverText(payload, false);
-  const dataJson = structured ? JSON.stringify({ shift, lines, line4, note }) : null;
+  const dataJson = structured ? JSON.stringify({ shift, lines, line4, note, lotNo }) : null;
   try {
     await db.exec('INSERT INTO handover_notes (note_date, shift, operator_name, text, data, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [d, shift || null, operator || null, plain, dataJson, k, nowBKK()]);
