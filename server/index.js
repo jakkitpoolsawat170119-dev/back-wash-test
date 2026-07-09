@@ -2432,8 +2432,14 @@ app.post('/api/assistant', async (req, res) => {
     let reply = '';
     for (let turn = 0; turn < 6; turn++) {
       const resp = await client.messages.create({
-        model: 'claude-opus-4-8', max_tokens: 4096, system, tools: ASSISTANT_TOOLS, messages,
+        model: 'claude-opus-4-8', max_tokens: 4096,
+        // prompt caching: จุด cache ท้าย system → tools+system (ส่วนหัวที่ซ้ำทุกครั้ง) อ่านจาก cache เหลือ ~0.1x
+        // หมายเหตุ: system มีวันที่ของวัน → cache รีเซ็ตวันละครั้ง ซึ่งโอเค
+        system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+        tools: ASSISTANT_TOOLS, messages,
       });
+      const u = resp.usage || {};
+      console.log(`[assistant] turn=${turn} cache_read=${u.cache_read_input_tokens || 0} cache_write=${u.cache_creation_input_tokens || 0} in=${u.input_tokens || 0} out=${u.output_tokens || 0}`);
       if (resp.stop_reason !== 'tool_use') {
         reply = resp.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
         break;
