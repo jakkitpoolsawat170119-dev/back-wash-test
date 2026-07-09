@@ -3,6 +3,7 @@ const express = require('express');
 const db = require('./db');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const multer = require('multer');
 const axios = require('axios');
 const FormData = require('form-data');
@@ -215,6 +216,19 @@ const SCHEMA = [
       run_at TEXT,
       sent INTEGER DEFAULT 0,
       created_at TEXT
+    )`,
+  // คิวการบันทึกจากผู้ช่วย AI ที่รอผู้ใช้กดยืนยัน + audit log ว่าใครสั่งบันทึกอะไร
+  `CREATE TABLE IF NOT EXISTS assistant_actions (
+      id ${db.pk},
+      session TEXT,
+      operator_name TEXT,
+      tool TEXT,
+      input TEXT,
+      summary TEXT,
+      status TEXT DEFAULT 'pending',
+      result TEXT,
+      created_at TEXT,
+      decided_at TEXT
     )`,
 ];
 
@@ -2042,6 +2056,155 @@ const getAnthropic = () => {
   return _anthropic;
 };
 
+// ── ความรู้ + สืบค้น DB โดยตรง (แนวทาง "สมองรวม") ─────────────────────────
+// สรุป schema เป็นบรรทัดสั้นๆ "table(col1, col2, …)" จาก DDL จริง → ใส่ system prompt
+const SCHEMA_SUMMARY = SCHEMA.map((ddl) => {
+  const m = ddl.match(/CREATE TABLE IF NOT EXISTS (\w+) \(([\s\S]*)\)/);
+  if (!m) return null;
+  const cols = m[2].split(',')
+    .map(c => c.trim().split(/\s+/)[0])
+    .filter(c => c && !/^(UNIQUE|FOREIGN|PRIMARY)/i.test(c) && !c.includes(')'));
+  return `${m[1]}(${cols.join(', ')})`;
+}).filter(Boolean).join('\n');
+
+// ค้นคู่มือในโฟลเดอร์ knowledge/ — แบ่งไฟล์เป็นหัวข้อ (## …) แล้วให้คะแนนตามคำค้น
+const KNOWLEDGE_DIR = path.join(__dirname, 'knowledge');
+function searchKnowledge(query) {
+  let files = [];
+  try { files = fs.readdirSync(KNOWLEDGE_DIR).filter(f => f.endsWith('.md')); } catch { return []; }
+  const terms = String(query || '').split(/\s+/).map(t => t.trim()).filter(t => t.length >= 2);
+  const sections = [];
+  for (const f of files) {
+    const text = fs.readFileSync(path.join(KNOWLEDGE_DIR, f), 'utf8');
+    const parts = text.split(/\n(?=## )/);
+    for (const p of parts) {
+      const title = (p.match(/^#+ (.+)/) || [])[1] || f;
+      let score = 0;
+      for (const t of terms) {
+        const re = new RegExp(t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+        score += (p.match(re) || []).length * (title.includes(t) ? 3 : 1);
+      }
+      if (score > 0) sections.push({ doc: f, title, score, text: p.trim().slice(0, 1500) });
+    }
+  }
+  sections.sort((a, b) => b.score - a.score);
+  return sections.slice(0, 5).map(({ doc, title, text }) => ({ doc, title, text }));
+}
+
+// SQL อ่านอย่างเดียว: อนุญาตเฉพาะ SELECT เดี่ยว ไม่มีคำสั่งเขียน/DDL และบังคับ LIMIT
+function runReadonlySql(sql) {
+  const s = String(sql || '').trim().replace(/;\s*$/, '');
+  if (!/^select\s/i.test(s)) throw new Error('อนุญาตเฉพาะคำสั่ง SELECT เท่านั้น');
+  if (s.includes(';')) throw new Error('ห้ามมีหลายคำสั่งใน query เดียว');
+  if (/\b(insert|update|delete|drop|alter|create|replace|truncate|attach|pragma|grant|vacuum)\b/i.test(s))
+    throw new Error('พบคำสั่งที่ไม่ใช่การอ่าน — อนุญาตเฉพาะ SELECT');
+  const limited = /\blimit\s+\d+/i.test(s) ? s : `${s} LIMIT 100`;
+  return dbAll(limited, []).then(rows => rows.slice(0, 200));
+}
+
+// ── การเขียนข้อมูลผ่านผู้ช่วย (แนวทาง "มือทำงาน") — ต้องยืนยันก่อนเสมอ ─────
+// tool เขียนจะไม่แตะ DB ทันที แต่สร้างแถว pending ใน assistant_actions
+// → client แสดงการ์ดให้กด ✅/❌ → POST /api/assistant/confirm ค่อยเขียนจริง
+const ASSISTANT_WRITE_TOOLS = new Set(['record_production', 'record_cip_round', 'save_handover_note', 'update_production_plan']);
+
+const dbRun = (sql, params = []) => new Promise((resolve, reject) => {
+  db.run(sql, params, function (err) { err ? reject(err) : resolve({ lastID: this.lastID, changes: this.changes }); });
+});
+
+function summarizeAction(tool, input) {
+  if (tool === 'record_production')
+    return [`🏭 บันทึกผลิต: ${input.line || '-'} | ${input.flavor || '-'} | Batch ${input.batch || '-'}`,
+      input.brix != null ? `Brix ${input.brix}` : null, input.ph != null ? `pH ${input.ph}` : null,
+      input.lot_no ? `Lot ${input.lot_no}` : null, input.date ? `วันที่ ${input.date}` : null,
+    ].filter(Boolean).join(' · ');
+  if (tool === 'record_cip_round')
+    return `💧 บันทึกรอบ CIP: ${input.line || '-'}${input.backwash ? ' + Backwash' : ''}${input.date ? ` · วันที่ ${input.date}` : ''}${input.remark ? ` · ${input.remark}` : ''}`;
+  if (tool === 'save_handover_note')
+    return `📝 โน้ตส่งเวร (${input.shift || '-'}): ${String(input.text || '').slice(0, 120)}`;
+  if (tool === 'update_production_plan')
+    return `📋 แผนผลิต ${input.date || 'วันนี้'}: ` + (input.items || []).map(it => `${it.line || 'รวม'} ${it.flavor} ${it.planned_batches} batch`).join(', ');
+  return `${tool}`;
+}
+
+// เขียนจริงหลังผู้ใช้กดยืนยัน — เลียนแบบ endpoint ปกติของแอป (Telegram/n8n ครบ)
+async function executeAssistantAction(tool, input, operator) {
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+  const op = input.operator || operator || 'ผู้ช่วย AI';
+  if (tool === 'record_production') {
+    const ts = input.date ? `${input.date}T${input.time || nowBKK().slice(11, 19)}` : nowBKK();
+    await dbRun(`INSERT INTO production_logs (timestamp, line_name, flavor, batch, operator_name, cip_count, brix, ph) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [ts, input.line, input.flavor, input.batch || '-', op, input.cip_count || '-',
+       input.brix == null ? null : Number(input.brix), input.ph == null ? null : Number(input.ph)]);
+    await syncTaskProgress(ts.slice(0, 10));
+    sendToTelegram([
+      `🏭 <b>บันทึกการผลิต</b> (ผ่านผู้ช่วย AI)`,
+      `📍 Line: ${escapeHtml(input.line || '-')} | รสชาติ: ${escapeHtml(input.flavor || '-')}`,
+      `📦 Batch: ${escapeHtml(input.batch || '-')}`,
+      input.lot_no ? `🏷️ Lot No.: <b>${escapeHtml(input.lot_no)}</b>` : null,
+      `👤 ผู้ดำเนินการ: ${escapeHtml(op)}`,
+      input.brix != null ? `🍬 Brix: ${escapeHtml(String(input.brix))}` : null,
+      input.ph != null ? `🧪 pH: ${escapeHtml(String(input.ph))}` : null,
+    ].filter(Boolean).join('\n'));
+    sendToN8n({ type: 'production', timestamp: ts, line: input.line || '', flavor: input.flavor || '',
+      batch: input.batch || '', lotNo: input.lot_no || '', operator: op, startTime: '', endTime: '',
+      duration: '', brix: input.brix ?? '', ph: input.ph ?? '', cipCount: input.cip_count || '' });
+    return `บันทึกผลิต ${input.flavor} Batch ${input.batch || '-'} (${input.line}) เรียบร้อย`;
+  }
+  if (tool === 'record_cip_round') {
+    const date = input.date || today;
+    const isL1 = input.line === 'Line 1';
+    const sessTable = isL1 ? 'cip_line1_sessions' : 'cip_line2_sessions';
+    const rowTable = isL1 ? 'cip_line1_rows' : 'cip_line2_rows';
+    // ใช้ session ที่ผู้ช่วยสร้างของวัน/ไลน์เดิมถ้ามี ไม่งั้นเปิดใหม่ (sku='ASSISTANT' เป็นตัวบ่งชี้)
+    const cond = isL1 ? 'date = ? AND sku = ?' : "date = ? AND sku = ? AND COALESCE(line, 'Line 2') = ?";
+    const args = isL1 ? [date, 'ASSISTANT'] : [date, 'ASSISTANT', input.line || 'Line 2'];
+    const found = await dbAll(`SELECT id FROM ${sessTable} WHERE ${cond} ORDER BY id DESC LIMIT 1`, args);
+    let sessionId = found[0] && found[0].id;
+    if (!sessionId) {
+      const ins = isL1
+        ? await dbRun(`INSERT INTO cip_line1_sessions (operator_name, date, sku, created_at, status) VALUES (?, ?, 'ASSISTANT', ?, 'done')`, [op, date, nowBKK()])
+        : await dbRun(`INSERT INTO cip_line2_sessions (operator_name, date, sku, line, flavor, created_at, status) VALUES (?, ?, 'ASSISTANT', ?, ?, ?, 'done')`, [op, date, input.line || 'Line 2', input.flavor || '', nowBKK()]);
+      sessionId = ins.lastID;
+    }
+    const rows = await dbAll(`SELECT MAX(row_no) AS n FROM ${rowTable} WHERE session_id = ?`, [sessionId]);
+    const rowNo = (Number(rows[0] && rows[0].n) || 0) + 1;
+    const endTime = input.date ? `${input.date}T${input.time || '12:00:00'}` : nowBKK();
+    const data = JSON.stringify({ endTime, backwash: !!input.backwash, remark: input.remark || '', via: 'assistant' });
+    await dbRun(`INSERT INTO ${rowTable} (session_id, row_no, data) VALUES (?, ?, ?)`, [sessionId, rowNo, data]);
+    sendToTelegram(`💧 <b>บันทึกรอบ CIP</b> (ผ่านผู้ช่วย AI)\n📍 ${escapeHtml(input.line || '-')} รอบที่ ${rowNo}${input.backwash ? ' + Backwash' : ''}\n👤 ${escapeHtml(op)}${input.remark ? `\n📝 ${escapeHtml(input.remark)}` : ''}`);
+    return `บันทึกรอบ CIP ${input.line} (รอบที่ ${rowNo} ของ session ผู้ช่วย) เรียบร้อย`;
+  }
+  if (tool === 'save_handover_note') {
+    const date = input.date || today;
+    await dbRun('INSERT INTO handover_notes (note_date, shift, operator_name, text, data, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [date, input.shift || null, op, String(input.text || ''), null, 'out', nowBKK()]);
+    sendToTelegram(`📝 <b>โน้ตส่งเวร</b> (ผ่านผู้ช่วย AI)\n🗓 ${escapeHtml(date)} กะ${escapeHtml(input.shift || '-')} — ${escapeHtml(op)}\n${escapeHtml(String(input.text || ''))}`);
+    return 'บันทึกโน้ตส่งเวรเรียบร้อย';
+  }
+  if (tool === 'update_production_plan') {
+    const date = input.date || today;
+    const items = input.items || [];
+    const createdAt = nowBKK();
+    for (const it of items) {
+      await db.exec(`INSERT INTO production_plans (plan_date, line_name, flavor, planned_batches, operator_name, note, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(plan_date, line_name, flavor)
+        DO UPDATE SET planned_batches=excluded.planned_batches, operator_name=excluded.operator_name, note=excluded.note, created_at=excluded.created_at`,
+        [date, it.line || '', it.flavor || '', Number(it.planned_batches) || 0, op, it.note || '', createdAt]);
+    }
+    await generateTasksForDate(date, op);
+    await syncTaskProgress(date);
+    const total = items.reduce((s, it) => s + (Number(it.planned_batches) || 0), 0);
+    sendToTelegram([`📋 <b>บันทึกแผนผลิต</b> (ผ่านผู้ช่วย AI)`, `🗓 ${escapeHtml(date)} — ${escapeHtml(op)}`,
+      ...items.map(it => `• ${escapeHtml(it.line || 'รวม')} | ${escapeHtml(it.flavor || '-')}: <b>${Number(it.planned_batches) || 0}</b> batch`),
+      `รวมแผน: <b>${total}</b> batch`].join('\n'));
+    sendToN8n({ type: 'production_plan', planDate: date, operator: op, createdAt,
+      items: items.map(it => ({ line: it.line || '', flavor: it.flavor || '', plannedBatches: String(Number(it.planned_batches) || 0), note: it.note || '' })) });
+    return `บันทึกแผนผลิต ${items.length} รายการ (รวม ${total} batch) เรียบร้อย`;
+  }
+  throw new Error(`ไม่รู้จัก action: ${tool}`);
+}
+
 const ASSISTANT_TOOLS = [
   { name: 'create_task', description: 'สร้างงานใหม่ลง To-do เมื่อผู้ใช้บอกว่าจะทำหรือทำงานอะไรเสร็จแล้ว',
     input_schema: { type: 'object', properties: {
@@ -2073,11 +2236,91 @@ const ASSISTANT_TOOLS = [
     input_schema: { type: 'object', properties: {
       from: { type: 'string' }, to: { type: 'string' },
       line: { type: 'string' }, flavor: { type: 'string' } } } },
+  // ── สมองรวม: ค้นคู่มือ + สืบค้น DB ทุกตาราง ──────────────────────────────
+  { name: 'search_knowledge', description: 'ค้นคู่มือ/ความรู้ของแอป (ภาพรวมระบบ, ตารางกะ, ขั้นตอนงาน, โครงสร้างข้อมูล) — ใช้เมื่อถูกถามเรื่องวิธีใช้แอป กะทำงาน ขั้นตอน หรือสิ่งที่ไม่ใช่ตัวเลขใน DB ห้ามเดาถ้ายังไม่ค้น',
+    input_schema: { type: 'object', properties: {
+      query: { type: 'string', description: 'คำค้นแยกเป็นคำสั้นๆ คั่นช่องว่าง เช่น "กะ ศุกร์", "ส่งเวร", "Line 4 บรรจุ"' } }, required: ['query'] } },
+  { name: 'query_database', description: 'รันคำสั่ง SELECT อ่านข้อมูลจากตารางใดก็ได้ในระบบ — ใช้เมื่อคำถามเกินขอบเขต tool สรุปสำเร็จรูป (schema อยู่ใน system prompt) อ่านอย่างเดียว ระบบบังคับ LIMIT ให้',
+    input_schema: { type: 'object', properties: {
+      sql: { type: 'string', description: 'คำสั่ง SELECT เดี่ยว (SQLite/Postgres compatible)' },
+      purpose: { type: 'string', description: 'อธิบายสั้นๆ ว่าดึงไปตอบอะไร' } }, required: ['sql'] } },
+  // ── มือทำงาน: เขียนข้อมูลจริง (สร้างรายการรอยืนยัน — ไม่เขียนทันที) ─────
+  { name: 'record_production', description: 'บันทึกการผลิต 1 batch ลง production_logs (เหมือนกด Done ที่หน้าผลิต) — ระบบจะขึ้นการ์ดให้ผู้ใช้กดยืนยันก่อน ยังไม่บันทึกทันที',
+    input_schema: { type: 'object', properties: {
+      line: { type: 'string', description: '"Line 1"–"Line 4"' },
+      flavor: { type: 'string' }, batch: { type: 'string', description: 'A-Z หรือ No.1-20 สำหรับ Dilute' },
+      brix: { type: 'number' }, ph: { type: 'number' }, cip_count: { type: 'string' },
+      lot_no: { type: 'string' }, date: { type: 'string', description: 'YYYY-MM-DD (ไม่ระบุ = ตอนนี้)' },
+      time: { type: 'string', description: 'HH:MM:SS' } }, required: ['line', 'flavor'] } },
+  { name: 'record_cip_round', description: 'บันทึกรอบ CIP/Backwash ที่ทำเสร็จแล้ว (เหมาะกับบันทึกย้อนหลัง/ตกหล่น) — ต้องให้ผู้ใช้กดยืนยันก่อน',
+    input_schema: { type: 'object', properties: {
+      line: { type: 'string', description: '"Line 1", "Line 2", "Line 3"' },
+      backwash: { type: 'boolean', description: 'รอบนี้มี Backwash ด้วยไหม (Line 2/3)' },
+      flavor: { type: 'string' }, remark: { type: 'string' },
+      date: { type: 'string' }, time: { type: 'string' } }, required: ['line'] } },
+  { name: 'save_handover_note', description: 'บันทึกโน้ตส่งเวร (ข้อความอิสระ) + แจ้ง Telegram — ต้องให้ผู้ใช้กดยืนยันก่อน',
+    input_schema: { type: 'object', properties: {
+      text: { type: 'string' }, shift: { type: 'string', description: 'เช้า/บ่าย/ดึก' },
+      date: { type: 'string' } }, required: ['text'] } },
+  { name: 'update_production_plan', description: 'บันทึก/แก้แผนผลิตของวัน (สร้าง To-do อัตโนมัติด้วย) — ต้องให้ผู้ใช้กดยืนยันก่อน',
+    input_schema: { type: 'object', properties: {
+      date: { type: 'string' },
+      items: { type: 'array', items: { type: 'object', properties: {
+        line: { type: 'string' }, flavor: { type: 'string' },
+        planned_batches: { type: 'integer' }, note: { type: 'string' } },
+        required: ['flavor', 'planned_batches'] } } }, required: ['items'] } },
+  // ยืนยัน/ยกเลิกด้วยการพิมพ์ (สำหรับ Telegram ที่ไม่มีปุ่ม) — เว็บใช้ปุ่มการ์ดแทน
+  { name: 'confirm_pending_action', description: 'ยืนยันรายการบันทึกที่ค้างอยู่ → เขียนข้อมูลจริง เรียกได้เฉพาะเมื่อผู้ใช้พิมพ์ยืนยันชัดเจนเท่านั้น (เช่น "ยืนยัน", "ตกลง", "ใช่ บันทึกเลย")',
+    input_schema: { type: 'object', properties: {
+      action_id: { type: 'integer', description: 'ไม่ระบุ = รายการล่าสุดที่รออยู่ของ session นี้' } } } },
+  { name: 'cancel_pending_action', description: 'ยกเลิกรายการบันทึกที่ค้างอยู่ เมื่อผู้ใช้บอกไม่เอา/ยกเลิก/ข้อมูลผิด',
+    input_schema: { type: 'object', properties: { action_id: { type: 'integer' } } } },
 ];
 
-async function runAssistantTool(name, input, operator) {
+async function runAssistantTool(name, input, operator, ctx = {}) {
   const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
   const date = input.date || today();
+  // ── tool เขียนข้อมูล → สร้างรายการรอยืนยัน (ไม่เขียน DB ทันที) ──────────
+  if (ASSISTANT_WRITE_TOOLS.has(name)) {
+    const summary = summarizeAction(name, input);
+    const ins = await dbRun('INSERT INTO assistant_actions (session, operator_name, tool, input, summary, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [ctx.session || null, operator || null, name, JSON.stringify(input), summary, 'pending', nowBKK()]);
+    const action = { id: ins.lastID, tool: name, summary };
+    if (ctx.pending) ctx.pending.push(action);
+    return { pending: true, action_id: action.id, summary,
+      note: 'สร้างรายการรอยืนยันแล้ว — ยังไม่บันทึกจริง บอกผู้ใช้ให้กดปุ่ม ✅ ยืนยันบนการ์ด (หรือพิมพ์ "ยืนยัน") ห้ามบอกว่าบันทึกแล้ว' };
+  }
+  if (name === 'confirm_pending_action' || name === 'cancel_pending_action') {
+    const approve = name === 'confirm_pending_action';
+    const rows = input.action_id
+      ? await dbAll("SELECT * FROM assistant_actions WHERE id = ? AND status = 'pending'", [input.action_id])
+      : await dbAll("SELECT * FROM assistant_actions WHERE session = ? AND status = 'pending' ORDER BY id DESC LIMIT 1", [ctx.session || '']);
+    const act = rows[0];
+    if (!act) return { error: 'ไม่พบรายการที่รอยืนยัน' };
+    if (!approve) {
+      await db.exec("UPDATE assistant_actions SET status = 'rejected', decided_at = ? WHERE id = ?", [nowBKK(), act.id]);
+      if (ctx.resolved) ctx.resolved.push(act.id);
+      return { ok: true, cancelled: act.summary };
+    }
+    try {
+      const msg = await executeAssistantAction(act.tool, JSON.parse(act.input || '{}'), operator || act.operator_name);
+      await db.exec("UPDATE assistant_actions SET status = 'approved', result = ?, decided_at = ? WHERE id = ?", [msg, nowBKK(), act.id]);
+      if (ctx.resolved) ctx.resolved.push(act.id);
+      return { ok: true, executed: msg };
+    } catch (e) {
+      await db.exec("UPDATE assistant_actions SET status = 'error', result = ?, decided_at = ? WHERE id = ?", [e.message, nowBKK(), act.id]);
+      if (ctx.resolved) ctx.resolved.push(act.id);
+      return { error: `บันทึกไม่สำเร็จ: ${e.message}` };
+    }
+  }
+  if (name === 'search_knowledge') {
+    const results = searchKnowledge(input.query);
+    return results.length ? { results } : { results: [], note: 'ไม่พบในคู่มือ — ถ้าเป็นข้อมูลตัวเลขลอง query_database ถ้าไม่ใช่ให้ตอบตรงๆ ว่าไม่พบข้อมูล' };
+  }
+  if (name === 'query_database') {
+    const rows = await runReadonlySql(input.sql);
+    return { rowCount: rows.length, rows };
+  }
   if (name === 'create_task') {
     await db.exec(`INSERT INTO daily_tasks (task_date, line_name, category, title, detail, target_count, status, source, created_by, created_at)
       VALUES (?, ?, ?, ?, ?, ?, 'pending', 'chat', ?, ?)
@@ -2157,9 +2400,18 @@ app.post('/api/assistant', async (req, res) => {
     '• ข้อมูลวันเดียว: get_production_summary / get_cip_summary / get_timeline / list_tasks',
     '• ข้ามวัน/ช่วงเวลา/แนวโน้ม: query_production_range (from,to) เช่น "สัปดาห์นี้", "3 วันก่อน", "เดือนนี้"',
     '• คุณภาพ: get_quality (Brix/pH) — เจอค่าที่ดูผิดปกติให้ทักเตือน',
+    '• ความรู้เรื่องแอป/กะ/ขั้นตอน: search_knowledge — ถูกถามเรื่องวิธีใช้/ระบบ/กะทำงาน ให้ค้นก่อนตอบเสมอ',
+    '• คำถามข้อมูลที่ tool สรุปไม่ครอบคลุม: query_database (SELECT อย่างเดียว) — schema ทั้งหมด:',
+    SCHEMA_SUMMARY,
+    '',
+    'การบันทึกข้อมูลจริง (สำคัญมาก):',
+    '• บันทึกผลิต=record_production · รอบ CIP/Backwash=record_cip_round · โน้ตส่งเวร=save_handover_note · แผนผลิต=update_production_plan',
+    '• tool เหล่านี้สร้าง "รายการรอยืนยัน" — ระบบขึ้นการ์ดให้ผู้ใช้กด ✅ เอง ห้ามพูดว่า "บันทึกแล้ว" จนกว่าจะยืนยัน ให้สรุปข้อมูลที่จะบันทึกและบอกให้กดยืนยัน',
+    '• ก่อนเรียก tool เขียน ต้องมีข้อมูลครบพอ (Line, รสชาติ ฯลฯ) ถ้าคลุมเครือให้ถามก่อน',
+    '• confirm_pending_action เรียกได้เฉพาะเมื่อผู้ใช้พิมพ์ยืนยันเองชัดเจน ("ยืนยัน"/"ตกลง"/"บันทึกเลย") ห้ามเรียกเอง · ผู้ใช้ปฏิเสธ→cancel_pending_action',
     '',
     'วิธีตอบ:',
-    '• เรียก tool ดึงข้อมูลจริงก่อนตอบเสมอ ห้ามเดา/มโนตัวเลข',
+    '• เรียก tool ดึงข้อมูลจริงก่อนตอบเสมอ ห้ามเดา/มโนตัวเลข — ไม่แน่ใจให้ค้น search_knowledge หรือ query_database ก่อน ถ้ายังไม่พบให้ตอบตรงๆ ว่าไม่พบข้อมูล อย่าแต่งเรื่อง',
     '• เชิงรุก: ถ้าผลิตไม่ทันแผน (จริงน้อยกว่าแผนมาก) / ค่า Brix,pH ผิดปกติ / เห็นแนวโน้มน่าสนใจ ให้ทักเตือนผู้ใช้ด้วย',
     '• ตอบภาษาไทย กระชับ อ่านง่าย เน้นตัวเลขสำคัญ ใส่ emoji พอประมาณ',
     '• ใช้บริบทจากบทสนทนาก่อนหน้าเมื่อเป็นคำถามต่อเนื่อง',
@@ -2167,6 +2419,7 @@ app.post('/api/assistant', async (req, res) => {
 
   try {
     const actions = [];
+    const ctx = { session: session || null, pending: [], resolved: [] }; // pending = การ์ดยืนยันที่เกิดใหม่รอบนี้
     // โหลดบทสนทนาก่อนหน้าของ session นี้ (multi-turn memory) — เก็บเฉพาะข้อความเป็น text
     let history = [];
     if (session) {
@@ -2189,7 +2442,7 @@ app.post('/api/assistant', async (req, res) => {
       for (const block of resp.content) {
         if (block.type !== 'tool_use') continue;
         let out;
-        try { out = await runAssistantTool(block.name, block.input || {}, operator); }
+        try { out = await runAssistantTool(block.name, block.input || {}, operator, ctx); }
         catch (e) { out = { error: e.message }; }
         actions.push({ tool: block.name, input: block.input });
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(out) });
@@ -2204,9 +2457,45 @@ app.post('/api/assistant', async (req, res) => {
       await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [session, 'assistant', reply, ts]);
       await db.exec(`DELETE FROM assistant_messages WHERE session = ? AND id NOT IN (SELECT id FROM assistant_messages WHERE session = ? ORDER BY id DESC LIMIT 30)`, [session, session]);
     }
-    res.json({ reply, actions });
+    res.json({ reply, actions, pending: ctx.pending });
   } catch (err) {
     console.error('[assistant] error', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// กดปุ่ม ✅/❌ บนการ์ดยืนยันในหน้าแชท → เขียนข้อมูลจริง (หรือยกเลิก) + จดผลลง memory ของ session
+app.post('/api/assistant/confirm', async (req, res) => {
+  const { action_id, approve, operator } = req.body;
+  if (!action_id) return res.status(400).json({ error: 'action_id จำเป็น' });
+  try {
+    const rows = await dbAll('SELECT * FROM assistant_actions WHERE id = ?', [action_id]);
+    const act = rows[0];
+    if (!act) return res.status(404).json({ error: 'ไม่พบรายการนี้' });
+    if (act.status !== 'pending') return res.json({ ok: false, message: `รายการนี้ถูก${act.status === 'approved' ? 'บันทึกไปแล้ว' : 'ปิดไปแล้ว'}`, status: act.status });
+    let message, status;
+    if (approve) {
+      try {
+        message = await executeAssistantAction(act.tool, JSON.parse(act.input || '{}'), operator || act.operator_name);
+        status = 'approved';
+      } catch (e) {
+        await db.exec("UPDATE assistant_actions SET status = 'error', result = ?, decided_at = ? WHERE id = ?", [e.message, nowBKK(), act.id]);
+        return res.status(500).json({ ok: false, error: `บันทึกไม่สำเร็จ: ${e.message}` });
+      }
+    } else {
+      message = 'ยกเลิกรายการแล้ว ไม่มีการบันทึก';
+      status = 'rejected';
+    }
+    await db.exec('UPDATE assistant_actions SET status = ?, result = ?, decided_at = ? WHERE id = ?', [status, message, nowBKK(), act.id]);
+    // จดผลไว้ในประวัติแชท เพื่อให้ AI รู้ในเทิร์นถัดไปว่าผู้ใช้ตัดสินใจอะไร
+    if (act.session) {
+      const note = approve ? `[ระบบ] ผู้ใช้กดยืนยันรายการ #${act.id} — ${message}` : `[ระบบ] ผู้ใช้ยกเลิกรายการ #${act.id} (${act.summary})`;
+      await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [act.session, 'user', note, nowBKK()]);
+      await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [act.session, 'assistant', 'รับทราบครับ', nowBKK()]);
+    }
+    res.json({ ok: true, status, message });
+  } catch (err) {
+    console.error('[assistant/confirm] error', err.message);
     res.status(500).json({ error: err.message });
   }
 });

@@ -16,7 +16,8 @@ type Template = {
   id: number; title: string; line_name: string; category: string; cadence: string;
   weekday?: number | null; target_count?: number | null; active: number;
 };
-type ChatMsg = { role: 'user' | 'assistant'; text: string };
+type PendingAction = { id: number; tool: string; summary: string; status?: 'pending' | 'approved' | 'rejected' | 'error'; result?: string };
+type ChatMsg = { role: 'user' | 'assistant'; text: string; pending?: PendingAction[] };
 
 const CAT: Record<string, { icon: string; label: string }> = {
   production: { icon: '🏭', label: 'ผลิต' },
@@ -1300,7 +1301,7 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
 // ─── Assistant chat ─────────────────────────────────────────────
 const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () => void; card: React.CSSProperties }> =
   ({ operatorName, onAfterAction, card }) => {
-    const [msgs, setMsgs] = useState<ChatMsg[]>([{ role: 'assistant', text: 'สวัสดีครับ พิมพ์เล่าได้เลย เช่น "Line 1 ผลิต Amazon 5 batch แล้ว CIP" หรือถามว่า "วันนี้ Line 2 ทำอะไรไปแล้วบ้าง"' }]);
+    const [msgs, setMsgs] = useState<ChatMsg[]>([{ role: 'assistant', text: 'สวัสดีครับ ถามหรือสั่งได้เลย เช่น\n• "วันนี้ Line 2 ทำอะไรไปแล้วบ้าง" / "สัปดาห์นี้รสไหนผลิตเยอะสุด"\n• "บันทึกผลิต Amazon batch C Line 2 brix 12.4" (มีการ์ดให้กดยืนยันก่อนบันทึกจริง)\n• "บันทึกรอบ CIP Line 3 มี backwash" / "วางแผนพรุ่งนี้ Amazon 6 batch"\n• ถามเรื่องระบบ/กะทำงาน/วิธีใช้แอปได้ด้วย' }]);
     const [input, setInput] = useState('');
     const [busy, setBusy] = useState(false);
     const endRef = useRef<HTMLDivElement>(null);
@@ -1315,24 +1316,62 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
           body: JSON.stringify({ message: text, operator: operatorName, session: `web-${operatorName || 'guest'}` }),
         });
         const d = await r.json();
-        setMsgs(m => [...m, { role: 'assistant', text: d.reply || d.error || 'ขออภัย เกิดข้อผิดพลาด' }]);
+        setMsgs(m => [...m, { role: 'assistant', text: d.reply || d.error || 'ขออภัย เกิดข้อผิดพลาด', pending: d.pending && d.pending.length ? d.pending.map((p: PendingAction) => ({ ...p, status: 'pending' as const })) : undefined }]);
         if (d.actions && d.actions.length) onAfterAction();
       } catch {
         setMsgs(m => [...m, { role: 'assistant', text: 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้' }]);
       } finally { setBusy(false); }
     };
+    // กด ✅/❌ บนการ์ดยืนยัน → เขียนข้อมูลจริง (หรือยกเลิก) แล้วอัปเดตสถานะการ์ด
+    const decide = async (actionId: number, approve: boolean) => {
+      setMsgs(m => m.map(msg => !msg.pending ? msg : ({ ...msg, pending: msg.pending.map(p => p.id === actionId ? { ...p, status: (approve ? 'approved' : 'rejected') as PendingAction['status'], result: 'กำลังบันทึก…' } : p) })));
+      try {
+        const r = await fetch(`${apiUrl}/api/assistant/confirm`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action_id: actionId, approve, operator: operatorName }),
+        });
+        const d = await r.json();
+        const ok = d.ok && (!approve || d.status === 'approved');
+        setMsgs(m => m.map(msg => !msg.pending ? msg : ({ ...msg, pending: msg.pending.map(p => p.id === actionId ? { ...p, status: (ok ? (approve ? 'approved' : 'rejected') : 'error') as PendingAction['status'], result: d.message || d.error || '' } : p) })));
+        if (ok && approve) onAfterAction();
+      } catch {
+        setMsgs(m => m.map(msg => !msg.pending ? msg : ({ ...msg, pending: msg.pending.map(p => p.id === actionId ? { ...p, status: 'error' as const, result: 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้' } : p) })));
+      }
+    };
     return (
       <div style={{ ...card, display: 'flex', flexDirection: 'column', height: '70vh', padding: '0', overflow: 'hidden' }}>
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px' }}>
           {msgs.map((m, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: '10px' }}>
-              <div style={{
-                maxWidth: '80%', padding: '10px 14px', borderRadius: '16px', fontSize: '0.88rem', lineHeight: 1.5, whiteSpace: 'pre-wrap',
-                background: m.role === 'user' ? 'linear-gradient(135deg,#ff6b00,#ff8c00)' : '#f4f5f6',
-                color: m.role === 'user' ? '#fff' : '#37474f',
-                borderBottomRightRadius: m.role === 'user' ? '4px' : '16px',
-                borderBottomLeftRadius: m.role === 'user' ? '16px' : '4px',
-              }}>{m.text}</div>
+            <div key={i} style={{ marginBottom: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                <div style={{
+                  maxWidth: '80%', padding: '10px 14px', borderRadius: '16px', fontSize: '0.88rem', lineHeight: 1.5, whiteSpace: 'pre-wrap',
+                  background: m.role === 'user' ? 'linear-gradient(135deg,#ff6b00,#ff8c00)' : '#f4f5f6',
+                  color: m.role === 'user' ? '#fff' : '#37474f',
+                  borderBottomRightRadius: m.role === 'user' ? '4px' : '16px',
+                  borderBottomLeftRadius: m.role === 'user' ? '16px' : '4px',
+                }}>{m.text}</div>
+              </div>
+              {/* การ์ดยืนยันการบันทึก — AI เตรียมข้อมูลไว้ ผู้ใช้ต้องกดยืนยันก่อนเขียนจริง */}
+              {m.pending?.map(p => (
+                <div key={p.id} style={{
+                  maxWidth: '80%', marginTop: '6px', padding: '12px 14px', borderRadius: '14px', fontSize: '0.86rem',
+                  background: '#fff7f0', border: '1.5px solid #ffd0a8', boxShadow: '0 2px 10px rgba(255,107,0,0.08)',
+                }}>
+                  <div style={{ fontWeight: 700, color: '#b34700', marginBottom: '4px' }}>⏳ รอยืนยันการบันทึก</div>
+                  <div style={{ color: '#5d4037', whiteSpace: 'pre-wrap', marginBottom: '10px' }}>{p.summary}</div>
+                  {p.status === 'pending' ? (
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button onClick={() => decide(p.id, true)} style={{ flex: 1, padding: '8px 0', borderRadius: '10px', border: 'none', background: '#2e7d32', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>✅ ยืนยันบันทึก</button>
+                      <button onClick={() => decide(p.id, false)} style={{ flex: 1, padding: '8px 0', borderRadius: '10px', border: '1px solid #ddd', background: '#fff', color: '#78828a', fontWeight: 600, cursor: 'pointer' }}>❌ ยกเลิก</button>
+                    </div>
+                  ) : (
+                    <div style={{ fontWeight: 600, color: p.status === 'approved' ? '#2e7d32' : p.status === 'rejected' ? '#78828a' : '#c62828' }}>
+                      {p.status === 'approved' ? '✅ ' : p.status === 'rejected' ? '🚫 ' : '⚠️ '}{p.result || (p.status === 'approved' ? 'บันทึกแล้ว' : 'ยกเลิกแล้ว')}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           ))}
           {busy && <div style={{ color: '#9aa0a6', fontSize: '0.8rem' }}>กำลังคิด…</div>}
