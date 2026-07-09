@@ -2315,7 +2315,7 @@ async function runAssistantTool(name, input, operator, ctx = {}) {
   }
   if (name === 'search_knowledge') {
     const results = searchKnowledge(input.query);
-    return results.length ? { results } : { results: [], note: 'ไม่พบในคู่มือ — ถ้าเป็นข้อมูลตัวเลขลอง query_database ถ้าไม่ใช่ให้ตอบตรงๆ ว่าไม่พบข้อมูล' };
+    return results.length ? { results } : { results: [], note: 'ไม่พบด้วยคำค้นนี้ — ลองค้นใหม่ด้วยคำที่สั้นลงหรือคำอื่น 1-2 ครั้ง (เช่นชื่อคน/คำหลักคำเดียว) ถ้ายังไม่เจอและเป็นข้อมูลตัวเลขลอง query_database ไม่งั้นตอบตรงๆ ว่าไม่พบข้อมูล' };
   }
   if (name === 'query_database') {
     const rows = await runReadonlySql(input.sql);
@@ -2400,7 +2400,7 @@ app.post('/api/assistant', async (req, res) => {
     '• ข้อมูลวันเดียว: get_production_summary / get_cip_summary / get_timeline / list_tasks',
     '• ข้ามวัน/ช่วงเวลา/แนวโน้ม: query_production_range (from,to) เช่น "สัปดาห์นี้", "3 วันก่อน", "เดือนนี้"',
     '• คุณภาพ: get_quality (Brix/pH) — เจอค่าที่ดูผิดปกติให้ทักเตือน',
-    '• ความรู้เรื่องแอป/กะ/ขั้นตอน: search_knowledge — ถูกถามเรื่องวิธีใช้/ระบบ/กะทำงาน ให้ค้นก่อนตอบเสมอ',
+    '• ความรู้เรื่องแอป/กะ/ขั้นตอน/ทีม: search_knowledge — ถูกถามเรื่องวิธีใช้/ระบบ/กะทำงาน/บุคคล ให้ค้นก่อนตอบเสมอ ถ้าครั้งแรกไม่เจอ ให้เปลี่ยนคำค้น (สั้นลง/คำพ้อง/ชื่อที่ถูกถาม) ลองอีก 1-2 ครั้งก่อนจะสรุปว่าไม่พบ',
     '• คำถามข้อมูลที่ tool สรุปไม่ครอบคลุม: query_database (SELECT อย่างเดียว) — schema ทั้งหมด:',
     SCHEMA_SUMMARY,
     '',
