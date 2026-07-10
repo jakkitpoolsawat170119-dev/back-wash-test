@@ -2588,6 +2588,16 @@ async function buildAssistantSystem(operator) {
     '• "เช็ก/ตรวจของวันนี้" = get_production_summary + get_cip_summary + get_quality → รายงานพร้อมทักถ้าผิดปกติ',
     '• เมื่อผู้ใช้กดยืนยัน (มีข้อความ [ระบบ] แจ้งผล) ให้ทำขั้นตอนถัดไปที่ค้างอยู่ต่อทันที ถ้าไม่มีก็ตอบรับสั้นๆ',
     '',
+    'ทีมของผู้ใช้ ("กะจักรกฤษ") — ใช้ตีความคำว่า "กะผม/ทีมผม/ของเรา":',
+    '• หัวหน้ากะ: จักรกฤษ · สมาชิก: ม้ำ (ผู้ช่วยหลัก คุมผลิต&CIP), นาย (ส่วนผสม & ผู้ช่วยม้ำ), พลุ๊ก (ส่วนผสม & เครื่องบรรจุ)',
+    '• วันหยุดของทีมนี้ = วันเสาร์ (โรงงานยังเดินโดยมีอีก 2 กะหมุนมาแทน) → ถ้าถามยอด "กะผม" วันเสาร์ = ทีมนี้หยุด',
+    '• ตารางกะโรงงาน: จ-พฤ 3 กะ (เช้า06-14/บ่าย14-22/ดึก22-06) · ศ,ส,อา 2 กะ (เช้า06-18/ดึก18-06)',
+    '',
+    'อ่านรูปแผนผลิต (เมื่อผู้ใช้แนบรูป):',
+    '• ถ้าแนบรูปตารางแผนผลิตรายสัปดาห์แล้วถาม "วันนี้/กะผมผลิตอะไร": หาคอลัมน์ของวันนี้จากหัวตาราง (รูปแบบวันที่เช่น 10-7-69 = 10 ก.ค. 2026), อ่าน SKU/รสชาติ + จำนวนผลิตแยกตามช่องกะ (Worker เช้า/บ่าย/ดึก) + จำนวนคนบรรจุต่อ Line',
+    '• แผนอาจเปลี่ยนได้ตลอด — สรุปตามรูปที่เห็น ระบุว่าอ้างอิงจากรูป · เลขที่อ่านไม่ชัดให้บอกตรงๆ ว่าอ่านไม่ชัด อย่าเดา · ถ้ารูปกว้าง/แน่นมากแนะนำให้ครอปเฉพาะส่วนที่ถามมา',
+    '• CIP ในช่องแผน = ไลน์นั้นล้างระบบรอบนั้น (ไม่ใช่ยอดผลิต)',
+    '',
     'วิธีตอบ:',
     '• เรียก tool ดึงข้อมูลจริงก่อนตอบเสมอ ห้ามเดา/มโนตัวเลข — ไม่แน่ใจให้ค้น search_knowledge หรือ query_database ก่อน ถ้ายังไม่พบให้ตอบตรงๆ ว่าไม่พบข้อมูล อย่าแต่งเรื่อง',
     '• เชิงรุก: ถ้าผลิตไม่ทันแผน (จริงน้อยกว่าแผนมาก) / ค่า Brix,pH ผิดปกติ / เห็นแนวโน้มน่าสนใจ ให้ทักเตือนผู้ใช้ด้วย',
@@ -2599,9 +2609,10 @@ async function buildAssistantSystem(operator) {
 }
 
 // เลเยอร์คุยกับ Claude ที่ใช้ร่วมกัน — หน้าเว็บ (/api/assistant), ต่อหลังกดยืนยัน (เฟส 3), วิเคราะห์สิ้นกะ (เฟส 1)
-// opts: { userMessage, operator, session, persist=true, maxTurns=12, systemExtra }
+// opts: { userMessage, image, operator, session, persist=true, maxTurns=12, systemExtra }
+// image (ถ้ามี) = { data: base64 ไม่รวม prefix, media_type } → แนบเป็น image block เทิร์นแรก (vision อ่านรูปแผน)
 async function runAssistantConversation(opts) {
-  const { userMessage, operator = null, session = null, persist = true, maxTurns = 12, systemExtra = '' } = opts;
+  const { userMessage, image = null, operator = null, session = null, persist = true, maxTurns = 12, systemExtra = '' } = opts;
   const client = getAnthropic();
   if (!client) throw new Error('ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์');
   let system = await buildAssistantSystem(operator);
@@ -2616,7 +2627,12 @@ async function runAssistantConversation(opts) {
     history = rows.reverse().filter(r => r.content && String(r.content).trim());
     while (history.length && history[0].role !== 'user') history.shift(); // ต้องเริ่มด้วย user
   }
-  const messages = [...history.map(r => ({ role: r.role, content: r.content })), { role: 'user', content: String(userMessage) }];
+  // เทิร์นแรก: ถ้าแนบรูป → [image block + text] ไม่งั้น text เดี่ยว (รูปไม่ถูกเก็บลง history ส่งเฉพาะเทิร์นนี้)
+  const firstContent = (image && image.data)
+    ? [{ type: 'image', source: { type: 'base64', media_type: image.media_type || 'image/jpeg', data: image.data } },
+       { type: 'text', text: String(userMessage || 'ช่วยดูรูปนี้ให้หน่อย') }]
+    : String(userMessage);
+  const messages = [...history.map(r => ({ role: r.role, content: r.content })), { role: 'user', content: firstContent }];
   let reply = '';
   for (let turn = 0; turn < maxTurns; turn++) {
     const resp = await client.messages.create({
@@ -2648,7 +2664,7 @@ async function runAssistantConversation(opts) {
   // เก็บบทสนทนารอบนี้ไว้ต่อ session (จำกัดไว้ ~30 ข้อความล่าสุดต่อ session)
   if (persist && session) {
     const ts = nowBKK();
-    await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [session, 'user', String(userMessage), ts]);
+    await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [session, 'user', String(userMessage || '') + (image && image.data ? ' 🖼[แนบรูป]' : ''), ts]);
     await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [session, 'assistant', reply, ts]);
     await db.exec(`DELETE FROM assistant_messages WHERE session = ? AND id NOT IN (SELECT id FROM assistant_messages WHERE session = ? ORDER BY id DESC LIMIT 30)`, [session, session]);
   }
@@ -2657,10 +2673,12 @@ async function runAssistantConversation(opts) {
 
 app.post('/api/assistant', async (req, res) => {
   if (!getAnthropic()) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์' });
-  const { message, operator, session } = req.body;
-  if (!message) return res.status(400).json({ error: 'message จำเป็น' });
+  const { message, operator, session, image } = req.body;
+  // ต้องมีข้อความหรือรูปอย่างน้อยหนึ่งอย่าง (แนบรูปเปล่าๆ ก็ได้)
+  const img = (image && image.data) ? { data: String(image.data), media_type: image.media_type || 'image/jpeg' } : null;
+  if (!message && !img) return res.status(400).json({ error: 'message หรือ image จำเป็น' });
   try {
-    const { reply, actions, pending } = await runAssistantConversation({ userMessage: String(message), operator, session });
+    const { reply, actions, pending } = await runAssistantConversation({ userMessage: String(message || ''), image: img, operator, session });
     res.json({ reply, actions, pending });
   } catch (err) {
     console.error('[assistant] error', err.message);

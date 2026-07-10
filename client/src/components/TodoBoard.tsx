@@ -17,7 +17,7 @@ type Template = {
   weekday?: number | null; target_count?: number | null; active: number;
 };
 type PendingAction = { id: number; tool: string; summary: string; status?: 'pending' | 'approved' | 'rejected' | 'error'; result?: string };
-type ChatMsg = { role: 'user' | 'assistant'; text: string; pending?: PendingAction[] };
+type ChatMsg = { role: 'user' | 'assistant'; text: string; pending?: PendingAction[]; image?: string };
 
 const CAT: Record<string, { icon: string; label: string }> = {
   production: { icon: '🏭', label: 'ผลิต' },
@@ -1301,19 +1301,46 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
 // ─── Assistant chat ─────────────────────────────────────────────
 const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () => void; card: React.CSSProperties }> =
   ({ operatorName, onAfterAction, card }) => {
-    const [msgs, setMsgs] = useState<ChatMsg[]>([{ role: 'assistant', text: 'สวัสดีครับ ถามหรือสั่งได้เลย เช่น\n• "วันนี้ Line 2 ทำอะไรไปแล้วบ้าง" / "สัปดาห์นี้รสไหนผลิตเยอะสุด"\n• "บันทึกผลิต Amazon batch C Line 2 brix 12.4" (มีการ์ดให้กดยืนยันก่อนบันทึกจริง)\n• "บันทึกรอบ CIP Line 3 มี backwash" / "วางแผนพรุ่งนี้ Amazon 6 batch"\n• ถามเรื่องระบบ/กะทำงาน/วิธีใช้แอปได้ด้วย' }]);
+    const [msgs, setMsgs] = useState<ChatMsg[]>([{ role: 'assistant', text: 'สวัสดีครับ ถามหรือสั่งได้เลย เช่น\n• "วันนี้ Line 2 ทำอะไรไปแล้วบ้าง" / "สัปดาห์นี้รสไหนผลิตเยอะสุด"\n• "บันทึกผลิต Amazon batch C Line 2 brix 12.4" (มีการ์ดให้กดยืนยันก่อนบันทึกจริง)\n• "บันทึกรอบ CIP Line 3 มี backwash" / "วางแผนพรุ่งนี้ Amazon 6 batch"\n• 📎 แนบรูปแผนผลิตรายสัปดาห์ แล้วถาม "วันนี้กะผมผลิตอะไรบ้าง"\n• ถามเรื่องระบบ/กะทำงาน/วิธีใช้แอปได้ด้วย' }]);
     const [input, setInput] = useState('');
     const [busy, setBusy] = useState(false);
+    // รูปที่แนบ (แผนผลิต ฯลฯ) — data = base64 ไม่รวม prefix, preview = data URL สำหรับแสดง
+    const [img, setImg] = useState<{ preview: string; data: string; mediaType: string } | null>(null);
+    const fileRef = useRef<HTMLInputElement>(null);
     const endRef = useRef<HTMLDivElement>(null);
     useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
+    // ย่อรูปให้ขอบยาวสุด ~1568px (เท่าที่ Claude vision ใช้จริง) แล้วแปลงเป็น base64 JPEG — payload เล็ก อ่านชัดพอ
+    const loadImage = (file: File) => {
+      if (!file || !file.type.startsWith('image/')) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const el = new Image();
+        el.onload = () => {
+          const max = 1568, scale = Math.min(1, max / Math.max(el.width, el.height));
+          const w = Math.max(1, Math.round(el.width * scale)), h = Math.max(1, Math.round(el.height * scale));
+          const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+          const cx = cv.getContext('2d'); if (!cx) return;
+          cx.drawImage(el, 0, 0, w, h);
+          const dataUrl = cv.toDataURL('image/jpeg', 0.85);
+          setImg({ preview: dataUrl, data: dataUrl.split(',')[1] || '', mediaType: 'image/jpeg' });
+        };
+        el.src = String(reader.result);
+      };
+      reader.readAsDataURL(file);
+    };
+    const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) loadImage(f); e.target.value = ''; };
+    const onPaste = (e: React.ClipboardEvent) => { const it = Array.from(e.clipboardData.items).find(i => i.type.startsWith('image/')); if (it) { const f = it.getAsFile(); if (f) loadImage(f); } };
     const send = async () => {
       const text = input.trim();
-      if (!text || busy) return;
-      setMsgs(m => [...m, { role: 'user', text }]); setInput(''); setBusy(true);
+      if ((!text && !img) || busy) return;
+      const staged = img;
+      setMsgs(m => [...m, { role: 'user', text: text || (staged ? '(แนบรูป)' : ''), image: staged?.preview }]);
+      setInput(''); setImg(null); setBusy(true);
       try {
         const r = await fetch(`${apiUrl}/api/assistant`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, operator: operatorName, session: `web-${operatorName || 'guest'}` }),
+          body: JSON.stringify({ message: text, operator: operatorName, session: `web-${operatorName || 'guest'}`,
+            image: staged ? { data: staged.data, media_type: staged.mediaType } : undefined }),
         });
         const d = await r.json();
         setMsgs(m => [...m, { role: 'assistant', text: d.reply || d.error || 'ขออภัย เกิดข้อผิดพลาด', pending: d.pending && d.pending.length ? d.pending.map((p: PendingAction) => ({ ...p, status: 'pending' as const })) : undefined }]);
@@ -1354,7 +1381,10 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
                   color: m.role === 'user' ? '#fff' : '#37474f',
                   borderBottomRightRadius: m.role === 'user' ? '4px' : '16px',
                   borderBottomLeftRadius: m.role === 'user' ? '16px' : '4px',
-                }}>{m.text}</div>
+                }}>
+                  {m.image && <img src={m.image} alt="แนบ" style={{ display: 'block', maxWidth: '100%', maxHeight: 220, borderRadius: 10, marginBottom: m.text ? 8 : 0 }} />}
+                  {m.text}
+                </div>
               </div>
               {/* การ์ดยืนยันการบันทึก — AI เตรียมข้อมูลไว้ ผู้ใช้ต้องกดยืนยันก่อนเขียนจริง */}
               {m.pending?.map(p => (
@@ -1381,10 +1411,25 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
           {busy && <div style={{ color: '#9aa0a6', fontSize: '0.8rem' }}>กำลังคิด…</div>}
           <div ref={endRef} />
         </div>
-        <div style={{ display: 'flex', gap: '8px', padding: '10px', borderTop: '1px solid #eee', background: '#fff' }}>
-          <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
-            placeholder="พิมพ์ข้อความ…" style={{ flex: 1, padding: '10px', border: '1px solid #ddd', borderRadius: '12px' }} />
-          <button onClick={send} disabled={busy} style={{ padding: '10px 18px', borderRadius: '12px', border: 'none', background: '#ff6b00', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>ส่ง</button>
+        <div style={{ borderTop: '1px solid #eee', background: '#fff' }}>
+          {/* รูปที่แนบไว้ รอส่ง — แสดง thumbnail + ปุ่มเอาออก */}
+          {img && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 10px 0' }}>
+              <div style={{ position: 'relative' }}>
+                <img src={img.preview} alt="แนบ" style={{ height: 54, width: 54, objectFit: 'cover', borderRadius: 8, border: '1px solid #ffd0a8' }} />
+                <button onClick={() => setImg(null)} title="เอารูปออก" style={{ position: 'absolute', top: -7, right: -7, width: 20, height: 20, borderRadius: '50%', border: 'none', background: '#37474f', color: '#fff', fontSize: 12, lineHeight: '20px', cursor: 'pointer', padding: 0 }}>✕</button>
+              </div>
+              <span style={{ fontSize: '0.78rem', color: '#78828a' }}>📎 แนบรูปแล้ว — พิมพ์คำถาม (เช่น “วันนี้กะผมผลิตอะไร”) แล้วกดส่ง</span>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: '8px', padding: '10px' }}>
+            <input ref={fileRef} type="file" accept="image/*" onChange={onPickFile} style={{ display: 'none' }} />
+            <button onClick={() => fileRef.current?.click()} disabled={busy} title="แนบรูป (แผนผลิต ฯลฯ)"
+              style={{ padding: '10px 12px', borderRadius: '12px', border: '1px solid #ddd', background: '#fff', color: '#546e7a', fontSize: '1.05rem', cursor: 'pointer' }}>📎</button>
+            <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} onPaste={onPaste}
+              placeholder={img ? 'ถามเกี่ยวกับรูปนี้…' : 'พิมพ์ข้อความ… (แนบรูปแผนได้ด้วย 📎)'} style={{ flex: 1, padding: '10px', border: '1px solid #ddd', borderRadius: '12px' }} />
+            <button onClick={send} disabled={busy} style={{ padding: '10px 18px', borderRadius: '12px', border: 'none', background: '#ff6b00', color: '#fff', fontWeight: 700, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}>ส่ง</button>
+          </div>
         </div>
       </div>
     );
