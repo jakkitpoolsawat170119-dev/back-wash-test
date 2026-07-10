@@ -1333,6 +1333,10 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
         const d = await r.json();
         const ok = d.ok && (!approve || d.status === 'approved');
         setMsgs(m => m.map(msg => !msg.pending ? msg : ({ ...msg, pending: msg.pending.map(p => p.id === actionId ? { ...p, status: (ok ? (approve ? 'approved' : 'rejected') : 'error') as PendingAction['status'], result: d.message || d.error || '' } : p) })));
+        // เฟส 3: ผู้ช่วยทำขั้นตอนถัดไปต่อหลังยืนยัน — แสดงข้อความ/การ์ดใหม่ที่ตอบกลับมา
+        if (ok && d.followUp) {
+          setMsgs(m => [...m, { role: 'assistant', text: d.followUp, pending: d.pending && d.pending.length ? d.pending.map((p: PendingAction) => ({ ...p, status: 'pending' as const })) : undefined }]);
+        }
         if (ok && approve) onAfterAction();
       } catch {
         setMsgs(m => m.map(msg => !msg.pending ? msg : ({ ...msg, pending: msg.pending.map(p => p.id === actionId ? { ...p, status: 'error' as const, result: 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้' } : p) })));

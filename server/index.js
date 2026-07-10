@@ -230,6 +230,27 @@ const SCHEMA = [
       created_at TEXT,
       decided_at TEXT
     )`,
+  // ── เฟส 2: ความจำถาวรของผู้ช่วย AI ───────────────────────────────────────
+  // สิ่งที่ผู้ใช้บอกให้จำ (ค่ามาตรฐาน, ชื่อเล่น, ความชอบ, บริบทงาน) — ข้ามหลาย session
+  // scope='global' = จำรวมทุกคน · scope=ชื่อ operator = จำเฉพาะคนนั้น
+  `CREATE TABLE IF NOT EXISTS assistant_memory (
+      id ${db.pk},
+      scope TEXT DEFAULT 'global',
+      key TEXT,
+      value TEXT,
+      created_at TEXT,
+      updated_at TEXT,
+      UNIQUE(scope, key)
+    )`,
+  // ── เฟส 1: กันรันวิเคราะห์สิ้นกะซ้ำ — 1 แถวต่อ (วันทำงาน+กะ) ──────────────
+  `CREATE TABLE IF NOT EXISTS shift_analysis_log (
+      id ${db.pk},
+      work_day TEXT,
+      shift TEXT,
+      summary TEXT,
+      created_at TEXT,
+      UNIQUE(work_day, shift)
+    )`,
 ];
 
 const DEFAULT_OPERATORS = [
@@ -255,6 +276,8 @@ async function initDb() {
   try { await db.exec("ALTER TABLE handover_notes ADD COLUMN kind TEXT DEFAULT 'out'"); } catch { /* มีแล้ว */ }
   // migration: ส่งรายงานอัตโนมัติตอนสิ้นกะ (ตามตารางกะจริง)
   try { await db.exec('ALTER TABLE report_config ADD COLUMN auto_at_shift_end INTEGER DEFAULT 0'); } catch { /* มีแล้ว */ }
+  // migration (เฟส 1): เปิด/ปิดการวิเคราะห์สิ้นกะอัตโนมัติของผู้ช่วย AI (เปิดเป็นค่าเริ่มต้น)
+  try { await db.exec('ALTER TABLE report_config ADD COLUMN shift_analysis_enabled INTEGER DEFAULT 1'); } catch { /* มีแล้ว */ }
   // seed รายชื่อ operator (idempotent — ไม่ลบของเดิมเพื่อไม่ให้ข้อมูลหายตอน restart)
   for (const [name, pin] of DEFAULT_OPERATORS) {
     await db.exec("INSERT INTO operators (name, pin) VALUES (?, ?) ON CONFLICT (name) DO NOTHING", [name, pin]);
@@ -1707,6 +1730,7 @@ async function getReportConfig() {
     weekdays: (() => { try { return JSON.parse(r.weekdays || '[]'); } catch { return []; } })(),
     onlyIfPending: !!r.only_if_pending,
     autoAtShiftEnd: !!r.auto_at_shift_end,
+    shiftAnalysisEnabled: r.shift_analysis_enabled == null ? true : !!r.shift_analysis_enabled,
   };
 }
 app.get('/api/report/config', async (req, res) => {
@@ -1717,11 +1741,12 @@ app.get('/api/report/config', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.post('/api/report/config', async (req, res) => {
-  const { autoEnabled, times, weekdays, onlyIfPending, autoAtShiftEnd } = req.body;
+  const { autoEnabled, times, weekdays, onlyIfPending, autoAtShiftEnd, shiftAnalysisEnabled } = req.body;
   try {
     const cfg = await getReportConfig();
-    await db.exec('UPDATE report_config SET auto_enabled = ?, times = ?, weekdays = ?, only_if_pending = ?, auto_at_shift_end = ?, updated_at = ? WHERE id = ?',
-      [autoEnabled ? 1 : 0, JSON.stringify(times || []), JSON.stringify(weekdays || []), onlyIfPending ? 1 : 0, autoAtShiftEnd ? 1 : 0, nowBKK(), cfg.id]);
+    const sae = shiftAnalysisEnabled == null ? cfg.shiftAnalysisEnabled : shiftAnalysisEnabled;
+    await db.exec('UPDATE report_config SET auto_enabled = ?, times = ?, weekdays = ?, only_if_pending = ?, auto_at_shift_end = ?, shift_analysis_enabled = ?, updated_at = ? WHERE id = ?',
+      [autoEnabled ? 1 : 0, JSON.stringify(times || []), JSON.stringify(weekdays || []), onlyIfPending ? 1 : 0, autoAtShiftEnd ? 1 : 0, sae ? 1 : 0, nowBKK(), cfg.id]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1780,7 +1805,91 @@ async function reportTick() {
 // ให้ n8n Schedule เคาะทุกนาที (ปลุก Render + ทริกส่งตามตั้งค่าในแอป) — เสริม setInterval ให้ตรงเวลาแม้ Render หลับ
 app.post('/api/report/tick', async (req, res) => {
   await reportTick();
+  await shiftAnalysisTick();
   res.json({ ok: true, at: new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }) });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── เฟส 1: วิเคราะห์สิ้นกะอัตโนมัติ → สรุป/แจ้งเตือน Telegram ────────────────
+// เกาะจังหวะเดียวกับ reportTick (ทุก 60s) เช็กว่าเวลานี้เป็น "เวลาสิ้นกะ" ตามตารางจริงไหม
+// ═══════════════════════════════════════════════════════════════════════════
+// คืนกะที่เพิ่งจบพอดีที่เวลา hm ของวัน dateStr (ตามตารางกะจริง) หรือ null
+function shiftJustEnded(dateStr, hm) {
+  if (!/^\d\d:00$/.test(hm)) return null; // กะจบเป็นชั่วโมงเต็มเสมอ
+  const H = Number(hm.slice(0, 2));
+  // กะดึกจบ 06:00 = นับเป็นวันทำงานก่อนหน้า (เหมือน sendDay ใน reportTick)
+  const workDay = (H < 6 || hm === '06:00') ? addDaysStr(dateStr, -1) : dateStr;
+  const shifts = shiftsForWeekday(weekdayOf(workDay));
+  const s = shifts.find((sh) => sh.end === H);
+  return s ? { workDay, shift: s.key, shiftLabel: `กะ${s.key}` } : null;
+}
+
+// เรียก Claude ด้วยชุด tool เดิม → ได้สรุปกะแบบพร้อมส่ง Telegram (plain text) หรือ null ถ้าไม่มีอะไรน่าสนใจ
+async function runShiftAnalysis(workDay, shiftLabel) {
+  if (!getAnthropic()) return null;
+  const userMessage = [
+    `วิเคราะห์ผลงานของ ${shiftLabel} ที่เพิ่งจบของวันทำงาน ${workDay} เพื่อส่งสรุปเข้า Telegram อัตโนมัติ`,
+    'ให้ดึงข้อมูลจริงด้วย tool: get_production_summary (จริงเทียบแผน), get_cip_summary (รอบ CIP/backwash), get_quality (ค่า Brix/pH ผิดปกติ), list_tasks (งานที่ยังค้าง) ของวันทำงานนี้',
+    'ห้ามบันทึก/แก้ไขข้อมูลใดๆ (ไม่เรียก tool เขียน) — วิเคราะห์อ่านอย่างเดียว',
+    'สรุปสั้น กระชับ เป็นข้อความ Telegram ภาษาไทย ขึ้นต้นด้วย "🏁 สรุปสิ้นกะ" ตามด้วยยอดผลิตจริง/แผน, รอบ CIP, งานค้าง, และเน้น "⚠️ จุดที่ต้องระวัง" ถ้ามี (ผลิตไม่ทันแผนมาก / Brix,pH ผิดปกติ / งานค้างเยอะ)',
+    'ห้ามใช้ Markdown ใช้ • และ emoji จัดรูปแบบ ความยาวไม่เกิน ~12 บรรทัด',
+    'ถ้าวันทำงานนี้ไม่มีข้อมูลผลิต/CIP/งานเลย (กะว่างจริง) ให้ตอบกลับด้วยคำว่า SKIP คำเดียวเท่านั้น ห้ามแต่งข้อมูล',
+  ].join('\n');
+  const { reply } = await runAssistantConversation({ userMessage, operator: null, session: null, persist: false, maxTurns: 10 });
+  const clean = String(reply || '').trim();
+  if (!clean || /^skip\b/i.test(clean) || clean.toUpperCase() === 'SKIP') return null;
+  return clean;
+}
+
+const _shiftAnalysisRunning = new Set(); // กันรันซ้อนภายในโปรเซสเดียวระหว่างที่ Claude ยังตอบไม่เสร็จ
+async function shiftAnalysisTick() {
+  try {
+    if (!getAnthropic()) return; // ไม่มี API key → ข้าม (local dev)
+    const cfg = await getReportConfig();
+    if (!cfg.shiftAnalysisEnabled) return; // ปิดจากตั้งค่า
+    const bkk = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' });
+    const date = bkk.slice(0, 10), hm = bkk.slice(11, 16);
+    const ended = shiftJustEnded(date, hm);
+    if (!ended) return;
+    const { workDay, shift, shiftLabel } = ended;
+    const memKey = `${workDay} ${shift}`;
+    if (_shiftAnalysisRunning.has(memKey)) return;
+    // กันรันซ้ำข้ามการรีสตาร์ต: จอง 1 แถวต่อ (วันทำงาน+กะ) ด้วย UNIQUE — ถ้าจองไม่ได้แปลว่าทำไปแล้ว
+    const existing = await dbAll('SELECT id FROM shift_analysis_log WHERE work_day = ? AND shift = ?', [workDay, shift]);
+    if (existing.length) return;
+    _shiftAnalysisRunning.add(memKey);
+    await db.exec('INSERT INTO shift_analysis_log (work_day, shift, created_at) VALUES (?, ?, ?)', [workDay, shift, nowBKK()]);
+    try {
+      const analysis = await runShiftAnalysis(workDay, shiftLabel);
+      if (analysis) {
+        await sendToTelegram(`${analysis}\n\n<i>— วิเคราะห์อัตโนมัติสิ้น${escapeHtml(shiftLabel)} ${escapeHtml(workDay)}</i>`);
+        await db.exec('UPDATE shift_analysis_log SET summary = ? WHERE work_day = ? AND shift = ?', [analysis.slice(0, 4000), workDay, shift]);
+        console.log(`[shift-analysis] sent ${memKey}`);
+      } else {
+        await db.exec('UPDATE shift_analysis_log SET summary = ? WHERE work_day = ? AND shift = ?', ['(skipped — ไม่มีข้อมูล)', workDay, shift]);
+        console.log(`[shift-analysis] skipped ${memKey} (no data)`);
+      }
+    } catch (e) {
+      console.error('[shift-analysis] run error', e.message);
+      // ปลดล็อกให้ลองใหม่รอบถัดไป (เฉพาะแถวที่ยังไม่มีผล)
+      await db.exec('DELETE FROM shift_analysis_log WHERE work_day = ? AND shift = ? AND summary IS NULL', [workDay, shift]);
+    } finally {
+      _shiftAnalysisRunning.delete(memKey);
+    }
+  } catch (e) { console.error('[shift-analysis] tick error', e.message); }
+}
+
+// เรียกวิเคราะห์สิ้นกะเอง (สำหรับทดสอบ/รันย้อนหลัง) — ?send=1 เพื่อส่ง Telegram+จด log จริง
+app.post('/api/assistant/shift-analysis/run', async (req, res) => {
+  if (!getAnthropic()) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์' });
+  const workDay = req.body.workDay || req.query.workDay || workDayBKK();
+  const shiftLabel = req.body.shiftLabel || req.query.shiftLabel || 'กะที่ผ่านมา';
+  const send = String(req.body.send || req.query.send || '') === '1' || req.body.send === true;
+  try {
+    const analysis = await runShiftAnalysis(workDay, shiftLabel);
+    if (send && analysis) await sendToTelegram(`${analysis}\n\n<i>— วิเคราะห์ (manual) ${escapeHtml(shiftLabel)} ${escapeHtml(workDay)}</i>`);
+    res.json({ ok: true, workDay, shiftLabel, sent: !!(send && analysis && process.env.TELEGRAM_BOT_TOKEN), analysis: analysis || '(SKIP — ไม่มีข้อมูล)' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // แถบความคืบหน้าแบบ block (เพิ่มลูกเล่นให้ข้อความ Telegram)
@@ -2102,6 +2211,44 @@ function runReadonlySql(sql) {
   return dbAll(limited, []).then(rows => rows.slice(0, 200));
 }
 
+// ── เฟส 2: ความจำถาวร (assistant_memory) ────────────────────────────────────
+// จำสิ่งที่ผู้ใช้บอกให้จำข้ามหลาย session (ค่ามาตรฐาน, ชื่อเล่น, ความชอบ, บริบท)
+// scope 'global' เห็นร่วมกันทุกคน · scope=ชื่อ operator เห็นเฉพาะคนนั้น
+async function rememberFact(scope, key, value) {
+  const k = String(key || '').trim().slice(0, 120);
+  const v = String(value || '').trim().slice(0, 1000);
+  if (!k || !v) throw new Error('ต้องมีทั้งหัวข้อ (key) และเนื้อหา (value)');
+  await db.exec(`INSERT INTO assistant_memory (scope, key, value, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(scope, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    [scope || 'global', k, v, nowBKK(), nowBKK()]);
+  return { ok: true, remembered: `${k}: ${v}`, scope: scope || 'global' };
+}
+async function recallFacts(operator, query) {
+  const scopes = ['global']; if (operator) scopes.push(operator);
+  const ph = scopes.map(() => '?').join(', ');
+  let rows = await dbAll(`SELECT scope, key, value, updated_at FROM assistant_memory WHERE scope IN (${ph}) ORDER BY updated_at DESC LIMIT 200`, scopes);
+  const q = String(query || '').trim();
+  if (q) {
+    const terms = q.split(/\s+/).filter(t => t.length >= 2).map(t => t.toLowerCase());
+    if (terms.length) rows = rows.filter(r => terms.some(t => (`${r.key} ${r.value}`).toLowerCase().includes(t)));
+  }
+  return rows.slice(0, 50);
+}
+async function forgetFact(operator, key) {
+  const scopes = ['global']; if (operator) scopes.push(operator);
+  const ph = scopes.map(() => '?').join(', ');
+  const r = await db.exec(`DELETE FROM assistant_memory WHERE key = ? AND scope IN (${ph})`, [String(key || ''), ...scopes]);
+  return { ok: true, removed: (r && r.rowCount) || 0 };
+}
+// สรุปความจำเป็นข้อความสั้นๆ ใส่ system prompt (โหลดทุกครั้งที่คุย — เปลี่ยนไม่บ่อย cache แทบไม่รีเซ็ต)
+async function memoryPromptBlock(operator) {
+  const rows = await recallFacts(operator, '');
+  if (!rows.length) return '';
+  const lines = rows.slice(0, 40).map(r => `• ${r.key}: ${r.value}${r.scope !== 'global' ? ` (เฉพาะ ${r.scope})` : ''}`);
+  return ['ความจำถาวร (สิ่งที่เคยถูกสั่งให้จำ — ใช้ประกอบการตอบ ไม่ต้องเรียก recall ซ้ำถ้ามีอยู่แล้วด้านล่าง):', ...lines].join('\n');
+}
+
 // ── การเขียนข้อมูลผ่านผู้ช่วย (แนวทาง "มือทำงาน") — ต้องยืนยันก่อนเสมอ ─────
 // tool เขียนจะไม่แตะ DB ทันที แต่สร้างแถว pending ใน assistant_actions
 // → client แสดงการ์ดให้กด ✅/❌ → POST /api/assistant/confirm ค่อยเขียนจริง
@@ -2244,6 +2391,18 @@ const ASSISTANT_TOOLS = [
     input_schema: { type: 'object', properties: {
       sql: { type: 'string', description: 'คำสั่ง SELECT เดี่ยว (SQLite/Postgres compatible)' },
       purpose: { type: 'string', description: 'อธิบายสั้นๆ ว่าดึงไปตอบอะไร' } }, required: ['sql'] } },
+  // ── เฟส 2: ความจำถาวร ─────────────────────────────────────────────────────
+  { name: 'remember', description: 'จำข้อมูลถาวรข้ามการสนทนา เมื่อผู้ใช้บอกให้จำ/ตั้งค่ามาตรฐาน/ชื่อเล่น/ความชอบ/บริบทงานที่ควรรู้ในอนาคต (เช่น "จำไว้ว่า Brix มาตรฐาน Amazon คือ 12", "เรียกฉันว่าพี่หนึ่ง") — เขียนทันทีไม่ต้องยืนยัน',
+    input_schema: { type: 'object', properties: {
+      key: { type: 'string', description: 'หัวข้อสั้นๆ ของสิ่งที่จำ เช่น "Brix มาตรฐาน Amazon", "ชื่อเล่นผู้ใช้"' },
+      value: { type: 'string', description: 'เนื้อหาที่จะจำ' },
+      personal: { type: 'boolean', description: 'true = จำเฉพาะผู้ใช้คนนี้ (ไม่ระบุ/false = จำรวมทุกคน)' } }, required: ['key', 'value'] } },
+  { name: 'recall', description: 'ค้นความจำถาวรที่เคยบันทึกไว้ — ใช้เมื่อจะตอบเรื่องค่ามาตรฐาน/ความชอบ/บริบทที่ผู้ใช้เคยสั่งให้จำ (ความจำที่มีอยู่ถูกใส่ใน system prompt ให้แล้ว เรียก tool นี้เมื่ออยากค้นเจาะจงหรือยืนยัน)',
+    input_schema: { type: 'object', properties: {
+      query: { type: 'string', description: 'คำค้น (เว้นว่าง = ดึงทั้งหมด)' } } } },
+  { name: 'forget', description: 'ลบความจำถาวรตามหัวข้อ (key) เมื่อผู้ใช้บอกให้ลืม/ยกเลิกสิ่งที่เคยจำ',
+    input_schema: { type: 'object', properties: {
+      key: { type: 'string', description: 'หัวข้อ (key) ที่จะลบ ตรงกับที่บันทึกไว้' } }, required: ['key'] } },
   // ── มือทำงาน: เขียนข้อมูลจริง (สร้างรายการรอยืนยัน — ไม่เขียนทันที) ─────
   { name: 'record_production', description: 'บันทึกการผลิต 1 batch ลง production_logs (เหมือนกด Done ที่หน้าผลิต) — ระบบจะขึ้นการ์ดให้ผู้ใช้กดยืนยันก่อน ยังไม่บันทึกทันที',
     input_schema: { type: 'object', properties: {
@@ -2321,6 +2480,9 @@ async function runAssistantTool(name, input, operator, ctx = {}) {
     const rows = await runReadonlySql(input.sql);
     return { rowCount: rows.length, rows };
   }
+  if (name === 'remember') return await rememberFact(input.personal ? (operator || 'global') : 'global', input.key, input.value);
+  if (name === 'recall') { const results = await recallFacts(operator, input.query); return { count: results.length, results }; }
+  if (name === 'forget') return await forgetFact(operator, input.key);
   if (name === 'create_task') {
     await db.exec(`INSERT INTO daily_tasks (task_date, line_name, category, title, detail, target_count, status, source, created_by, created_at)
       VALUES (?, ?, ?, ?, ?, ?, 'pending', 'chat', ?, ?)
@@ -2380,18 +2542,17 @@ async function runAssistantTool(name, input, operator, ctx = {}) {
   return { error: 'unknown tool' };
 }
 
-app.post('/api/assistant', async (req, res) => {
-  const client = getAnthropic();
-  if (!client) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์' });
-  const { message, operator, session } = req.body;
-  if (!message) return res.status(400).json({ error: 'message จำเป็น' });
+const ASSISTANT_FLAVORS = 'Amazon, FDS, Golden, Freshy Lychee, Freshy Strawberry, Senorita Coconut, Senorita Caramel, Freshy Blue Hawaii, Freshy Lime, Freshy Green Apple, Freshy Sala, Senorita Yuzu, Senorita Peach, MLH 02, Freshy Pineapple, Freshy Grape, Freshy Punch, Freshy blue Lemon, Senorita Fres Mint, Freshy Orange, Signature Rose, Freshy Shine Muscat Grape, Freshy Peach, Freshy Mango, Dilute W-Molass';
+
+// สร้าง system prompt ของผู้ช่วย — async เพราะดึงความจำถาวร (เฟส 2) มาแปะด้วย
+async function buildAssistantSystem(operator) {
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
-  const FLAVORS = 'Amazon, FDS, Golden, Freshy Lychee, Freshy Strawberry, Senorita Coconut, Senorita Caramel, Freshy Blue Hawaii, Freshy Lime, Freshy Green Apple, Freshy Sala, Senorita Yuzu, Senorita Peach, MLH 02, Freshy Pineapple, Freshy Grape, Freshy Punch, Freshy blue Lemon, Senorita Fres Mint, Freshy Orange, Signature Rose, Freshy Shine Muscat Grape, Freshy Peach, Freshy Mango, Dilute W-Molass';
-  const system = [
+  const memBlock = await memoryPromptBlock(operator); // เฟส 2
+  return [
     'คุณเป็นผู้ช่วยอัจฉริยะสำหรับบันทึกและวิเคราะห์ข้อมูลการผลิตน้ำเชื่อม/น้ำหวานของโรงงาน คุยแบบเป็นกันเองแต่มืออาชีพ',
     `วันนี้คือ ${today} (เขตเวลา Asia/Bangkok)`,
     'สายการผลิต/CIP: Line 1 (Syrup), Line 2 และ Line 3 (Flavour), Line 4 (Mixing/Pasteurizer)',
-    `รสชาติที่มี: ${FLAVORS}`,
+    `รสชาติที่มี: ${ASSISTANT_FLAVORS}`,
     'ถ้าผู้ใช้พิมพ์ชื่อรสผิด/สะกดเพี้ยน/เป็นภาษาไทย ให้จับคู่กับรสที่ใกล้เคียงที่สุดในลิสต์เอง (เช่น "อเมซอน"→Amazon, "ลิ้นจี่"→Freshy Lychee) ไม่แน่ใจค่อยถามยืนยัน',
     'หมายเหตุ: Dilute W-Molass บันทึกเป็นรอบ No.1–20 (รสอื่นเป็น Batch A-Z)',
     '',
@@ -2403,6 +2564,7 @@ app.post('/api/assistant', async (req, res) => {
     '• ความรู้เรื่องแอป/กะ/ขั้นตอน/ทีม: search_knowledge — ถูกถามเรื่องวิธีใช้/ระบบ/กะทำงาน/บุคคล ให้ค้นก่อนตอบเสมอ ถ้าครั้งแรกไม่เจอ ให้เปลี่ยนคำค้น (สั้นลง/คำพ้อง/ชื่อที่ถูกถาม) ลองอีก 1-2 ครั้งก่อนจะสรุปว่าไม่พบ',
     '• คำถามข้อมูลที่ tool สรุปไม่ครอบคลุม: query_database (SELECT อย่างเดียว) — schema ทั้งหมด:',
     SCHEMA_SUMMARY,
+    '• ความจำถาวร: remember (สั่งให้จำ) · recall (ค้นสิ่งที่จำ) · forget (ลบ) — จำค่ามาตรฐาน/ชื่อเล่น/ความชอบ/บริบทข้ามการสนทนา',
     '',
     'การบันทึกข้อมูลจริง (สำคัญมาก):',
     '• บันทึกผลิต=record_production · รอบ CIP/Backwash=record_cip_round · โน้ตส่งเวร=save_handover_note · แผนผลิต=update_production_plan',
@@ -2410,61 +2572,86 @@ app.post('/api/assistant', async (req, res) => {
     '• ก่อนเรียก tool เขียน ต้องมีข้อมูลครบพอ (Line, รสชาติ ฯลฯ) ถ้าคลุมเครือให้ถามก่อน',
     '• confirm_pending_action เรียกได้เฉพาะเมื่อผู้ใช้พิมพ์ยืนยันเองชัดเจน ("ยืนยัน"/"ตกลง"/"บันทึกเลย") ห้ามเรียกเอง · ผู้ใช้ปฏิเสธ→cancel_pending_action',
     '',
+    'คำสั่งหลายขั้นตอน (ทำงานเป็นชุดได้ในทีเดียว — เรียกหลาย tool ต่อเนื่องจนจบงาน):',
+    '• "ปิดกะ/สรุปปิดกะ" = ดึง get_production_summary + get_cip_summary + list_tasks (งานค้าง) ของวันทำงานนั้น → สรุปให้ครบ → ถ้าผู้ใช้อยากบันทึกโน้ตส่งเวรค่อยเสนอ save_handover_note (รอยืนยัน)',
+    '• "เตรียมประชุมเช้า/บรีฟเช้า" = get_production_summary (เทียบแผน) + get_quality (ค่าผิดปกติ) + list_tasks (งานค้าง) → สรุปประเด็นสั้นๆ พร้อมจุดที่ต้องระวัง',
+    '• "เช็ก/ตรวจของวันนี้" = get_production_summary + get_cip_summary + get_quality → รายงานพร้อมทักถ้าผิดปกติ',
+    '• เมื่อผู้ใช้กดยืนยัน (มีข้อความ [ระบบ] แจ้งผล) ให้ทำขั้นตอนถัดไปที่ค้างอยู่ต่อทันที ถ้าไม่มีก็ตอบรับสั้นๆ',
+    '',
     'วิธีตอบ:',
     '• เรียก tool ดึงข้อมูลจริงก่อนตอบเสมอ ห้ามเดา/มโนตัวเลข — ไม่แน่ใจให้ค้น search_knowledge หรือ query_database ก่อน ถ้ายังไม่พบให้ตอบตรงๆ ว่าไม่พบข้อมูล อย่าแต่งเรื่อง',
     '• เชิงรุก: ถ้าผลิตไม่ทันแผน (จริงน้อยกว่าแผนมาก) / ค่า Brix,pH ผิดปกติ / เห็นแนวโน้มน่าสนใจ ให้ทักเตือนผู้ใช้ด้วย',
     '• ตอบภาษาไทย กระชับ อ่านง่าย เน้นตัวเลขสำคัญ ใส่ emoji พอประมาณ',
     '• ห้ามใช้ Markdown (** ## ฯลฯ) — หน้าแชทแสดงข้อความธรรมดา ใช้ • ขึ้นบรรทัดใหม่ และ emoji จัดรูปแบบแทน',
     '• ใช้บริบทจากบทสนทนาก่อนหน้าเมื่อเป็นคำถามต่อเนื่อง',
+    memBlock ? '\n' + memBlock : '',
   ].join('\n');
+}
 
+// เลเยอร์คุยกับ Claude ที่ใช้ร่วมกัน — หน้าเว็บ (/api/assistant), ต่อหลังกดยืนยัน (เฟส 3), วิเคราะห์สิ้นกะ (เฟส 1)
+// opts: { userMessage, operator, session, persist=true, maxTurns=12, systemExtra }
+async function runAssistantConversation(opts) {
+  const { userMessage, operator = null, session = null, persist = true, maxTurns = 12, systemExtra = '' } = opts;
+  const client = getAnthropic();
+  if (!client) throw new Error('ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์');
+  let system = await buildAssistantSystem(operator);
+  if (systemExtra) system += '\n\n' + systemExtra;
+
+  const actions = [];
+  const ctx = { session, pending: [], resolved: [] }; // pending = การ์ดยืนยันที่เกิดใหม่รอบนี้
+  // โหลดบทสนทนาก่อนหน้าของ session นี้ (multi-turn memory) — เก็บเฉพาะข้อความเป็น text
+  let history = [];
+  if (session) {
+    const rows = await dbAll('SELECT role, content FROM assistant_messages WHERE session = ? ORDER BY id DESC LIMIT 12', [session]);
+    history = rows.reverse().filter(r => r.content && String(r.content).trim());
+    while (history.length && history[0].role !== 'user') history.shift(); // ต้องเริ่มด้วย user
+  }
+  const messages = [...history.map(r => ({ role: r.role, content: r.content })), { role: 'user', content: String(userMessage) }];
+  let reply = '';
+  for (let turn = 0; turn < maxTurns; turn++) {
+    const resp = await client.messages.create({
+      model: 'claude-opus-4-8', max_tokens: 4096,
+      // prompt caching: จุด cache ท้าย system → tools+system (ส่วนหัวที่ซ้ำทุกครั้ง) อ่านจาก cache เหลือ ~0.1x
+      // หมายเหตุ: system มีวันที่+ความจำถาวร → cache รีเซ็ตเมื่อเปลี่ยน ซึ่งไม่บ่อย
+      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+      tools: ASSISTANT_TOOLS, messages,
+    });
+    const u = resp.usage || {};
+    console.log(`[assistant] turn=${turn} cache_read=${u.cache_read_input_tokens || 0} cache_write=${u.cache_creation_input_tokens || 0} in=${u.input_tokens || 0} out=${u.output_tokens || 0}`);
+    if (resp.stop_reason !== 'tool_use') {
+      reply = resp.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+      break;
+    }
+    messages.push({ role: 'assistant', content: resp.content });
+    const toolResults = [];
+    for (const block of resp.content) {
+      if (block.type !== 'tool_use') continue;
+      let out;
+      try { out = await runAssistantTool(block.name, block.input || {}, operator, ctx); }
+      catch (e) { out = { error: e.message }; }
+      actions.push({ tool: block.name, input: block.input });
+      toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(out) });
+    }
+    messages.push({ role: 'user', content: toolResults });
+  }
+  reply = reply || 'รับทราบครับ';
+  // เก็บบทสนทนารอบนี้ไว้ต่อ session (จำกัดไว้ ~30 ข้อความล่าสุดต่อ session)
+  if (persist && session) {
+    const ts = nowBKK();
+    await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [session, 'user', String(userMessage), ts]);
+    await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [session, 'assistant', reply, ts]);
+    await db.exec(`DELETE FROM assistant_messages WHERE session = ? AND id NOT IN (SELECT id FROM assistant_messages WHERE session = ? ORDER BY id DESC LIMIT 30)`, [session, session]);
+  }
+  return { reply, actions, pending: ctx.pending };
+}
+
+app.post('/api/assistant', async (req, res) => {
+  if (!getAnthropic()) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์' });
+  const { message, operator, session } = req.body;
+  if (!message) return res.status(400).json({ error: 'message จำเป็น' });
   try {
-    const actions = [];
-    const ctx = { session: session || null, pending: [], resolved: [] }; // pending = การ์ดยืนยันที่เกิดใหม่รอบนี้
-    // โหลดบทสนทนาก่อนหน้าของ session นี้ (multi-turn memory) — เก็บเฉพาะข้อความเป็น text
-    let history = [];
-    if (session) {
-      const rows = await dbAll('SELECT role, content FROM assistant_messages WHERE session = ? ORDER BY id DESC LIMIT 12', [session]);
-      history = rows.reverse().filter(r => r.content && String(r.content).trim());
-      while (history.length && history[0].role !== 'user') history.shift(); // ต้องเริ่มด้วย user
-    }
-    const messages = [...history.map(r => ({ role: r.role, content: r.content })), { role: 'user', content: String(message) }];
-    let reply = '';
-    for (let turn = 0; turn < 6; turn++) {
-      const resp = await client.messages.create({
-        model: 'claude-opus-4-8', max_tokens: 4096,
-        // prompt caching: จุด cache ท้าย system → tools+system (ส่วนหัวที่ซ้ำทุกครั้ง) อ่านจาก cache เหลือ ~0.1x
-        // หมายเหตุ: system มีวันที่ของวัน → cache รีเซ็ตวันละครั้ง ซึ่งโอเค
-        system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
-        tools: ASSISTANT_TOOLS, messages,
-      });
-      const u = resp.usage || {};
-      console.log(`[assistant] turn=${turn} cache_read=${u.cache_read_input_tokens || 0} cache_write=${u.cache_creation_input_tokens || 0} in=${u.input_tokens || 0} out=${u.output_tokens || 0}`);
-      if (resp.stop_reason !== 'tool_use') {
-        reply = resp.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
-        break;
-      }
-      messages.push({ role: 'assistant', content: resp.content });
-      const toolResults = [];
-      for (const block of resp.content) {
-        if (block.type !== 'tool_use') continue;
-        let out;
-        try { out = await runAssistantTool(block.name, block.input || {}, operator, ctx); }
-        catch (e) { out = { error: e.message }; }
-        actions.push({ tool: block.name, input: block.input });
-        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(out) });
-      }
-      messages.push({ role: 'user', content: toolResults });
-    }
-    reply = reply || 'รับทราบครับ';
-    // เก็บบทสนทนารอบนี้ไว้ต่อ session (จำกัดไว้ ~30 ข้อความล่าสุดต่อ session)
-    if (session) {
-      const ts = nowBKK();
-      await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [session, 'user', String(message), ts]);
-      await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [session, 'assistant', reply, ts]);
-      await db.exec(`DELETE FROM assistant_messages WHERE session = ? AND id NOT IN (SELECT id FROM assistant_messages WHERE session = ? ORDER BY id DESC LIMIT 30)`, [session, session]);
-    }
-    res.json({ reply, actions, pending: ctx.pending });
+    const { reply, actions, pending } = await runAssistantConversation({ userMessage: String(message), operator, session });
+    res.json({ reply, actions, pending });
   } catch (err) {
     console.error('[assistant] error', err.message);
     res.status(500).json({ error: err.message });
@@ -2494,13 +2681,31 @@ app.post('/api/assistant/confirm', async (req, res) => {
       status = 'rejected';
     }
     await db.exec('UPDATE assistant_actions SET status = ?, result = ?, decided_at = ? WHERE id = ?', [status, message, nowBKK(), act.id]);
-    // จดผลไว้ในประวัติแชท เพื่อให้ AI รู้ในเทิร์นถัดไปว่าผู้ใช้ตัดสินใจอะไร
+    // ── เฟส 3: หลังกดยืนยัน ให้ผู้ช่วยทำขั้นตอนถัดไปที่ค้างอยู่ต่ออัตโนมัติ ──
+    // ป้อน [ระบบ] note กลับเข้าบทสนทนา แล้วเรียก loop ใหม่ → ได้ reply/การ์ดใหม่ส่งให้ client แสดง
+    let followUp = null, followUpPending = [];
     if (act.session) {
-      const note = approve ? `[ระบบ] ผู้ใช้กดยืนยันรายการ #${act.id} — ${message}` : `[ระบบ] ผู้ใช้ยกเลิกรายการ #${act.id} (${act.summary})`;
-      await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [act.session, 'user', note, nowBKK()]);
-      await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [act.session, 'assistant', 'รับทราบครับ', nowBKK()]);
+      const note = approve
+        ? `[ระบบ] ผู้ใช้กดยืนยันรายการ #${act.id} แล้ว — ${message}. ถ้ามีขั้นตอนถัดไปในงานชุดที่กำลังทำอยู่ ให้ทำต่อทันที (เช่นเสนอบันทึกรายการถัดไป/สรุปผล) ถ้าไม่มีก็ตอบรับสั้นๆ`
+        : `[ระบบ] ผู้ใช้ยกเลิกรายการ #${act.id} (${act.summary}). ถามผู้ใช้ว่าต้องการแก้ไขหรือข้ามขั้นตอนนี้ไหม`;
+      if (getAnthropic()) {
+        try {
+          const conv = await runAssistantConversation({ userMessage: note, operator: operator || act.operator_name, session: act.session });
+          followUp = conv.reply;
+          followUpPending = conv.pending || [];
+        } catch (e) {
+          console.error('[assistant/confirm] follow-up error', e.message);
+          // fallback: จดผลแบบเดิม เพื่อให้เทิร์นถัดไปรู้บริบท
+          await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [act.session, 'user', note, nowBKK()]);
+          await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [act.session, 'assistant', 'รับทราบครับ', nowBKK()]);
+        }
+      } else {
+        // ไม่มี API key (local) — จดผลไว้ในประวัติเฉยๆ
+        await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [act.session, 'user', note, nowBKK()]);
+        await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [act.session, 'assistant', 'รับทราบครับ', nowBKK()]);
+      }
     }
-    res.json({ ok: true, status, message });
+    res.json({ ok: true, status, message, followUp, pending: followUpPending });
   } catch (err) {
     console.error('[assistant/confirm] error', err.message);
     res.status(500).json({ error: err.message });
@@ -2557,20 +2762,26 @@ const registerTelegramWebhook = async () => {
   } catch (e) { console.error('[Telegram] Webhook registration failed', e.response?.data || e.message); }
 };
 
-initDb()
-  .then(() => {
-    app.listen(port, '0.0.0.0', () => {
-      console.log(`Server running at http://0.0.0.0:${port}`);
-      // ปิดไว้ชั่วคราว — Telegram อนุญาตแค่ webhook เดียวต่อบอท และ n8n's Telegram Trigger
-      // (n8n-Telegram-Production-Chart.json) ใช้บอทตัวเดียวกันสำหรับ "สรุปยอดผลิตวันนี้"
-      // เปิดอีกครั้งได้เมื่อ n8n ฝั่งนั้น deactivate ไปแล้วจริงๆ หรือออกแบบให้ทำงานร่วมกันแล้ว
-      // registerTelegramWebhook();
-      // ตัวจับเวลาส่งรายงานอัตโนมัติ — เช็กทุกนาที (ต้องให้เซิร์ฟเวอร์ตื่นอยู่; มี Keep-Warm ping ช่วย)
-      setInterval(reportTick, 60 * 1000);
-      console.log('[report] scheduler started (every 60s)');
+// เผยฟังก์ชันภายในให้เทสต์ require ได้ (โดยไม่ต้องบูตเซิร์ฟเวอร์)
+module.exports = { app, initDb, shiftJustEnded, shiftsForWeekday, rememberFact, recallFacts,
+  forgetFact, memoryPromptBlock, buildAssistantSystem, runAssistantTool, getReportConfig };
+
+if (require.main === module) {
+  initDb()
+    .then(() => {
+      app.listen(port, '0.0.0.0', () => {
+        console.log(`Server running at http://0.0.0.0:${port}`);
+        // ปิดไว้ชั่วคราว — Telegram อนุญาตแค่ webhook เดียวต่อบอท และ n8n's Telegram Trigger
+        // (n8n-Telegram-Production-Chart.json) ใช้บอทตัวเดียวกันสำหรับ "สรุปยอดผลิตวันนี้"
+        // เปิดอีกครั้งได้เมื่อ n8n ฝั่งนั้น deactivate ไปแล้วจริงๆ หรือออกแบบให้ทำงานร่วมกันแล้ว
+        // registerTelegramWebhook();
+        // ตัวจับเวลาส่งรายงานอัตโนมัติ + วิเคราะห์สิ้นกะ (เฟส 1) — เช็กทุกนาที (ต้องให้เซิร์ฟเวอร์ตื่นอยู่; มี Keep-Warm ping ช่วย)
+        setInterval(() => { reportTick(); shiftAnalysisTick(); }, 60 * 1000);
+        console.log('[report] scheduler started (every 60s) + shift-analysis');
+      });
+    })
+    .catch((err) => {
+      console.error('[db] init failed — server not started', err);
+      process.exit(1);
     });
-  })
-  .catch((err) => {
-    console.error('[db] init failed — server not started', err);
-    process.exit(1);
-  });
+}
