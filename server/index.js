@@ -1261,11 +1261,20 @@ const nowBKK = () => new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangko
 const weekdayOf = (dateStr) => { try { return new Date(`${dateStr}T12:00:00`).getDay(); } catch { return null; } };
 const dayOfMonth = (dateStr) => { try { return new Date(`${dateStr}T12:00:00`).getDate(); } catch { return null; } };
 
-// ── ตารางกะโรงงาน (แหล่งความจริง — ตรงกับ client/src/shiftSchedule.ts · ดู memory shift-schedule) ──
-// จ–พฤ: เช้า06-14/บ่าย14-22/ดึก22-06 · ศ,อา: เช้า06-18/ดึก18-06 · เสาร์หยุด · วันทำงาน=06:00→06:00
+// ── ตารางกะ 2 ชั้น (ดู memory shift-schedule) ────────────────────────────────
+// (1) "ทีมผู้ใช้" = shiftsForWeekday — เสาร์เป็นวันหยุดของทีมนี้ (ตรงกับ client/src/shiftSchedule.ts)
+//     ใช้กับ duty board / งานประจำ (recurring) / รายงานสิ้นกะของทีม
+// (2) "โรงงาน" = factoryShiftsForWeekday — โรงงานเดินจริง 7 วัน (เสาร์เดิน 2 กะเหมือน ศ/อา
+//     มีอีก 2 กะหมุนมาแทนทีมที่หยุด) ใช้กับแผน/ผลิต/วิเคราะห์สิ้นกะ (เฟส 1)
+// จ–พฤ: เช้า06-14/บ่าย14-22/ดึก22-06 · ศ,ส,อา: เช้า06-18/ดึก18-06 · วันทำงาน=06:00→06:00
 function shiftsForWeekday(wd) {
-  if (wd === 6) return [];
+  if (wd === 6) return []; // เสาร์ = ทีมผู้ใช้หยุด
   if (wd === 5 || wd === 0) return [{ key: 'เช้า', start: 6, end: 18 }, { key: 'ดึก', start: 18, end: 6 }];
+  return [{ key: 'เช้า', start: 6, end: 14 }, { key: 'บ่าย', start: 14, end: 22 }, { key: 'ดึก', start: 22, end: 6 }];
+}
+// ตารางกะระดับโรงงาน — เดินจริงทุกวัน (เสาร์เดิน 2 กะเหมือน ศ/อา)
+function factoryShiftsForWeekday(wd) {
+  if (wd === 5 || wd === 6 || wd === 0) return [{ key: 'เช้า', start: 6, end: 18 }, { key: 'ดึก', start: 18, end: 6 }];
   return [{ key: 'เช้า', start: 6, end: 14 }, { key: 'บ่าย', start: 14, end: 22 }, { key: 'ดึก', start: 22, end: 6 }];
 }
 const addDaysStr = (dateStr, n) => { const d = new Date(`${dateStr}T12:00:00`); d.setDate(d.getDate() + n); return d.toLocaleDateString('sv-SE'); };
@@ -1819,7 +1828,8 @@ function shiftJustEnded(dateStr, hm) {
   const H = Number(hm.slice(0, 2));
   // กะดึกจบ 06:00 = นับเป็นวันทำงานก่อนหน้า (เหมือน sendDay ใน reportTick)
   const workDay = (H < 6 || hm === '06:00') ? addDaysStr(dateStr, -1) : dateStr;
-  const shifts = shiftsForWeekday(weekdayOf(workDay));
+  // ใช้ตารางระดับ "โรงงาน" — วิเคราะห์สิ้นกะทุกวันที่โรงงานเดินจริง (รวมเสาร์)
+  const shifts = factoryShiftsForWeekday(weekdayOf(workDay));
   const s = shifts.find((sh) => sh.end === H);
   return s ? { workDay, shift: s.key, shiftLabel: `กะ${s.key}` } : null;
 }
@@ -2763,7 +2773,7 @@ const registerTelegramWebhook = async () => {
 };
 
 // เผยฟังก์ชันภายในให้เทสต์ require ได้ (โดยไม่ต้องบูตเซิร์ฟเวอร์)
-module.exports = { app, initDb, shiftJustEnded, shiftsForWeekday, rememberFact, recallFacts,
+module.exports = { app, initDb, shiftJustEnded, shiftsForWeekday, factoryShiftsForWeekday, rememberFact, recallFacts,
   forgetFact, memoryPromptBlock, buildAssistantSystem, runAssistantTool, getReportConfig };
 
 if (require.main === module) {
