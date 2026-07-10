@@ -17,7 +17,7 @@ type Template = {
   weekday?: number | null; target_count?: number | null; active: number;
 };
 type PendingAction = { id: number; tool: string; summary: string; status?: 'pending' | 'approved' | 'rejected' | 'error'; result?: string };
-type ChatMsg = { role: 'user' | 'assistant'; text: string; pending?: PendingAction[]; image?: string };
+type ChatMsg = { role: 'user' | 'assistant'; text: string; pending?: PendingAction[]; images?: string[] };
 
 const CAT: Record<string, { icon: string; label: string }> = {
   production: { icon: '🏭', label: 'ผลิต' },
@@ -1304,43 +1304,67 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
     const [msgs, setMsgs] = useState<ChatMsg[]>([{ role: 'assistant', text: 'สวัสดีครับ ถามหรือสั่งได้เลย เช่น\n• "วันนี้ Line 2 ทำอะไรไปแล้วบ้าง" / "สัปดาห์นี้รสไหนผลิตเยอะสุด"\n• "บันทึกผลิต Amazon batch C Line 2 brix 12.4" (มีการ์ดให้กดยืนยันก่อนบันทึกจริง)\n• "บันทึกรอบ CIP Line 3 มี backwash" / "วางแผนพรุ่งนี้ Amazon 6 batch"\n• 📎 แนบรูปแผนผลิตรายสัปดาห์ แล้วถาม "วันนี้กะผมผลิตอะไรบ้าง"\n• ถามเรื่องระบบ/กะทำงาน/วิธีใช้แอปได้ด้วย' }]);
     const [input, setInput] = useState('');
     const [busy, setBusy] = useState(false);
-    // รูปที่แนบ (แผนผลิต ฯลฯ) — data = base64 ไม่รวม prefix, preview = data URL สำหรับแสดง
-    const [img, setImg] = useState<{ preview: string; data: string; mediaType: string } | null>(null);
+    // รูปที่แนบ (หลายรูป/หลายส่วน) — data = base64 ไม่รวม prefix, preview = data URL สำหรับแสดง
+    type Attach = { preview: string; data: string; mediaType: string };
+    const [imgs, setImgs] = useState<Attach[]>([]);
     const fileRef = useRef<HTMLInputElement>(null);
     const endRef = useRef<HTMLDivElement>(null);
     useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
-    // ย่อรูปให้ขอบยาวสุด ~1568px (เท่าที่ Claude vision ใช้จริง) แล้วแปลงเป็น base64 JPEG — payload เล็ก อ่านชัดพอ
-    const loadImage = (file: File) => {
-      if (!file || !file.type.startsWith('image/')) return;
+    // แปลงไฟล์ → HTMLImageElement
+    const fileToEl = (file: File) => new Promise<HTMLImageElement>((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => {
-        const el = new Image();
-        el.onload = () => {
-          const max = 1568, scale = Math.min(1, max / Math.max(el.width, el.height));
-          const w = Math.max(1, Math.round(el.width * scale)), h = Math.max(1, Math.round(el.height * scale));
-          const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-          const cx = cv.getContext('2d'); if (!cx) return;
-          cx.drawImage(el, 0, 0, w, h);
-          const dataUrl = cv.toDataURL('image/jpeg', 0.85);
-          setImg({ preview: dataUrl, data: dataUrl.split(',')[1] || '', mediaType: 'image/jpeg' });
-        };
-        el.src = String(reader.result);
-      };
-      reader.readAsDataURL(file);
+      reader.onload = () => { const el = new Image(); el.onload = () => resolve(el); el.onerror = reject; el.src = String(reader.result); };
+      reader.onerror = reject; reader.readAsDataURL(file);
+    });
+    // วาดพื้นที่ [sx..sx+sw] เต็มความสูง เป็น JPEG (ย่อขอบยาว ≤1568) · labelW>0 = แปะแถบคอลัมน์ชื่อซ้ายสุดไว้ข้างหน้า
+    const regionToJpeg = (el: HTMLImageElement, sx: number, sw: number, labelW: number): Attach => {
+      const outW = labelW + sw, outH = el.height;
+      const scale = Math.min(1, 1568 / Math.max(outW, outH));
+      const w = Math.max(1, Math.round(outW * scale)), h = Math.max(1, Math.round(outH * scale));
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      const cx = cv.getContext('2d')!;
+      cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h);
+      if (labelW > 0) cx.drawImage(el, 0, 0, labelW, el.height, 0, 0, Math.round(labelW * scale), h);
+      cx.drawImage(el, sx, 0, sw, el.height, Math.round(labelW * scale), 0, Math.round(sw * scale), h);
+      const dataUrl = cv.toDataURL('image/jpeg', 0.85);
+      return { preview: dataUrl, data: dataUrl.split(',')[1] || '', mediaType: 'image/jpeg' };
     };
-    const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) loadImage(f); e.target.value = ''; };
-    const onPaste = (e: React.ClipboardEvent) => { const it = Array.from(e.clipboardData.items).find(i => i.type.startsWith('image/')); if (it) { const f = it.getAsFile(); if (f) loadImage(f); } };
+    // เพิ่มไฟล์: ถ้ารูปกว้าง+แน่น → หั่นเป็นหลายส่วนความละเอียดเต็ม (แต่ละส่วนมีคอลัมน์ชื่อซ้ายสุดติดไปด้วย)
+    const addFiles = async (files: FileList | File[]) => {
+      const list = Array.from(files).filter(f => f.type.startsWith('image/'));
+      for (const f of list) {
+        try {
+          const el = await fileToEl(f);
+          const wide = el.width > 2000 && el.width / el.height > 1.5; // ตารางแผนกว้างๆ
+          if (wide) {
+            const n = Math.min(4, Math.ceil(el.width / 1400));
+            const stripW = Math.ceil(el.width / n);
+            const labelW = Math.round(el.width * 0.22); // ~คอลัมน์ Group/Code/Name ซ้ายสุด
+            const tiles: Attach[] = [];
+            for (let i = 0; i < n; i++) {
+              const sx = i * stripW, sw = Math.min(stripW, el.width - sx);
+              tiles.push(regionToJpeg(el, sx, sw, i === 0 ? 0 : labelW)); // ส่วนแรกมีคอลัมน์ชื่ออยู่แล้ว
+            }
+            setImgs(prev => [...prev, ...tiles].slice(0, 6));
+          } else {
+            setImgs(prev => [...prev, regionToJpeg(el, 0, el.width, 0)].slice(0, 6));
+          }
+        } catch { /* ข้ามไฟล์ที่โหลดไม่ได้ */ }
+      }
+    };
+    const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = ''; };
+    const onPaste = (e: React.ClipboardEvent) => { const fs = Array.from(e.clipboardData.items).filter(i => i.type.startsWith('image/')).map(i => i.getAsFile()).filter(Boolean) as File[]; if (fs.length) addFiles(fs); };
     const send = async () => {
       const text = input.trim();
-      if ((!text && !img) || busy) return;
-      const staged = img;
-      setMsgs(m => [...m, { role: 'user', text: text || (staged ? '(แนบรูป)' : ''), image: staged?.preview }]);
-      setInput(''); setImg(null); setBusy(true);
+      if ((!text && !imgs.length) || busy) return;
+      const staged = imgs;
+      setMsgs(m => [...m, { role: 'user', text: text || (staged.length ? '(แนบรูป)' : ''), images: staged.length ? staged.map(a => a.preview) : undefined }]);
+      setInput(''); setImgs([]); setBusy(true);
       try {
         const r = await fetch(`${apiUrl}/api/assistant`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: text, operator: operatorName, session: `web-${operatorName || 'guest'}`,
-            image: staged ? { data: staged.data, media_type: staged.mediaType } : undefined }),
+            images: staged.length ? staged.map(a => ({ data: a.data, media_type: a.mediaType })) : undefined }),
         });
         const d = await r.json();
         setMsgs(m => [...m, { role: 'assistant', text: d.reply || d.error || 'ขออภัย เกิดข้อผิดพลาด', pending: d.pending && d.pending.length ? d.pending.map((p: PendingAction) => ({ ...p, status: 'pending' as const })) : undefined }]);
@@ -1382,7 +1406,11 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
                   borderBottomRightRadius: m.role === 'user' ? '4px' : '16px',
                   borderBottomLeftRadius: m.role === 'user' ? '16px' : '4px',
                 }}>
-                  {m.image && <img src={m.image} alt="แนบ" style={{ display: 'block', maxWidth: '100%', maxHeight: 220, borderRadius: 10, marginBottom: m.text ? 8 : 0 }} />}
+                  {m.images && m.images.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: m.text ? 8 : 0 }}>
+                      {m.images.map((src, ii) => <img key={ii} src={src} alt="แนบ" style={{ display: 'block', maxWidth: m.images!.length > 1 ? '48%' : '100%', maxHeight: 200, borderRadius: 10 }} />)}
+                    </div>
+                  )}
                   {m.text}
                 </div>
               </div>
@@ -1412,22 +1440,26 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
           <div ref={endRef} />
         </div>
         <div style={{ borderTop: '1px solid #eee', background: '#fff' }}>
-          {/* รูปที่แนบไว้ รอส่ง — แสดง thumbnail + ปุ่มเอาออก */}
-          {img && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 10px 0' }}>
-              <div style={{ position: 'relative' }}>
-                <img src={img.preview} alt="แนบ" style={{ height: 54, width: 54, objectFit: 'cover', borderRadius: 8, border: '1px solid #ffd0a8' }} />
-                <button onClick={() => setImg(null)} title="เอารูปออก" style={{ position: 'absolute', top: -7, right: -7, width: 20, height: 20, borderRadius: '50%', border: 'none', background: '#37474f', color: '#fff', fontSize: 12, lineHeight: '20px', cursor: 'pointer', padding: 0 }}>✕</button>
+          {/* รูปที่แนบไว้ รอส่ง — thumbnail หลายรูป + ปุ่มเอาออกทีละรูป */}
+          {imgs.length > 0 && (
+            <div style={{ padding: '10px 10px 0' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
+                {imgs.map((a, ii) => (
+                  <div key={ii} style={{ position: 'relative' }}>
+                    <img src={a.preview} alt="แนบ" style={{ height: 54, width: 54, objectFit: 'cover', borderRadius: 8, border: '1px solid #ffd0a8' }} />
+                    <button onClick={() => setImgs(prev => prev.filter((_, j) => j !== ii))} title="เอารูปออก" style={{ position: 'absolute', top: -7, right: -7, width: 20, height: 20, borderRadius: '50%', border: 'none', background: '#37474f', color: '#fff', fontSize: 12, lineHeight: '20px', cursor: 'pointer', padding: 0 }}>✕</button>
+                  </div>
+                ))}
               </div>
-              <span style={{ fontSize: '0.78rem', color: '#78828a' }}>📎 แนบรูปแล้ว — พิมพ์คำถาม (เช่น “วันนี้กะผมผลิตอะไร”) แล้วกดส่ง</span>
+              <span style={{ fontSize: '0.78rem', color: '#78828a' }}>📎 แนบ {imgs.length} รูป (รูปแผนกว้างจะถูกหั่นเป็นส่วนๆ ให้อ่านชัดอัตโนมัติ) — พิมพ์คำถามแล้วกดส่ง</span>
             </div>
           )}
           <div style={{ display: 'flex', gap: '8px', padding: '10px' }}>
-            <input ref={fileRef} type="file" accept="image/*" onChange={onPickFile} style={{ display: 'none' }} />
-            <button onClick={() => fileRef.current?.click()} disabled={busy} title="แนบรูป (แผนผลิต ฯลฯ)"
+            <input ref={fileRef} type="file" accept="image/*" multiple onChange={onPickFile} style={{ display: 'none' }} />
+            <button onClick={() => fileRef.current?.click()} disabled={busy} title="แนบรูป (แผนผลิต ฯลฯ) — เลือกได้หลายรูป"
               style={{ padding: '10px 12px', borderRadius: '12px', border: '1px solid #ddd', background: '#fff', color: '#546e7a', fontSize: '1.05rem', cursor: 'pointer' }}>📎</button>
             <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} onPaste={onPaste}
-              placeholder={img ? 'ถามเกี่ยวกับรูปนี้…' : 'พิมพ์ข้อความ… (แนบรูปแผนได้ด้วย 📎)'} style={{ flex: 1, padding: '10px', border: '1px solid #ddd', borderRadius: '12px' }} />
+              placeholder={imgs.length ? 'ถามเกี่ยวกับรูปนี้…' : 'พิมพ์ข้อความ… (แนบรูปแผนได้ด้วย 📎)'} style={{ flex: 1, padding: '10px', border: '1px solid #ddd', borderRadius: '12px' }} />
             <button onClick={send} disabled={busy} style={{ padding: '10px 18px', borderRadius: '12px', border: 'none', background: '#ff6b00', color: '#fff', fontWeight: 700, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}>ส่ง</button>
           </div>
         </div>

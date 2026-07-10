@@ -2609,10 +2609,11 @@ async function buildAssistantSystem(operator) {
 }
 
 // เลเยอร์คุยกับ Claude ที่ใช้ร่วมกัน — หน้าเว็บ (/api/assistant), ต่อหลังกดยืนยัน (เฟส 3), วิเคราะห์สิ้นกะ (เฟส 1)
-// opts: { userMessage, image, operator, session, persist=true, maxTurns=12, systemExtra }
-// image (ถ้ามี) = { data: base64 ไม่รวม prefix, media_type } → แนบเป็น image block เทิร์นแรก (vision อ่านรูปแผน)
+// opts: { userMessage, image | images, operator, session, persist=true, maxTurns=12, systemExtra }
+// image = { data: base64 ไม่รวม prefix, media_type } หรือ images = [ ... ] (หลายรูป/หลายส่วนของตารางเดียว)
+// → แนบเป็น image block เทิร์นแรก (vision อ่านรูปแผน) · รูปส่งเฉพาะเทิร์นนี้ ไม่เก็บลง history
 async function runAssistantConversation(opts) {
-  const { userMessage, image = null, operator = null, session = null, persist = true, maxTurns = 12, systemExtra = '' } = opts;
+  const { userMessage, image = null, images = null, operator = null, session = null, persist = true, maxTurns = 12, systemExtra = '' } = opts;
   const client = getAnthropic();
   if (!client) throw new Error('ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์');
   let system = await buildAssistantSystem(operator);
@@ -2627,10 +2628,15 @@ async function runAssistantConversation(opts) {
     history = rows.reverse().filter(r => r.content && String(r.content).trim());
     while (history.length && history[0].role !== 'user') history.shift(); // ต้องเริ่มด้วย user
   }
-  // เทิร์นแรก: ถ้าแนบรูป → [image block + text] ไม่งั้น text เดี่ยว (รูปไม่ถูกเก็บลง history ส่งเฉพาะเทิร์นนี้)
-  const firstContent = (image && image.data)
-    ? [{ type: 'image', source: { type: 'base64', media_type: image.media_type || 'image/jpeg', data: image.data } },
-       { type: 'text', text: String(userMessage || 'ช่วยดูรูปนี้ให้หน่อย') }]
+  // เทิร์นแรก: รวมรูปทั้งหมด (image เดี่ยว หรือ images อาเรย์) เป็น image block + text
+  const imgList = (images && images.length) ? images : (image && image.data ? [image] : []);
+  const imgBlocks = imgList.filter(im => im && im.data)
+    .map(im => ({ type: 'image', source: { type: 'base64', media_type: im.media_type || 'image/jpeg', data: im.data } }));
+  const nImg = imgBlocks.length;
+  // หลายรูป = มักเป็นส่วนย่อยของตารางเดียวกันที่ครอปแยกเพื่อความชัด → บอก Claude ให้ประกอบกัน
+  const tileNote = nImg > 1 ? '\n\n(รูปที่แนบมา ' + nImg + ' รูป — อาจเป็นส่วนย่อยของตารางเดียวกันที่แยกเพื่อความชัด เรียงซ้าย→ขวา คอลัมน์ชื่อ/รหัสสินค้าซ้ายสุดถูกใส่ซ้ำในทุกส่วนให้เทียบแถวได้ ให้ประกอบกันเมื่ออ่าน)' : '';
+  const firstContent = nImg
+    ? [...imgBlocks, { type: 'text', text: String(userMessage || 'ช่วยดูรูปนี้ให้หน่อย') + tileNote }]
     : String(userMessage);
   const messages = [...history.map(r => ({ role: r.role, content: r.content })), { role: 'user', content: firstContent }];
   let reply = '';
@@ -2664,7 +2670,7 @@ async function runAssistantConversation(opts) {
   // เก็บบทสนทนารอบนี้ไว้ต่อ session (จำกัดไว้ ~30 ข้อความล่าสุดต่อ session)
   if (persist && session) {
     const ts = nowBKK();
-    await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [session, 'user', String(userMessage || '') + (image && image.data ? ' 🖼[แนบรูป]' : ''), ts]);
+    await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [session, 'user', String(userMessage || '') + (nImg ? ` 🖼[แนบรูป${nImg > 1 ? ' ' + nImg + ' รูป' : ''}]` : ''), ts]);
     await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [session, 'assistant', reply, ts]);
     await db.exec(`DELETE FROM assistant_messages WHERE session = ? AND id NOT IN (SELECT id FROM assistant_messages WHERE session = ? ORDER BY id DESC LIMIT 30)`, [session, session]);
   }
@@ -2673,12 +2679,14 @@ async function runAssistantConversation(opts) {
 
 app.post('/api/assistant', async (req, res) => {
   if (!getAnthropic()) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์' });
-  const { message, operator, session, image } = req.body;
-  // ต้องมีข้อความหรือรูปอย่างน้อยหนึ่งอย่าง (แนบรูปเปล่าๆ ก็ได้)
-  const img = (image && image.data) ? { data: String(image.data), media_type: image.media_type || 'image/jpeg' } : null;
-  if (!message && !img) return res.status(400).json({ error: 'message หรือ image จำเป็น' });
+  const { message, operator, session, image, images } = req.body;
+  // รวมรูป: images (อาเรย์ หลายส่วน) หรือ image (เดี่ยว) — จำกัด 6 รูปกัน payload บวม
+  let imgs = Array.isArray(images) ? images.filter(im => im && im.data).map(im => ({ data: String(im.data), media_type: im.media_type || 'image/jpeg' })) : [];
+  if (!imgs.length && image && image.data) imgs = [{ data: String(image.data), media_type: image.media_type || 'image/jpeg' }];
+  imgs = imgs.slice(0, 6);
+  if (!message && !imgs.length) return res.status(400).json({ error: 'message หรือ image จำเป็น' });
   try {
-    const { reply, actions, pending } = await runAssistantConversation({ userMessage: String(message || ''), image: img, operator, session });
+    const { reply, actions, pending } = await runAssistantConversation({ userMessage: String(message || ''), images: imgs, operator, session });
     res.json({ reply, actions, pending });
   } catch (err) {
     console.error('[assistant] error', err.message);
