@@ -78,7 +78,7 @@ const parseHM = (s?: string): { h: number; hm: string } | null => {
 interface Props { operatorName: string | null; onBackToMain: () => void; }
 
 const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
-  const [tab, setTab] = useState<'today' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai'>('today');
+  const [tab, setTab] = useState<'today' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs'>('today');
   const [date, setDate] = useState(currentWorkDay());
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
@@ -130,7 +130,7 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
       {/* tabs */}
       <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', marginBottom: '14px' }}>
         {([
-          ['today', '✅ งานวันนี้'], ['recurring', '🔁 งานประจำ'], ['timeline', '🕐 ไทม์ไลน์'], ['calendar', '📊 สรุป & KPI'], ['report', '📤 ส่งรายงาน'], ['ai', '🤖 ผู้ช่วย AI'],
+          ['today', '✅ งานวันนี้'], ['recurring', '🔁 งานประจำ'], ['timeline', '🕐 ไทม์ไลน์'], ['calendar', '📊 สรุป & KPI'], ['report', '📤 ส่งรายงาน'], ['ai', '🤖 ผู้ช่วย AI'], ['specs', '🧪 สเปกคุณภาพ'],
         ] as [typeof tab, string][]).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)} style={{
             flex: '0 0 auto', padding: '7px 13px', borderRadius: '20px', border: '2px solid',
@@ -163,6 +163,9 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
 
       {/* ── TAB: AI ───────────────────────────────────────────── */}
       {tab === 'ai' && <AssistantTab operatorName={operatorName} onAfterAction={loadTasks} card={card} />}
+
+      {/* ── TAB: สเปกคุณภาพ (baseline Brix/pH) ─────────────────── */}
+      {tab === 'specs' && <SpecsTab card={card} />}
     </div>
   );
 };
@@ -1034,6 +1037,102 @@ const CalendarTab: React.FC<{ card: React.CSSProperties; onOpenDate: (date: stri
 type ReportCfg = { autoEnabled: boolean; times: string[]; weekdays: number[]; onlyIfPending: boolean; autoAtShiftEnd: boolean; once: { id: number; run_at: string }[] };
 const SHIFT_TIMES: [string, string][] = [['14:00', '14:00'], ['18:00', '18:00'], ['22:00', '22:00'], ['06:00', '06:00']];
 const WEEKDAY_OPTS: [number, string][] = [[1, 'จ'], [2, 'อ'], [3, 'พ'], [4, 'พฤ'], [5, 'ศ'], [6, 'ส'], [0, 'อา']];
+
+// ── สเปกคุณภาพ (baseline Brix/pH ต่อรส) — ตั้งเองเพื่อให้เตือนสิ้นกะแม่น ไม่ false alarm ──
+type QSpec = { brix_min: number | null; brix_max: number | null; ph_min: number | null; ph_max: number | null };
+const SPEC_FIELDS: (keyof QSpec)[] = ['brix_min', 'brix_max', 'ph_min', 'ph_max'];
+const SpecsTab: React.FC<{ card: React.CSSProperties }> = ({ card }) => {
+  const [flavors, setFlavors] = useState<string[]>([]);
+  const [specs, setSpecs] = useState<Record<string, QSpec>>({});
+  const [dirty, setDirty] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState('');
+  const [msg, setMsg] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch(`${apiUrl}/api/quality-specs`);
+      const d = await r.json();
+      setFlavors(d.flavors || []);
+      setSpecs(d.specs || {});
+      setDirty(new Set());
+    } catch { setMsg('❌ โหลดสเปกไม่สำเร็จ'); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const hasAny = (s?: QSpec) => !!s && SPEC_FIELDS.some(f => s[f] != null);
+  const val = (fl: string, f: keyof QSpec) => { const v = specs[fl]?.[f]; return v == null ? '' : String(v); };
+  const setField = (fl: string, f: keyof QSpec, raw: string) => {
+    const num = raw.trim() === '' ? null : Number(raw);
+    setSpecs(prev => {
+      const cur: QSpec = prev[fl] || { brix_min: null, brix_max: null, ph_min: null, ph_max: null };
+      return { ...prev, [fl]: { ...cur, [f]: (num == null || isNaN(num)) ? null : num } };
+    });
+    setDirty(prev => new Set(prev).add(fl));
+  };
+  const save = async () => {
+    if (!dirty.size) return;
+    setSaving(true); setMsg('กำลังบันทึก…');
+    try {
+      const items = Array.from(dirty).map(fl => ({ flavor: fl, ...specs[fl] }));
+      const r = await fetch(`${apiUrl}/api/quality-specs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }) });
+      if (!r.ok) throw new Error();
+      setDirty(new Set()); setMsg(`✅ บันทึกแล้ว ${items.length} รส`);
+    } catch { setMsg('❌ บันทึกไม่สำเร็จ'); }
+    finally { setSaving(false); }
+  };
+
+  const shown = flavors.filter(f => f.toLowerCase().includes(filter.toLowerCase().trim()));
+  const setCount = flavors.filter(f => hasAny(specs[f])).length;
+  const inp: React.CSSProperties = { width: '100%', border: '1px solid #dde3e7', borderRadius: 8, padding: '7px 6px', fontSize: '.82rem', textAlign: 'center', boxSizing: 'border-box' };
+  const hcell: React.CSSProperties = { fontSize: '.62rem', fontWeight: 800, color: '#90a4ae', textAlign: 'center', letterSpacing: '.02em' };
+  const gridCols = 'minmax(0,1.5fr) repeat(4, minmax(0,1fr))';
+
+  return (
+    <div>
+      <div style={{ ...card }}>
+        <div style={{ fontWeight: 800, marginBottom: 4 }}>🧪 สเปกคุณภาพต่อรส (baseline)</div>
+        <div style={{ fontSize: '.76rem', color: '#9aa0a6', lineHeight: 1.5 }}>
+          ตั้งช่วง Brix / pH ที่ปกติของแต่ละรส — ระบบจะเตือน “ผิดปกติ” ในสรุปสิ้นกะ <b>เฉพาะรสที่ตั้งไว้และค่าออกนอกช่วง</b> เท่านั้น (รสที่ยังไม่ตั้ง = ไม่เตือน) · เว้นว่างช่องไหน = ไม่เช็กด้านนั้น
+        </div>
+        <div style={{ fontSize: '.72rem', color: '#546e7a', marginTop: 8 }}>ตั้งแล้ว <b style={{ color: '#2e7d32' }}>{setCount}</b> / {flavors.length} รส</div>
+      </div>
+
+      <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="🔍 ค้นหารสชาติ…"
+        style={{ width: '100%', border: '1px solid #dde3e7', borderRadius: 11, padding: '10px 12px', fontSize: '.85rem', marginBottom: 10, boxSizing: 'border-box' }} />
+
+      <div style={{ ...card, padding: '10px 12px' }}>
+        {/* header */}
+        <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 6, alignItems: 'end', paddingBottom: 8, borderBottom: '1px solid #eee' }}>
+          <div style={{ ...hcell, textAlign: 'left' }}>รสชาติ</div>
+          <div style={hcell}>Brix ต่ำ</div><div style={hcell}>Brix สูง</div>
+          <div style={hcell}>pH ต่ำ</div><div style={hcell}>pH สูง</div>
+        </div>
+        {shown.length === 0 && <div style={{ textAlign: 'center', color: '#bbb', padding: 16, fontSize: '.82rem' }}>ไม่พบรสชาติ</div>}
+        {shown.map(fl => (
+          <div key={fl} style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 6, alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #f4f4f4' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: hasAny(specs[fl]) ? '#2e7d32' : '#d3dae0' }} />
+              <span style={{ fontSize: '.8rem', fontWeight: 600, color: '#37474f', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={fl}>{fl}</span>
+            </div>
+            {SPEC_FIELDS.map(f => (
+              <input key={f} type="number" step="0.01" inputMode="decimal" value={val(fl, f)} placeholder="–"
+                onChange={e => setField(fl, f, e.target.value)} style={inp} />
+            ))}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ position: 'sticky', bottom: 8, marginTop: 12 }}>
+        <button onClick={save} disabled={!dirty.size || saving}
+          style={{ width: '100%', border: 'none', borderRadius: 12, padding: 14, fontWeight: 800, fontSize: '.92rem', color: '#fff', cursor: dirty.size ? 'pointer' : 'default', background: dirty.size ? 'linear-gradient(135deg,#ff6b00,#ff8c00)' : '#cfd8dc', boxShadow: dirty.size ? '0 4px 14px rgba(255,107,0,.3)' : 'none' }}>
+          {saving ? 'กำลังบันทึก…' : dirty.size ? `💾 บันทึก ${dirty.size} รส` : '💾 บันทึก'}
+        </button>
+        {msg && <div style={{ textAlign: 'center', fontSize: '.8rem', color: '#78828a', marginTop: 8 }}>{msg}</div>}
+      </div>
+    </div>
+  );
+};
 
 const ReportTab: React.FC<{ card: React.CSSProperties }> = ({ card }) => {
   const [cfg, setCfg] = useState<ReportCfg | null>(null);

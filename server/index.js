@@ -8,6 +8,7 @@ const multer = require('multer');
 const axios = require('axios');
 const FormData = require('form-data');
 const Anthropic = require('@anthropic-ai/sdk');
+const { renderShiftCardPNG, canRenderCard } = require('./shiftCard');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -250,6 +251,15 @@ const SCHEMA = [
       summary TEXT,
       created_at TEXT,
       UNIQUE(work_day, shift)
+    )`,
+  // ── ค่ามาตรฐานคุณภาพ (baseline) ต่อรสชาติ — ผู้ใช้ตั้งเอง ให้เตือน Brix/pH เฉพาะที่ผิดจริง
+  `CREATE TABLE IF NOT EXISTS quality_specs (
+      flavor TEXT UNIQUE,
+      brix_min REAL,
+      brix_max REAL,
+      ph_min REAL,
+      ph_max REAL,
+      updated_at TEXT
     )`,
 ];
 
@@ -1834,27 +1844,226 @@ function shiftJustEnded(dateStr, hm) {
   return s ? { workDay, shift: s.key, shiftLabel: `กะ${s.key}` } : null;
 }
 
-// เรียก Claude ด้วยชุด tool เดิม → ได้สรุปกะแบบพร้อมส่ง Telegram (plain text) หรือ null ถ้าไม่มีอะไรน่าสนใจ
-async function runShiftAnalysis(workDay, shiftLabel) {
-  if (!getAnthropic()) return null;
-  const userMessage = [
-    `วิเคราะห์ผลงานของ ${shiftLabel} ที่เพิ่งจบของวันทำงาน ${workDay} เพื่อส่งสรุปเข้า Telegram อัตโนมัติ`,
-    'ให้ดึงข้อมูลจริงด้วย tool: get_production_summary (จริงเทียบแผน), get_cip_summary (รอบ CIP/backwash), get_quality (ค่า Brix/pH ผิดปกติ), list_tasks (งานที่ยังค้าง) ของวันทำงานนี้',
-    'ห้ามบันทึก/แก้ไขข้อมูลใดๆ (ไม่เรียก tool เขียน) — วิเคราะห์อ่านอย่างเดียว',
-    'สรุปสั้น กระชับ เป็นข้อความ Telegram ภาษาไทย ขึ้นต้นด้วย "🏁 สรุปสิ้นกะ" ตามด้วยยอดผลิตจริง/แผน, รอบ CIP, งานค้าง, และเน้น "⚠️ จุดที่ต้องระวัง" ถ้ามี (ผลิตไม่ทันแผนมาก / Brix,pH ผิดปกติ / งานค้างเยอะ)',
-    'ห้ามใช้ Markdown ใช้ • และ emoji จัดรูปแบบ ความยาวไม่เกิน ~12 บรรทัด',
-    'ถ้าวันทำงานนี้ไม่มีข้อมูลผลิต/CIP/งานเลย (กะว่างจริง) ให้ตอบกลับด้วยคำว่า SKIP คำเดียวเท่านั้น ห้ามแต่งข้อมูล',
-  ].join('\n');
-  const { reply } = await runAssistantConversation({ userMessage, operator: null, session: null, persist: false, maxTurns: 10 });
-  const clean = String(reply || '').trim();
-  if (!clean || /^skip\b/i.test(clean) || clean.toUpperCase() === 'SKIP') return null;
-  return clean;
+// ── ค่ามาตรฐานคุณภาพ (baseline) ต่อรส — อ่าน/เขียนตาราง quality_specs ──────────
+async function getQualitySpecs() {
+  const rows = await dbAll('SELECT flavor, brix_min, brix_max, ph_min, ph_max, updated_at FROM quality_specs', []);
+  const map = {};
+  for (const r of rows) map[r.flavor] = r;
+  return map;
+}
+async function setQualitySpec(flavor, spec = {}) {
+  const f = String(flavor || '').trim();
+  if (!f) throw new Error('ต้องระบุรสชาติ');
+  const num = (v) => (v === '' || v == null || isNaN(Number(v))) ? null : Number(v);
+  const row = { brix_min: num(spec.brix_min), brix_max: num(spec.brix_max), ph_min: num(spec.ph_min), ph_max: num(spec.ph_max) };
+  await db.exec(
+    `INSERT INTO quality_specs (flavor, brix_min, brix_max, ph_min, ph_max, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(flavor) DO UPDATE SET brix_min = excluded.brix_min, brix_max = excluded.brix_max, ph_min = excluded.ph_min, ph_max = excluded.ph_max, updated_at = excluded.updated_at`,
+    [f, row.brix_min, row.brix_max, row.ph_min, row.ph_max, nowBKK()]);
+  return { flavor: f, ...row };
+}
+
+// ── วันที่ไทยแบบย่อ (คงปี ค.ศ. ตามที่ใช้ในแอป) ──────────────────────────────
+const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+const pad2 = (n) => String(n).padStart(2, '0');
+function formatThaiDate(dateStr) {
+  const [y, m, d] = String(dateStr || '').split('-').map(Number);
+  if (!y || !m || !d) return dateStr;
+  return `${d} ${TH_MONTHS[(m - 1) % 12]} ${y}`;
+}
+const levelRank = { crit: 0, warn: 1, mute: 2 };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// buildShiftCardData — สร้าง "ข้อมูลการ์ดสรุปสิ้นกะ" จาก DB โดยตรง (deterministic)
+// ตัวเลขทุกตัวมาจาก query จริง (ไม่ให้ AI พิมพ์เอง = ไม่มั่ว) · นับตามช่วงกะ/วันทำงานจริง
+// โหมด: กะดึก(ปิดวัน) = เทียบยอดทั้งวันกับแผน · กะเช้า/บ่าย = โชว์ยอดเฉพาะกะนี้ (ยังไม่เทียบแผนทั้งวัน)
+// คืน null ถ้าไม่มีข้อมูลเลย (กะว่างจริง)
+// ═══════════════════════════════════════════════════════════════════════════
+async function buildShiftCardData(workDay, shiftKey) {
+  const wd = weekdayOf(workDay);
+  const key = String(shiftKey || '').replace(/^กะ/, '');
+  const shiftObj = factoryShiftsForWeekday(wd).find((s) => s.key === key);
+  if (!shiftObj) return null;
+  const isLast = shiftObj.end === 6; // กะดึกปิดวันทำงาน → สรุปทั้งวันเทียบแผนได้
+
+  // ช่วงเวลา "กะนี้" (ข้ามเที่ยงคืนถ้าจำเป็น) และ "วันทำงาน" (06:00→06:00)
+  const shiftStart = `${workDay}T${pad2(shiftObj.start)}:00:00`;
+  const shiftEndDate = shiftObj.end <= shiftObj.start ? addDaysStr(workDay, 1) : workDay;
+  const shiftEnd = `${shiftEndDate}T${pad2(shiftObj.end)}:00:00`;
+  const dayStart = `${workDay}T06:00:00`, dayEnd = `${addDaysStr(workDay, 1)}T06:00:00`;
+
+  await syncTaskProgress(workDay).catch(() => {});
+  const [shiftRows, dayRows, planRows, specs, cip, qRows, taskRows] = await Promise.all([
+    dbAll('SELECT line_name, flavor, COUNT(*) n FROM production_logs WHERE timestamp >= ? AND timestamp < ? GROUP BY line_name, flavor', [shiftStart, shiftEnd]),
+    dbAll('SELECT line_name, flavor, COUNT(*) n FROM production_logs WHERE timestamp >= ? AND timestamp < ? GROUP BY line_name, flavor', [dayStart, dayEnd]),
+    dbAll('SELECT line_name, flavor, SUM(planned_batches) planned FROM production_plans WHERE plan_date = ? GROUP BY line_name, flavor', [workDay]),
+    getQualitySpecs(),
+    cipRoundsForDate(workDay),
+    dbAll('SELECT flavor, MIN(brix) bmin, MAX(brix) bmax, MIN(ph) pmin, MAX(ph) pmax, COUNT(brix) bc, COUNT(ph) pc FROM production_logs WHERE timestamp >= ? AND timestamp < ? AND (brix IS NOT NULL OR ph IS NOT NULL) GROUP BY flavor', [dayStart, dayEnd]),
+    dbAll("SELECT line_name, category, title, status, target_count, actual_count FROM daily_tasks WHERE task_date = ? AND status != 'done' ORDER BY category, line_name", [workDay]),
+  ]);
+
+  const shiftTotal = shiftRows.reduce((s, r) => s + Number(r.n), 0);
+  const dayTotal = dayRows.reduce((s, r) => s + Number(r.n), 0);
+  const dayPlanTotal = planRows.reduce((s, r) => s + Number(r.planned || 0), 0);
+  const cipTotal = Object.values(cip.cip).reduce((a, b) => a + Number(b || 0), 0)
+    + Object.values(cip.backwash).reduce((a, b) => a + Number(b || 0), 0);
+
+  // ── ยอดผลิตต่อไลน์ ──────────────────────────────────────────────────────
+  const kmap = (rows, f) => { const m = {}; for (const r of rows) m[`${r.line_name}||${r.flavor}`] = f(r); return m; };
+  const dayMap = kmap(dayRows, (r) => Number(r.n));
+  const shiftMap = kmap(shiftRows, (r) => Number(r.n));
+  const planMap = kmap(planRows, (r) => Number(r.planned || 0));
+  const watch = [];
+  let lines = [];
+  if (isLast) {
+    // โหมดทั้งวัน — union(แผน, ผลิตจริงทั้งวัน)
+    const keys = [...new Set([...Object.keys(planMap), ...Object.keys(dayMap)])];
+    lines = keys.map((k) => {
+      const [line, flavor] = k.split('||');
+      const actual = dayMap[k] || 0;
+      const plan = planMap[k] != null ? planMap[k] : null;
+      let status = 'mute', label = null, pct = null;
+      if (plan == null) { status = 'mute'; label = 'นอกแผน'; }
+      else if (plan === 0) { status = 'mute'; label = null; }
+      else {
+        pct = Math.round((actual / plan) * 100);
+        if (actual >= plan) { status = 'good'; label = actual > plan ? 'เกินแผน' : 'ครบแผน'; }
+        else { status = pct >= 50 ? 'warn' : 'crit'; label = 'ตกแผน'; }
+      }
+      return { line, flavor, actual, plan, pct, status, statusLabel: label };
+    }).sort((a, b) => (a.line || '').localeCompare(b.line || '') || (a.flavor || '').localeCompare(b.flavor || ''));
+    // แจ้งเตือนไลน์ที่ตกแผน
+    for (const ln of lines) {
+      if (ln.plan && ln.actual < ln.plan) {
+        const p = ln.pct;
+        watch.push({ level: p < 50 ? 'crit' : 'warn', text: `${ln.line} ${ln.flavor} ตกแผน — ทำได้ ${ln.actual}/${ln.plan} (${p}%)` });
+      }
+    }
+  } else {
+    // โหมดกะ — โชว์เฉพาะยอดที่ผลิตในกะนี้
+    lines = Object.keys(shiftMap).map((k) => {
+      const [line, flavor] = k.split('||');
+      return { line, flavor, actual: shiftMap[k], plan: null, pct: null, status: 'mute', statusLabel: null };
+    }).sort((a, b) => (a.line || '').localeCompare(b.line || '') || (a.flavor || '').localeCompare(b.flavor || ''));
+  }
+
+  // ── คุณภาพ (Brix/pH) เทียบสเปกจริง — เตือนเฉพาะที่มีสเปกและออกนอกช่วง ─────
+  const fmtNum = (v) => (v == null ? '-' : (Math.round(v * 100) / 100));
+  const rangeStr = (a, b) => (a === b ? `${fmtNum(a)}` : `${fmtNum(a)}–${fmtNum(b)}`);
+  for (const q of qRows) {
+    const sp = specs[q.flavor];
+    if (!sp) continue; // ยังไม่ตั้งสเปก → ไม่เตือน (กัน false alarm)
+    if (q.bc > 0 && (sp.brix_min != null || sp.brix_max != null)) {
+      const low = sp.brix_min != null && q.bmin < sp.brix_min;
+      const high = sp.brix_max != null && q.bmax > sp.brix_max;
+      if (low || high) watch.push({ level: 'warn', text: `Brix ${q.flavor} ${rangeStr(q.bmin, q.bmax)} · ${low ? 'ต่ำ' : 'สูง'}กว่าสเปก ${rangeStr(sp.brix_min, sp.brix_max)} — ควรตรวจซ้ำ` });
+    }
+    if (q.pc > 0 && (sp.ph_min != null || sp.ph_max != null)) {
+      const low = sp.ph_min != null && q.pmin < sp.ph_min;
+      const high = sp.ph_max != null && q.pmax > sp.ph_max;
+      if (low || high) watch.push({ level: 'warn', text: `pH ${q.flavor} ${rangeStr(q.pmin, q.pmax)} · ${low ? 'ต่ำ' : 'สูง'}กว่าสเปก ${rangeStr(sp.ph_min, sp.ph_max)} — ควรตรวจซ้ำ` });
+    }
+  }
+
+  // ── CIP / Backwash ──────────────────────────────────────────────────────
+  let cipBlock;
+  if (cipTotal === 0) {
+    cipBlock = { level: isLast ? 'warn' : 'mute', text: 'ไม่มีรอบบันทึกวันนี้ (0 ทุกไลน์)' + (isLast ? ' — เช็กว่าตกหล่นหรือยังไม่ได้ล้าง' : '') };
+    if (isLast) watch.push({ level: 'warn', text: 'CIP ไม่มีบันทึกทั้งวัน — เช็กว่าตกหล่นหรือยังไม่ได้ล้าง' });
+  } else {
+    const parts = [];
+    for (const L of ['Line 1', 'Line 2', 'Line 3']) {
+      const c = Number(cip.cip[L] || 0), b = Number(cip.backwash?.[L] || 0);
+      if (c || b) parts.push(`${L}: ${c}${b ? ` (+BW ${b})` : ''}`);
+    }
+    cipBlock = { level: 'mute', text: parts.join(' · ') + ' รอบ' };
+  }
+
+  // ── งานค้าง ──────────────────────────────────────────────────────────────
+  const prodPending = taskRows.filter((t) => t.category === 'production');
+  const otherPending = taskRows.filter((t) => t.category !== 'production');
+  const taskItems = [];
+  for (const t of prodPending) taskItems.push({ text: `${t.title}${t.line_name ? ` (${t.line_name})` : ''} ยังไม่เสร็จ` });
+  if (otherPending.length) {
+    const grouped = {};
+    for (const t of otherPending) (grouped[t.category] || (grouped[t.category] = [])).push(t.title);
+    const catName = { maintenance: 'ซ่อมบำรุง', cip: 'CIP', backwash: 'Backwash', recurring: 'งานประจำ' };
+    for (const [cat, titles] of Object.entries(grouped)) {
+      taskItems.push({ text: catName[cat] || cat, sub: titles.join(' · ') });
+    }
+  }
+
+  // ไม่มีข้อมูลเลย → SKIP
+  if (dayTotal === 0 && planRows.length === 0 && taskRows.length === 0 && cipTotal === 0) return null;
+
+  // ── KPI ตามโหมด ──────────────────────────────────────────────────────────
+  const pctDay = dayPlanTotal > 0 ? Math.round((dayTotal / dayPlanTotal) * 100) : null;
+  const pctColor = pctDay == null ? '#93a2ab' : (pctDay >= 95 ? '#39b57e' : (pctDay >= 70 ? '#eea23a' : '#ec5f5c'));
+  const warnCount = watch.filter((w) => w.level === 'crit' || w.level === 'warn').length;
+  const kpiCols = isLast
+    ? [
+        { num: `${dayTotal}`, unit: ` / ${dayPlanTotal}`, label: 'ผลิตจริง / แผน (batch)', color: '#eaf0f3' },
+        { num: pctDay != null ? `${pctDay}%` : '–', label: 'ทำได้ตามแผน', color: pctColor },
+        { num: `${warnCount}`, label: 'จุดต้องระวัง', color: warnCount ? '#ec5f5c' : '#39b57e' },
+      ]
+    : [
+        { num: `${shiftTotal}`, label: 'ผลิตกะนี้ (batch)', color: '#eaf0f3' },
+        { num: `${dayTotal}`, label: 'สะสมวันทำงาน', color: '#eaf0f3' },
+        { num: `${warnCount}`, label: 'จุดต้องระวัง', color: warnCount ? '#ec5f5c' : '#39b57e' },
+      ];
+
+  watch.sort((a, b) => (levelRank[a.level] ?? 3) - (levelRank[b.level] ?? 3));
+  const nowHM = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(11, 16);
+  return {
+    workDay, shiftKey: key, mode: isLast ? 'day' : 'shift',
+    shiftLabel: `กะ${key}`, shiftTime: `${pad2(shiftObj.start)}:00–${pad2(shiftObj.end)}:00`,
+    workDayText: formatThaiDate(workDay), sentTime: nowHM,
+    kpiCols, lines,
+    cip: cipBlock,
+    tasks: { count: taskRows.length, items: taskItems },
+    watch: watch.slice(0, 5),
+  };
+}
+
+// สรุปเป็นข้อความ (fallback เมื่อ render รูปไม่ได้ หรือส่งรูปพลาด) — HTML สำหรับ Telegram
+function shiftDataToText(d) {
+  const L = [];
+  L.push(`🏁 <b>สรุปสิ้น${escapeHtml(d.shiftLabel)}</b> · วันทำงาน ${escapeHtml(d.workDayText)}`);
+  L.push('');
+  L.push('📦 <b>ยอดผลิต</b>');
+  if (!d.lines.length) L.push('• ไม่มีการผลิตในกะนี้');
+  for (const ln of d.lines) {
+    const val = ln.plan != null ? `${ln.actual}/${ln.plan}` : `${ln.actual} batch`;
+    L.push(`• ${escapeHtml(ln.line)} ${escapeHtml(ln.flavor)}: ${val}${ln.statusLabel ? ` — ${escapeHtml(ln.statusLabel)}` : ''}`);
+  }
+  L.push('');
+  L.push(`🫧 CIP/Backwash: ${escapeHtml(d.cip.text)}`);
+  L.push(`📋 งานค้าง: ${d.tasks.count ? d.tasks.count + ' รายการ' : 'ไม่มี ✅'}`);
+  for (const it of d.tasks.items) L.push(`• ${escapeHtml(it.text)}${it.sub ? ` — ${escapeHtml(it.sub)}` : ''}`);
+  if (d.watch.length) {
+    L.push('');
+    L.push('⚠️ <b>จุดที่ต้องระวัง</b>');
+    for (const w of d.watch) L.push(`• ${escapeHtml(w.text)}`);
+  }
+  return L.join('\n');
+}
+
+// รวมทุกอย่าง: สร้างข้อมูล → เรนเดอร์รูป (มี fallback ข้อความ) — คืน { data, png, caption, text } หรือ null
+async function runShiftAnalysis(workDay, shiftKey) {
+  const data = await buildShiftCardData(workDay, shiftKey);
+  if (!data) return null;
+  const caption = `🏁 สรุปสิ้น${data.shiftLabel} · วันทำงาน ${data.workDayText}`;
+  let png = null;
+  try { png = renderShiftCardPNG(data); } catch (e) { console.error('[shift-analysis] render error', e.message); }
+  return { data, png, caption, text: shiftDataToText(data) };
 }
 
 const _shiftAnalysisRunning = new Set(); // กันรันซ้อนภายในโปรเซสเดียวระหว่างที่ Claude ยังตอบไม่เสร็จ
 async function shiftAnalysisTick() {
   try {
-    if (!getAnthropic()) return; // ไม่มี API key → ข้าม (local dev)
+    // เดิมพึ่ง Claude — ตอนนี้ deterministic (ดึงเลขจาก DB + เรนเดอร์การ์ดเอง) ไม่ต้องมี API key
     const cfg = await getReportConfig();
     if (!cfg.shiftAnalysisEnabled) return; // ปิดจากตั้งค่า
     const bkk = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' });
@@ -1870,11 +2079,13 @@ async function shiftAnalysisTick() {
     _shiftAnalysisRunning.add(memKey);
     await db.exec('INSERT INTO shift_analysis_log (work_day, shift, created_at) VALUES (?, ?, ?)', [workDay, shift, nowBKK()]);
     try {
-      const analysis = await runShiftAnalysis(workDay, shiftLabel);
+      const analysis = await runShiftAnalysis(workDay, shift);
       if (analysis) {
-        await sendToTelegram(`${analysis}\n\n<i>— วิเคราะห์อัตโนมัติสิ้น${escapeHtml(shiftLabel)} ${escapeHtml(workDay)}</i>`);
-        await db.exec('UPDATE shift_analysis_log SET summary = ? WHERE work_day = ? AND shift = ?', [analysis.slice(0, 4000), workDay, shift]);
-        console.log(`[shift-analysis] sent ${memKey}`);
+        const footer = `<i>— วิเคราะห์อัตโนมัติสิ้น${escapeHtml(shiftLabel)} ${escapeHtml(workDay)}</i>`;
+        if (analysis.png) await sendPhotoBufferToTelegram(analysis.png, 'image/png', analysis.caption);
+        else await sendToTelegram(`${analysis.text}\n\n${footer}`); // fallback: render ไม่ได้ → ส่งข้อความ
+        await db.exec('UPDATE shift_analysis_log SET summary = ? WHERE work_day = ? AND shift = ?', [analysis.text.slice(0, 4000), workDay, shift]);
+        console.log(`[shift-analysis] sent ${memKey} (${analysis.png ? 'image' : 'text'})`);
       } else {
         await db.exec('UPDATE shift_analysis_log SET summary = ? WHERE work_day = ? AND shift = ?', ['(skipped — ไม่มีข้อมูล)', workDay, shift]);
         console.log(`[shift-analysis] skipped ${memKey} (no data)`);
@@ -1889,17 +2100,61 @@ async function shiftAnalysisTick() {
   } catch (e) { console.error('[shift-analysis] tick error', e.message); }
 }
 
-// เรียกวิเคราะห์สิ้นกะเอง (สำหรับทดสอบ/รันย้อนหลัง) — ?send=1 เพื่อส่ง Telegram+จด log จริง
+// เรียกวิเคราะห์สิ้นกะเอง (ทดสอบ/รันย้อนหลัง) — ?send=1 เพื่อส่งรูปเข้า Telegram จริง
+// shift = คีย์กะ (เช้า/บ่าย/ดึก) ไม่ระบุ = ใช้กะล่าสุดที่เพิ่งจบ (หรือกะดึกของวันทำงานนั้น)
 app.post('/api/assistant/shift-analysis/run', async (req, res) => {
-  if (!getAnthropic()) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์' });
   const workDay = req.body.workDay || req.query.workDay || workDayBKK();
-  const shiftLabel = req.body.shiftLabel || req.query.shiftLabel || 'กะที่ผ่านมา';
+  let shift = req.body.shift || req.query.shift || req.body.shiftLabel || req.query.shiftLabel;
+  if (!shift) { const sh = factoryShiftsForWeekday(weekdayOf(workDay)); shift = sh[sh.length - 1]?.key || 'ดึก'; }
   const send = String(req.body.send || req.query.send || '') === '1' || req.body.send === true;
   try {
-    const analysis = await runShiftAnalysis(workDay, shiftLabel);
-    if (send && analysis) await sendToTelegram(`${analysis}\n\n<i>— วิเคราะห์ (manual) ${escapeHtml(shiftLabel)} ${escapeHtml(workDay)}</i>`);
-    res.json({ ok: true, workDay, shiftLabel, sent: !!(send && analysis && process.env.TELEGRAM_BOT_TOKEN), analysis: analysis || '(SKIP — ไม่มีข้อมูล)' });
+    const analysis = await runShiftAnalysis(workDay, shift);
+    if (send && analysis) {
+      if (analysis.png) await sendPhotoBufferToTelegram(analysis.png, 'image/png', `${analysis.caption} (manual)`);
+      else await sendToTelegram(`${analysis.text}\n\n<i>— วิเคราะห์ (manual) ${escapeHtml(String(shift))} ${escapeHtml(workDay)}</i>`);
+    }
+    res.json({ ok: true, workDay, shift, mode: analysis?.data.mode || null,
+      rendered: !!analysis?.png, sent: !!(send && analysis && process.env.TELEGRAM_CHAT_ID),
+      data: analysis?.data || null, text: analysis?.text || '(SKIP — ไม่มีข้อมูล)' });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// พรีวิวการ์ดเป็นรูป PNG ในเบราว์เซอร์ (ไม่ส่ง Telegram) — เปิดดูหน้าตาได้เลย
+// GET /api/assistant/shift-analysis/preview?workDay=YYYY-MM-DD&shift=ดึก
+app.get('/api/assistant/shift-analysis/preview', async (req, res) => {
+  const workDay = req.query.workDay || workDayBKK();
+  let shift = req.query.shift;
+  if (!shift) { const sh = factoryShiftsForWeekday(weekdayOf(workDay)); shift = sh[sh.length - 1]?.key || 'ดึก'; }
+  try {
+    const analysis = await runShiftAnalysis(workDay, String(shift));
+    if (!analysis) return res.status(404).type('text/plain; charset=utf-8').send('SKIP — ไม่มีข้อมูลของกะนี้');
+    if (!analysis.png) return res.status(200).type('text/plain; charset=utf-8').send(analysis.text.replace(/<[^>]+>/g, ''));
+    res.type('image/png').send(analysis.png);
+  } catch (err) { res.status(500).type('text/plain; charset=utf-8').send('error: ' + err.message); }
+});
+
+// ── ค่ามาตรฐานคุณภาพ (baseline Brix/pH ต่อรส) — ผู้ใช้ตั้งเอง ────────────────
+app.get('/api/quality-specs', async (req, res) => {
+  try {
+    const specs = await getQualitySpecs();
+    res.json({ flavors: ASSISTANT_FLAVORS.split(', '), specs });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/quality-specs', async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (Array.isArray(body.items)) { // บันทึกทีละหลายรส
+      const out = [];
+      for (const it of body.items) out.push(await setQualitySpec(it.flavor, it));
+      return res.json({ ok: true, saved: out.length, items: out });
+    }
+    const saved = await setQualitySpec(body.flavor, body);
+    res.json({ ok: true, saved });
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+app.delete('/api/quality-specs/:flavor', async (req, res) => {
+  try { await db.exec('DELETE FROM quality_specs WHERE flavor = ?', [req.params.flavor]); res.json({ ok: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // แถบความคืบหน้าแบบ block (เพิ่มลูกเล่นให้ข้อความ Telegram)
@@ -2444,6 +2699,14 @@ const ASSISTANT_TOOLS = [
       action_id: { type: 'integer', description: 'ไม่ระบุ = รายการล่าสุดที่รออยู่ของ session นี้' } } } },
   { name: 'cancel_pending_action', description: 'ยกเลิกรายการบันทึกที่ค้างอยู่ เมื่อผู้ใช้บอกไม่เอา/ยกเลิก/ข้อมูลผิด',
     input_schema: { type: 'object', properties: { action_id: { type: 'integer' } } } },
+  // ── ค่ามาตรฐานคุณภาพ (baseline Brix/pH ต่อรส) — ใช้ให้การเตือนสิ้นกะแม่น ไม่ false alarm ──
+  { name: 'set_quality_spec', description: 'ตั้ง/แก้ค่ามาตรฐาน (สเปก) Brix และ/หรือ pH ของรสชาติ เพื่อให้ระบบเตือนเฉพาะค่าที่ออกนอกสเปกจริง เมื่อผู้ใช้บอกสเปก เช่น "สเปก Freshy Orange pH 3.2-4.0", "Amazon Brix 50-55" — เขียนทันทีไม่ต้องยืนยัน · หลายรสให้เรียกทีละรส · ไม่ระบุค่าไหน = ไม่เปลี่ยนค่านั้น',
+    input_schema: { type: 'object', properties: {
+      flavor: { type: 'string', description: 'ชื่อรสชาติ (ตรงกับลิสต์)' },
+      brix_min: { type: 'number' }, brix_max: { type: 'number' },
+      ph_min: { type: 'number' }, ph_max: { type: 'number' } }, required: ['flavor'] } },
+  { name: 'get_quality_specs', description: 'ดูค่ามาตรฐาน (สเปก) Brix/pH ที่ตั้งไว้ต่อรสชาติ — ใช้เมื่อผู้ใช้ถามว่าตั้งสเปกอะไรไว้บ้าง หรือก่อนแก้',
+    input_schema: { type: 'object', properties: { flavor: { type: 'string', description: 'เจาะจงรส (ไม่ระบุ = ทั้งหมด)' } } } },
 ];
 
 async function runAssistantTool(name, input, operator, ctx = {}) {
@@ -2547,7 +2810,17 @@ async function runAssistantTool(name, input, operator, ctx = {}) {
     if (input.line) { cond.push('line_name = ?'); args.push(input.line); }
     if (input.flavor) { cond.push('flavor = ?'); args.push(input.flavor); }
     const rows = await dbAll(`SELECT substr(timestamp,1,10) AS day, line_name, flavor, batch, brix, ph FROM production_logs WHERE ${cond.join(' AND ')} ORDER BY timestamp DESC LIMIT 100`, args);
-    return { from, to, count: rows.length, rows };
+    const specs = await getQualitySpecs(); // แนบสเปกไปด้วย → เทียบได้ว่าค่าไหนออกนอกสเปกจริง
+    return { from, to, count: rows.length, rows, specs, note: 'เตือน "ผิดปกติ" เฉพาะรสที่มีสเปกใน specs และค่าออกนอกช่วงเท่านั้น รสที่ไม่มีสเปกอย่าเดาว่าปกติ/ผิด' };
+  }
+  if (name === 'set_quality_spec') {
+    const saved = await setQualitySpec(input.flavor, input);
+    return { ok: true, saved, note: 'บันทึกสเปกแล้ว (มีผลกับการเตือนสิ้นกะทันที)' };
+  }
+  if (name === 'get_quality_specs') {
+    const specs = await getQualitySpecs();
+    if (input.flavor) return { flavor: input.flavor, spec: specs[input.flavor] || null };
+    return { count: Object.keys(specs).length, specs };
   }
   return { error: 'unknown tool' };
 }
@@ -2570,7 +2843,7 @@ async function buildAssistantSystem(operator) {
     '• บันทึกงาน: create_task (category ผลิต=production, ทำความสะอาด=cip, backwash=backwash, ซ่อมบำรุง=maintenance) · ปิดงาน: complete_task',
     '• ข้อมูลวันเดียว: get_production_summary / get_cip_summary / get_timeline / list_tasks',
     '• ข้ามวัน/ช่วงเวลา/แนวโน้ม: query_production_range (from,to) เช่น "สัปดาห์นี้", "3 วันก่อน", "เดือนนี้"',
-    '• คุณภาพ: get_quality (Brix/pH) — เจอค่าที่ดูผิดปกติให้ทักเตือน',
+    '• คุณภาพ: get_quality (Brix/pH — แนบสเปกมาด้วย) เตือน "ผิดปกติ" เฉพาะรสที่มีสเปกและค่าออกนอกช่วง · ตั้งสเปกด้วย set_quality_spec (เช่นผู้ใช้บอก "สเปกส้ม pH 3.2-4") · ดูสเปกที่ตั้งไว้ด้วย get_quality_specs',
     '• ความรู้เรื่องแอป/กะ/ขั้นตอน/ทีม: search_knowledge — ถูกถามเรื่องวิธีใช้/ระบบ/กะทำงาน/บุคคล ให้ค้นก่อนตอบเสมอ ถ้าครั้งแรกไม่เจอ ให้เปลี่ยนคำค้น (สั้นลง/คำพ้อง/ชื่อที่ถูกถาม) ลองอีก 1-2 ครั้งก่อนจะสรุปว่าไม่พบ',
     '• คำถามข้อมูลที่ tool สรุปไม่ครอบคลุม: query_database (SELECT อย่างเดียว) — schema ทั้งหมด:',
     SCHEMA_SUMMARY,
@@ -2800,7 +3073,8 @@ const registerTelegramWebhook = async () => {
 
 // เผยฟังก์ชันภายในให้เทสต์ require ได้ (โดยไม่ต้องบูตเซิร์ฟเวอร์)
 module.exports = { app, initDb, shiftJustEnded, shiftsForWeekday, factoryShiftsForWeekday, rememberFact, recallFacts,
-  forgetFact, memoryPromptBlock, buildAssistantSystem, runAssistantTool, getReportConfig };
+  forgetFact, memoryPromptBlock, buildAssistantSystem, runAssistantTool, getReportConfig,
+  buildShiftCardData, runShiftAnalysis, getQualitySpecs, setQualitySpec, formatThaiDate };
 
 if (require.main === module) {
   initDb()
