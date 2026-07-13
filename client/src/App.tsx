@@ -11,6 +11,24 @@ import StickerGuideChat from './components/StickerGuideChat';
 import StickerGuideAdmin from './components/StickerGuideAdmin';
 import styles from './App.module.css';
 
+// อ่านรูปที่ service worker เก็บไว้ตอนผู้ใช้ "แชร์" เข้ามา (Web Share Target) แล้วล้าง cache
+async function readSharedFiles(): Promise<File[]> {
+  try {
+    const cache = await caches.open('shared-media')
+    const countRes = await cache.match('/__shared_count')
+    if (!countRes) return []
+    const n = Number(await countRes.text()) || 0
+    const files: File[] = []
+    for (let i = 0; i < n; i++) {
+      const r = await cache.match(`/__shared_${i}`)
+      if (r) { const blob = await r.blob(); files.push(new File([blob], `shared_${i}.jpg`, { type: blob.type || 'image/jpeg' })) }
+    }
+    await cache.delete('/__shared_count')
+    for (let i = 0; i < n; i++) await cache.delete(`/__shared_${i}`)
+    return files
+  } catch { return [] }
+}
+
 const App: React.FC = () => {
   const [operator, setOperator] = useState<string | null>(null);
   const [appMode, setAppMode] = useState<'selection' | 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'line4manual' | 'todo' | 'stickerGuideChat' | 'stickerGuideAdmin'>('selection');
@@ -23,6 +41,7 @@ const App: React.FC = () => {
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === '1');
   const [showSplash, setShowSplash] = useState(true);
   const [splashFadeOut, setSplashFadeOut] = useState(false);
+  const [sharedFiles, setSharedFiles] = useState<File[] | null>(null); // รูปที่แชร์เข้ามา (Web Share Target)
 
   useEffect(() => {
     const saved = localStorage.getItem('operator');
@@ -35,6 +54,18 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('darkMode', darkMode ? '1' : '0');
   }, [darkMode]);
+
+  // เปิดจากการ "แชร์รูป" (Web Share Target): SW redirect มาที่ /?shared=1 → อ่านรูป → ล้าง query
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('shared') !== '1') return;
+    window.history.replaceState({}, '', window.location.pathname);
+    readSharedFiles().then(files => { if (files.length) setSharedFiles(files); });
+  }, []);
+
+  // มีรูปที่แชร์เข้ามา + ล็อกอินแล้ว → พาไปหน้างานวันนี้ (ฟอร์มมอบหมายอยู่ล่างสุด)
+  useEffect(() => {
+    if (operator && sharedFiles && sharedFiles.length) setAppMode('todo');
+  }, [operator, sharedFiles]);
 
   const handleLogin = (name: string) => {
     localStorage.setItem('operator', name);
@@ -423,7 +454,8 @@ const App: React.FC = () => {
           </div>
 
           <div style={{ display: appMode === 'todo' ? 'block' : 'none' }}>
-            <TodoBoard operatorName={operator} onBackToMain={() => switchMode('selection')} />
+            <TodoBoard operatorName={operator} onBackToMain={() => switchMode('selection')}
+              sharedImages={sharedFiles} onSharedConsumed={() => setSharedFiles(null)} />
           </div>
 
           <div style={{ display: appMode === 'stickerGuideChat' ? 'block' : 'none' }}>
