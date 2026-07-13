@@ -261,6 +261,16 @@ const SCHEMA = [
       ph_max REAL,
       updated_at TEXT
     )`,
+  // ── สถานะ "กำลังรอรูปหลังทำ" ต่อผู้ใช้ Telegram — กดปุ่ม 📸 แล้วส่งรูปงานเข้ามา
+  // 1 แถวต่อ (chat_id, user_id) — เก็บว่ากำลังแนบรูปของงาน task_id ไหน (เก็บ DB กัน Render restart หาย)
+  `CREATE TABLE IF NOT EXISTS tg_photo_wait (
+      chat_id TEXT,
+      user_id TEXT,
+      task_id INTEGER,
+      page TEXT,
+      created_at TEXT,
+      UNIQUE(chat_id, user_id)
+    )`,
 ];
 
 const DEFAULT_OPERATORS = [
@@ -277,7 +287,7 @@ async function initDb() {
     catch { /* มีคอลัมน์อยู่แล้ว — ข้าม */ }
   }
   // migration: คอลัมน์งานมอบหมายรายบุคคลใน daily_tasks (assignee/location/priority/handoff_from)
-  for (const col of ['assignee', 'location', 'priority', 'handoff_from', 'images']) {
+  for (const col of ['assignee', 'location', 'priority', 'handoff_from', 'images', 'done_images', 'done_by']) {
     try { await db.exec(`ALTER TABLE daily_tasks ADD COLUMN ${col} TEXT`); }
     catch { /* มีคอลัมน์อยู่แล้ว — ข้าม */ }
   }
@@ -1619,6 +1629,7 @@ async function buildDuty(date) {
       id: t.id, title: t.title, category: t.category, location: t.location || null,
       priority: t.priority || 'normal', status: t.status, handoffFrom: t.handoff_from || null,
       images: (() => { try { return JSON.parse(t.images || '[]'); } catch { return []; } })(),
+      doneImages: (() => { try { return JSON.parse(t.done_images || '[]'); } catch { return []; } })(),
     }));
 
     const active = nodes.filter(n => !n.bypassed);
@@ -2224,7 +2235,11 @@ function buildDutyPerson(duty, pkey) {
     push(`${n.checked ? '✅' : '☐'} ${pre}${n.title}`, `t:${pkey}:r:${pkey}:${n.key}`);
   }
   for (const r of p.received) push(`${r.checked ? '✅' : '☐'} ${r.title} ⟵${r.fromName}`, `t:${pkey}:r:${r.ownerKey}:${r.nodeKey}`);
-  for (const t of p.adhoc) push(`${t.status === 'done' ? '✅' : '☐'} ${t.priority === 'urgent' ? '🔴 ' : ''}${t.title}`, `t:${pkey}:a:${t.id}`);
+  // งานมอบหมาย: แถวละ 2 ปุ่ม — ปิด/เปิดงาน + 📸 แนบรูปหลังทำ
+  for (const t of p.adhoc) rows.push([
+    { text: clip(`${t.status === 'done' ? '✅' : '☐'} ${t.priority === 'urgent' ? '🔴 ' : ''}${t.title}`), callback_data: `t:${pkey}:a:${t.id}` },
+    { text: '📸', callback_data: `t:${pkey}:img:${t.id}` },
+  ]);
   rows.push([{ text: '⬅️ กลับ', callback_data: 'p:home' }, { text: '🔄 รีเฟรช', callback_data: `p:${pkey}` }]);
 
   let text = `👤 <b>คุณ ${p.name}</b> · ${p.role}\n${progressBar(p.pct)} <b>${p.pct}%</b> · เสร็จ ${p.done}/${p.total}`;
@@ -2257,6 +2272,36 @@ app.get('/api/duty/keyboard', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── สถานะ "รอรับรูปหลังทำ" ผ่าน Telegram (ต่อผู้ใช้) + ดาวน์โหลดรูปจาก Telegram ──
+async function setPhotoWait(chatId, userId, taskId, page) {
+  await db.exec(
+    `INSERT INTO tg_photo_wait (chat_id, user_id, task_id, page, created_at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(chat_id, user_id) DO UPDATE SET task_id = excluded.task_id, page = excluded.page, created_at = excluded.created_at`,
+    [String(chatId), String(userId), taskId, page, nowBKK()]);
+}
+async function getPhotoWait(chatId, userId) {
+  const cutoff = new Date(Date.now() - 30 * 60000).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
+  await db.exec('DELETE FROM tg_photo_wait WHERE created_at < ?', [cutoff]); // ล้างที่ค้างเกิน 30 นาที
+  const rows = await dbAll('SELECT task_id, page FROM tg_photo_wait WHERE chat_id = ? AND user_id = ?', [String(chatId), String(userId)]);
+  return rows[0] || null;
+}
+async function clearPhotoWait(chatId, userId) {
+  await db.exec('DELETE FROM tg_photo_wait WHERE chat_id = ? AND user_id = ?', [String(chatId), String(userId)]);
+}
+// getFile → ดาวน์โหลดไบต์ → data URL (หรือ null)
+async function downloadTelegramFile(fileId) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return null;
+  try {
+    const info = await tgApi('getFile', { file_id: fileId });
+    const filePath = info?.result?.file_path;
+    if (!filePath) return null;
+    const resp = await axios.get(`https://api.telegram.org/file/bot${token}/${filePath}`, { responseType: 'arraybuffer' });
+    const mime = filePath.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+    return `data:${mime};base64,${Buffer.from(resp.data).toString('base64')}`;
+  } catch (e) { console.error('[downloadTelegramFile] error', e.response?.data || e.message); return null; }
+}
+
 // รับ raw Telegram update (ข้อความสั่ง "งานค้าง" หรือปุ่ม callback) — n8n forward มาที่นี่
 // server จัดการ Telegram API เอง (send/edit/answerCallback) ไม่ต้องต่อ node เพิ่มใน n8n
 app.post('/api/telegram/duty-update', (req, res) => {
@@ -2278,10 +2323,32 @@ app.post('/api/telegram/duty-update', (req, res) => {
         if (data.startsWith('t:')) {                     // ปิด/เปิดงาน แล้วอยู่หน้าคนเดิม
           const parts = data.split(':');
           const page = parts[1], kind = parts[2];
-          if (kind === 'a') await toggleAdhocDone(Number(parts[3]));
-          else if (kind === 'r') await toggleRoutineDone(parts[3], parts.slice(4).join(':'), date);
+          if (kind === 'img') {                          // กด 📸 → เข้าโหมดรอรับรูปหลังทำของงานนี้
+            const taskId = Number(parts[3]);
+            const chatId = cq.message?.chat?.id, userId = cq.from?.id;
+            const trow = (await dbAll('SELECT title FROM daily_tasks WHERE id = ?', [taskId]))[0];
+            await setPhotoWait(chatId, userId, taskId, page);
+            await tgApi('sendMessage', {
+              chat_id: chatId, parse_mode: 'HTML',
+              text: `📸 ส่งรูป <b>หลังทำ</b> ของงาน "${escapeHtml(trow?.title || '')}" เข้ามาได้เลย (ส่งได้หลายรูป)\nเสร็จแล้วกด ✅ ปิดงาน`,
+              reply_markup: { inline_keyboard: [[{ text: '✅ ปิดงาน + ส่งกลับกลุ่ม', callback_data: `t:${page}:done:${taskId}` }]] },
+            });
+            await tgApi('answerCallbackQuery', { callback_query_id: cq.id, text: 'ส่งรูปเข้ามาได้เลย 📸' });
+            return;
+          }
+          if (kind === 'done') {                         // ปิดงาน + ส่งอัลบั้มรูปหลังทำกลับกลุ่ม
+            const taskId = Number(parts[3]);
+            const trow = (await dbAll('SELECT title, done_images, done_by FROM daily_tasks WHERE id = ?', [taskId]))[0];
+            await db.exec('UPDATE daily_tasks SET status = ?, completed_at = ? WHERE id = ?', ['done', nowBKK(), taskId]);
+            await clearPhotoWait(cq.message?.chat?.id, cq.from?.id);
+            let imgs = []; try { imgs = JSON.parse(trow?.done_images || '[]'); } catch { imgs = []; }
+            const who = trow?.done_by || cq.from?.first_name || '';
+            if (imgs.length) await sendMediaGroupToTelegram(imgs, `✅ <b>${escapeHtml(who)}</b> ทำ "${escapeHtml(trow?.title || '')}" เสร็จแล้ว (${imgs.length} รูป)`);
+            else await sendToTelegram(`✅ <b>${escapeHtml(who)}</b> ทำ "${escapeHtml(trow?.title || '')}" เสร็จแล้ว`);
+            note = 'ปิดงานแล้ว ✅';
+          } else if (kind === 'a') { await toggleAdhocDone(Number(parts[3])); note = 'อัปเดตแล้ว ✅'; }
+          else if (kind === 'r') { await toggleRoutineDone(parts[3], parts.slice(4).join(':'), date); note = 'อัปเดตแล้ว ✅'; }
           kb = buildDutyPerson(await buildDuty(date), page);
-          note = 'อัปเดตแล้ว ✅';
         } else if (data.startsWith('p:')) {              // นำทาง: home / หน้าคน
           const target = data.slice(2);
           const duty = await buildDuty(date);
@@ -2294,6 +2361,24 @@ app.post('/api/telegram/duty-update', (req, res) => {
           });
         }
         await tgApi('answerCallbackQuery', { callback_query_id: cq.id, text: note });
+        return;
+      }
+      // รับรูป "หลังทำ" — เฉพาะผู้ใช้ที่กด 📸 ค้างไว้ (มี wait row)
+      if (upd.message?.photo?.length) {
+        const chatId = upd.message.chat?.id, userId = upd.message.from?.id;
+        const wait = await getPhotoWait(chatId, userId);
+        if (!wait) return; // ไม่ได้ขอแนบรูปไว้ → ปล่อยผ่าน (ไม่ยุ่งรูปทั่วไปในกลุ่ม)
+        const best = upd.message.photo[upd.message.photo.length - 1]; // ความละเอียดสูงสุด
+        const dataUrl = await downloadTelegramFile(best.file_id);
+        if (!dataUrl) return;
+        const trow = (await dbAll('SELECT done_images FROM daily_tasks WHERE id = ?', [wait.task_id]))[0];
+        let imgs = []; try { imgs = JSON.parse(trow?.done_images || '[]'); } catch { imgs = []; }
+        imgs.push(dataUrl); imgs = imgs.slice(-10);
+        const who = upd.message.from?.first_name || '';
+        await db.exec('UPDATE daily_tasks SET done_images = ?, done_by = ? WHERE id = ?', [JSON.stringify(imgs), who, wait.task_id]);
+        await tgApi('sendMessage', { chat_id: chatId, parse_mode: 'HTML',
+          text: `รับรูปแล้ว (${imgs.length}) ✅ — เสร็จแล้วกด ✅ ปิดงาน`,
+          reply_markup: { inline_keyboard: [[{ text: '✅ ปิดงาน + ส่งกลับกลุ่ม', callback_data: `t:${wait.page}:done:${wait.task_id}` }]] } });
         return;
       }
       const text = upd.message?.text || '';

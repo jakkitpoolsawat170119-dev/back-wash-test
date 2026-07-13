@@ -54,7 +54,7 @@ const LOCATIONS = ['Line 1', 'Line 2', 'Line 3', 'Line 4', 'FVH', 'บรรจ�
 
 type DutyNode = { key: string; title: string; depth: number; mono: boolean; checked: boolean; bypassed: boolean; bypassReason: string | null; handoffTo: string | null; handoffToName: string | null };
 type Received = { ownerKey: string; fromName: string; nodeKey: string; title: string; checked: boolean };
-type AdhocTask = { id: number; title: string; category: string; location: string | null; priority: string; status: string; handoffFrom: string | null; images?: string[] };
+type AdhocTask = { id: number; title: string; category: string; location: string | null; priority: string; status: string; handoffFrom: string | null; images?: string[]; doneImages?: string[] };
 
 // ย่อรูปแบบง่าย (ไม่มี auto-tiling) — ขอบยาว ≤1568 → JPEG q0.85 · คืน data URL + base64 สำหรับส่ง
 type PhotoAttach = { preview: string; data: string; mediaType: string };
@@ -1399,6 +1399,17 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
                         <img key={ii} src={src} alt="รูปงาน" onClick={() => setZoom(src)}
                           style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 8, border: '1px solid #e0e0e0', cursor: 'zoom-in', display: 'block' }} />
                       ))}
+                    </div>
+                  )}
+                  {t.doneImages && t.doneImages.length > 0 && (
+                    <div style={{ margin: '0 0 6px 29px' }}>
+                      <div style={{ fontSize: '0.66rem', fontWeight: 800, color: '#2e7d32', marginBottom: 4 }}>📸 หลังทำ ({t.doneImages.length})</div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {t.doneImages.map((src, ii) => (
+                          <img key={ii} src={src} alt="รูปหลังทำ" onClick={() => setZoom(src)}
+                            style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 8, border: '2px solid #a5d6a7', cursor: 'zoom-in', display: 'block' }} />
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
