@@ -277,7 +277,7 @@ async function initDb() {
     catch { /* มีคอลัมน์อยู่แล้ว — ข้าม */ }
   }
   // migration: คอลัมน์งานมอบหมายรายบุคคลใน daily_tasks (assignee/location/priority/handoff_from)
-  for (const col of ['assignee', 'location', 'priority', 'handoff_from']) {
+  for (const col of ['assignee', 'location', 'priority', 'handoff_from', 'images']) {
     try { await db.exec(`ALTER TABLE daily_tasks ADD COLUMN ${col} TEXT`); }
     catch { /* มีคอลัมน์อยู่แล้ว — ข้าม */ }
   }
@@ -707,6 +707,34 @@ const sendPhotoBufferToTelegram = async (buffer, mimeType, caption) => {
     console.log('[TG Photo] sent OK', res.data?.ok);
   } catch (error) {
     console.error('[TG Photo] error:', JSON.stringify(error.response?.data) || error.message);
+  }
+};
+
+// ส่งรูปหลายรูปเป็นอัลบั้มเดียว (sendMediaGroup) — caption อยู่รูปแรก · รับ data URL array
+// 0 รูป=ไม่ทำ · 1 รูป=ใช้ sendPhoto เดิม · ≥2=อัลบั้ม (cap 6) · กันพังด้วย try/catch
+const sendMediaGroupToTelegram = async (dataUrls, caption) => {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const bufs = (dataUrls || []).map(dataUrlToBuffer).filter(Boolean).slice(0, 6);
+  if (!bufs.length) { if (caption) await sendToTelegram(caption); return; }
+  if (!token || !chatId) { console.error('[TG Album] missing token/chatId'); return; }
+  if (bufs.length === 1) return sendPhotoBufferToTelegram(bufs[0].buffer, bufs[0].mimeType, caption || '');
+  try {
+    const form = new FormData();
+    form.append('chat_id', chatId);
+    const media = bufs.map((_b, i) => ({ type: 'photo', media: `attach://p${i}`,
+      ...(i === 0 && caption ? { caption: caption.slice(0, 1024), parse_mode: 'HTML' } : {}) }));
+    form.append('media', JSON.stringify(media));
+    bufs.forEach((b, i) => {
+      const ext = b.mimeType === 'image/png' ? 'png' : 'jpg';
+      form.append(`p${i}`, b.buffer, { filename: `p${i}.${ext}`, contentType: b.mimeType });
+    });
+    await axios.post(`https://api.telegram.org/bot${token}/sendMediaGroup`, form, {
+      headers: form.getHeaders(), maxBodyLength: Infinity, maxContentLength: Infinity,
+    });
+    console.log(`[TG Album] sent OK (${bufs.length} รูป)`);
+  } catch (error) {
+    console.error('[TG Album] error:', JSON.stringify(error.response?.data) || error.message);
   }
 };
 
@@ -1590,6 +1618,7 @@ async function buildDuty(date) {
     const myAdhoc = adhoc.filter(t => t.assignee === p.key).map(t => ({
       id: t.id, title: t.title, category: t.category, location: t.location || null,
       priority: t.priority || 'normal', status: t.status, handoffFrom: t.handoff_from || null,
+      images: (() => { try { return JSON.parse(t.images || '[]'); } catch { return []; } })(),
     }));
 
     const active = nodes.filter(n => !n.bypassed);
@@ -1681,15 +1710,18 @@ app.post('/api/duty/assign', async (req, res) => {
   const { date, assignTo, category, title, location, priority, operator } = req.body;
   if (!title || !assignTo) return res.status(400).json({ error: 'title/assignTo จำเป็น' });
   const d = date || todayBKK();
+  const images = (Array.isArray(req.body.images) ? req.body.images : []).filter(x => typeof x === 'string' && x.startsWith('data:')).slice(0, 6);
   try {
     await db.exec(
-      `INSERT INTO daily_tasks (task_date, line_name, category, title, status, source, assignee, location, priority, created_by, created_at)
-       VALUES (?, '', ?, ?, 'pending', 'assigned', ?, ?, ?, ?, ?)
+      `INSERT INTO daily_tasks (task_date, line_name, category, title, status, source, assignee, location, priority, images, created_by, created_at)
+       VALUES (?, '', ?, ?, 'pending', 'assigned', ?, ?, ?, ?, ?, ?)
        ON CONFLICT(task_date, line_name, category, title)
-       DO UPDATE SET assignee = excluded.assignee, location = excluded.location, priority = excluded.priority`,
-      [d, category || 'manual', title, assignTo, location || null, priority || 'normal', operator || null, nowBKK()]);
+       DO UPDATE SET assignee = excluded.assignee, location = excluded.location, priority = excluded.priority, images = excluded.images`,
+      [d, category || 'manual', title, assignTo, location || null, priority || 'normal', JSON.stringify(images), operator || null, nowBKK()]);
     if (process.env.TELEGRAM_CHAT_ID) {
-      sendToTelegram(`🆕 <b>มอบหมายงานใหม่</b> → ${escapeHtml(dutyName(assignTo))}\n${escapeHtml(title)}${location ? ` · 📍${escapeHtml(location)}` : ''}${priority === 'urgent' ? ' · 🔴 ด่วน' : ''}\nโดย ${escapeHtml(operator || 'จักรกฤษ')}`);
+      const msg = `🆕 <b>มอบหมายงานใหม่</b> → ${escapeHtml(dutyName(assignTo))}\n${escapeHtml(title)}${location ? ` · 📍${escapeHtml(location)}` : ''}${priority === 'urgent' ? ' · 🔴 ด่วน' : ''}\nโดย ${escapeHtml(operator || 'จักรกฤษ')}`;
+      if (images.length) sendMediaGroupToTelegram(images, msg); // มีรูป → ส่งเป็นอัลบั้มพร้อมข้อความ
+      else sendToTelegram(msg);
     }
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
