@@ -98,17 +98,14 @@ const parseHM = (s?: string): { h: number; hm: string } | null => {
   if (h > 23) return null;
   return { h, hm: `${String(h).padStart(2, '0')}:${m[2]}` };
 };
-interface Props { operatorName: string | null; onBackToMain: () => void; sharedImages?: File[] | null; onSharedConsumed?: () => void; }
+interface Props { operatorName: string | null; onBackToMain: () => void; }
 
-const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, sharedImages, onSharedConsumed }) => {
+const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
   const [tab, setTab] = useState<'today' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs'>('today');
   const [date, setDate] = useState(currentWorkDay());
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
-
-  // มีรูปแชร์เข้ามา → เด้งไปแท็บงานวันนี้ (ฟอร์มมอบหมายอยู่ในนั้น)
-  useEffect(() => { if (sharedImages && sharedImages.length) setTab('today'); }, [sharedImages]);
 
   // ── data loaders ───────────────────────────────────────────────
   const loadTasks = useCallback(async () => {
@@ -167,7 +164,7 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, sharedImages, 
       </div>
 
       {/* ── TAB: duty (หน้าที่รับผิดชอบ) ───────────────────────── */}
-      {tab === 'today' && <DutyBoard date={date} operatorName={operatorName} card={card} sharedImages={sharedImages} onSharedConsumed={onSharedConsumed} />}
+      {tab === 'today' && <DutyBoard date={date} operatorName={operatorName} card={card} />}
 
       {/* ── TAB: calendar ─────────────────────────────────────── */}
       {tab === 'calendar' && (
@@ -1248,8 +1245,8 @@ const ReportTab: React.FC<{ card: React.CSSProperties }> = ({ card }) => {
 };
 
 // ─── Duty board (งานตามหน้าที่รับผิดชอบรายบุคคล) ─────────────────
-const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: React.CSSProperties; sharedImages?: File[] | null; onSharedConsumed?: () => void }> =
-  ({ date, operatorName, card, sharedImages, onSharedConsumed }) => {
+const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: React.CSSProperties }> =
+  ({ date, operatorName, card }) => {
     const [duty, setDuty] = useState<Duty | null>(null);
     const [loading, setLoading] = useState(false);
     const [pick, setPick] = useState('');       // "personKey|nodeKey" ที่กำลังเลือกเหตุผลข้าม
@@ -1297,13 +1294,6 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
       for (const f of list) { try { attaches.push(await resizePhoto(f)); } catch { /* ข้ามไฟล์เสีย */ } }
       if (attaches.length) setAssignImgs(prev => [...prev, ...attaches].slice(0, 6));
     };
-    // รับรูปที่ "แชร์" เข้ามา (Web Share Target) → เติมเข้าช่องแนบของฟอร์มมอบหมายอัตโนมัติ
-    useEffect(() => {
-      if (!sharedImages || !sharedImages.length) return;
-      addAssignImgs(sharedImages);
-      onSharedConsumed?.();
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sharedImages]);
     const assign = async () => {
       if (!title.trim()) return;
       await post('/api/duty/assign', { date, assignTo, category: cat, title: title.trim(), location: loc, priority: prio, operator: operatorName, images: assignImgs.map(a => a.preview) });
