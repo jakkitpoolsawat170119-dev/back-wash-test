@@ -213,13 +213,14 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     "MLH 02", "Freshy Pineapple", "Operator Name", "Freshy Grape",
     "Freshy Punch", "Freshy blue Lemon", "Senorita Fres Mint","Senorita Strawberry",
     "Freshy Orange", "Signature Rose", "Freshy Shine Muscat Grape", "Freshy Peach",
-    "Freshy Mango", "Dilute W-Molass", "CIP",
+    "Freshy Mango", "Dilute W-Molass", "Freshy Brownsugar", "CIP",
   ];
 
   const flavorColors: Record<string, { bg: string; border: string }> = {
     "Amazon":            { bg: '#efebe9', border: '#795548' },
     "FDS":               { bg: '#eceff1', border: '#607d8b' },
     "Golden":            { bg: '#fff8e1', border: '#ffc107' },
+    "Freshy Brownsugar":{ bg: '#fff8e1', border: '#ffc107' },
     "Freshy Lychee":     { bg: '#fce4ec', border: '#e91e63' },
     "Freshy Strawberry": { bg: '#ffebee', border: '#f44336' },
     "Senorita Strawberry": { bg: '#ffebee', border: '#f44336' },
