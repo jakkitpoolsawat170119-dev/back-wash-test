@@ -1701,18 +1701,34 @@ function isoWeekStart(dateStr) {
   return addDaysStr(dateStr, diff);
 }
 
+// ดึงแถวผลิตดิบในช่วงวันทำงาน [from, to] (06:00→06:00) ด้วยการเทียบ timestamp แบบ TEXT ตรงๆ
+// (pattern เดียวกับ buildShiftCardData — ใช้ได้ทั้ง SQLite/Postgres ไม่มีฟังก์ชัน date เฉพาะ dialect)
+// แล้ว bucket เป็น work_day ด้วย JS ตามกฎเดียวกับ workDayBKK() (ก่อน 06:00 = วันก่อนหน้า)
+async function fetchProductionByWorkday(from, to) {
+  const rangeStart = `${from}T06:00:00`, rangeEnd = `${addDaysStr(to, 1)}T06:00:00`;
+  const rows = await dbAll('SELECT timestamp, line_name, flavor FROM production_logs WHERE timestamp >= ? AND timestamp < ?', [rangeStart, rangeEnd]);
+  const countMap = {};
+  for (const r of rows) {
+    const t = String(r.timestamp || '');
+    const day = t.slice(0, 10), hour = Number(t.slice(11, 13));
+    const workDay = hour < 6 ? addDaysStr(day, -1) : day;
+    const k = `${workDay}||${r.line_name}||${r.flavor}`;
+    countMap[k] = (countMap[k] || 0) + 1;
+  }
+  return Object.entries(countMap).map(([k, actual]) => {
+    const [work_day, line_name, flavor] = k.split('||');
+    return { work_day, line_name, flavor, actual };
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // buildKpiRange — KPI data layer: รวมผลิต+CIP ข้ามช่วงวันที่ใดๆ (bucket ด้วยกฎ
-// วันทำงาน 06:00→06:00 ผ่านสูตร date(datetime(timestamp,'-6 hours'))) ให้ Phase 2
-// (Telegram digest), Phase 3 (dashboard), Phase 4 (alert) เรียกใช้ร่วมกัน
+// วันทำงาน 06:00→06:00) ให้ Phase 2 (Telegram digest), Phase 3 (dashboard),
+// Phase 4 (alert) เรียกใช้ร่วมกัน
 // ═══════════════════════════════════════════════════════════════════════════
 async function buildKpiRange(from, to) {
   const [prodRows, planRows] = await Promise.all([
-    dbAll(
-      `SELECT date(datetime(timestamp,'-6 hours')) work_day, line_name, flavor, COUNT(*) actual
-       FROM production_logs
-       WHERE date(datetime(timestamp,'-6 hours')) BETWEEN ? AND ?
-       GROUP BY work_day, line_name, flavor`, [from, to]),
+    fetchProductionByWorkday(from, to),
     dbAll(
       `SELECT plan_date, line_name, flavor, SUM(planned_batches) planned
        FROM production_plans WHERE plan_date BETWEEN ? AND ? GROUP BY plan_date, line_name, flavor`, [from, to]),
@@ -2465,11 +2481,7 @@ async function detectProductionStreaks(streakDays) {
   const toDay = addDaysStr(workDayBKK(), -1); // วันทำงานล่าสุดที่ปิดแล้ว (เมื่อวาน)
   const fromDay = addDaysStr(toDay, -(streakDays - 1));
   const [prodRows, planRows] = await Promise.all([
-    dbAll(
-      `SELECT date(datetime(timestamp,'-6 hours')) work_day, line_name, flavor, COUNT(*) actual
-       FROM production_logs
-       WHERE date(datetime(timestamp,'-6 hours')) BETWEEN ? AND ?
-       GROUP BY work_day, line_name, flavor`, [fromDay, toDay]),
+    fetchProductionByWorkday(fromDay, toDay),
     dbAll(
       `SELECT plan_date, line_name, flavor, SUM(planned_batches) planned
        FROM production_plans WHERE plan_date BETWEEN ? AND ? GROUP BY plan_date, line_name, flavor`, [fromDay, toDay]),
