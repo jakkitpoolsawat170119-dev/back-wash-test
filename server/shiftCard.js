@@ -267,4 +267,128 @@ function renderShiftCardPNG(data) {
   return r.render().asPng();
 }
 
-module.exports = { renderShiftCardPNG, buildShiftCardSVG, canRenderCard };
+// ═══════════════════════════════════════════════════════════════════════════
+// buildKpiCardSVG — การ์ดสรุป KPI รายสัปดาห์/รายเดือน (ใช้ primitives ชุดเดียวกับ
+// การ์ดสิ้นกะ: header/hero โดนัท/รายการไลน์/CIP/footer แต่ไม่มี "งานค้าง"/"จุดต้องระวัง"
+// เพราะเป็นมุมมองสรุปช่วงเวลา ไม่ใช่รายกะ)
+// ═══════════════════════════════════════════════════════════════════════════
+function buildKpiCardSVG(d) {
+  const el = [];
+  let y = 0;
+  const push = (s) => el.push(s);
+  const divider = () => { push(`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`); };
+  const sectionHead = (name, iconName, count) => {
+    const iy = y + 14, ty = y + 25;
+    push(icon(iconName, PX, iy, 15, C.dim));
+    push(text(PX + 22, ty, 12.5, 700, C.dim, name));
+    if (count) {
+      const cw = measure(count, 12) + 18;
+      push(`<rect x="${W - PX - cw}" y="${y + 11}" width="${cw}" height="19" rx="9.5" fill="${C.surf2}"/>`);
+      push(text(W - PX - cw / 2, ty - 1, 12, 650, C.ink, count, 'middle'));
+    }
+    y += 40;
+  };
+
+  // 1) HEADER
+  const headH = 76;
+  push(`<rect x="0" y="0" width="${W}" height="${headH}" fill="${C.surf}"/>`);
+  push(`<rect x="0" y="0" width="${W}" height="${headH}" fill="${C.accent}" opacity="0.06"/>`);
+  push(`<rect x="0" y="0" width="4" height="${headH}" fill="${C.accent}"/>`);
+  push(icon('spark', PX, 15, 15, C.accent));
+  push(text(PX + 22, 27, 12.5, 600, C.dim, 'สรุป KPI · อัตโนมัติ'));
+  push(text(PX, 51, 20, 700, C.ink, d.periodLabel || 'สรุป KPI'));
+  push(text(PX, 69, 13, 500, C.dim, d.periodRangeText || ''));
+  y = headH;
+  divider();
+
+  // 2) HERO — โดนัทสัดส่วนยอดผลิต (ยอดรวมกลาง) + สถิติ KPI ด้านขวา
+  const heroH = 132;
+  const lines = d.lines || [];
+  const sliceColor = (i) => (i < LINE_COLORS.length ? LINE_COLORS[i] : LINE_MORE);
+  push(`<rect x="0" y="${y}" width="${W}" height="${heroH}" fill="${C.surf}"/>`);
+  const dCx = PX + 58, dCy = y + heroH / 2, dR = 46, dThick = 14;
+  const slices = lines.map((ln, i) => ({ value: Math.max(0, Number(ln.actual) || 0), color: sliceColor(i) }));
+  const sliceTotal = slices.reduce((s, x) => s + x.value, 0);
+  push(donut(dCx, dCy, dR, dThick, slices));
+  push(text(dCx, dCy + 3, 25, 760, C.ink, `${sliceTotal}`, 'middle'));
+  push(text(dCx, dCy + 20, 10.5, 500, C.dim, 'batch รวม', 'middle'));
+  const kcols = d.kpiCols || [];
+  const rx = PX + 128;
+  const primaryColor = (c) => c.color || C.ink;
+  kcols.slice(0, 3).forEach((c, i) => {
+    const ry = y + 34 + i * 34;
+    const numStr = `${c.num}${c.unit || ''}`;
+    push(text(rx, ry, 20, 760, primaryColor(c), c.num));
+    if (c.unit) push(text(rx + measure(c.num, 20) + 2, ry, 13, 600, C.dim, c.unit));
+    push(text(rx + measure(numStr, 20) + 10, ry - 1, 12.5, 500, C.dim, c.label || ''));
+  });
+  y += heroH;
+  divider();
+
+  // 3) ไลน์ที่ควรจับตา (แย่สุดก่อน — reuse layout เดียวกับการ์ดสิ้นกะ)
+  sectionHead('ไลน์ที่ควรจับตา', 'box', lines.length ? `${lines.length} รายการ` : null);
+  if (!lines.length) { push(text(PX, y + 8, 13.5, 500, C.dim, 'ไม่มีข้อมูลผลิตในช่วงนี้')); y += 22; }
+  lines.forEach((ln, idx) => {
+    if (idx > 0) { push(`<line x1="${PX}" y1="${y}" x2="${W - PX}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`); y += 1; }
+    y += 10;
+    push(`<circle cx="${PX + 5}" cy="${y + 6}" r="4.5" fill="${sliceColor(idx)}"/>`);
+    const nm = `${ln.line || ''} · `;
+    push(text(PX + 18, y + 11, 14, 620, C.ink, nm) + text(PX + 18 + measure(nm, 14), y + 11, 13.5, 500, C.dim, ln.flavor || ''));
+    const val = `${ln.actual ?? '-'}`;
+    const hasPlan = ln.plan != null;
+    const valStr = hasPlan ? `${val} / ${ln.plan}` : `${val} batch`;
+    push(text(W - PX, y + 11, hasPlan ? 14.5 : 13, hasPlan ? 700 : 600, hasPlan ? C.ink : C.dim, valStr, 'end'));
+    const sev = SEV[ln.status] || C.dim;
+    if (ln.statusLabel) {
+      const py = y + 30;
+      const pw = measure(ln.statusLabel, 11.5) + 26;
+      push(`<rect x="${PX + 18}" y="${py - 13}" width="${pw}" height="18" rx="9" fill="${sev}" opacity="0.16"/>`);
+      push(`<circle cx="${PX + 29}" cy="${py - 4}" r="3" fill="${sev}"/>`);
+      push(text(PX + 37, py, 11.5, 650, sev, ln.statusLabel));
+      if (ln.pct != null) push(text(W - PX, py, 12, 500, C.dim, `${ln.pct}%`, 'end'));
+      y = py + 8;
+    } else { y += 20; }
+  });
+  y += 8;
+  divider();
+
+  // 4) CIP / Backwash (สรุปยอดรวมช่วง)
+  sectionHead('CIP / Backwash', 'drop', null);
+  y -= 6;
+  const cipLvl = (d.cip && d.cip.level) || 'mute';
+  const cipTxt = (d.cip && d.cip.text) || 'ไม่มีข้อมูล';
+  push(`<circle cx="${PX + 4}" cy="${y + 6}" r="3.2" fill="${SEV[cipLvl] || C.dim}"/>`);
+  wrap(cipTxt, W - PX * 2 - 15, 13.5).forEach((lstr, li) => push(text(PX + 15, y + 10 + li * 17, 13.5, li === 0 ? 600 : 500, C.ink, lstr)));
+  y += 30;
+  divider();
+
+  // 5) FOOTER
+  const footH = 40;
+  push(`<rect x="0" y="${y}" width="${W}" height="${footH}" fill="${C.surf}"/>`);
+  push(icon('spark', PX, y + 12, 15, C.accent));
+  push(text(PX + 22, y + 25, 12, 500, C.dim, 'สรุปอัตโนมัติ'));
+  if (d.sentTime) push(text(W - PX, y + 25, 12, 500, C.dim, `ส่ง ${d.sentTime}`, 'end'));
+  y += footH;
+
+  const H = y;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<defs><clipPath id="rc"><rect x="0" y="0" width="${W}" height="${H}" rx="22"/></clipPath></defs>
+<g clip-path="url(#rc)">
+<rect x="0" y="0" width="${W}" height="${H}" fill="${C.bg}"/>
+${el.join('\n')}
+</g></svg>`;
+  return svg;
+}
+
+function renderKpiCardPNG(data) {
+  if (!canRenderCard()) return null;
+  const svg = buildKpiCardSVG(data);
+  const r = new Resvg(svg, {
+    fitTo: { mode: 'width', value: W * 2 },
+    font: { fontFiles: FONT_FILES, defaultFontFamily: FONT, loadSystemFonts: false },
+    background: C.bg,
+  });
+  return r.render().asPng();
+}
+
+module.exports = { renderShiftCardPNG, buildShiftCardSVG, renderKpiCardPNG, buildKpiCardSVG, canRenderCard };

@@ -8,7 +8,7 @@ const multer = require('multer');
 const axios = require('axios');
 const FormData = require('form-data');
 const Anthropic = require('@anthropic-ai/sdk');
-const { renderShiftCardPNG, canRenderCard } = require('./shiftCard');
+const { renderShiftCardPNG, renderKpiCardPNG, canRenderCard } = require('./shiftCard');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -252,6 +252,20 @@ const SCHEMA = [
       created_at TEXT,
       UNIQUE(work_day, shift)
     )`,
+  // ── KPI report เฟส 2: กันส่งสรุป KPI รายสัปดาห์/รายเดือนซ้ำ — 1 แถวต่อ (ช่วง+ประเภท) ─
+  `CREATE TABLE IF NOT EXISTS kpi_report_log (
+      id ${db.pk},
+      period_key TEXT,
+      period_type TEXT,
+      created_at TEXT,
+      UNIQUE(period_key, period_type)
+    )`,
+  // ── KPI report เฟส 4: กันส่งแจ้งเตือนซ้ำข้าม restart ภายในวันเดียวกัน (1 แถวต่อวัน) ─
+  `CREATE TABLE IF NOT EXISTS kpi_alert_log (
+      id ${db.pk},
+      alert_key TEXT UNIQUE,
+      last_sent_at TEXT
+    )`,
   // ── ค่ามาตรฐานคุณภาพ (baseline) ต่อรสชาติ — ผู้ใช้ตั้งเอง ให้เตือน Brix/pH เฉพาะที่ผิดจริง
   `CREATE TABLE IF NOT EXISTS quality_specs (
       flavor TEXT UNIQUE,
@@ -298,6 +312,13 @@ async function initDb() {
   try { await db.exec('ALTER TABLE report_config ADD COLUMN auto_at_shift_end INTEGER DEFAULT 0'); } catch { /* มีแล้ว */ }
   // migration (เฟส 1): เปิด/ปิดการวิเคราะห์สิ้นกะอัตโนมัติของผู้ช่วย AI (เปิดเป็นค่าเริ่มต้น)
   try { await db.exec('ALTER TABLE report_config ADD COLUMN shift_analysis_enabled INTEGER DEFAULT 1'); } catch { /* มีแล้ว */ }
+  // migration (KPI report เฟส 2): เปิด/ปิดสรุป KPI รายสัปดาห์/รายเดือนเข้า Telegram
+  try { await db.exec('ALTER TABLE report_config ADD COLUMN kpi_weekly_enabled INTEGER DEFAULT 0'); } catch { /* มีแล้ว */ }
+  try { await db.exec('ALTER TABLE report_config ADD COLUMN kpi_monthly_enabled INTEGER DEFAULT 0'); } catch { /* มีแล้ว */ }
+  // migration (KPI report เฟส 4): แจ้งเตือนเฉพาะจุดต้องระวัง (exception-based)
+  try { await db.exec('ALTER TABLE report_config ADD COLUMN kpi_alert_enabled INTEGER DEFAULT 0'); } catch { /* มีแล้ว */ }
+  try { await db.exec('ALTER TABLE report_config ADD COLUMN kpi_alert_streak_days INTEGER DEFAULT 2'); } catch { /* มีแล้ว */ }
+  try { await db.exec('ALTER TABLE report_config ADD COLUMN kpi_alert_cip_stale_hours INTEGER DEFAULT 30'); } catch { /* มีแล้ว */ }
   // seed รายชื่อ operator (idempotent — ไม่ลบของเดิมเพื่อไม่ให้ข้อมูลหายตอน restart)
   for (const [name, pin] of DEFAULT_OPERATORS) {
     await db.exec("INSERT INTO operators (name, pin) VALUES (?, ?) ON CONFLICT (name) DO NOTHING", [name, pin]);
@@ -1649,23 +1670,107 @@ app.get('/api/duty', async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ประวัติ %ความคืบหน้าทีมต่อวัน — reuse โดย /api/duty/history และ /api/kpi/summary (KPI data layer)
+async function buildDutyRange(from, to) {
+  const days = [];
+  const d = new Date(from + 'T00:00:00Z'), end = new Date(to + 'T00:00:00Z');
+  let guard = 0;
+  while (d <= end && guard++ < 366) {
+    const ds = d.toISOString().slice(0, 10);
+    const duty = await buildDuty(ds);
+    // นับเฉพาะวันที่มีความเคลื่อนไหว เพื่อไม่ให้ heatmap เต็มไปด้วย 0%
+    const active = duty.team.done > 0 || duty.people.some(p => p.received.length || p.adhoc.length || p.nodes.some(n => n.bypassed));
+    days.push({ date: ds, pct: duty.team.pct, done: duty.team.done, total: duty.team.total, active });
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return days;
+}
+
 // ประวัติ %ความคืบหน้าทีมต่อวัน (สำหรับ heatmap ปฏิทิน + กราฟแนวโน้ม)
 app.get('/api/duty/history', async (req, res) => {
   const to = req.query.to || todayBKK();
   const from = req.query.from || to;
+  try { res.json({ from, to, days: await buildDutyRange(from, to) }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── ต้นสัปดาห์ ISO (จันทร์ 06:00 = ต้นสัปดาห์ ให้ตรงกับกฎวันทำงาน 06:00→06:00) ─
+function isoWeekStart(dateStr) {
+  const wd = weekdayOf(dateStr); // 0=อา..6=ส
+  const diff = wd === 0 ? -6 : 1 - wd;
+  return addDaysStr(dateStr, diff);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// buildKpiRange — KPI data layer: รวมผลิต+CIP ข้ามช่วงวันที่ใดๆ (bucket ด้วยกฎ
+// วันทำงาน 06:00→06:00 ผ่านสูตร date(datetime(timestamp,'-6 hours'))) ให้ Phase 2
+// (Telegram digest), Phase 3 (dashboard), Phase 4 (alert) เรียกใช้ร่วมกัน
+// ═══════════════════════════════════════════════════════════════════════════
+async function buildKpiRange(from, to) {
+  const [prodRows, planRows] = await Promise.all([
+    dbAll(
+      `SELECT date(datetime(timestamp,'-6 hours')) work_day, line_name, flavor, COUNT(*) actual
+       FROM production_logs
+       WHERE date(datetime(timestamp,'-6 hours')) BETWEEN ? AND ?
+       GROUP BY work_day, line_name, flavor`, [from, to]),
+    dbAll(
+      `SELECT plan_date, line_name, flavor, SUM(planned_batches) planned
+       FROM production_plans WHERE plan_date BETWEEN ? AND ? GROUP BY plan_date, line_name, flavor`, [from, to]),
+  ]);
+  // CIP: ตารางเล็ก loop ต่อวันในสเกลสัปดาห์/เดือนได้สบาย (ไม่ใช่จุดคอขวด)
+  const cipDays = []; { let d = from, guard = 0;
+    while (d <= to && guard++ < 366) { cipDays.push(d); d = addDaysStr(d, 1); } }
+  const cipResults = await Promise.all(cipDays.map(async (day) => ({ day, ...(await cipRoundsForDate(day)) })));
+
+  const total = prodRows.reduce((s, r) => s + Number(r.actual), 0);
+  const planned = planRows.reduce((s, r) => s + Number(r.planned || 0), 0);
+
+  const byDayMap = {};
+  const dayBucket = (key) => byDayMap[key] || (byDayMap[key] = { workDay: key, actual: 0, planned: 0 });
+  for (const r of prodRows) dayBucket(r.work_day).actual += Number(r.actual);
+  for (const r of planRows) dayBucket(r.plan_date).planned += Number(r.planned || 0);
+  const byDay = Object.values(byDayMap).sort((a, b) => a.workDay.localeCompare(b.workDay));
+
+  const byLineMap = {}, byFlavorMap = {};
+  for (const r of prodRows) {
+    byLineMap[r.line_name] = (byLineMap[r.line_name] || 0) + Number(r.actual);
+    byFlavorMap[r.flavor] = (byFlavorMap[r.flavor] || 0) + Number(r.actual);
+  }
+  const byLine = Object.entries(byLineMap).map(([line_name, actual]) => ({ line_name, actual })).sort((a, b) => b.actual - a.actual);
+  const byFlavor = Object.entries(byFlavorMap).map(([flavor, actual]) => ({ flavor, actual })).sort((a, b) => b.actual - a.actual);
+
+  // รวมยอดจริง/แผนต่อ (ไลน์+รสชาติ) ตลอดทั้งช่วง — ใช้หา "ไลน์ที่ควรจับตา" ในการ์ด KPI/แจ้งเตือน
+  const lfMap = {};
+  const lfBucket = (line, flavor) => { const k = `${line}||${flavor}`; return lfMap[k] || (lfMap[k] = { line_name: line, flavor, actual: 0, planned: 0 }); };
+  for (const r of prodRows) lfBucket(r.line_name, r.flavor).actual += Number(r.actual);
+  for (const r of planRows) lfBucket(r.line_name, r.flavor).planned += Number(r.planned || 0);
+  const byLineFlavor = Object.values(lfMap).sort((a, b) => a.line_name.localeCompare(b.line_name) || a.flavor.localeCompare(b.flavor));
+
+  const cipByLine = { 'Line 1': 0, 'Line 2': 0, 'Line 3': 0 };
+  const cipByDay = [];
+  let totalRounds = 0;
+  for (const d of cipResults) {
+    const dayCip = Object.values(d.cip).reduce((a, b) => a + Number(b || 0), 0)
+      + Object.values(d.backwash || {}).reduce((a, b) => a + Number(b || 0), 0);
+    if (dayCip > 0) cipByDay.push({ workDay: d.day, rounds: dayCip });
+    totalRounds += dayCip;
+    for (const L of ['Line 1', 'Line 2', 'Line 3']) cipByLine[L] += Number(d.cip[L] || 0) + Number(d.backwash?.[L] || 0);
+  }
+
+  return {
+    from, to,
+    production: { total, planned, pct: planned > 0 ? Math.round((total / planned) * 100) : null, byDay, byLine, byFlavor, byLineFlavor },
+    cip: { totalRounds, byLine: cipByLine, byDay: cipByDay },
+  };
+}
+
+// GET /api/kpi/summary?from=&to= — endpoint กลางของ KPI data layer (production+CIP+duty ข้ามช่วงวันที่)
+app.get('/api/kpi/summary', async (req, res) => {
+  const to = req.query.to || workDayBKK();
+  const from = req.query.from || to;
   try {
-    const days = [];
-    const d = new Date(from + 'T00:00:00Z'), end = new Date(to + 'T00:00:00Z');
-    let guard = 0;
-    while (d <= end && guard++ < 62) {
-      const ds = d.toISOString().slice(0, 10);
-      const duty = await buildDuty(ds);
-      // นับเฉพาะวันที่มีความเคลื่อนไหว เพื่อไม่ให้ heatmap เต็มไปด้วย 0%
-      const active = duty.team.done > 0 || duty.people.some(p => p.received.length || p.adhoc.length || p.nodes.some(n => n.bypassed));
-      days.push({ date: ds, pct: duty.team.pct, done: duty.team.done, total: duty.team.total, active });
-      d.setUTCDate(d.getUTCDate() + 1);
-    }
-    res.json({ from, to, days });
+    const [kpi, duty] = await Promise.all([buildKpiRange(from, to), buildDutyRange(from, to)]);
+    res.json({ ...kpi, duty });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1793,6 +1898,11 @@ async function getReportConfig() {
     onlyIfPending: !!r.only_if_pending,
     autoAtShiftEnd: !!r.auto_at_shift_end,
     shiftAnalysisEnabled: r.shift_analysis_enabled == null ? true : !!r.shift_analysis_enabled,
+    kpiWeeklyEnabled: !!r.kpi_weekly_enabled,
+    kpiMonthlyEnabled: !!r.kpi_monthly_enabled,
+    kpiAlertEnabled: !!r.kpi_alert_enabled,
+    kpiAlertStreakDays: r.kpi_alert_streak_days == null ? 2 : Number(r.kpi_alert_streak_days),
+    kpiAlertCipStaleHours: r.kpi_alert_cip_stale_hours == null ? 30 : Number(r.kpi_alert_cip_stale_hours),
   };
 }
 app.get('/api/report/config', async (req, res) => {
@@ -1803,12 +1913,17 @@ app.get('/api/report/config', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.post('/api/report/config', async (req, res) => {
-  const { autoEnabled, times, weekdays, onlyIfPending, autoAtShiftEnd, shiftAnalysisEnabled } = req.body;
+  const { autoEnabled, times, weekdays, onlyIfPending, autoAtShiftEnd, shiftAnalysisEnabled, kpiWeeklyEnabled, kpiMonthlyEnabled, kpiAlertEnabled, kpiAlertStreakDays, kpiAlertCipStaleHours } = req.body;
   try {
     const cfg = await getReportConfig();
     const sae = shiftAnalysisEnabled == null ? cfg.shiftAnalysisEnabled : shiftAnalysisEnabled;
-    await db.exec('UPDATE report_config SET auto_enabled = ?, times = ?, weekdays = ?, only_if_pending = ?, auto_at_shift_end = ?, shift_analysis_enabled = ?, updated_at = ? WHERE id = ?',
-      [autoEnabled ? 1 : 0, JSON.stringify(times || []), JSON.stringify(weekdays || []), onlyIfPending ? 1 : 0, autoAtShiftEnd ? 1 : 0, sae ? 1 : 0, nowBKK(), cfg.id]);
+    const kw = kpiWeeklyEnabled == null ? cfg.kpiWeeklyEnabled : kpiWeeklyEnabled;
+    const km = kpiMonthlyEnabled == null ? cfg.kpiMonthlyEnabled : kpiMonthlyEnabled;
+    const ka = kpiAlertEnabled == null ? cfg.kpiAlertEnabled : kpiAlertEnabled;
+    const ksd = kpiAlertStreakDays == null ? cfg.kpiAlertStreakDays : Math.max(1, Number(kpiAlertStreakDays) || 2);
+    const kch = kpiAlertCipStaleHours == null ? cfg.kpiAlertCipStaleHours : Math.max(1, Number(kpiAlertCipStaleHours) || 30);
+    await db.exec('UPDATE report_config SET auto_enabled = ?, times = ?, weekdays = ?, only_if_pending = ?, auto_at_shift_end = ?, shift_analysis_enabled = ?, kpi_weekly_enabled = ?, kpi_monthly_enabled = ?, kpi_alert_enabled = ?, kpi_alert_streak_days = ?, kpi_alert_cip_stale_hours = ?, updated_at = ? WHERE id = ?',
+      [autoEnabled ? 1 : 0, JSON.stringify(times || []), JSON.stringify(weekdays || []), onlyIfPending ? 1 : 0, autoAtShiftEnd ? 1 : 0, sae ? 1 : 0, kw ? 1 : 0, km ? 1 : 0, ka ? 1 : 0, ksd, kch, nowBKK(), cfg.id]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1868,6 +1983,8 @@ async function reportTick() {
 app.post('/api/report/tick', async (req, res) => {
   await reportTick();
   await shiftAnalysisTick();
+  await kpiReportTick();
+  await kpiAlertTick();
   res.json({ ok: true, at: new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }) });
 });
 
@@ -2174,6 +2291,296 @@ app.get('/api/assistant/shift-analysis/preview', async (req, res) => {
     if (!analysis.png) return res.status(200).type('text/plain; charset=utf-8').send(analysis.text.replace(/<[^>]+>/g, ''));
     res.type('image/png').send(analysis.png);
   } catch (err) { res.status(500).type('text/plain; charset=utf-8').send('error: ' + err.message); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── KPI report เฟส 2: สรุป KPI รายสัปดาห์/รายเดือน → Telegram (ใช้ KPI data layer
+// จาก buildKpiRange/buildDutyRange เฟส 1) ────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+async function buildKpiCardData(from, to, periodLabel, periodRangeText) {
+  const [kpi, dutyDays] = await Promise.all([buildKpiRange(from, to), buildDutyRange(from, to)]);
+  if (kpi.production.total === 0 && kpi.cip.totalRounds === 0) return null; // ไม่มีข้อมูลเลย → SKIP
+
+  const activeDuty = dutyDays.filter((d) => d.active);
+  const dutyDone = activeDuty.reduce((s, d) => s + d.done, 0);
+  const dutyTotalN = activeDuty.reduce((s, d) => s + d.total, 0);
+  const dutyPct = dutyTotalN > 0 ? Math.round((dutyDone / dutyTotalN) * 100) : null;
+
+  const pct = kpi.production.pct;
+  const colorFor = (p) => (p == null ? '#93a2ab' : (p >= 95 ? '#39b57e' : (p >= 70 ? '#eea23a' : '#ec5f5c')));
+
+  // ไลน์ที่ควรจับตา — เรียงแย่สุดก่อน (ตกแผนมากสุดขึ้นบน) จำกัด 6 รายการกันการ์ดยาวเกิน
+  const lines = kpi.production.byLineFlavor
+    .filter((l) => l.planned > 0 || l.actual > 0)
+    .map((l) => {
+      let status = 'mute', label = null, p = null;
+      if (!l.planned) { status = 'mute'; label = 'นอกแผน'; }
+      else {
+        p = Math.round((l.actual / l.planned) * 100);
+        if (l.actual >= l.planned) { status = 'good'; label = l.actual > l.planned ? 'เกินแผน' : 'ครบแผน'; }
+        else { status = p >= 50 ? 'warn' : 'crit'; label = 'ตกแผน'; }
+      }
+      return { line: l.line_name, flavor: l.flavor, actual: l.actual, plan: l.planned || null, pct: p, status, statusLabel: label };
+    })
+    .sort((a, b) => (a.pct ?? 999) - (b.pct ?? 999))
+    .slice(0, 6);
+
+  const cipParts = [];
+  for (const L of ['Line 1', 'Line 2', 'Line 3']) if (kpi.cip.byLine[L]) cipParts.push(`${L}: ${kpi.cip.byLine[L]}`);
+
+  const nowHM = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(11, 16);
+  return {
+    periodLabel, periodRangeText,
+    kpiCols: [
+      { num: `${kpi.production.total}`, unit: ` / ${kpi.production.planned}`, label: 'ผลิตจริง / แผน (batch)', color: '#eaf0f3' },
+      { num: pct != null ? `${pct}%` : '–', label: 'ทำได้ตามแผน', color: colorFor(pct) },
+      { num: dutyPct != null ? `${dutyPct}%` : '–', label: 'งานตามหน้าที่เฉลี่ย', color: colorFor(dutyPct) },
+    ],
+    lines,
+    cip: { text: cipParts.length ? cipParts.join(' · ') + ' รอบ' : 'ไม่มีรอบบันทึกช่วงนี้', level: kpi.cip.totalRounds ? 'mute' : 'warn' },
+    sentTime: nowHM,
+  };
+}
+
+function kpiDataToText(d) {
+  const L = [];
+  L.push(`📊 <b>${escapeHtml(d.periodLabel)}</b> · ${escapeHtml(d.periodRangeText)}`);
+  L.push('');
+  for (const c of d.kpiCols) L.push(`${escapeHtml(c.label)}: <b>${escapeHtml(c.num)}${escapeHtml(c.unit || '')}</b>`);
+  L.push('');
+  L.push('📦 <b>ไลน์ที่ควรจับตา</b>');
+  if (!d.lines.length) L.push('• ไม่มีข้อมูลผลิตในช่วงนี้');
+  for (const ln of d.lines) {
+    const val = ln.plan != null ? `${ln.actual}/${ln.plan}` : `${ln.actual} batch`;
+    L.push(`• ${escapeHtml(ln.line)} ${escapeHtml(ln.flavor)}: ${val}${ln.statusLabel ? ` — ${escapeHtml(ln.statusLabel)}` : ''}${ln.pct != null ? ` (${ln.pct}%)` : ''}`);
+  }
+  L.push('');
+  L.push(`🫧 CIP/Backwash: ${escapeHtml(d.cip.text)}`);
+  return L.join('\n');
+}
+
+// รวมทุกอย่าง: สร้างข้อมูล → เรนเดอร์รูป (มี fallback ข้อความ) — คืน { data, png, caption, text } หรือ null
+async function runKpiAnalysis(from, to, periodLabel, periodRangeText) {
+  const data = await buildKpiCardData(from, to, periodLabel, periodRangeText);
+  if (!data) return null;
+  const caption = `📊 ${data.periodLabel} · ${data.periodRangeText}`;
+  let png = null;
+  try { png = renderKpiCardPNG(data); } catch (e) { console.error('[kpi-report] render error', e.message); }
+  return { data, png, caption, text: kpiDataToText(data) };
+}
+
+// กันส่งซ้ำข้าม restart ด้วย kpi_report_log (UNIQUE period_key+period_type) — pattern เดียวกับ shift_analysis_log
+const _kpiReportRunning = new Set();
+async function sendKpiPeriodOnce(periodKey, periodType, from, to, periodLabel, periodRangeText) {
+  const memKey = `${periodType} ${periodKey}`;
+  if (_kpiReportRunning.has(memKey)) return;
+  const existing = await dbAll('SELECT id FROM kpi_report_log WHERE period_key = ? AND period_type = ?', [periodKey, periodType]);
+  if (existing.length) return;
+  _kpiReportRunning.add(memKey);
+  await db.exec('INSERT INTO kpi_report_log (period_key, period_type, created_at) VALUES (?, ?, ?)', [periodKey, periodType, nowBKK()]);
+  try {
+    const analysis = await runKpiAnalysis(from, to, periodLabel, periodRangeText);
+    if (analysis) {
+      if (analysis.png) await sendPhotoBufferToTelegram(analysis.png, 'image/png', analysis.caption);
+      else await sendToTelegram(analysis.text);
+      console.log(`[kpi-report] sent ${memKey} (${analysis.png ? 'image' : 'text'})`);
+    } else {
+      console.log(`[kpi-report] skipped ${memKey} (no data)`);
+    }
+  } catch (e) {
+    console.error('[kpi-report] run error', e.message);
+    // ปลดล็อกให้ลองใหม่รอบถัดไปถ้าพัง (ยังไม่ส่งสำเร็จจริง)
+    await db.exec('DELETE FROM kpi_report_log WHERE period_key = ? AND period_type = ?', [periodKey, periodType]);
+  } finally {
+    _kpiReportRunning.delete(memKey);
+  }
+}
+
+// ตัวจับเวลา: เกาะจังหวะเดียวกับ reportTick/shiftAnalysisTick (ทุก 60s) — ยิงตอน 06:05
+// (เว้นระยะจากรายงานสิ้นกะ 06:00 กันชนกัน) เฉพาะวันจันทร์ (รายสัปดาห์) หรือวันที่ 1 (รายเดือน)
+async function kpiReportTick() {
+  try {
+    const cfg = await getReportConfig();
+    if (!cfg.kpiWeeklyEnabled && !cfg.kpiMonthlyEnabled) return;
+    const bkk = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' });
+    const workDay = bkk.slice(0, 10), hm = bkk.slice(11, 16);
+    if (hm !== '06:05') return;
+
+    if (cfg.kpiWeeklyEnabled && weekdayOf(workDay) === 1) {
+      const weekEnd = addDaysStr(isoWeekStart(workDay), -1); // อาทิตย์ของสัปดาห์ก่อน
+      const weekStartPrev = addDaysStr(weekEnd, -6);
+      await sendKpiPeriodOnce(weekStartPrev, 'weekly', weekStartPrev, weekEnd,
+        'สรุป KPI รายสัปดาห์', `${formatThaiDate(weekStartPrev)} – ${formatThaiDate(weekEnd)}`);
+    }
+    if (cfg.kpiMonthlyEnabled && dayOfMonth(workDay) === 1) {
+      const prevMonthEnd = addDaysStr(workDay, -1); // วันสุดท้ายของเดือนก่อน
+      const prevMonthStart = prevMonthEnd.slice(0, 8) + '01';
+      await sendKpiPeriodOnce(prevMonthStart.slice(0, 7), 'monthly', prevMonthStart, prevMonthEnd,
+        'สรุป KPI รายเดือน', `${formatThaiDate(prevMonthStart)} – ${formatThaiDate(prevMonthEnd)}`);
+    }
+  } catch (e) { console.error('[kpi-report] tick error', e.message); }
+}
+
+// เรียกส่งสรุป KPI เอง (ทดสอบ/ปุ่ม "ส่งเดี๋ยวนี้") — period = 'weekly' (สัปดาห์นี้จนถึงวันนี้) | 'monthly' (เดือนนี้จนถึงวันนี้)
+app.post('/api/kpi/report/run', async (req, res) => {
+  const period = req.body.period || req.query.period || 'weekly';
+  const today = workDayBKK();
+  const from = period === 'monthly' ? `${today.slice(0, 7)}-01` : isoWeekStart(today);
+  const label = period === 'monthly' ? 'สรุป KPI รายเดือน (จนถึงวันนี้)' : 'สรุป KPI รายสัปดาห์ (จนถึงวันนี้)';
+  const rangeText = `${formatThaiDate(from)} – ${formatThaiDate(today)}`;
+  try {
+    const analysis = await runKpiAnalysis(from, today, label, rangeText);
+    if (analysis) {
+      if (analysis.png) await sendPhotoBufferToTelegram(analysis.png, 'image/png', `${analysis.caption} (manual)`);
+      else await sendToTelegram(`${analysis.text}\n\n<i>— ส่งด้วยตนเอง</i>`);
+    }
+    res.json({ ok: true, sent: !!analysis, from, to: today, data: analysis?.data || null, text: analysis?.text || '(SKIP — ไม่มีข้อมูล)' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// พรีวิวการ์ด KPI เป็นรูป PNG ในเบราว์เซอร์ (ไม่ส่ง Telegram)
+app.get('/api/kpi/report/preview', async (req, res) => {
+  const period = req.query.period || 'weekly';
+  const today = workDayBKK();
+  const from = period === 'monthly' ? `${today.slice(0, 7)}-01` : isoWeekStart(today);
+  const label = period === 'monthly' ? 'สรุป KPI รายเดือน (จนถึงวันนี้)' : 'สรุป KPI รายสัปดาห์ (จนถึงวันนี้)';
+  const rangeText = `${formatThaiDate(from)} – ${formatThaiDate(today)}`;
+  try {
+    const analysis = await runKpiAnalysis(from, today, label, rangeText);
+    if (!analysis) return res.status(404).type('text/plain; charset=utf-8').send('SKIP — ไม่มีข้อมูลของช่วงนี้');
+    if (!analysis.png) return res.status(200).type('text/plain; charset=utf-8').send(analysis.text.replace(/<[^>]+>/g, ''));
+    res.type('image/png').send(analysis.png);
+  } catch (err) { res.status(500).type('text/plain; charset=utf-8').send('error: ' + err.message); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── KPI report เฟส 4: แจ้งเตือนเฉพาะจุดต้องระวัง (exception-based) ───────────
+// ไม่พึ่ง daily_tasks.due_time (ยังไม่มีจุดกรอกค่าจริงในระบบ) — ใช้สัญญาณที่มี
+// อยู่แล้วในสคีมาแทน: (1) ผลิตต่ำกว่าแผนติดต่อกัน N วัน (2) CIP ค้างนานผิดปกติ
+// (3) งานค้างข้ามวันทำงาน
+// ═══════════════════════════════════════════════════════════════════════════
+
+// (1) หาไลน์+รสชาติที่ผลิตต่ำกว่าแผน "ทุกวัน" ในช่วง N วันทำงานล่าสุดที่ปิดแล้ว (ไม่รวมวันนี้)
+async function detectProductionStreaks(streakDays) {
+  const toDay = addDaysStr(workDayBKK(), -1); // วันทำงานล่าสุดที่ปิดแล้ว (เมื่อวาน)
+  const fromDay = addDaysStr(toDay, -(streakDays - 1));
+  const [prodRows, planRows] = await Promise.all([
+    dbAll(
+      `SELECT date(datetime(timestamp,'-6 hours')) work_day, line_name, flavor, COUNT(*) actual
+       FROM production_logs
+       WHERE date(datetime(timestamp,'-6 hours')) BETWEEN ? AND ?
+       GROUP BY work_day, line_name, flavor`, [fromDay, toDay]),
+    dbAll(
+      `SELECT plan_date, line_name, flavor, SUM(planned_batches) planned
+       FROM production_plans WHERE plan_date BETWEEN ? AND ? GROUP BY plan_date, line_name, flavor`, [fromDay, toDay]),
+  ]);
+  const key = (l, f) => `${l}||${f}`;
+  const byDayLF = {};
+  for (const r of prodRows) { (byDayLF[r.work_day] || (byDayLF[r.work_day] = {}))[key(r.line_name, r.flavor)] = { actual: Number(r.actual), planned: 0 }; }
+  for (const r of planRows) {
+    const day = byDayLF[r.plan_date] || (byDayLF[r.plan_date] = {});
+    const k = key(r.line_name, r.flavor);
+    if (!day[k]) day[k] = { actual: 0, planned: 0 };
+    day[k].planned = Number(r.planned || 0);
+  }
+  const allKeys = new Set();
+  Object.values(byDayLF).forEach((day) => Object.keys(day).forEach((k) => allKeys.add(k)));
+  const days = []; { let d = fromDay; while (d <= toDay) { days.push(d); d = addDaysStr(d, 1); } }
+  const flagged = [];
+  for (const k of allKeys) {
+    const shortfallEveryDay = days.every((day) => {
+      const e = byDayLF[day]?.[k];
+      return e && e.planned > 0 && e.actual < e.planned;
+    });
+    if (shortfallEveryDay) {
+      const [line, flavor] = k.split('||');
+      const last = byDayLF[toDay][k];
+      flagged.push({ line, flavor, days: streakDays, lastActual: last.actual, lastPlanned: last.planned });
+    }
+  }
+  return flagged;
+}
+
+// (2) หาไลน์ CIP ที่ไม่มีบันทึกมานานเกิน threshold ชม. (ข้ามถ้าไม่เคยมีบันทึกเลย — ไม่มี baseline เทียบ)
+async function detectCipStale(hoursThreshold) {
+  const [l1, l23] = await Promise.all([
+    dbAll(`SELECT MAX(created_at) mx FROM cip_line1_sessions`, []),
+    dbAll(`SELECT line, MAX(created_at) mx FROM cip_line2_sessions GROUP BY line`, []),
+  ]);
+  const nowMs = Date.parse(nowBKK());
+  const flagged = [];
+  const check = (line, mx) => {
+    if (!mx) return;
+    const ageH = (nowMs - Date.parse(mx)) / 36e5;
+    if (ageH > hoursThreshold) flagged.push({ line, hours: Math.round(ageH) });
+  };
+  check('Line 1', l1[0]?.mx);
+  for (const r of l23) check((r.line || 'Line 2') === 'Line 2' ? 'Line 2' : 'Line 3', r.mx);
+  return flagged;
+}
+
+// (3) งานที่ยังไม่เสร็จจากวันทำงานก่อนหน้า (ไม่ใช่ของวันนี้) — ใช้ column ที่มีอยู่แล้วแทน due_time
+async function detectTaskBacklog() {
+  const today = workDayBKK();
+  return dbAll(
+    `SELECT task_date, line_name, category, title FROM daily_tasks
+     WHERE status != 'done' AND task_date < ? ORDER BY task_date`, [today]);
+}
+
+// ตัวจับเวลา: เกาะจังหวะเดียวกับ tick อื่นๆ — ยิงวันละครั้งตอน 06:10 (ต่อจาก kpiReportTick 06:05)
+const _kpiAlertRunning = new Set();
+async function kpiAlertTick() {
+  try {
+    const cfg = await getReportConfig();
+    if (!cfg.kpiAlertEnabled) return;
+    const bkk = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' });
+    const today = bkk.slice(0, 10), hm = bkk.slice(11, 16);
+    if (hm !== '06:10') return;
+    const alertKey = `daily-${today}`;
+    if (_kpiAlertRunning.has(alertKey)) return;
+    const existing = await dbAll('SELECT id FROM kpi_alert_log WHERE alert_key = ?', [alertKey]);
+    if (existing.length) return;
+    _kpiAlertRunning.add(alertKey);
+    await db.exec('INSERT INTO kpi_alert_log (alert_key, last_sent_at) VALUES (?, ?)', [alertKey, nowBKK()]);
+    try {
+      const [streaks, cipStale, backlog] = await Promise.all([
+        detectProductionStreaks(cfg.kpiAlertStreakDays),
+        detectCipStale(cfg.kpiAlertCipStaleHours),
+        detectTaskBacklog(),
+      ]);
+      if (!streaks.length && !cipStale.length && !backlog.length) {
+        console.log('[kpi-alert] tick — no issues, skip'); return;
+      }
+      const L = ['⚠️ <b>KPI Alert — พบจุดต้องระวัง</b>', ''];
+      for (const s of streaks) L.push(`🔴 ${escapeHtml(s.line)} ${escapeHtml(s.flavor)}: ผลิตต่ำกว่าแผนติดต่อกัน ${s.days} วัน (ล่าสุด ${s.lastActual}/${s.lastPlanned})`);
+      for (const c of cipStale) L.push(`🟡 CIP ${escapeHtml(c.line)}: ไม่มีบันทึกมา ${c.hours} ชม.`);
+      if (backlog.length) {
+        const grouped = {};
+        for (const t of backlog) (grouped[t.task_date] || (grouped[t.task_date] = [])).push(t);
+        for (const [day, items] of Object.entries(grouped)) L.push(`🟡 งานค้างจากวันที่ ${escapeHtml(day)}: ${items.length} รายการ`);
+      }
+      await sendToTelegram(L.join('\n'));
+      console.log(`[kpi-alert] sent ${alertKey} (streaks=${streaks.length} cip=${cipStale.length} backlog=${backlog.length})`);
+    } catch (e) {
+      console.error('[kpi-alert] run error', e.message);
+      await db.exec('DELETE FROM kpi_alert_log WHERE alert_key = ?', [alertKey]);
+    } finally {
+      _kpiAlertRunning.delete(alertKey);
+    }
+  } catch (e) { console.error('[kpi-alert] tick error', e.message); }
+}
+
+// เรียกตรวจ KPI alert เอง (ทดสอบ) — ไม่รอเวลา 06:10 และไม่กันซ้ำด้วย kpi_alert_log
+app.post('/api/kpi/alert/run', async (req, res) => {
+  try {
+    const cfg = await getReportConfig();
+    const [streaks, cipStale, backlog] = await Promise.all([
+      detectProductionStreaks(cfg.kpiAlertStreakDays),
+      detectCipStale(cfg.kpiAlertCipStaleHours),
+      detectTaskBacklog(),
+    ]);
+    res.json({ ok: true, streaks, cipStale, backlogCount: backlog.length, backlog });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── ค่ามาตรฐานคุณภาพ (baseline Brix/pH ต่อรส) — ผู้ใช้ตั้งเอง ────────────────
@@ -3032,7 +3439,7 @@ async function runAssistantConversation(opts) {
   let reply = '';
   for (let turn = 0; turn < maxTurns; turn++) {
     const resp = await client.messages.create({
-      model: 'claude-opus-4-8', max_tokens: 4096,
+      model: 'claude-haiku-4-5-20251001', max_tokens: 4096,
       // prompt caching: จุด cache ท้าย system → tools+system (ส่วนหัวที่ซ้ำทุกครั้ง) อ่านจาก cache เหลือ ~0.1x
       // หมายเหตุ: system มีวันที่+ความจำถาวร → cache รีเซ็ตเมื่อเปลี่ยน ซึ่งไม่บ่อย
       system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
@@ -3203,7 +3610,7 @@ if (require.main === module) {
         // เปิดอีกครั้งได้เมื่อ n8n ฝั่งนั้น deactivate ไปแล้วจริงๆ หรือออกแบบให้ทำงานร่วมกันแล้ว
         // registerTelegramWebhook();
         // ตัวจับเวลาส่งรายงานอัตโนมัติ + วิเคราะห์สิ้นกะ (เฟส 1) — เช็กทุกนาที (ต้องให้เซิร์ฟเวอร์ตื่นอยู่; มี Keep-Warm ping ช่วย)
-        setInterval(() => { reportTick(); shiftAnalysisTick(); }, 60 * 1000);
+        setInterval(() => { reportTick(); shiftAnalysisTick(); kpiReportTick(); kpiAlertTick(); }, 60 * 1000);
         console.log('[report] scheduler started (every 60s) + shift-analysis');
       });
     })

@@ -845,6 +845,13 @@ const Ring: React.FC<{ pct: number; color: string; size: number; stroke: number;
   );
 };
 
+type KpiSummary = {
+  from: string; to: string;
+  production: { total: number; planned: number; pct: number | null; byDay: { workDay: string; actual: number; planned: number }[]; byLineFlavor: { line_name: string; flavor: string; actual: number; planned: number }[] };
+  cip: { totalRounds: number; byLine: Record<string, number> };
+};
+const kpiPctColor = (p: number | null) => (p == null ? '#9aa0a6' : p >= 95 ? '#2e7d32' : p >= 70 ? '#e65100' : '#c62828');
+
 const CalendarTab: React.FC<{ card: React.CSSProperties; onOpenDate: (date: string) => void }> = ({ card, onOpenDate }) => {
   const nowD = new Date(todayBKK() + 'T00:00:00');
   const [view, setView] = useState({ y: nowD.getFullYear(), m: nowD.getMonth() });
@@ -852,6 +859,9 @@ const CalendarTab: React.FC<{ card: React.CSSProperties; onOpenDate: (date: stri
   const [selected, setSelected] = useState(todayBKK());
   const [duty, setDuty] = useState<Duty | null>(null);
   const [loading, setLoading] = useState(false);
+  const [kpiRange, setKpiRange] = useState<'7' | '30'>('7');
+  const [kpiSummary, setKpiSummary] = useState<KpiSummary | null>(null);
+  const [kpiLoading, setKpiLoading] = useState(false);
   const today = todayBKK();
   const daysInMonth = new Date(view.y, view.m + 1, 0).getDate();
   const startWeekday = new Date(view.y, view.m, 1).getDay();
@@ -872,6 +882,30 @@ const CalendarTab: React.FC<{ card: React.CSSProperties; onOpenDate: (date: stri
   }, []);
   useEffect(() => { loadHist(); }, [loadHist]);
   useEffect(() => { loadDay(selected); }, [selected, loadDay]);
+
+  const loadKpiSummary = useCallback(async () => {
+    setKpiLoading(true);
+    const n = kpiRange === '7' ? 7 : 30;
+    const toD = new Date(today + 'T00:00:00'); const fromD = new Date(toD); fromD.setDate(fromD.getDate() - (n - 1));
+    const from = fromD.toISOString().slice(0, 10);
+    try { const r = await fetch(`${apiUrl}/api/kpi/summary?from=${from}&to=${today}`); setKpiSummary(await r.json()); }
+    catch { setKpiSummary(null); } finally { setKpiLoading(false); }
+  }, [kpiRange, today]);
+  useEffect(() => { loadKpiSummary(); }, [loadKpiSummary]);
+
+  const kpiTrendDays = kpiSummary ? (() => {
+    const map: Record<string, { actual: number; planned: number }> = {};
+    for (const d of kpiSummary.production.byDay) map[d.workDay] = d;
+    const n = kpiRange === '7' ? 7 : 30;
+    const toD = new Date(kpiSummary.to + 'T00:00:00');
+    return Array.from({ length: n }, (_, i) => {
+      const d = new Date(toD); d.setDate(d.getDate() - (n - 1 - i));
+      const ds = d.toISOString().slice(0, 10);
+      const e = map[ds];
+      const pct = e && e.planned > 0 ? Math.round((e.actual / e.planned) * 100) : (e && e.actual > 0 ? 100 : 0);
+      return { ds, actual: e?.actual || 0, planned: e?.planned || 0, pct };
+    });
+  })() : [];
 
   const shiftMonth = (delta: number) => setView(v => { const d = new Date(v.y, v.m + delta, 1); return { y: d.getFullYear(), m: d.getMonth() }; });
   const cells: (number | null)[] = [...Array(startWeekday).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
@@ -1052,12 +1086,107 @@ const CalendarTab: React.FC<{ card: React.CSSProperties; onOpenDate: (date: stri
           </div>
         )}
       </>)}
+
+      {/* KPI การผลิต — เจาะลึกข้ามช่วงวันที่ (Phase 3) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '18px 2px 10px' }}>
+        <span style={{ width: 4, height: 15, borderRadius: 3, background: '#ff6b00' }} />
+        <h3 style={{ fontSize: '.9rem', fontWeight: 800, margin: 0 }}>KPI การผลิต</h3>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+          {(['7', '30'] as const).map(r => (
+            <button key={r} onClick={() => setKpiRange(r)} style={{ border: '2px solid', borderColor: kpiRange === r ? 'transparent' : '#e0e0e0', background: kpiRange === r ? '#ff6b00' : '#fff', color: kpiRange === r ? '#fff' : '#666', borderRadius: 16, padding: '5px 12px', fontSize: '.72rem', fontWeight: 700, cursor: 'pointer' }}>{r} วัน</button>
+          ))}
+        </div>
+      </div>
+
+      {kpiLoading && <div style={{ textAlign: 'center', color: '#bbb', padding: 20 }}>กำลังโหลด…</div>}
+      {!kpiLoading && kpiSummary && (<>
+        <div style={{ ...card }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <Ring pct={kpiSummary.production.pct ?? 0} color={kpiPctColor(kpiSummary.production.pct)} size={92} stroke={9}>
+              <div style={{ fontSize: '1.2rem', fontWeight: 800, lineHeight: 1 }} className="tnum">{kpiSummary.production.pct != null ? `${kpiSummary.production.pct}%` : '–'}</div>
+              <div style={{ fontSize: '.56rem', color: '#9aa0a6', fontWeight: 700 }}>ตามแผน</div>
+            </Ring>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: '.95rem' }}>ผลิตจริง {kpiSummary.production.total} / แผน {kpiSummary.production.planned} batch</div>
+              <div style={{ fontSize: '.76rem', color: '#546e7a', marginTop: 2 }}>CIP/Backwash รวม {kpiSummary.cip.totalRounds} รอบ</div>
+            </div>
+          </div>
+        </div>
+
+        {eyebrow('แนวโน้มผลิตตามแผน', `${kpiRange} วันล่าสุด`)}
+        <div style={{ ...card }}>
+          <svg width="100%" viewBox="0 0 320 110" preserveAspectRatio="none" style={{ display: 'block' }}>
+            <line x1={28} y1={12} x2={28} y2={90} stroke="#eef1f3" /><line x1={28} y1={90} x2={314} y2={90} stroke="#eef1f3" />
+            {(() => {
+              const n = kpiTrendDays.length;
+              const step = 286 / Math.max(1, n - 1);
+              const xs = (i: number) => 28 + step * i;
+              const ys = (p: number) => 90 - (78 * Math.min(100, p) / 100);
+              const pts = kpiTrendDays.map((t, i) => `${xs(i)},${ys(t.pct)}`).join(' ');
+              const last = kpiTrendDays[n - 1];
+              return (<>
+                <polygon points={`28,90 ${pts} 314,90`} fill="rgba(255,107,0,.10)" />
+                <polyline points={pts} fill="none" stroke="#ff6b00" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+                {last && <circle cx={xs(n - 1)} cy={ys(last.pct)} r={4} fill="#ff6b00" stroke="#fff" strokeWidth={2} />}
+                {kpiTrendDays.map((t, i) => (
+                  <rect key={t.ds} x={xs(i) - step / 2} y={0} width={step} height={100} fill="transparent" style={{ cursor: 'pointer' }} onClick={() => onOpenDate(t.ds)}>
+                    <title>{t.ds}: {t.pct}% ({t.actual}/{t.planned})</title>
+                  </rect>
+                ))}
+                {n <= 7 ? kpiTrendDays.map((t, i) => <text key={t.ds} x={xs(i)} y={104} textAnchor="middle" fontSize={8} fill="#90a4ae" fontWeight={600}>{Number(t.ds.slice(8))}</text>)
+                  : (<>
+                    <text x={xs(0)} y={104} textAnchor="start" fontSize={8} fill="#90a4ae" fontWeight={600}>{kpiTrendDays[0].ds.slice(5)}</text>
+                    <text x={xs(n - 1)} y={104} textAnchor="end" fontSize={8} fill="#90a4ae" fontWeight={600}>{kpiTrendDays[n - 1].ds.slice(5)}</text>
+                  </>)}
+              </>);
+            })()}
+          </svg>
+        </div>
+
+        {eyebrow('CIP/Backwash ต่อไลน์')}
+        <div style={{ ...card }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {Object.entries(kpiSummary.cip.byLine).map(([line, n]) => {
+              const max = Math.max(1, ...Object.values(kpiSummary.cip.byLine));
+              return (
+                <div key={line} style={{ display: 'grid', gridTemplateColumns: '60px 1fr 30px', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: '.78rem', fontWeight: 700, color: '#546e7a' }}>{line}</span>
+                  <div style={{ height: 12, background: '#eef1f3', borderRadius: 7, overflow: 'hidden' }}><div style={{ height: '100%', width: `${(n / max) * 100}%`, background: '#37c2d0', borderRadius: 7, transition: 'width .4s' }} /></div>
+                  <span style={{ fontSize: '.76rem', fontWeight: 800, textAlign: 'right' }} className="tnum">{n}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {eyebrow('ไลน์ที่ควรจับตา')}
+        <div style={{ ...card }}>
+          {(() => {
+            const lines = kpiSummary.production.byLineFlavor
+              .filter(l => l.planned > 0 || l.actual > 0)
+              .map(l => ({ ...l, pct: l.planned > 0 ? Math.round((l.actual / l.planned) * 100) : null }))
+              .sort((a, b) => (a.pct ?? 999) - (b.pct ?? 999))
+              .slice(0, 8);
+            if (!lines.length) return <div style={{ textAlign: 'center', color: '#9aa0a6', fontSize: '.8rem', padding: 8 }}>ไม่มีข้อมูลผลิตในช่วงนี้</div>;
+            return lines.map((l, i) => (
+              <div key={`${l.line_name}-${l.flavor}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 2px', borderBottom: i < lines.length - 1 ? '1px solid #f4f4f4' : 'none' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '.82rem', fontWeight: 700 }}>{l.line_name} · {l.flavor}</div>
+                  <div style={{ fontSize: '.68rem', color: '#9aa0a6' }}>{l.actual}{l.planned ? ` / ${l.planned}` : ''} batch</div>
+                </div>
+                {l.pct != null && <span style={{ fontSize: '.76rem', fontWeight: 800, color: kpiPctColor(l.pct) }} className="tnum">{l.pct}%</span>}
+              </div>
+            ));
+          })()}
+        </div>
+      </>)}
+      {!kpiLoading && !kpiSummary && <div style={{ textAlign: 'center', color: '#bbb', padding: 20 }}>โหลดข้อมูลไม่สำเร็จ</div>}
     </div>
   );
 };
 
 // ─── Report scheduling ─────────────────────────────────────────
-type ReportCfg = { autoEnabled: boolean; times: string[]; weekdays: number[]; onlyIfPending: boolean; autoAtShiftEnd: boolean; once: { id: number; run_at: string }[] };
+type ReportCfg = { autoEnabled: boolean; times: string[]; weekdays: number[]; onlyIfPending: boolean; autoAtShiftEnd: boolean; kpiWeeklyEnabled: boolean; kpiMonthlyEnabled: boolean; kpiAlertEnabled: boolean; kpiAlertStreakDays: number; kpiAlertCipStaleHours: number; once: { id: number; run_at: string }[] };
 const SHIFT_TIMES: [string, string][] = [['14:00', '14:00'], ['18:00', '18:00'], ['22:00', '22:00'], ['06:00', '06:00']];
 const WEEKDAY_OPTS: [number, string][] = [[1, 'จ'], [2, 'อ'], [3, 'พ'], [4, 'พฤ'], [5, 'ศ'], [6, 'ส'], [0, 'อา']];
 
@@ -1166,11 +1295,27 @@ const ReportTab: React.FC<{ card: React.CSSProperties }> = ({ card }) => {
   const load = useCallback(async () => { try { const r = await fetch(`${apiUrl}/api/report/config`); setCfg(await r.json()); } catch { /* offline */ } }, []);
   useEffect(() => { load(); }, [load]);
 
+  const [kpiMsg, setKpiMsg] = useState('');
   const saveCfg = async (patch: Partial<ReportCfg>) => {
     if (!cfg) return; const next = { ...cfg, ...patch }; setCfg(next);
-    await fetch(`${apiUrl}/api/report/config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ autoEnabled: next.autoEnabled, times: next.times, weekdays: next.weekdays, onlyIfPending: next.onlyIfPending, autoAtShiftEnd: next.autoAtShiftEnd }) });
+    await fetch(`${apiUrl}/api/report/config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ autoEnabled: next.autoEnabled, times: next.times, weekdays: next.weekdays, onlyIfPending: next.onlyIfPending, autoAtShiftEnd: next.autoAtShiftEnd, kpiWeeklyEnabled: next.kpiWeeklyEnabled, kpiMonthlyEnabled: next.kpiMonthlyEnabled, kpiAlertEnabled: next.kpiAlertEnabled, kpiAlertStreakDays: next.kpiAlertStreakDays, kpiAlertCipStaleHours: next.kpiAlertCipStaleHours }) });
   };
   const sendNow = async () => { setMsg('กำลังส่ง…'); try { const r = await fetch(`${apiUrl}/api/duty/telegram`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: todayBKK() }) }); const d = await r.json(); setMsg(d.sent ? '✅ ส่งเข้า Telegram แล้ว' : '⚠️ ยังไม่ได้ตั้งค่า Telegram บนเซิร์ฟเวอร์'); } catch { setMsg('❌ ส่งไม่สำเร็จ'); } };
+  const sendKpiNow = async (period: 'weekly' | 'monthly') => {
+    setKpiMsg('กำลังส่ง…');
+    try { const r = await fetch(`${apiUrl}/api/kpi/report/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ period }) }); const d = await r.json(); setKpiMsg(d.sent ? '✅ ส่งเข้า Telegram แล้ว' : '⚠️ ยังไม่มีข้อมูลในช่วงนี้ หรือยังไม่ได้ตั้งค่า Telegram'); }
+    catch { setKpiMsg('❌ ส่งไม่สำเร็จ'); }
+  };
+  const [alertMsg, setAlertMsg] = useState('');
+  const testAlert = async () => {
+    setAlertMsg('กำลังตรวจสอบ…');
+    try {
+      const r = await fetch(`${apiUrl}/api/kpi/alert/run`, { method: 'POST' });
+      const d = await r.json();
+      const n = (d.streaks?.length || 0) + (d.cipStale?.length || 0) + (d.backlogCount || 0);
+      setAlertMsg(n ? `⚠️ พบ ${n} จุด (ตกแผน ${d.streaks?.length || 0} · CIP ค้าง ${d.cipStale?.length || 0} · งานค้าง ${d.backlogCount || 0}) — นี่เป็นแค่การตรวจสอบ ยังไม่ส่งเข้า Telegram` : '✅ ไม่พบจุดต้องระวัง');
+    } catch { setAlertMsg('❌ ตรวจสอบไม่สำเร็จ'); }
+  };
   const addOnce = async () => { await fetch(`${apiUrl}/api/report/schedule`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runAt: `${oDate}T${oTime}` }) }); await load(); };
   const delOnce = async (id: number) => { await fetch(`${apiUrl}/api/report/schedule/delete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }); await load(); };
 
@@ -1239,6 +1384,45 @@ const ReportTab: React.FC<{ card: React.CSSProperties }> = ({ card }) => {
           </div>
         </div>
       </div>
+      {eyebrow('สรุป KPI (รายสัปดาห์/รายเดือน)')}
+      <div style={{ ...card }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 12 }}>
+          <div><div style={{ fontSize: '.88rem', fontWeight: 800 }}>📅 ส่งสรุป KPI รายสัปดาห์</div><div style={{ fontSize: '.68rem', color: '#9aa0a6' }}>ทุกวันจันทร์ 06:05 น. (สรุปสัปดาห์ก่อนหน้า)</div></div>
+          <Toggle on={cfg.kpiWeeklyEnabled} onClick={() => saveCfg({ kpiWeeklyEnabled: !cfg.kpiWeeklyEnabled })} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid #eee', paddingTop: 12, paddingBottom: 12 }}>
+          <div><div style={{ fontSize: '.88rem', fontWeight: 800 }}>🗓️ ส่งสรุป KPI รายเดือน</div><div style={{ fontSize: '.68rem', color: '#9aa0a6' }}>ทุกวันที่ 1 เวลา 06:05 น. (สรุปเดือนก่อนหน้า)</div></div>
+          <Toggle on={cfg.kpiMonthlyEnabled} onClick={() => saveCfg({ kpiMonthlyEnabled: !cfg.kpiMonthlyEnabled })} />
+        </div>
+        <div style={{ display: 'flex', gap: 8, borderTop: '1px solid #eee', paddingTop: 12 }}>
+          <button onClick={() => sendKpiNow('weekly')} style={{ flex: 1, border: '1px solid #eee', background: '#fff', borderRadius: 12, padding: 11, fontWeight: 800, fontSize: '.8rem', color: '#546e7a', cursor: 'pointer' }}>⚡ ส่งสัปดาห์นี้เดี๋ยวนี้</button>
+          <button onClick={() => sendKpiNow('monthly')} style={{ flex: 1, border: '1px solid #eee', background: '#fff', borderRadius: 12, padding: 11, fontWeight: 800, fontSize: '.8rem', color: '#546e7a', cursor: 'pointer' }}>⚡ ส่งเดือนนี้เดี๋ยวนี้</button>
+        </div>
+        {kpiMsg && <div style={{ textAlign: 'center', fontSize: '.8rem', color: '#78828a', marginTop: 8 }}>{kpiMsg}</div>}
+      </div>
+
+      {eyebrow('แจ้งเตือนเฉพาะจุดต้องระวัง')}
+      <div style={{ ...card }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 12 }}>
+          <div><div style={{ fontSize: '.88rem', fontWeight: 800 }}>🚨 เปิดแจ้งเตือน</div><div style={{ fontSize: '.68rem', color: '#9aa0a6' }}>ตรวจทุกวัน 06:10 น. — ส่งเฉพาะเมื่อพบจุดผิดปกติ</div></div>
+          <Toggle on={cfg.kpiAlertEnabled} onClick={() => saveCfg({ kpiAlertEnabled: !cfg.kpiAlertEnabled })} />
+        </div>
+        <div style={{ borderTop: '1px solid #eee', paddingTop: 12, opacity: cfg.kpiAlertEnabled ? 1 : 0.5, pointerEvents: cfg.kpiAlertEnabled ? 'auto' : 'none' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 4 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '.72rem', fontWeight: 700, color: '#546e7a', marginBottom: 6 }}>ตกแผนติดต่อกัน (วัน)</label>
+              <input type="number" min={1} value={cfg.kpiAlertStreakDays} onChange={e => saveCfg({ kpiAlertStreakDays: Math.max(1, Number(e.target.value) || 2) })} style={{ width: '100%', border: '1px solid #dde3e7', borderRadius: 11, padding: 10 }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '.72rem', fontWeight: 700, color: '#546e7a', marginBottom: 6 }}>CIP ค้างเกิน (ชม.)</label>
+              <input type="number" min={1} value={cfg.kpiAlertCipStaleHours} onChange={e => saveCfg({ kpiAlertCipStaleHours: Math.max(1, Number(e.target.value) || 30) })} style={{ width: '100%', border: '1px solid #dde3e7', borderRadius: 11, padding: 10 }} />
+            </div>
+          </div>
+        </div>
+        <button onClick={testAlert} style={{ width: '100%', border: '1px solid #eee', background: '#fff', borderRadius: 12, padding: 11, fontWeight: 800, fontSize: '.8rem', color: '#546e7a', cursor: 'pointer', marginTop: 12 }}>🔍 ตรวจสอบตอนนี้ (ไม่ส่ง Telegram)</button>
+        {alertMsg && <div style={{ textAlign: 'center', fontSize: '.8rem', color: '#78828a', marginTop: 8 }}>{alertMsg}</div>}
+      </div>
+
       <div style={{ fontSize: '.72rem', color: '#9aa0a6', textAlign: 'center', marginTop: 4, lineHeight: 1.6 }}>บันทึกอัตโนมัติเมื่อแก้ไข · เซิร์ฟเวอร์เช็กทุกนาที</div>
     </div>
   );
