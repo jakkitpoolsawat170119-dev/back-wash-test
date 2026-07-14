@@ -888,8 +888,11 @@ const CalendarTab: React.FC<{ card: React.CSSProperties; onOpenDate: (date: stri
     const n = kpiRange === '7' ? 7 : 30;
     const toD = new Date(today + 'T00:00:00'); const fromD = new Date(toD); fromD.setDate(fromD.getDate() - (n - 1));
     const from = fromD.toISOString().slice(0, 10);
-    try { const r = await fetch(`${apiUrl}/api/kpi/summary?from=${from}&to=${today}`); setKpiSummary(await r.json()); }
-    catch { setKpiSummary(null); } finally { setKpiLoading(false); }
+    try {
+      const r = await fetch(`${apiUrl}/api/kpi/summary?from=${from}&to=${today}`);
+      const d = await r.json();
+      setKpiSummary(r.ok && d && d.production && d.cip ? d : null); // กัน response error/รูปแบบผิดพลาดทำให้ทั้งแอป crash
+    } catch { setKpiSummary(null); } finally { setKpiLoading(false); }
   }, [kpiRange, today]);
   useEffect(() => { loadKpiSummary(); }, [loadKpiSummary]);
 
