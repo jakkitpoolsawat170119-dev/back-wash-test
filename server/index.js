@@ -3483,7 +3483,7 @@ async function buildAssistantSystem(operator) {
 // image = { data: base64 ไม่รวม prefix, media_type } หรือ images = [ ... ] (หลายรูป/หลายส่วนของตารางเดียว)
 // → แนบเป็น image block เทิร์นแรก (vision อ่านรูปแผน) · รูปส่งเฉพาะเทิร์นนี้ ไม่เก็บลง history
 async function runAssistantConversation(opts) {
-  const { userMessage, image = null, images = null, operator = null, session = null, persist = true, maxTurns = 12, systemExtra = '' } = opts;
+  const { userMessage, image = null, images = null, operator = null, session = null, persist = true, maxTurns = 12, systemExtra = '', forceTool = null } = opts;
   const client = getAnthropic();
   if (!client) throw new Error('ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์');
   let system = await buildAssistantSystem(operator);
@@ -3517,6 +3517,9 @@ async function runAssistantConversation(opts) {
       // หมายเหตุ: system มีวันที่+ความจำถาวร → cache รีเซ็ตเมื่อเปลี่ยน ซึ่งไม่บ่อย
       system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
       tools: ASSISTANT_TOOLS, messages,
+      // บังคับเรียก tool เจาะจงเฉพาะเทิร์นแรก (กันโมเดลแค่ "บรรยาย" ว่าทำแล้วโดยไม่เรียก tool จริง) —
+      // เทิร์นถัดไปปล่อย auto ตามปกติ ไม่งั้นจะวนบังคับเรียกซ้ำไม่รู้จบ
+      ...(turn === 0 && forceTool ? { tool_choice: { type: 'tool', name: forceTool } } : {}),
     });
     const u = resp.usage || {};
     console.log(`[assistant] turn=${turn} cache_read=${u.cache_read_input_tokens || 0} cache_write=${u.cache_creation_input_tokens || 0} in=${u.input_tokens || 0} out=${u.output_tokens || 0}`);
@@ -3548,10 +3551,14 @@ async function runAssistantConversation(opts) {
 }
 
 // hint พิเศษต่อ intent — บังคับให้ turn นี้เรียก fill_handover_form ทันทีเมื่อได้ข้อความ กันหลุดไปคุยทั่วไป
+// forceTool ผูกคู่กัน: บังคับ tool_choice จริงๆ ที่ API ไม่ใช่แค่บอกในคำสั่ง (กันโมเดล "บรรยาย" ว่าทำแล้วทั้งที่ไม่ได้เรียก tool)
 const ASSISTANT_INTENT_HINTS = {
-  fill_handover: 'โหมดพิเศษ: ผู้ใช้กำลังจะวางข้อความข้อมูลสถานะกะที่ได้รับมาจากกะก่อน (รส/สถานะ, batch, ระดับถัง, lot no, หมายเหตุ ต่อ Line 1-4) '
-    + 'หน้าที่ของคุณรอบนี้คือแกะข้อความให้เป็นฟิลด์แล้วเรียก fill_handover_form ทันที — ห้ามเดา/แต่งข้อมูลที่ไม่มีในข้อความ ปล่อยฟิลด์ว่างไว้ถ้าไม่มีข้อมูลในข้อความ '
-    + 'ไม่ต้องขอยืนยันก่อนเรียก tool นี้ (ไม่ได้เขียน DB) จากนั้นสรุปสั้นๆ ว่ากรอกอะไรให้บ้าง และบอกให้ผู้ใช้ไปตรวจสอบ/แก้ไข/กดส่งเองที่ฟอร์มรับกะ ห้ามพูดว่าบันทึกแล้ว',
+  fill_handover: {
+    hint: 'โหมดพิเศษ: ผู้ใช้กำลังจะวางข้อความข้อมูลสถานะกะที่ได้รับมาจากกะก่อน (รส/สถานะ, batch, ระดับถัง, lot no, หมายเหตุ ต่อ Line 1-4) '
+      + 'หน้าที่ของคุณรอบนี้คือแกะข้อความให้เป็นฟิลด์แล้วเรียก fill_handover_form ทันที — ห้ามเดา/แต่งข้อมูลที่ไม่มีในข้อความ ปล่อยฟิลด์ว่างไว้ถ้าไม่มีข้อมูลในข้อความ '
+      + 'ไม่ต้องขอยืนยันก่อนเรียก tool นี้ (ไม่ได้เขียน DB) จากนั้นสรุปสั้นๆ ว่ากรอกอะไรให้บ้าง และบอกให้ผู้ใช้ไปตรวจสอบ/แก้ไข/กดส่งเองที่ฟอร์มรับกะ ห้ามพูดว่าบันทึกแล้ว',
+    tool: 'fill_handover_form',
+  },
 };
 
 app.post('/api/assistant', async (req, res) => {
@@ -3563,8 +3570,9 @@ app.post('/api/assistant', async (req, res) => {
   imgs = imgs.slice(0, 6);
   if (!message && !imgs.length) return res.status(400).json({ error: 'message หรือ image จำเป็น' });
   try {
-    const systemExtra = ASSISTANT_INTENT_HINTS[intent] || '';
-    const { reply, actions, pending, handoverDraft } = await runAssistantConversation({ userMessage: String(message || ''), images: imgs, operator, session, systemExtra });
+    const intentCfg = ASSISTANT_INTENT_HINTS[intent];
+    const { reply, actions, pending, handoverDraft } = await runAssistantConversation({ userMessage: String(message || ''), images: imgs, operator, session,
+      systemExtra: intentCfg?.hint || '', forceTool: intentCfg?.tool || null });
     res.json({ reply, actions, pending, handoverDraft });
   } catch (err) {
     console.error('[assistant] error', err.message);
