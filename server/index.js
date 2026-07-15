@@ -3259,8 +3259,7 @@ const ASSISTANT_TOOLS = [
       lines: { type: 'array', minItems: 3, maxItems: 3, description: 'Line 1, Line 2, Line 3 ตามลำดับ — ฟิลด์ไหนไม่มีข้อมูลในข้อความให้ปล่อยว่างไว้ ห้ามเดา/แต่งเติม',
         items: { type: 'object', properties: {
           flavor: { type: 'string', description: 'รส/สถานะไลน์ ตามที่เขียนมา เช่น "FDS", "Freshy Green Apple", "CIP" — ไม่ต้องเติมคำ เช่นเห็น "Cip" ก็ใส่ "CIP" เฉยๆ อย่าเติม "ต่อ" เอง' },
-          batch: { type: 'string', description: 'ช่อง dropdown "Batch ล่าสุดที่ค้าง" ของไลน์ (ตัวอักษร A-Z เดี่ยว) — ใส่เฉพาะเมื่อระบุ batch ปัจจุบัน/ล่าสุดของไลน์ชัดเจนเป็นตัวเดียว ไม่แน่ใจให้เว้นว่าง; อย่าดึงตัวอักษร batch ออกจากข้อความของถัง (เก็บไว้ในช่องถังเต็มๆ)' },
-          tanks: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 3, description: 'ข้อความสถานะถัง 1, 2, 3 ตามลำดับ แบบครบถ้วนตามที่เขียนมา — เช่น "ถัง 2 Batch C 100%" ให้ใส่ tanks[1]="Batch C 100%" (เก็บทั้ง batch และปริมาณ ห้ามตัด batch ทิ้ง) · ถังที่เขียนว่าว่าง/ไม่มี ใส่ "ว่าง" หรือเว้นว่าง' },
+          tanks: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 3, description: 'ข้อความสถานะถัง 1, 2, 3 ตามลำดับ คัดลอกมาแบบครบถ้วนคำต่อคำ — เช่น "ถัง 2 Batch C 100%" ให้ใส่ tanks[1]="Batch C 100%" (เก็บทั้งชื่อ Batch และปริมาณไว้ในถัง ห้ามตัด/ย้ายส่วนไหนออก) · ถังที่ว่าง/ไม่มีของ ใส่ "ว่าง" หรือเว้นว่าง (ระบบจะเดาช่อง Batch dropdown ให้เองจากข้อความถัง คุณไม่ต้องแยก)' },
           lotNo: { type: 'string' }, note: { type: 'string' },
         } } },
       line4: { type: 'object', description: 'Mixing 1, Mixer, Pasteurizer, Mixing 2, Storage, Filling',
@@ -3394,7 +3393,19 @@ async function runAssistantTool(name, input, operator, ctx = {}) {
   return { error: 'unknown tool' };
 }
 
+// เดาช่อง Batch dropdown (ตัวอักษร A-Z เดี่ยว) จากข้อความถัง — เอา batch "ล่าสุด" = ตัวอักษรสูงสุด
+// ที่ปรากฏ (เช่นถังมี "Batch J 30%","Batch K 100%" → K) ให้ตรงกับพฤติกรรมที่คนกรอกเอง
+function deriveBatchFromTanks(tanks) {
+  let best = '';
+  for (const t of tanks) {
+    const m = String(t || '').match(/batch\s*([A-Za-z])\b/i);
+    if (m) { const c = m[1].toUpperCase(); if (c > best) best = c; }
+  }
+  return best;
+}
+
 // แปลง args จาก fill_handover_form ให้เป็นโครงสร้างตรงกับ HoState ฝั่ง client เสมอ (กัน AI ส่งฟิลด์ขาด/เกิน)
+// batch dropdown ไม่ให้ AI กรอก (กันมันย้าย "Batch C" ออกจากถัง) — เดาจากข้อความถังด้วยโค้ดแทน
 function normalizeHandoverDraft(input) {
   const clampArr = (arr, n) => {
     const a = Array.isArray(arr) ? arr.slice(0, n).map(x => String(x || '')) : [];
@@ -3405,13 +3416,16 @@ function normalizeHandoverDraft(input) {
   while (linesIn.length < 3) linesIn.push({});
   return {
     shift: ['กะเช้า', 'กะบ่าย', 'กะดึก'].includes(input.shift) ? input.shift : 'กะเช้า',
-    lines: linesIn.map(l => ({
-      flavor: String((l && l.flavor) || ''),
-      batch: String((l && l.batch) || ''),
-      tanks: clampArr(l && l.tanks, 3),
-      lotNo: String((l && l.lotNo) || ''),
-      note: String((l && l.note) || ''),
-    })),
+    lines: linesIn.map(l => {
+      const tanks = clampArr(l && l.tanks, 3);
+      return {
+        flavor: String((l && l.flavor) || ''),
+        batch: deriveBatchFromTanks(tanks), // เดาจากถัง ไม่พึ่งค่าจาก AI
+        tanks,
+        lotNo: String((l && l.lotNo) || ''),
+        note: String((l && l.note) || ''),
+      };
+    }),
     line4: {
       flavor: String((input.line4 && input.line4.flavor) || ''),
       stages: clampArr(input.line4 && input.line4.stages, 6),

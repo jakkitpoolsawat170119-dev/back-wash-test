@@ -393,14 +393,23 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
             <button onClick={clearAiDraft} style={{ border: 'none', background: 'none', color: '#8a6100', fontWeight: 700, cursor: 'pointer', fontSize: '0.76rem', textDecoration: 'underline', flexShrink: 0 }}>ล้างข้อมูล AI</button>
           </div>
         )}
-        {/* segmented: รับกะ / ส่งกะ */}
-        <div style={{ display: 'flex', gap: 5, background: '#eef1f4', borderRadius: 12, padding: 4, marginBottom: 10 }}>
-          {([['in', '📥 รับกะ'], ['out', '📤 ส่งกะ']] as ['in' | 'out', string][]).map(([m, lb]) => (
-            <button key={m} onClick={() => applyMode(m)} style={{ flex: 1, border: 'none', borderRadius: 9, padding: '8px 6px', fontSize: '0.82rem', fontWeight: 800, cursor: 'pointer', background: mode === m ? '#fff' : 'transparent', color: mode === m ? (m === 'in' ? '#00897b' : '#ff6b00') : '#78828a', boxShadow: mode === m ? '0 1px 4px rgba(0,0,0,.1)' : 'none' }}>{lb}</button>
-          ))}
+        {/* segmented: รับกะ / ส่งกะ — โหมดที่เลือกอยู่เติมสีเต็ม (เขียวรับ / ส้มส่ง) ให้เห็นชัดว่ากำลังทำอะไร */}
+        <div style={{ display: 'flex', gap: 6, background: '#eef1f4', borderRadius: 14, padding: 5, marginBottom: 10 }}>
+          {([['in', '📥 รับกะ', '#00897b'], ['out', '📤 ส่งกะ', '#ff6b00']] as ['in' | 'out', string, string][]).map(([m, lb, c]) => {
+            const active = mode === m;
+            return (
+              <button key={m} onClick={() => applyMode(m)} aria-pressed={active} style={{
+                flex: 1, border: active ? 'none' : `1.5px solid ${c}33`, borderRadius: 10, padding: '11px 6px',
+                fontSize: '0.9rem', fontWeight: 800, cursor: 'pointer', letterSpacing: '.01em',
+                background: active ? c : '#fff', color: active ? '#fff' : `${c}cc`,
+                boxShadow: active ? `0 3px 10px ${c}59` : 'none',
+                transform: active ? 'translateY(-1px)' : 'none', transition: 'background .15s, color .15s, box-shadow .15s, transform .15s',
+              }}>{active ? '✓ ' : ''}{lb}</button>
+            );
+          })}
         </div>
-        <div style={{ fontSize: '0.72rem', color: '#78828a', marginBottom: 10 }}>
-          {mode === 'in' ? '📥 สถานะจากกะก่อน — ตรวจ/แก้ แล้วกดรับทราบ' : '📤 เติมรส/Batch ล่าสุดให้อัตโนมัติ — แก้ได้ตามจริง'}
+        <div style={{ fontSize: '0.72rem', color: mode === 'in' ? '#00897b' : '#ff6b00', fontWeight: 600, marginBottom: 10 }}>
+          {mode === 'in' ? '📥 กำลัง “รับกะ” — ทบทวนสถานะจากกะก่อน/AI แล้วกดรับทราบ' : '📤 กำลัง “ส่งกะ” — เติมรส/Batch ล่าสุดให้อัตโนมัติ แก้ได้ตามจริง'}
         </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
           <select value={ho.shift} onChange={e => setHo(h => ({ ...h, shift: e.target.value }))} style={{ ...inp, width: 'auto' }}>
