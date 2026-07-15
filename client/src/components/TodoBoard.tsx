@@ -186,9 +186,11 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
         <RecurringTab templates={templates} tasks={tasks} reload={loadTemplates} card={card} />
       )}
 
-      {/* ── TAB: AI ───────────────────────────────────────────── */}
-      {tab === 'ai' && <AssistantTab operatorName={operatorName} onAfterAction={loadTasks} card={card}
-        onHandoverDraft={(draft) => setAiHandoverDraft(draft)} onGoToHandoverForm={() => setTab('timeline')} />}
+      {/* ── TAB: AI — คงไว้ตลอด (ซ่อนด้วย CSS) เพื่อไม่ให้บทสนทนาหายเมื่อสลับแท็บ ── */}
+      <div style={{ display: tab === 'ai' ? 'block' : 'none' }}>
+        <AssistantTab operatorName={operatorName} onAfterAction={loadTasks} card={card}
+          onHandoverDraft={(draft) => setAiHandoverDraft(draft)} onGoToHandoverForm={() => setTab('timeline')} />
+      </div>
 
       {/* ── TAB: สเปกคุณภาพ (baseline Brix/pH) ─────────────────── */}
       {tab === 'specs' && <SpecsTab card={card} />}
@@ -1747,12 +1749,15 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
   };
 
 // ─── Assistant chat ─────────────────────────────────────────────
+const AI_GREETING: ChatMsg = { role: 'assistant', text: 'สวัสดีครับ ถามหรือสั่งได้เลย เช่น\n• "วันนี้ Line 2 ทำอะไรไปแล้วบ้าง" / "สัปดาห์นี้รสไหนผลิตเยอะสุด"\n• "บันทึกผลิต Amazon batch C Line 2 brix 12.4" (มีการ์ดให้กดยืนยันก่อนบันทึกจริง)\n• "บันทึกรอบ CIP Line 3 มี backwash" / "วางแผนพรุ่งนี้ Amazon 6 batch"\n• 📎 แนบรูปแผนผลิตรายสัปดาห์ แล้วถาม "วันนี้กะผมผลิตอะไรบ้าง"\n• ถามเรื่องระบบ/กะทำงาน/วิธีใช้แอปได้ด้วย' };
+
 const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () => void; card: React.CSSProperties; onHandoverDraft?: (draft: HoState) => void; onGoToHandoverForm?: () => void }> =
   ({ operatorName, onAfterAction, card, onHandoverDraft, onGoToHandoverForm }) => {
-    const [msgs, setMsgs] = useState<ChatMsg[]>([{ role: 'assistant', text: 'สวัสดีครับ ถามหรือสั่งได้เลย เช่น\n• "วันนี้ Line 2 ทำอะไรไปแล้วบ้าง" / "สัปดาห์นี้รสไหนผลิตเยอะสุด"\n• "บันทึกผลิต Amazon batch C Line 2 brix 12.4" (มีการ์ดให้กดยืนยันก่อนบันทึกจริง)\n• "บันทึกรอบ CIP Line 3 มี backwash" / "วางแผนพรุ่งนี้ Amazon 6 batch"\n• 📎 แนบรูปแผนผลิตรายสัปดาห์ แล้วถาม "วันนี้กะผมผลิตอะไรบ้าง"\n• ถามเรื่องระบบ/กะทำงาน/วิธีใช้แอปได้ด้วย' }]);
+    const [msgs, setMsgs] = useState<ChatMsg[]>([AI_GREETING]);
     const [input, setInput] = useState('');
     const [busy, setBusy] = useState(false);
     const [handoverMode, setHandoverMode] = useState(false); // โหมด "กรอกฟอร์มรับกะด้วย AI" — ข้อความถัดไปจะถูกส่งพร้อม intent พิเศษ
+    const [sessionN, setSessionN] = useState(0);              // เปลี่ยนเลขนี้ = เริ่ม session ใหม่ (ปุ่ม "แชทใหม่")
     // รูปที่แนบ (หลายรูป/หลายส่วน) — data = base64 ไม่รวม prefix, preview = data URL สำหรับแสดง
     type Attach = { preview: string; data: string; mediaType: string };
     const [imgs, setImgs] = useState<Attach[]>([]);
@@ -1813,7 +1818,7 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
       try {
         const r = await fetch(`${apiUrl}/api/assistant`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, operator: operatorName, session: `web-${operatorName || 'guest'}`,
+          body: JSON.stringify({ message: text, operator: operatorName, session: `web-${operatorName || 'guest'}-${sessionN}`,
             intent: usingHandoverMode ? 'fill_handover' : undefined,
             images: staged.length ? staged.map(a => ({ data: a.data, media_type: a.mediaType })) : undefined }),
         });
@@ -1850,8 +1855,19 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
       setHandoverMode(true);
       setMsgs(m => [...m, { role: 'assistant', text: 'วางข้อความข้อมูลกะที่ได้รับมาได้เลยครับ เช่น ไลน์ไหนรสอะไร batch อะไร ถังเหลือเท่าไหร่ lot อะไร มีหมายเหตุอะไรบ้าง' }]);
     };
+    // แชทใหม่ — ล้างบทสนทนา + เริ่ม session ใหม่ (server จะไม่ดึงประวัติเก่ามาต่อ)
+    const newChat = () => {
+      if (busy) return;
+      setMsgs([AI_GREETING]); setInput(''); setImgs([]); setHandoverMode(false);
+      setSessionN(n => n + 1);
+    };
     return (
       <div style={{ ...card, display: 'flex', flexDirection: 'column', height: '70vh', padding: '0', overflow: 'hidden' }}>
+        {/* header: ชื่อ + ปุ่มแชทใหม่ */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid #eee', flexShrink: 0 }}>
+          <span style={{ fontWeight: 800, fontSize: '0.9rem', color: '#37474f' }}>🤖 ผู้ช่วย AI</span>
+          <button onClick={newChat} disabled={busy} title="เริ่มบทสนทนาใหม่" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, border: '1px solid #ffd0a8', background: '#fff7f0', color: '#b34700', borderRadius: 20, padding: '6px 12px', fontSize: '0.76rem', fontWeight: 700, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.5 : 1 }}>✏️ แชทใหม่</button>
+        </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px' }}>
           {!handoverMode && (
             <div style={{ background: '#fff7f0', border: '1.5px solid #ffd0a8', borderRadius: 14, padding: '12px 14px', marginBottom: 14 }}>
