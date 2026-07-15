@@ -1839,19 +1839,28 @@ app.post('/api/routine/restore', async (req, res) => {
 
 // มอบหมายงานระหว่างวัน → เก็บลง daily_tasks (source = 'assigned') ผูก assignee
 app.post('/api/duty/assign', async (req, res) => {
-  const { date, assignTo, category, title, location, priority, operator } = req.body;
-  if (!title || !assignTo) return res.status(400).json({ error: 'title/assignTo จำเป็น' });
+  const { date, category, title, location, priority, operator } = req.body;
+  // รองรับทั้งคนเดียว (assignTo) และหลายคน (assignees[]) — มอบงานเดียวให้หลายคนพร้อมกัน
+  const rawAssignees = Array.isArray(req.body.assignees) ? req.body.assignees
+    : (req.body.assignTo != null ? [req.body.assignTo] : []);
+  const assignees = [...new Set(rawAssignees.filter(a => typeof a === 'string' && a.trim()))];
+  if (!title || assignees.length === 0) return res.status(400).json({ error: 'title/assignTo จำเป็น' });
   const d = date || todayBKK();
-  const images = (Array.isArray(req.body.images) ? req.body.images : []).filter(x => typeof x === 'string' && x.startsWith('data:')).slice(0, 6);
+  const images = (Array.isArray(req.body.images) ? req.body.images : []).filter(x => typeof x === 'string' && x.startsWith('data:')).slice(0, 10);
   try {
-    await db.exec(
-      `INSERT INTO daily_tasks (task_date, line_name, category, title, status, source, assignee, location, priority, images, created_by, created_at)
-       VALUES (?, '', ?, ?, 'pending', 'assigned', ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(task_date, line_name, category, title)
-       DO UPDATE SET assignee = excluded.assignee, location = excluded.location, priority = excluded.priority, images = excluded.images`,
-      [d, category || 'manual', title, assignTo, location || null, priority || 'normal', JSON.stringify(images), operator || null, nowBKK()]);
+    // เก็บ line_name = assignee เพื่อให้ UNIQUE(task_date, line_name, category, title) แยกตามคน
+    // → งานชื่อเดียวกันมอบให้หลายคนได้ (แต่ละคนได้แถวของตัวเอง) แทนที่จะทับกันเหลือคนสุดท้าย
+    for (const assignTo of assignees) {
+      await db.exec(
+        `INSERT INTO daily_tasks (task_date, line_name, category, title, status, source, assignee, location, priority, images, created_by, created_at)
+         VALUES (?, ?, ?, ?, 'pending', 'assigned', ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(task_date, line_name, category, title)
+         DO UPDATE SET assignee = excluded.assignee, location = excluded.location, priority = excluded.priority, images = excluded.images`,
+        [d, assignTo, category || 'manual', title, assignTo, location || null, priority || 'normal', JSON.stringify(images), operator || null, nowBKK()]);
+    }
     if (process.env.TELEGRAM_CHAT_ID) {
-      const msg = `🆕 <b>มอบหมายงานใหม่</b> → ${escapeHtml(dutyName(assignTo))}\n${escapeHtml(title)}${location ? ` · 📍${escapeHtml(location)}` : ''}${priority === 'urgent' ? ' · 🔴 ด่วน' : ''}\nโดย ${escapeHtml(operator || 'จักรกฤษ')}`;
+      const who = assignees.map(a => escapeHtml(dutyName(a))).join(', ');
+      const msg = `🆕 <b>มอบหมายงานใหม่</b> → ${who}\n${escapeHtml(title)}${location ? ` · 📍${escapeHtml(location)}` : ''}${priority === 'urgent' ? ' · 🔴 ด่วน' : ''}\nโดย ${escapeHtml(operator || 'จักรกฤษ')}`;
       if (images.length) sendMediaGroupToTelegram(images, msg); // มีรูป → ส่งเป็นอัลบั้มพร้อมข้อความ
       else sendToTelegram(msg);
     }
@@ -3243,6 +3252,25 @@ const ASSISTANT_TOOLS = [
       ph_min: { type: 'number' }, ph_max: { type: 'number' } }, required: ['flavor'] } },
   { name: 'get_quality_specs', description: 'ดูค่ามาตรฐาน (สเปก) Brix/pH ที่ตั้งไว้ต่อรสชาติ — ใช้เมื่อผู้ใช้ถามว่าตั้งสเปกอะไรไว้บ้าง หรือก่อนแก้',
     input_schema: { type: 'object', properties: { flavor: { type: 'string', description: 'เจาะจงรส (ไม่ระบุ = ทั้งหมด)' } } } },
+  // ── โหมดกรอกฟอร์มรับกะด้วย AI: ไม่เขียน DB แค่ส่งร่างข้อมูลกลับให้ client เติมฟอร์ม ──
+  { name: 'fill_handover_form', description: 'แกะข้อความข้อมูลสถานะกะ (ที่ผู้ใช้วางเป็นข้อความอิสระ) ให้เป็นฟิลด์โครงสร้าง เพื่อเติมในฟอร์ม "รับกะ" ให้ผู้ใช้ตรวจสอบ/แก้ไข/กดส่งเอง — tool นี้ไม่บันทึกอะไรลงฐานข้อมูลทั้งสิ้น ไม่ต้องขอยืนยัน เรียกได้ทันทีเมื่ออยู่ในโหมดนี้',
+    input_schema: { type: 'object', properties: {
+      shift: { type: 'string', enum: ['กะเช้า', 'กะบ่าย', 'กะดึก'] },
+      lines: { type: 'array', minItems: 3, maxItems: 3, description: 'Line 1, Line 2, Line 3 ตามลำดับ — ฟิลด์ไหนไม่มีข้อมูลในข้อความให้ปล่อยว่างไว้ ห้ามเดา/แต่งเติม',
+        items: { type: 'object', properties: {
+          flavor: { type: 'string', description: 'รส/สถานะไลน์ เช่น "ส้ม" หรือ "CIP ต่อ (ยังไม่จบรอบ)"' },
+          batch: { type: 'string', description: 'ตัวอักษร batch เช่น "C"' },
+          tanks: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 3, description: 'ระดับถัง 1-3 เช่น "80%","ว่าง","60%"' },
+          lotNo: { type: 'string' }, note: { type: 'string' },
+        } } },
+      line4: { type: 'object', description: 'Mixing 1, Mixer, Pasteurizer, Mixing 2, Storage, Filling',
+        properties: {
+          flavor: { type: 'string' },
+          stages: { type: 'array', items: { type: 'string' }, minItems: 6, maxItems: 6, description: 'สถานะ 6 สเตจตามลำดับ: Mixing 1, Mixer, Pasteurizer, Mixing 2, Storage, Filling' },
+          lotNo: { type: 'string' },
+        } },
+      note: { type: 'string', description: 'หมายเหตุรวม (ถ้ามี)' },
+    }, required: ['shift', 'lines', 'line4'] } },
 ];
 
 async function runAssistantTool(name, input, operator, ctx = {}) {
@@ -3358,7 +3386,39 @@ async function runAssistantTool(name, input, operator, ctx = {}) {
     if (input.flavor) return { flavor: input.flavor, spec: specs[input.flavor] || null };
     return { count: Object.keys(specs).length, specs };
   }
+  if (name === 'fill_handover_form') {
+    const draft = normalizeHandoverDraft(input);
+    if (ctx) ctx.handoverDraft = draft; // ไม่เขียน DB — ส่งร่างกลับให้ client เติมฟอร์มเอง
+    return { ok: true, filled: true, note: 'ส่งร่างข้อมูลไปเติมในฟอร์มรับกะให้แล้ว ยังไม่ได้บันทึกอะไรทั้งสิ้น บอกผู้ใช้สรุปสั้นๆ ว่ากรอกอะไรให้บ้าง และให้ไปตรวจสอบ/แก้ไข/กดส่งเองที่ฟอร์ม ห้ามพูดว่าบันทึกแล้ว' };
+  }
   return { error: 'unknown tool' };
+}
+
+// แปลง args จาก fill_handover_form ให้เป็นโครงสร้างตรงกับ HoState ฝั่ง client เสมอ (กัน AI ส่งฟิลด์ขาด/เกิน)
+function normalizeHandoverDraft(input) {
+  const clampArr = (arr, n) => {
+    const a = Array.isArray(arr) ? arr.slice(0, n).map(x => String(x || '')) : [];
+    while (a.length < n) a.push('');
+    return a;
+  };
+  const linesIn = Array.isArray(input.lines) ? input.lines.slice(0, 3) : [];
+  while (linesIn.length < 3) linesIn.push({});
+  return {
+    shift: ['กะเช้า', 'กะบ่าย', 'กะดึก'].includes(input.shift) ? input.shift : 'กะเช้า',
+    lines: linesIn.map(l => ({
+      flavor: String((l && l.flavor) || ''),
+      batch: String((l && l.batch) || ''),
+      tanks: clampArr(l && l.tanks, 3),
+      lotNo: String((l && l.lotNo) || ''),
+      note: String((l && l.note) || ''),
+    })),
+    line4: {
+      flavor: String((input.line4 && input.line4.flavor) || ''),
+      stages: clampArr(input.line4 && input.line4.stages, 6),
+      lotNo: String((input.line4 && input.line4.lotNo) || ''),
+    },
+    note: String(input.note || ''),
+  };
 }
 
 const ASSISTANT_FLAVORS = 'Amazon, FDS, Golden, Freshy Lychee, Freshy Strawberry, Senorita Coconut, Senorita Caramel, Freshy Blue Hawaii, Freshy Lime, Freshy Green Apple, Freshy Sala, Senorita Yuzu, Senorita Peach, MLH 02, Freshy Pineapple, Freshy Grape, Freshy Punch, Freshy blue Lemon, Senorita Fres Mint, Freshy Orange, Signature Rose, Freshy Shine Muscat Grape, Freshy Peach, Freshy Mango, Dilute W-Molass';
@@ -3390,6 +3450,7 @@ async function buildAssistantSystem(operator) {
     '• tool เหล่านี้สร้าง "รายการรอยืนยัน" — ระบบขึ้นการ์ดให้ผู้ใช้กด ✅ เอง ห้ามพูดว่า "บันทึกแล้ว" จนกว่าจะยืนยัน ให้สรุปข้อมูลที่จะบันทึกและบอกให้กดยืนยัน',
     '• ก่อนเรียก tool เขียน ต้องมีข้อมูลครบพอ (Line, รสชาติ ฯลฯ) ถ้าคลุมเครือให้ถามก่อน',
     '• confirm_pending_action เรียกได้เฉพาะเมื่อผู้ใช้พิมพ์ยืนยันเองชัดเจน ("ยืนยัน"/"ตกลง"/"บันทึกเลย") ห้ามเรียกเอง · ผู้ใช้ปฏิเสธ→cancel_pending_action',
+    '• fill_handover_form: เรียกเฉพาะตอนอยู่ในโหมด "กรอกฟอร์มรับกะด้วย AI" เท่านั้น (ระบบจะบอกชัดเจนถ้าอยู่ในโหมดนี้) — ไม่ใช่เขียน DB แค่ส่งร่างข้อมูลเติมฟอร์มให้ผู้ใช้ตรวจสอบเอง ไม่ต้องขอยืนยัน',
     '',
     'คำสั่งหลายขั้นตอน (ทำงานเป็นชุดได้ในทีเดียว — เรียกหลาย tool ต่อเนื่องจนจบงาน):',
     '• "ปิดกะ/สรุปปิดกะ" = ดึง get_production_summary + get_cip_summary + list_tasks (งานค้าง) ของวันทำงานนั้น → สรุปให้ครบ → ถ้าผู้ใช้อยากบันทึกโน้ตส่งเวรค่อยเสนอ save_handover_note (รอยืนยัน)',
@@ -3429,7 +3490,7 @@ async function runAssistantConversation(opts) {
   if (systemExtra) system += '\n\n' + systemExtra;
 
   const actions = [];
-  const ctx = { session, pending: [], resolved: [] }; // pending = การ์ดยืนยันที่เกิดใหม่รอบนี้
+  const ctx = { session, pending: [], resolved: [], handoverDraft: null }; // pending = การ์ดยืนยันที่เกิดใหม่รอบนี้, handoverDraft = ร่างฟอร์มรับกะจาก fill_handover_form
   // โหลดบทสนทนาก่อนหน้าของ session นี้ (multi-turn memory) — เก็บเฉพาะข้อความเป็น text
   let history = [];
   if (session) {
@@ -3483,20 +3544,28 @@ async function runAssistantConversation(opts) {
     await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [session, 'assistant', reply, ts]);
     await db.exec(`DELETE FROM assistant_messages WHERE session = ? AND id NOT IN (SELECT id FROM assistant_messages WHERE session = ? ORDER BY id DESC LIMIT 30)`, [session, session]);
   }
-  return { reply, actions, pending: ctx.pending };
+  return { reply, actions, pending: ctx.pending, handoverDraft: ctx.handoverDraft };
 }
+
+// hint พิเศษต่อ intent — บังคับให้ turn นี้เรียก fill_handover_form ทันทีเมื่อได้ข้อความ กันหลุดไปคุยทั่วไป
+const ASSISTANT_INTENT_HINTS = {
+  fill_handover: 'โหมดพิเศษ: ผู้ใช้กำลังจะวางข้อความข้อมูลสถานะกะที่ได้รับมาจากกะก่อน (รส/สถานะ, batch, ระดับถัง, lot no, หมายเหตุ ต่อ Line 1-4) '
+    + 'หน้าที่ของคุณรอบนี้คือแกะข้อความให้เป็นฟิลด์แล้วเรียก fill_handover_form ทันที — ห้ามเดา/แต่งข้อมูลที่ไม่มีในข้อความ ปล่อยฟิลด์ว่างไว้ถ้าไม่มีข้อมูลในข้อความ '
+    + 'ไม่ต้องขอยืนยันก่อนเรียก tool นี้ (ไม่ได้เขียน DB) จากนั้นสรุปสั้นๆ ว่ากรอกอะไรให้บ้าง และบอกให้ผู้ใช้ไปตรวจสอบ/แก้ไข/กดส่งเองที่ฟอร์มรับกะ ห้ามพูดว่าบันทึกแล้ว',
+};
 
 app.post('/api/assistant', async (req, res) => {
   if (!getAnthropic()) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์' });
-  const { message, operator, session, image, images } = req.body;
+  const { message, operator, session, image, images, intent } = req.body;
   // รวมรูป: images (อาเรย์ หลายส่วน) หรือ image (เดี่ยว) — จำกัด 6 รูปกัน payload บวม
   let imgs = Array.isArray(images) ? images.filter(im => im && im.data).map(im => ({ data: String(im.data), media_type: im.media_type || 'image/jpeg' })) : [];
   if (!imgs.length && image && image.data) imgs = [{ data: String(image.data), media_type: image.media_type || 'image/jpeg' }];
   imgs = imgs.slice(0, 6);
   if (!message && !imgs.length) return res.status(400).json({ error: 'message หรือ image จำเป็น' });
   try {
-    const { reply, actions, pending } = await runAssistantConversation({ userMessage: String(message || ''), images: imgs, operator, session });
-    res.json({ reply, actions, pending });
+    const systemExtra = ASSISTANT_INTENT_HINTS[intent] || '';
+    const { reply, actions, pending, handoverDraft } = await runAssistantConversation({ userMessage: String(message || ''), images: imgs, operator, session, systemExtra });
+    res.json({ reply, actions, pending, handoverDraft });
   } catch (err) {
     console.error('[assistant] error', err.message);
     res.status(500).json({ error: err.message });

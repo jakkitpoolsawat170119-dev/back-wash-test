@@ -17,7 +17,7 @@ type Template = {
   weekday?: number | null; target_count?: number | null; active: number;
 };
 type PendingAction = { id: number; tool: string; summary: string; status?: 'pending' | 'approved' | 'rejected' | 'error'; result?: string };
-type ChatMsg = { role: 'user' | 'assistant'; text: string; pending?: PendingAction[]; images?: string[] };
+type ChatMsg = { role: 'user' | 'assistant'; text: string; pending?: PendingAction[]; images?: string[]; handoverReady?: boolean };
 
 const CAT: Record<string, { icon: string; label: string }> = {
   production: { icon: '🏭', label: 'ผลิต' },
@@ -106,6 +106,7 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [aiHandoverDraft, setAiHandoverDraft] = useState<HoState | null>(null); // ร่างฟอร์มรับกะจากผู้ช่วย AI → รอ HandoverForm มาเก็บไปใช้
 
   // ── data loaders ───────────────────────────────────────────────
   const loadTasks = useCallback(async () => {
@@ -176,7 +177,8 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
 
       {/* ── TAB: timeline + handover ──────────────────────────── */}
       {tab === 'timeline' && (
-        <TimelineTab date={date} operatorName={operatorName} events={events} reload={loadTimeline} card={card} />
+        <TimelineTab date={date} operatorName={operatorName} events={events} reload={loadTimeline} card={card}
+          aiDraft={aiHandoverDraft} onDraftConsumed={() => setAiHandoverDraft(null)} />
       )}
 
       {/* ── TAB: recurring ────────────────────────────────────── */}
@@ -185,7 +187,8 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
       )}
 
       {/* ── TAB: AI ───────────────────────────────────────────── */}
-      {tab === 'ai' && <AssistantTab operatorName={operatorName} onAfterAction={loadTasks} card={card} />}
+      {tab === 'ai' && <AssistantTab operatorName={operatorName} onAfterAction={loadTasks} card={card}
+        onHandoverDraft={(draft) => setAiHandoverDraft(draft)} onGoToHandoverForm={() => setTab('timeline')} />}
 
       {/* ── TAB: สเปกคุณภาพ (baseline Brix/pH) ─────────────────── */}
       {tab === 'specs' && <SpecsTab card={card} />}
@@ -255,14 +258,31 @@ const fillLot = (h: HoState, lot: string): HoState => ({
   lines: h.lines.map(l => ({ ...l, lotNo: l.lotNo || lot })),
   line4: { ...h.line4, lotNo: h.line4.lotNo || lot },
 });
+// หา key ของทุกฟิลด์ที่ AI เติมค่ามาให้ (ไม่ว่าง) — ใช้ไฮไลต์ในฟอร์มจนกว่าผู้ใช้จะแก้เอง
+function hoFilledKeys(h: HoState): Set<string> {
+  const s = new Set<string>();
+  h.lines.forEach((l, i) => {
+    if (l.flavor.trim()) s.add(`line${i}.flavor`);
+    if (l.batch.trim()) s.add(`line${i}.batch`);
+    l.tanks.forEach((t, k) => { if (t.trim()) s.add(`line${i}.tank${k}`); });
+    if ((l.lotNo || '').trim()) s.add(`line${i}.lotNo`);
+    if (l.note.trim()) s.add(`line${i}.note`);
+  });
+  if (h.line4.flavor.trim()) s.add('line4.flavor');
+  h.line4.stages.forEach((v, k) => { if (v.trim()) s.add(`line4.stage${k}`); });
+  if ((h.line4.lotNo || '').trim()) s.add('line4.lotNo');
+  if (h.note.trim()) s.add('note');
+  return s;
+}
 
-const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload: () => void; card: React.CSSProperties; onLiveChange?: (ho: HoState) => void }> =
-  ({ date, operatorName, reload, card, onLiveChange }) => {
+const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload: () => void; card: React.CSSProperties; onLiveChange?: (ho: HoState) => void; aiDraft?: HoState | null; onDraftConsumed?: () => void }> =
+  ({ date, operatorName, reload, card, onLiveChange, aiDraft, onDraftConsumed }) => {
     const [open, setOpen] = useState(false);
     const [mode, setMode] = useState<'in' | 'out'>('out'); // 📥 รับกะ · 📤 ส่งกะ
     const [ho, setHo] = useState<HoState>(initHo);
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
+    const [aiFilledKeys, setAiFilledKeys] = useState<Set<string>>(new Set()); // ฟิลด์ที่ AI เติมให้ → ไฮไลต์จนกว่าจะแก้เอง
     const lastRef = useRef<HoState | null>(null);                 // สถานะกะก่อน (สำหรับ รับกะ)
     const prefillRef = useRef<Record<string, PrefillLine>>({});   // รส/batch ล่าสุด (สำหรับ ส่งกะ)
 
@@ -284,6 +304,20 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
     // ส่งสถานะรับกะสดๆ ขึ้นไปให้ฟอร์มบรรจุใช้ (real-time, ไม่ต้องกดส่ง)
     useEffect(() => { onLiveChange?.(ho); }, [ho, onLiveChange]);
 
+    // ร่างจากผู้ช่วย AI มาถึง → เปิดฟอร์ม โหมดรับกะ เติมค่า + ไฮไลต์ฟิลด์ที่ AI กรอกให้ ผู้ใช้ต้องตรวจสอบ/กดส่งเอง
+    useEffect(() => {
+      if (!aiDraft) return;
+      const withLineNames: HoState = { ...aiDraft, lines: aiDraft.lines.map((l, i) => ({ ...l, line: HO_LINES[i]?.line || l.line })) };
+      setOpen(true); setMode('in'); setMsg('');
+      const filled = fillLot(withLineNames, pkLot(date));
+      setHo(filled);
+      setAiFilledKeys(hoFilledKeys(filled));
+      onDraftConsumed?.();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [aiDraft]);
+
+    const clearAiKey = (k: string) => setAiFilledKeys(prev => (prev.has(k) ? (() => { const n = new Set(prev); n.delete(k); return n; })() : prev));
+
     // สลับโหมด: รับกะ = สถานะกะก่อน · ส่งกะ = รส/batch ล่าสุด + ยกถังจากกะก่อน
     const applyMode = (m: 'in' | 'out') => {
       setMode(m); setMsg('');
@@ -291,22 +325,35 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
         ? (lastRef.current ? { ...lastRef.current, shift: h.shift } : initHo())
         : { ...hoFromPrefill(prefillRef.current, lastRef.current), shift: h.shift }, pkLot(date)));
     };
+    // ล้างร่าง AI — กลับไปใช้สถานะกะก่อนตามปกติ (โหมดรับกะ) เหมือนยังไม่เคยมี AI มากรอกให้
+    const clearAiDraft = () => { setAiFilledKeys(new Set()); applyMode('in'); };
 
-    const setLine = (i: number, patch: Partial<HoLine>) => setHo(h => ({ ...h, lines: h.lines.map((l, j) => j === i ? { ...l, ...patch } : l) }));
-    const setTank = (i: number, t: number, v: string) => setHo(h => ({ ...h, lines: h.lines.map((l, j) => j === i ? { ...l, tanks: l.tanks.map((x, k) => k === t ? v : x) } : l) }));
-    const setStage = (i: number, v: string) => setHo(h => ({ ...h, line4: { ...h.line4, stages: h.line4.stages.map((x, k) => k === i ? v : x) } }));
+    const setLine = (i: number, patch: Partial<HoLine>) => {
+      setHo(h => ({ ...h, lines: h.lines.map((l, j) => j === i ? { ...l, ...patch } : l) }));
+      Object.keys(patch).forEach(k => clearAiKey(`line${i}.${k}`));
+    };
+    const setTank = (i: number, t: number, v: string) => {
+      setHo(h => ({ ...h, lines: h.lines.map((l, j) => j === i ? { ...l, tanks: l.tanks.map((x, k) => k === t ? v : x) } : l) }));
+      clearAiKey(`line${i}.tank${t}`);
+    };
+    const setStage = (i: number, v: string) => {
+      setHo(h => ({ ...h, line4: { ...h.line4, stages: h.line4.stages.map((x, k) => k === i ? v : x) } }));
+      clearAiKey(`line4.stage${i}`);
+    };
 
     const send = async () => {
       setBusy(true); setMsg('');
       try {
         await fetch(`${apiUrl}/api/handover`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, operator: operatorName, kind: mode, ...ho }) });
-        setMsg(mode === 'in' ? '✅ รับกะ & แจ้งกลุ่มแล้ว' : '✅ ส่งกะเข้า Telegram แล้ว'); reload(); setTimeout(() => setOpen(false), 900);
+        setMsg(mode === 'in' ? '✅ รับกะ & แจ้งกลุ่มแล้ว' : '✅ ส่งกะเข้า Telegram แล้ว'); setAiFilledKeys(new Set()); reload(); setTimeout(() => setOpen(false), 900);
       } catch { setMsg('❌ ส่งไม่สำเร็จ'); } finally { setBusy(false); }
     };
 
     const inp: React.CSSProperties = { width: '100%', boxSizing: 'border-box', border: '1px solid #dde3e7', borderRadius: 10, padding: '9px 11px', fontSize: '0.88rem', fontFamily: 'inherit', color: '#263238' };
     const flavIn: React.CSSProperties = { marginLeft: 'auto', width: '48%', border: 'none', borderRadius: 8, padding: '7px 9px', fontSize: '0.82rem', fontWeight: 700, fontFamily: 'inherit', boxSizing: 'border-box' };
     const tag: React.CSSProperties = { fontSize: '0.62rem', fontWeight: 700, color: '#fff', background: 'rgba(255,255,255,.25)', padding: '2px 8px', borderRadius: 20 };
+    // ฟิลด์ที่ AI เติมให้ (ยังไม่ถูกแก้) → ไฮไลต์อำพันอ่อน ให้เห็นชัดว่าอันไหนต้องตรวจสอบ
+    const aiStyle = (key: string): React.CSSProperties => aiFilledKeys.has(key) ? { background: '#fff8e1', borderColor: '#f0b429' } : {};
 
     if (!open) return (
       <button onClick={() => setOpen(true)} style={{ ...card, width: '100%', textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontWeight: 800, fontSize: '0.9rem', color: '#37474f' }}>
@@ -321,6 +368,13 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
           <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>📋 บันทึกกะ</div>
           <button onClick={() => setOpen(false)} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: '#90a4ae', cursor: 'pointer', fontSize: '1.1rem' }}>×</button>
         </div>
+        {/* แบนเนอร์: ข้อมูลนี้มาจากผู้ช่วย AI — ตรวจสอบก่อนส่ง (หายไปเองเมื่อไม่มีฟิลด์ AI เหลือ/กดส่งแล้ว) */}
+        {aiFilledKeys.size > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff8e1', border: '1px solid #f0d68a', borderRadius: 10, padding: '9px 11px', marginBottom: 10, fontSize: '0.78rem', color: '#8a6100' }}>
+            <span style={{ flex: 1 }}>🤖 ข้อมูลนี้มาจากผู้ช่วย AI — ตรวจสอบก่อนส่ง</span>
+            <button onClick={clearAiDraft} style={{ border: 'none', background: 'none', color: '#8a6100', fontWeight: 700, cursor: 'pointer', fontSize: '0.76rem', textDecoration: 'underline', flexShrink: 0 }}>ล้างข้อมูล AI</button>
+          </div>
+        )}
         {/* segmented: รับกะ / ส่งกะ */}
         <div style={{ display: 'flex', gap: 5, background: '#eef1f4', borderRadius: 12, padding: 4, marginBottom: 10 }}>
           {([['in', '📥 รับกะ'], ['out', '📤 ส่งกะ']] as ['in' | 'out', string][]).map(([m, lb]) => (
@@ -341,12 +395,12 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: meta.c }}>
               <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.85rem' }}>▶️ {ln.line}</span>
               <span style={tag}>{meta.sub}</span>
-              <input value={ln.flavor} onChange={e => setLine(i, { flavor: e.target.value })} placeholder="รส / สถานะ (เช่น CIP ต่อ)" style={flavIn} />
+              <input value={ln.flavor} onChange={e => setLine(i, { flavor: e.target.value })} placeholder="รส / สถานะ (เช่น CIP ต่อ)" style={{ ...flavIn, ...aiStyle(`line${i}.flavor`) }} />
             </div>
             <div style={{ padding: '10px 12px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '58px 1fr', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                 <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#546e7a' }}>Batch</label>
-                <select value={ln.batch || ''} onChange={e => setLine(i, { batch: e.target.value })} style={inp}>
+                <select value={ln.batch || ''} onChange={e => setLine(i, { batch: e.target.value })} style={{ ...inp, ...aiStyle(`line${i}.batch`) }}>
                   <option value="">— Batch ล่าสุดที่ค้าง (ส่งต่อหน้าผลิต) —</option>
                   {HO_BATCHES.map(b => <option key={b} value={b}>Batch {b}</option>)}
                 </select>
@@ -354,14 +408,14 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
               {ln.tanks.map((tk, t) => (
                 <div key={t} style={{ display: 'grid', gridTemplateColumns: '58px 1fr', alignItems: 'center', gap: 10, marginBottom: 7 }}>
                   <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#546e7a' }}>ถัง {t + 1}</label>
-                  <input value={tk} onChange={e => setTank(i, t, e.target.value)} placeholder="ว่าง" style={inp} />
+                  <input value={tk} onChange={e => setTank(i, t, e.target.value)} placeholder="ว่าง" style={{ ...inp, ...aiStyle(`line${i}.tank${t}`) }} />
                 </div>
               ))}
               <div style={{ display: 'grid', gridTemplateColumns: '58px 1fr', alignItems: 'center', gap: 10, marginBottom: 7 }}>
                 <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#546e7a' }}>Lot No.</label>
-                <input value={ln.lotNo || ''} onChange={e => setLine(i, { lotNo: e.target.value })} placeholder="เช่น 080726" style={inp} />
+                <input value={ln.lotNo || ''} onChange={e => setLine(i, { lotNo: e.target.value })} placeholder="เช่น 080726" style={{ ...inp, ...aiStyle(`line${i}.lotNo`) }} />
               </div>
-              <input value={ln.note} onChange={e => setLine(i, { note: e.target.value })} placeholder="หมายเหตุ (เช่น หลังเปลี่ยนกรอง Batch 2)" style={{ ...inp, border: '1px dashed #d3dae0', marginTop: 2 }} />
+              <input value={ln.note} onChange={e => setLine(i, { note: e.target.value })} placeholder="หมายเหตุ (เช่น หลังเปลี่ยนกรอง Batch 2)" style={{ ...inp, border: '1px dashed #d3dae0', marginTop: 2, ...aiStyle(`line${i}.note`) }} />
             </div>
           </div>
         ); })}
@@ -370,23 +424,23 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: '#4a7c59' }}>
             <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.85rem' }}>▶️ Line 4</span>
             <span style={tag}>Mixing / Pasteurizer</span>
-            <input value={ho.line4.flavor} onChange={e => setHo(h => ({ ...h, line4: { ...h.line4, flavor: e.target.value } }))} placeholder="รส / สถานะ" style={flavIn} />
+            <input value={ho.line4.flavor} onChange={e => { setHo(h => ({ ...h, line4: { ...h.line4, flavor: e.target.value } })); clearAiKey('line4.flavor'); }} placeholder="รส / สถานะ" style={{ ...flavIn, ...aiStyle('line4.flavor') }} />
           </div>
           <div style={{ padding: '10px 12px' }}>
             {HO_L4_STAGES.map((nm, i) => (
               <div key={nm} style={{ display: 'grid', gridTemplateColumns: '90px 1fr', alignItems: 'center', gap: 10, marginBottom: 7 }}>
                 <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#546e7a' }}>{nm}</label>
-                <input value={ho.line4.stages[i]} onChange={e => setStage(i, e.target.value)} placeholder="ว่าง / สถานะ" style={inp} />
+                <input value={ho.line4.stages[i]} onChange={e => setStage(i, e.target.value)} placeholder="ว่าง / สถานะ" style={{ ...inp, ...aiStyle(`line4.stage${i}`) }} />
               </div>
             ))}
             <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', alignItems: 'center', gap: 10, marginBottom: 7 }}>
               <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#546e7a' }}>Lot No.</label>
-              <input value={ho.line4.lotNo || ''} onChange={e => setHo(h => ({ ...h, line4: { ...h.line4, lotNo: e.target.value } }))} placeholder="เช่น 080726" style={inp} />
+              <input value={ho.line4.lotNo || ''} onChange={e => { setHo(h => ({ ...h, line4: { ...h.line4, lotNo: e.target.value } })); clearAiKey('line4.lotNo'); }} placeholder="เช่น 080726" style={{ ...inp, ...aiStyle('line4.lotNo') }} />
             </div>
           </div>
         </div>
 
-        <input value={ho.note} onChange={e => setHo(h => ({ ...h, note: e.target.value }))} placeholder="📌 หมายเหตุรวม (ถ้ามี)" style={{ ...inp, marginBottom: 12 }} />
+        <input value={ho.note} onChange={e => { setHo(h => ({ ...h, note: e.target.value })); clearAiKey('note'); }} placeholder="📌 หมายเหตุรวม (ถ้ามี)" style={{ ...inp, marginBottom: 12, ...aiStyle('note') }} />
 
         <div style={{ background: '#0e1621', borderRadius: 12, padding: 12, marginBottom: 12 }}>
           <div style={{ color: '#8fa6bd', fontSize: '0.64rem', fontWeight: 800, letterSpacing: '.04em', marginBottom: 6 }}>✈ พรีวิวข้อความ</div>
@@ -555,8 +609,8 @@ const PackingReportForm: React.FC<{ date: string; operatorName: string | null; r
     );
   };
 
-const TimelineTab: React.FC<{ date: string; operatorName: string | null; events: TimelineEvent[]; reload: () => void; card: React.CSSProperties }> =
-  ({ date, operatorName, events, reload, card }) => {
+const TimelineTab: React.FC<{ date: string; operatorName: string | null; events: TimelineEvent[]; reload: () => void; card: React.CSSProperties; aiDraft?: HoState | null; onDraftConsumed?: () => void }> =
+  ({ date, operatorName, events, reload, card, aiDraft, onDraftConsumed }) => {
     const [filter, setFilter] = useState('all');
     const [hoData, setHoData] = useState<HoState | null>(null); // สถานะรับกะสด → ป้อนฟอร์มบรรจุ
 
@@ -596,7 +650,8 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
     return (
       <div>
         {/* handover form (รับกะ/ส่งกะ, collapsible) — เผยแพร่สถานะสดให้ฟอร์มบรรจุ */}
-        <HandoverForm date={date} operatorName={operatorName} reload={reload} card={card} onLiveChange={setHoData} />
+        <HandoverForm date={date} operatorName={operatorName} reload={reload} card={card} onLiveChange={setHoData}
+          aiDraft={aiDraft} onDraftConsumed={onDraftConsumed} />
 
         {/* packing-staff report (แปลง %/kg → Boxes) — ซิงค์สดจากรับกะ */}
         <PackingReportForm date={date} operatorName={operatorName} reload={reload} card={card} source={hoData} />
@@ -1466,25 +1521,26 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
     const toggleAdhoc = (t: AdhocTask) => post('/api/tasks/update', { id: t.id, status: t.status === 'done' ? 'pending' : 'done' });
     const delAdhoc = (id: number) => post('/api/tasks/delete-one', { id });
 
-    // assign form
-    const [assignTo, setAssignTo] = useState('mam');
+    // assign form — เลือกได้หลายคน (มอบงานเดียวให้หลายคนพร้อมกัน)
+    const [assignees, setAssignees] = useState<string[]>(['mam']);
     const [cat, setCat] = useState('production');
     const [title, setTitle] = useState('');
     const [loc, setLoc] = useState(LOCATIONS[0]);
     const [prio, setPrio] = useState('normal');
-    const [assignImgs, setAssignImgs] = useState<PhotoAttach[]>([]); // รูปแนบงาน (≤6)
+    const [assignImgs, setAssignImgs] = useState<PhotoAttach[]>([]); // รูปแนบงาน (≤10)
     const [zoom, setZoom] = useState<string | null>(null);           // รูปที่กดขยาย (lightbox)
     const assignFileRef = useRef<HTMLInputElement>(null);
+    const toggleAssignee = (key: string) => setAssignees(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
     const addAssignImgs = async (files: FileList | File[]) => {
       const list = Array.from(files).filter(f => f.type.startsWith('image/'));
       const attaches: PhotoAttach[] = [];
       for (const f of list) { try { attaches.push(await resizePhoto(f)); } catch { /* ข้ามไฟล์เสีย */ } }
-      if (attaches.length) setAssignImgs(prev => [...prev, ...attaches].slice(0, 6));
+      if (attaches.length) setAssignImgs(prev => [...prev, ...attaches].slice(0, 10));
     };
     const assign = async () => {
-      if (!title.trim()) return;
-      await post('/api/duty/assign', { date, assignTo, category: cat, title: title.trim(), location: loc, priority: prio, operator: operatorName, images: assignImgs.map(a => a.preview) });
-      setTitle(''); setAssignImgs([]);
+      if (!title.trim() || assignees.length === 0) return;
+      await post('/api/duty/assign', { date, assignees, category: cat, title: title.trim(), location: loc, priority: prio, operator: operatorName, images: assignImgs.map(a => a.preview) });
+      setTitle(''); setAssignImgs([]); // คงคนที่เลือกไว้ เผื่อมอบงานถัดไปให้กลุ่มเดิม
     };
 
     const sendTg = async () => {
@@ -1608,9 +1664,12 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
         {/* assign form */}
         <div style={{ ...card }}>
           <div style={{ fontWeight: 800, fontSize: '0.9rem', marginBottom: 12 }}>➕ มอบหมายงานระหว่างวัน</div>
-          <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a', marginBottom: 7 }}>ส่งให้</div>
+          <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a', marginBottom: 7 }}>ส่งให้ <span style={{ fontWeight: 600, color: '#9aa0a6' }}>(เลือกได้หลายคน)</span></div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-            {duty.people.map(p => <button key={p.key} onClick={() => setAssignTo(p.key)} style={chip(assignTo === p.key, (DUTY_COLOR[p.key] || {}).c || '#ff6b00')}>{p.name}</button>)}
+            {duty.people.map(p => <button key={p.key} onClick={() => toggleAssignee(p.key)} style={chip(assignees.includes(p.key), (DUTY_COLOR[p.key] || {}).c || '#ff6b00')}>{p.name}</button>)}
+            {(() => { const all = duty.people.length > 0 && duty.people.every(p => assignees.includes(p.key)); return (
+              <button onClick={() => setAssignees(all ? [] : duty.people.map(p => p.key))} style={chip(all, '#37474f')}>👥 ทั้งหมด</button>
+            ); })()}
           </div>
           <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a', marginBottom: 7 }}>ประเภทงาน</div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -1632,9 +1691,9 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
           {/* แนบรูป (ทุกประเภท) */}
           <input ref={assignFileRef} type="file" accept="image/*" multiple onChange={e => { if (e.target.files?.length) addAssignImgs(e.target.files); e.target.value = ''; }} style={{ display: 'none' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-            <button onClick={() => assignFileRef.current?.click()} disabled={assignImgs.length >= 6}
-              style={{ border: '1px dashed #cbd5db', background: '#f7f9fa', color: '#546e7a', borderRadius: 11, padding: '8px 12px', fontSize: '0.82rem', fontWeight: 700, cursor: assignImgs.length >= 6 ? 'default' : 'pointer', opacity: assignImgs.length >= 6 ? 0.5 : 1 }}>📎 แนบรูป</button>
-            <span style={{ fontSize: '0.72rem', color: '#9aa0a6' }}>{assignImgs.length ? `${assignImgs.length}/6 รูป` : 'ไม่บังคับ · วางรูป (paste) ได้'}</span>
+            <button onClick={() => assignFileRef.current?.click()} disabled={assignImgs.length >= 10}
+              style={{ border: '1px dashed #cbd5db', background: '#f7f9fa', color: '#546e7a', borderRadius: 11, padding: '8px 12px', fontSize: '0.82rem', fontWeight: 700, cursor: assignImgs.length >= 10 ? 'default' : 'pointer', opacity: assignImgs.length >= 10 ? 0.5 : 1 }}>📎 แนบรูป</button>
+            <span style={{ fontSize: '0.72rem', color: '#9aa0a6' }}>{assignImgs.length ? `${assignImgs.length}/10 รูป` : 'ไม่บังคับ · สูงสุด 10 รูป · วางรูป (paste) ได้'}</span>
             {assignImgs.map((a, i) => (
               <div key={i} style={{ position: 'relative' }}>
                 <img src={a.preview} alt="แนบ" onClick={() => setZoom(a.preview)} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 8, border: '1px solid #e0e0e0', cursor: 'zoom-in', display: 'block' }} />
@@ -1661,11 +1720,12 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
   };
 
 // ─── Assistant chat ─────────────────────────────────────────────
-const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () => void; card: React.CSSProperties }> =
-  ({ operatorName, onAfterAction, card }) => {
+const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () => void; card: React.CSSProperties; onHandoverDraft?: (draft: HoState) => void; onGoToHandoverForm?: () => void }> =
+  ({ operatorName, onAfterAction, card, onHandoverDraft, onGoToHandoverForm }) => {
     const [msgs, setMsgs] = useState<ChatMsg[]>([{ role: 'assistant', text: 'สวัสดีครับ ถามหรือสั่งได้เลย เช่น\n• "วันนี้ Line 2 ทำอะไรไปแล้วบ้าง" / "สัปดาห์นี้รสไหนผลิตเยอะสุด"\n• "บันทึกผลิต Amazon batch C Line 2 brix 12.4" (มีการ์ดให้กดยืนยันก่อนบันทึกจริง)\n• "บันทึกรอบ CIP Line 3 มี backwash" / "วางแผนพรุ่งนี้ Amazon 6 batch"\n• 📎 แนบรูปแผนผลิตรายสัปดาห์ แล้วถาม "วันนี้กะผมผลิตอะไรบ้าง"\n• ถามเรื่องระบบ/กะทำงาน/วิธีใช้แอปได้ด้วย' }]);
     const [input, setInput] = useState('');
     const [busy, setBusy] = useState(false);
+    const [handoverMode, setHandoverMode] = useState(false); // โหมด "กรอกฟอร์มรับกะด้วย AI" — ข้อความถัดไปจะถูกส่งพร้อม intent พิเศษ
     // รูปที่แนบ (หลายรูป/หลายส่วน) — data = base64 ไม่รวม prefix, preview = data URL สำหรับแสดง
     type Attach = { preview: string; data: string; mediaType: string };
     const [imgs, setImgs] = useState<Attach[]>([]);
@@ -1720,17 +1780,20 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
       const text = input.trim();
       if ((!text && !imgs.length) || busy) return;
       const staged = imgs;
+      const usingHandoverMode = handoverMode; // เทิร์นนี้ยิง intent พิเศษไหม — จับค่าไว้ก่อน setState
       setMsgs(m => [...m, { role: 'user', text: text || (staged.length ? '(แนบรูป)' : ''), images: staged.length ? staged.map(a => a.preview) : undefined }]);
       setInput(''); setImgs([]); setBusy(true);
       try {
         const r = await fetch(`${apiUrl}/api/assistant`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: text, operator: operatorName, session: `web-${operatorName || 'guest'}`,
+            intent: usingHandoverMode ? 'fill_handover' : undefined,
             images: staged.length ? staged.map(a => ({ data: a.data, media_type: a.mediaType })) : undefined }),
         });
         const d = await r.json();
-        setMsgs(m => [...m, { role: 'assistant', text: d.reply || d.error || 'ขออภัย เกิดข้อผิดพลาด', pending: d.pending && d.pending.length ? d.pending.map((p: PendingAction) => ({ ...p, status: 'pending' as const })) : undefined }]);
+        setMsgs(m => [...m, { role: 'assistant', text: d.reply || d.error || 'ขออภัย เกิดข้อผิดพลาด', pending: d.pending && d.pending.length ? d.pending.map((p: PendingAction) => ({ ...p, status: 'pending' as const })) : undefined, handoverReady: !!d.handoverDraft }]);
         if (d.actions && d.actions.length) onAfterAction();
+        if (d.handoverDraft) { onHandoverDraft?.(d.handoverDraft as HoState); setHandoverMode(false); }
       } catch {
         setMsgs(m => [...m, { role: 'assistant', text: 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้' }]);
       } finally { setBusy(false); }
@@ -1755,9 +1818,21 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
         setMsgs(m => m.map(msg => !msg.pending ? msg : ({ ...msg, pending: msg.pending.map(p => p.id === actionId ? { ...p, status: 'error' as const, result: 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้' } : p) })));
       }
     };
+    // เริ่มโหมดกรอกฟอร์มรับกะด้วย AI — ข้อความถัดไปที่พิมพ์จะถูกแกะเป็นฟิลด์แทนที่จะตอบคำถามทั่วไป
+    const startHandoverMode = () => {
+      setHandoverMode(true);
+      setMsgs(m => [...m, { role: 'assistant', text: 'วางข้อความข้อมูลกะที่ได้รับมาได้เลยครับ เช่น ไลน์ไหนรสอะไร batch อะไร ถังเหลือเท่าไหร่ lot อะไร มีหมายเหตุอะไรบ้าง' }]);
+    };
     return (
       <div style={{ ...card, display: 'flex', flexDirection: 'column', height: '70vh', padding: '0', overflow: 'hidden' }}>
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px' }}>
+          {!handoverMode && (
+            <div style={{ background: '#fff7f0', border: '1.5px solid #ffd0a8', borderRadius: 14, padding: '12px 14px', marginBottom: 14 }}>
+              <div style={{ fontWeight: 800, fontSize: '0.86rem', color: '#b34700', marginBottom: 4 }}>📋 กรอกฟอร์มรับกะด้วย AI</div>
+              <div style={{ fontSize: '0.78rem', color: '#5d4037', lineHeight: 1.5, marginBottom: 10 }}>วางข้อความข้อมูลกะที่ได้รับมา ให้ AI ช่วยกรอกฟอร์มให้ — ตรวจสอบและกดส่งเองได้ที่ฟอร์ม</div>
+              <button onClick={startHandoverMode} style={{ border: 'none', borderRadius: 10, padding: '8px 14px', background: '#ff6b00', color: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>เริ่มกรอกด้วย AI</button>
+            </div>
+          )}
           {msgs.map((m, i) => (
             <div key={i} style={{ marginBottom: '10px' }}>
               <div style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
@@ -1796,12 +1871,25 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
                   )}
                 </div>
               ))}
+              {/* กรอกฟอร์มรับกะให้แล้ว — ไม่ auto-jump ให้ผู้ใช้กดเองไปตรวจสอบ/แก้ไข/ส่งที่ฟอร์มจริง */}
+              {m.handoverReady && (
+                <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: 6 }}>
+                  <button onClick={() => onGoToHandoverForm?.()} style={{ border: 'none', borderRadius: 10, padding: '9px 14px', background: '#00897b', color: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>👉 ไปตรวจสอบในฟอร์มรับกะ</button>
+                </div>
+              )}
             </div>
           ))}
           {busy && <div style={{ color: '#9aa0a6', fontSize: '0.8rem' }}>กำลังคิด…</div>}
           <div ref={endRef} />
         </div>
         <div style={{ borderTop: '1px solid #eee', background: '#fff' }}>
+          {/* แถบสถานะโหมดกรอกฟอร์มรับกะด้วย AI — ค้างอยู่บนแชทจนกว่าจะยกเลิกหรือได้ร่างฟอร์มแล้ว */}
+          {handoverMode && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#fff3e0', borderBottom: '1px solid #ffd0a8', fontSize: '0.76rem', color: '#b34700', fontWeight: 700 }}>
+              <span style={{ flex: 1 }}>🟠 โหมด: กรอกฟอร์มรับกะ</span>
+              <button onClick={() => setHandoverMode(false)} style={{ border: 'none', background: 'none', color: '#b34700', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline', fontSize: '0.74rem' }}>ยกเลิกโหมดนี้</button>
+            </div>
+          )}
           {/* รูปที่แนบไว้ รอส่ง — thumbnail หลายรูป + ปุ่มเอาออกทีละรูป */}
           {imgs.length > 0 && (
             <div style={{ padding: '10px 10px 0' }}>
@@ -1821,7 +1909,7 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
             <button onClick={() => fileRef.current?.click()} disabled={busy} title="แนบรูป (แผนผลิต ฯลฯ) — เลือกได้หลายรูป"
               style={{ padding: '10px 12px', borderRadius: '12px', border: '1px solid #ddd', background: '#fff', color: '#546e7a', fontSize: '1.05rem', cursor: 'pointer' }}>📎</button>
             <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} onPaste={onPaste}
-              placeholder={imgs.length ? 'ถามเกี่ยวกับรูปนี้…' : 'พิมพ์ข้อความ… (แนบรูปแผนได้ด้วย 📎)'} style={{ flex: 1, padding: '10px', border: '1px solid #ddd', borderRadius: '12px' }} />
+              placeholder={handoverMode ? 'วางข้อความข้อมูลกะที่ได้รับมา…' : imgs.length ? 'ถามเกี่ยวกับรูปนี้…' : 'พิมพ์ข้อความ… (แนบรูปแผนได้ด้วย 📎)'} style={{ flex: 1, padding: '10px', border: '1px solid #ddd', borderRadius: '12px' }} />
             <button onClick={send} disabled={busy} style={{ padding: '10px 18px', borderRadius: '12px', border: 'none', background: '#ff6b00', color: '#fff', fontWeight: 700, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}>ส่ง</button>
           </div>
         </div>
