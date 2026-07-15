@@ -241,24 +241,28 @@ function hoPreview(h: HoState, op: string | null, date: string, kind: 'in' | 'ou
   if (kind === 'in') L.push('', '✅ รับทราบสถานะครบ');
   return L.join('\n');
 }
-// map ผลจาก /api/handover/prefill (รส/batch/เวลา CIP ล่าสุดต่อไลน์ + งานค้าง) → HoState สำหรับโหมดส่งกะ
-type PrefillLine = { flavor?: string; batch?: string; cipTime?: string };
+// map ผลจาก /api/handover/prefill → HoState สำหรับโหมดส่งกะ
+// รส/Batch/ถัง มาจาก "การผลิตจริงวันนี้": ถัง 3 = batch สุดท้าย, ถัง 2 = รองสุดท้าย (เว้น % ให้คนกรอก)
+// ไลน์ที่ไม่มีการผลิต (เช่น CIP) → ถังว่าง · Line 4 ยกจากกะก่อน · CIP ล่าสุด/งานค้าง → หมายเหตุ
+type PrefillLine = { flavor?: string; batch?: string; cipTime?: string; recentBatches?: string[] };
 type BacklogItem = { line_name?: string; category?: string; title?: string };
 function hoFromPrefill(prefill: Record<string, PrefillLine>, carry?: HoState | null, backlog?: BacklogItem[]): HoState {
   const base = carry || initHo();
   const lines = HO_LINES.map((l, i) => {
     const pf = prefill[l.line] || {};
     const prev = base.lines[i] || { line: l.line, flavor: '', batch: '', tanks: ['', '', ''], note: '', lotNo: '' };
-    // เวลา CIP ล่าสุด (ที่ server ส่งมา) → เติมเป็นหมายเหตุไลน์ถ้ายังว่าง
-    const cipHM = pf.cipTime ? parseHM(pf.cipTime)?.hm : null;
-    const note = prev.note || (cipHM ? `CIP ล่าสุด ${cipHM}` : '');
-    return { ...prev, line: l.line, flavor: pf.flavor || prev.flavor || '', batch: pf.batch || prev.batch || '', note };
+    // ถังจาก batch ที่ผลิตจริงวันนี้ (ใหม่สุด = ถังเลขมาก) — เว้น % ให้ผู้ใช้กรอก · ไม่มีผลิต = ว่าง
+    const rb = Array.isArray(pf.recentBatches) ? pf.recentBatches.filter(Boolean) : [];
+    const tanks = ['', '', ''];
+    if (rb.length >= 1) tanks[2] = `Batch ${rb[rb.length - 1]}`;   // สุดท้าย → ถัง 3
+    if (rb.length >= 2) tanks[1] = `Batch ${rb[rb.length - 2]}`;   // รองสุดท้าย → ถัง 2
+    const cipHM = pf.cipTime ? parseHM(pf.cipTime)?.hm : null;      // CIP ล่าสุด → หมายเหตุไลน์
+    return { ...prev, line: l.line, flavor: pf.flavor || '', batch: pf.batch || '', tanks, note: cipHM ? `CIP ล่าสุด ${cipHM}` : '' };
   });
-  // งานค้าง → หมายเหตุรวม "ส่งต่อ" ถ้ายังว่าง
-  let note = base.note;
-  if (!note && backlog && backlog.length) {
-    note = 'งานค้างส่งต่อ: ' + backlog.map(b => `${b.title || ''}${b.line_name ? ` (${b.line_name})` : ''}`.trim()).filter(Boolean).join(' · ');
-  }
+  // งานค้าง → หมายเหตุรวม "ส่งต่อ"
+  const note = (backlog && backlog.length)
+    ? 'งานค้างส่งต่อ: ' + backlog.map(b => `${b.title || ''}${b.line_name ? ` (${b.line_name})` : ''}`.trim()).filter(Boolean).join(' · ')
+    : '';
   return { ...base, lines, note };
 }
 // เติม Lot No. รายไลน์ให้เป็นค่าเริ่มต้น (ddmmyy) ถ้ายังว่าง + กัน field undefined จากข้อมูลเก่า

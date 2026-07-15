@@ -2911,7 +2911,15 @@ app.get('/api/handover/prefill', async (req, res) => {
   try {
     const rows = await dbAll('SELECT line_name, flavor, batch, timestamp FROM production_logs WHERE substr(timestamp,1,10) = ? ORDER BY timestamp', [date]);
     const byLine = {};
-    for (const r of rows) byLine[r.line_name] = { flavor: r.flavor || '', batch: r.batch || '', prodTime: r.timestamp };
+    const seqByLine = {}; // ลำดับ batch ที่ผลิตจริง (distinct ตามเวลา) ต่อไลน์ → ใช้หา "รองสุดท้าย+สุดท้าย"
+    for (const r of rows) {
+      byLine[r.line_name] = { flavor: r.flavor || '', batch: r.batch || '', prodTime: r.timestamp };
+      const seq = seqByLine[r.line_name] || (seqByLine[r.line_name] = []);
+      const b = (r.batch || '').trim();
+      if (b && seq[seq.length - 1] !== b) seq.push(b); // เก็บเฉพาะตอน batch เปลี่ยน
+    }
+    // recentBatches = 2 batch ล่าสุดที่ผลิต (index สุดท้าย = ใหม่สุด) — ให้ client เอาไปเติมถัง
+    for (const ln in byLine) byLine[ln].recentBatches = (seqByLine[ln] || []).slice(-2);
     // เวลา CIP ล่าสุดต่อไลน์วันนี้ (Line 1 = ตารางแยก · Line 2/3 = cip_line2_sessions แยกด้วยคอลัมน์ line)
     const maxT = async (sql, p) => { const r = await dbAll(sql, p); return r[0] && r[0].t ? r[0].t : null; };
     const cip = {
