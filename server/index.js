@@ -3253,14 +3253,14 @@ const ASSISTANT_TOOLS = [
   { name: 'get_quality_specs', description: 'ดูค่ามาตรฐาน (สเปก) Brix/pH ที่ตั้งไว้ต่อรสชาติ — ใช้เมื่อผู้ใช้ถามว่าตั้งสเปกอะไรไว้บ้าง หรือก่อนแก้',
     input_schema: { type: 'object', properties: { flavor: { type: 'string', description: 'เจาะจงรส (ไม่ระบุ = ทั้งหมด)' } } } },
   // ── โหมดกรอกฟอร์มรับกะด้วย AI: ไม่เขียน DB แค่ส่งร่างข้อมูลกลับให้ client เติมฟอร์ม ──
-  { name: 'fill_handover_form', description: 'แกะข้อความข้อมูลสถานะกะ (ที่ผู้ใช้วางเป็นข้อความอิสระ) ให้เป็นฟิลด์โครงสร้าง เพื่อเติมในฟอร์ม "รับกะ" ให้ผู้ใช้ตรวจสอบ/แก้ไข/กดส่งเอง — tool นี้ไม่บันทึกอะไรลงฐานข้อมูลทั้งสิ้น ไม่ต้องขอยืนยัน เรียกได้ทันทีเมื่ออยู่ในโหมดนี้',
+  { name: 'fill_handover_form', description: 'แกะข้อความข้อมูลสถานะกะ (ที่ผู้ใช้วางเป็นข้อความอิสระ) ให้เป็นฟิลด์โครงสร้าง เพื่อเติมในฟอร์ม "รับกะ" ให้ผู้ใช้ตรวจสอบ/แก้ไข/กดส่งเอง — tool นี้ไม่บันทึกอะไรลงฐานข้อมูลทั้งสิ้น ไม่ต้องขอยืนยัน เรียกได้ทันทีเมื่ออยู่ในโหมดนี้ · หลักการสำคัญ: คัดลอกข้อความตามที่เขียนมาให้ตรงช่อง อย่าย่อ/ตัด/แต่งเติม ถ้าไม่มีข้อมูลปล่อยว่าง',
     input_schema: { type: 'object', properties: {
       shift: { type: 'string', enum: ['กะเช้า', 'กะบ่าย', 'กะดึก'] },
       lines: { type: 'array', minItems: 3, maxItems: 3, description: 'Line 1, Line 2, Line 3 ตามลำดับ — ฟิลด์ไหนไม่มีข้อมูลในข้อความให้ปล่อยว่างไว้ ห้ามเดา/แต่งเติม',
         items: { type: 'object', properties: {
-          flavor: { type: 'string', description: 'รส/สถานะไลน์ เช่น "ส้ม" หรือ "CIP ต่อ (ยังไม่จบรอบ)"' },
-          batch: { type: 'string', description: 'ตัวอักษร batch เช่น "C"' },
-          tanks: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 3, description: 'ระดับถัง 1-3 เช่น "80%","ว่าง","60%"' },
+          flavor: { type: 'string', description: 'รส/สถานะไลน์ ตามที่เขียนมา เช่น "FDS", "Freshy Green Apple", "CIP" — ไม่ต้องเติมคำ เช่นเห็น "Cip" ก็ใส่ "CIP" เฉยๆ อย่าเติม "ต่อ" เอง' },
+          batch: { type: 'string', description: 'ช่อง dropdown "Batch ล่าสุดที่ค้าง" ของไลน์ (ตัวอักษร A-Z เดี่ยว) — ใส่เฉพาะเมื่อระบุ batch ปัจจุบัน/ล่าสุดของไลน์ชัดเจนเป็นตัวเดียว ไม่แน่ใจให้เว้นว่าง; อย่าดึงตัวอักษร batch ออกจากข้อความของถัง (เก็บไว้ในช่องถังเต็มๆ)' },
+          tanks: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 3, description: 'ข้อความสถานะถัง 1, 2, 3 ตามลำดับ แบบครบถ้วนตามที่เขียนมา — เช่น "ถัง 2 Batch C 100%" ให้ใส่ tanks[1]="Batch C 100%" (เก็บทั้ง batch และปริมาณ ห้ามตัด batch ทิ้ง) · ถังที่เขียนว่าว่าง/ไม่มี ใส่ "ว่าง" หรือเว้นว่าง' },
           lotNo: { type: 'string' }, note: { type: 'string' },
         } } },
       line4: { type: 'object', description: 'Mixing 1, Mixer, Pasteurizer, Mixing 2, Storage, Filling',

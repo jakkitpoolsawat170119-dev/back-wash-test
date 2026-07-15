@@ -286,10 +286,11 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
     const lastRef = useRef<HoState | null>(null);                 // สถานะกะก่อน (สำหรับ รับกะ)
     const prefillRef = useRef<Record<string, PrefillLine>>({});   // รส/batch ล่าสุด (สำหรับ ส่งกะ)
     const aiDraftAppliedRef = useRef(false);                      // กันโหลดสถานะกะก่อน (async) มาทับร่างที่ AI เพิ่งกรอก
+    const aiDraftRef = useRef<HoState | null>(null);              // เก็บร่าง AI ไว้ → สลับโหมดไป-กลับแล้วยังกู้คืนได้
 
     // เปิดหน้ามา: เดากะปัจจุบัน + โหลดกะก่อน (รับกะ) และรส/batch ล่าสุด (ส่งกะ) พร้อมกัน
     useEffect(() => {
-      aiDraftAppliedRef.current = false; // วันเปลี่ยน = ตั้งใจโหลดสถานะใหม่ (ล้างการกันทับของรอบก่อน)
+      aiDraftAppliedRef.current = false; aiDraftRef.current = null; // วันเปลี่ยน = ตั้งใจโหลดสถานะใหม่ (ล้างร่าง AI รอบก่อน)
       const bkk = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
       const cs = shiftInfo(currentWorkDay(), bkk.getHours()).shift;
       const shift = cs ? 'กะ' + cs : 'กะเช้า';
@@ -314,6 +315,7 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
       const withLineNames: HoState = { ...aiDraft, lines: aiDraft.lines.map((l, i) => ({ ...l, line: HO_LINES[i]?.line || l.line })) };
       setOpen(true); setMode('in'); setMsg('');
       const filled = fillLot(withLineNames, pkLot(date));
+      aiDraftRef.current = filled; // เก็บไว้ให้ applyMode('in') คืนค่าได้แม้ผู้ใช้สลับไปโหมดส่งกะแล้วกลับมา
       setHo(filled);
       setAiFilledKeys(hoFilledKeys(filled));
       onDraftConsumed?.();
@@ -322,17 +324,27 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
 
     const clearAiKey = (k: string) => setAiFilledKeys(prev => (prev.has(k) ? (() => { const n = new Set(prev); n.delete(k); return n; })() : prev));
 
-    // สลับโหมด: รับกะ = สถานะกะก่อน · ส่งกะ = รส/batch ล่าสุด + ยกถังจากกะก่อน
+    // สลับโหมด: รับกะ = สถานะกะก่อน (หรือร่าง AI ถ้ามี) · ส่งกะ = รส/batch ล่าสุด + ยกถังจากกะก่อน
     const applyMode = (m: 'in' | 'out') => {
+      if (m === mode) return; // แตะโหมดที่เลือกอยู่แล้ว = ไม่ต้องโหลดใหม่ (กันทับข้อมูลที่กำลังตรวจ/ร่าง AI)
       setMode(m); setMsg('');
-      aiDraftAppliedRef.current = false; // สลับโหมดเอง = ทิ้งร่าง AI ตั้งใจโหลดค่าตามโหมด
-      setAiFilledKeys(new Set());        // ค่าถูกแทนที่ทั้งชุด ไฮไลต์เดิมไม่ตรงตำแหน่งแล้ว
+      // กลับมาโหมดรับกะทั้งที่มีร่าง AI ค้างอยู่ → คืนร่าง AI + ไฮไลต์ (ไม่ใช่ทับด้วยสถานะกะก่อนจาก DB)
+      if (m === 'in' && aiDraftRef.current) {
+        setHo(aiDraftRef.current);
+        setAiFilledKeys(hoFilledKeys(aiDraftRef.current));
+        return;
+      }
+      setAiFilledKeys(new Set()); // โหมดส่งกะ (หรือรับกะที่ไม่มีร่าง AI) — ค่าถูกแทนทั้งชุด ไฮไลต์เดิมไม่ตรงแล้ว
       setHo(h => fillLot(m === 'in'
         ? (lastRef.current ? { ...lastRef.current, shift: h.shift } : initHo())
         : { ...hoFromPrefill(prefillRef.current, lastRef.current), shift: h.shift }, pkLot(date)));
     };
-    // ล้างร่าง AI — กลับไปใช้สถานะกะก่อนตามปกติ (โหมดรับกะ) เหมือนยังไม่เคยมี AI มากรอกให้
-    const clearAiDraft = () => { setAiFilledKeys(new Set()); applyMode('in'); };
+    // ล้างร่าง AI — ทิ้งร่างแล้วกลับไปใช้สถานะกะก่อนจาก DB (โหมดรับกะ) เหมือนไม่เคยมี AI มากรอก
+    const clearAiDraft = () => {
+      aiDraftRef.current = null; aiDraftAppliedRef.current = false;
+      setAiFilledKeys(new Set()); setMode('in'); setMsg('');
+      setHo(h => fillLot(lastRef.current ? { ...lastRef.current, shift: h.shift } : initHo(), pkLot(date)));
+    };
 
     const setLine = (i: number, patch: Partial<HoLine>) => {
       setHo(h => ({ ...h, lines: h.lines.map((l, j) => j === i ? { ...l, ...patch } : l) }));
@@ -351,7 +363,7 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
       setBusy(true); setMsg('');
       try {
         await fetch(`${apiUrl}/api/handover`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, operator: operatorName, kind: mode, ...ho }) });
-        setMsg(mode === 'in' ? '✅ รับกะ & แจ้งกลุ่มแล้ว' : '✅ ส่งกะเข้า Telegram แล้ว'); setAiFilledKeys(new Set()); reload(); setTimeout(() => setOpen(false), 900);
+        setMsg(mode === 'in' ? '✅ รับกะ & แจ้งกลุ่มแล้ว' : '✅ ส่งกะเข้า Telegram แล้ว'); setAiFilledKeys(new Set()); aiDraftRef.current = null; reload(); setTimeout(() => setOpen(false), 900);
       } catch { setMsg('❌ ส่งไม่สำเร็จ'); } finally { setBusy(false); }
     };
 
