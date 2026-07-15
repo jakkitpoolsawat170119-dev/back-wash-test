@@ -285,9 +285,11 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
     const [aiFilledKeys, setAiFilledKeys] = useState<Set<string>>(new Set()); // ฟิลด์ที่ AI เติมให้ → ไฮไลต์จนกว่าจะแก้เอง
     const lastRef = useRef<HoState | null>(null);                 // สถานะกะก่อน (สำหรับ รับกะ)
     const prefillRef = useRef<Record<string, PrefillLine>>({});   // รส/batch ล่าสุด (สำหรับ ส่งกะ)
+    const aiDraftAppliedRef = useRef(false);                      // กันโหลดสถานะกะก่อน (async) มาทับร่างที่ AI เพิ่งกรอก
 
     // เปิดหน้ามา: เดากะปัจจุบัน + โหลดกะก่อน (รับกะ) และรส/batch ล่าสุด (ส่งกะ) พร้อมกัน
     useEffect(() => {
+      aiDraftAppliedRef.current = false; // วันเปลี่ยน = ตั้งใจโหลดสถานะใหม่ (ล้างการกันทับของรอบก่อน)
       const bkk = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
       const cs = shiftInfo(currentWorkDay(), bkk.getHours()).shift;
       const shift = cs ? 'กะ' + cs : 'กะเช้า';
@@ -297,7 +299,8 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
         try { const d = await (await fetch(`${apiUrl}/api/handover/last`)).json(); if (d.data) last = fillLot({ shift, lines: d.data.lines || initHo().lines, line4: d.data.line4 || initHo().line4, note: '' }, ''); } catch { /* offline */ }
         try { const d = await (await fetch(`${apiUrl}/api/handover/prefill?date=${date}`)).json(); prefill = d.lines || {}; } catch { /* offline */ }
         lastRef.current = last; prefillRef.current = prefill;
-        setHo(fillLot({ ...hoFromPrefill(prefill, last), shift }, pkLot(date))); // เริ่มโหมดส่งกะ
+        // ถ้าร่าง AI ถูกใส่ไปแล้วระหว่างรอ fetch ห้ามทับ (แต่ refs ด้านบนยังเซ็ตไว้ให้ปุ่มสลับโหมดใช้)
+        if (!aiDraftAppliedRef.current) setHo(fillLot({ ...hoFromPrefill(prefill, last), shift }, pkLot(date))); // เริ่มโหมดส่งกะ
       })();
     }, [date]);
 
@@ -307,6 +310,7 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
     // ร่างจากผู้ช่วย AI มาถึง → เปิดฟอร์ม โหมดรับกะ เติมค่า + ไฮไลต์ฟิลด์ที่ AI กรอกให้ ผู้ใช้ต้องตรวจสอบ/กดส่งเอง
     useEffect(() => {
       if (!aiDraft) return;
+      aiDraftAppliedRef.current = true; // กันการโหลดสถานะกะก่อน (async) ที่อาจ resolve ทีหลังมาทับ
       const withLineNames: HoState = { ...aiDraft, lines: aiDraft.lines.map((l, i) => ({ ...l, line: HO_LINES[i]?.line || l.line })) };
       setOpen(true); setMode('in'); setMsg('');
       const filled = fillLot(withLineNames, pkLot(date));
@@ -321,6 +325,8 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
     // สลับโหมด: รับกะ = สถานะกะก่อน · ส่งกะ = รส/batch ล่าสุด + ยกถังจากกะก่อน
     const applyMode = (m: 'in' | 'out') => {
       setMode(m); setMsg('');
+      aiDraftAppliedRef.current = false; // สลับโหมดเอง = ทิ้งร่าง AI ตั้งใจโหลดค่าตามโหมด
+      setAiFilledKeys(new Set());        // ค่าถูกแทนที่ทั้งชุด ไฮไลต์เดิมไม่ตรงตำแหน่งแล้ว
       setHo(h => fillLot(m === 'in'
         ? (lastRef.current ? { ...lastRef.current, shift: h.shift } : initHo())
         : { ...hoFromPrefill(prefillRef.current, lastRef.current), shift: h.shift }, pkLot(date)));
