@@ -2920,7 +2920,9 @@ app.get('/api/handover/prefill', async (req, res) => {
       'Line 3': await maxT("SELECT MAX(created_at) AS t FROM cip_line2_sessions WHERE line = 'Line 3' AND (date = ? OR created_at LIKE ?)", [date, like]),
     };
     for (const ln of ['Line 1', 'Line 2', 'Line 3']) if (cip[ln]) { byLine[ln] = byLine[ln] || {}; byLine[ln].cipTime = cip[ln]; }
-    res.json({ date, lines: byLine });
+    // งานที่ยังไม่เสร็จของวันนั้น → เอาไปเป็นหมายเหตุ "ส่งต่อ" ในร่างส่งกะ (reuse pattern จาก buildShiftCardData)
+    const backlog = await dbAll("SELECT line_name, category, title FROM daily_tasks WHERE task_date = ? AND status != 'done' ORDER BY category, line_name", [date]);
+    res.json({ date, lines: byLine, backlog });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

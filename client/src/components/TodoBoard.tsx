@@ -241,18 +241,25 @@ function hoPreview(h: HoState, op: string | null, date: string, kind: 'in' | 'ou
   if (kind === 'in') L.push('', '✅ รับทราบสถานะครบ');
   return L.join('\n');
 }
-// map ผลจาก /api/handover/prefill (รส/batch ล่าสุดต่อไลน์) → HoState สำหรับโหมดส่งกะ
+// map ผลจาก /api/handover/prefill (รส/batch/เวลา CIP ล่าสุดต่อไลน์ + งานค้าง) → HoState สำหรับโหมดส่งกะ
 type PrefillLine = { flavor?: string; batch?: string; cipTime?: string };
-function hoFromPrefill(prefill: Record<string, PrefillLine>, carry?: HoState | null): HoState {
+type BacklogItem = { line_name?: string; category?: string; title?: string };
+function hoFromPrefill(prefill: Record<string, PrefillLine>, carry?: HoState | null, backlog?: BacklogItem[]): HoState {
   const base = carry || initHo();
-  return {
-    ...base,
-    lines: HO_LINES.map((l, i) => {
-      const pf = prefill[l.line] || {};
-      const prev = base.lines[i] || { line: l.line, flavor: '', batch: '', tanks: ['', '', ''], note: '', lotNo: '' };
-      return { ...prev, line: l.line, flavor: pf.flavor || prev.flavor || '', batch: pf.batch || prev.batch || '' };
-    }),
-  };
+  const lines = HO_LINES.map((l, i) => {
+    const pf = prefill[l.line] || {};
+    const prev = base.lines[i] || { line: l.line, flavor: '', batch: '', tanks: ['', '', ''], note: '', lotNo: '' };
+    // เวลา CIP ล่าสุด (ที่ server ส่งมา) → เติมเป็นหมายเหตุไลน์ถ้ายังว่าง
+    const cipHM = pf.cipTime ? parseHM(pf.cipTime)?.hm : null;
+    const note = prev.note || (cipHM ? `CIP ล่าสุด ${cipHM}` : '');
+    return { ...prev, line: l.line, flavor: pf.flavor || prev.flavor || '', batch: pf.batch || prev.batch || '', note };
+  });
+  // งานค้าง → หมายเหตุรวม "ส่งต่อ" ถ้ายังว่าง
+  let note = base.note;
+  if (!note && backlog && backlog.length) {
+    note = 'งานค้างส่งต่อ: ' + backlog.map(b => `${b.title || ''}${b.line_name ? ` (${b.line_name})` : ''}`.trim()).filter(Boolean).join(' · ');
+  }
+  return { ...base, lines, note };
 }
 // เติม Lot No. รายไลน์ให้เป็นค่าเริ่มต้น (ddmmyy) ถ้ายังว่าง + กัน field undefined จากข้อมูลเก่า
 const fillLot = (h: HoState, lot: string): HoState => ({
@@ -284,9 +291,11 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
     const [ho, setHo] = useState<HoState>(initHo);
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
-    const [aiFilledKeys, setAiFilledKeys] = useState<Set<string>>(new Set()); // ฟิลด์ที่ AI เติมให้ → ไฮไลต์จนกว่าจะแก้เอง
+    const [aiFilledKeys, setAiFilledKeys] = useState<Set<string>>(new Set()); // ฟิลด์ที่เติมอัตโนมัติ → ไฮไลต์จนกว่าจะแก้เอง
+    const [fillSource, setFillSource] = useState<'ai' | 'live' | null>(null);  // ที่มาของไฮไลต์: AI(รับกะ) / ข้อมูลสด(ส่งกะ) — คุมป้ายแบนเนอร์
     const lastRef = useRef<HoState | null>(null);                 // สถานะกะก่อน (สำหรับ รับกะ)
-    const prefillRef = useRef<Record<string, PrefillLine>>({});   // รส/batch ล่าสุด (สำหรับ ส่งกะ)
+    const prefillRef = useRef<Record<string, PrefillLine>>({});   // รส/batch/เวลา CIP ล่าสุด (สำหรับ ส่งกะ)
+    const backlogRef = useRef<BacklogItem[]>([]);                 // งานค้าง → หมายเหตุส่งต่อ (ส่งกะ)
     const aiDraftAppliedRef = useRef(false);                      // กันโหลดสถานะกะก่อน (async) มาทับร่างที่ AI เพิ่งกรอก
     const aiDraftRef = useRef<HoState | null>(null);              // เก็บร่าง AI ไว้ → สลับโหมดไป-กลับแล้วยังกู้คืนได้
 
@@ -299,11 +308,15 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
       (async () => {
         let last: HoState | null = null;
         let prefill: Record<string, PrefillLine> = {};
+        let backlog: BacklogItem[] = [];
         try { const d = await (await fetch(`${apiUrl}/api/handover/last`)).json(); if (d.data) last = fillLot({ shift, lines: d.data.lines || initHo().lines, line4: d.data.line4 || initHo().line4, note: '' }, ''); } catch { /* offline */ }
-        try { const d = await (await fetch(`${apiUrl}/api/handover/prefill?date=${date}`)).json(); prefill = d.lines || {}; } catch { /* offline */ }
-        lastRef.current = last; prefillRef.current = prefill;
+        try { const d = await (await fetch(`${apiUrl}/api/handover/prefill?date=${date}`)).json(); prefill = d.lines || {}; backlog = d.backlog || []; } catch { /* offline */ }
+        lastRef.current = last; prefillRef.current = prefill; backlogRef.current = backlog;
         // ถ้าร่าง AI ถูกใส่ไปแล้วระหว่างรอ fetch ห้ามทับ (แต่ refs ด้านบนยังเซ็ตไว้ให้ปุ่มสลับโหมดใช้)
-        if (!aiDraftAppliedRef.current) setHo(fillLot({ ...hoFromPrefill(prefill, last), shift }, pkLot(date))); // เริ่มโหมดส่งกะ
+        if (!aiDraftAppliedRef.current) {
+          const draft = fillLot({ ...hoFromPrefill(prefill, last, backlog), shift }, pkLot(date)); // ร่างส่งกะเติมจากข้อมูลสด
+          setHo(draft); setAiFilledKeys(hoFilledKeys(draft)); setFillSource('live'); // ไฮไลต์ให้ตรวจก่อนส่ง
+        }
       })();
     }, [date]);
 
@@ -319,33 +332,48 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
       const filled = fillLot(withLineNames, pkLot(date));
       aiDraftRef.current = filled; // เก็บไว้ให้ applyMode('in') คืนค่าได้แม้ผู้ใช้สลับไปโหมดส่งกะแล้วกลับมา
       setHo(filled);
-      setAiFilledKeys(hoFilledKeys(filled));
+      setAiFilledKeys(hoFilledKeys(filled)); setFillSource('ai');
       onDraftConsumed?.();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [aiDraft]);
 
     const clearAiKey = (k: string) => setAiFilledKeys(prev => (prev.has(k) ? (() => { const n = new Set(prev); n.delete(k); return n; })() : prev));
 
-    // สลับโหมด: รับกะ = สถานะกะก่อน (หรือร่าง AI ถ้ามี) · ส่งกะ = รส/batch ล่าสุด + ยกถังจากกะก่อน
+    // สลับโหมด: รับกะ = สถานะกะก่อน (หรือร่าง AI ถ้ามี) · ส่งกะ = เติมจากข้อมูลสด + ไฮไลต์ให้ตรวจ
     const applyMode = (m: 'in' | 'out') => {
-      if (m === mode) return; // แตะโหมดที่เลือกอยู่แล้ว = ไม่ต้องโหลดใหม่ (กันทับข้อมูลที่กำลังตรวจ/ร่าง AI)
+      if (m === mode) return; // แตะโหมดที่เลือกอยู่แล้ว = ไม่ต้องโหลดใหม่ (กันทับข้อมูลที่กำลังตรวจ/ร่าง)
       setMode(m); setMsg('');
       // กลับมาโหมดรับกะทั้งที่มีร่าง AI ค้างอยู่ → คืนร่าง AI + ไฮไลต์ (ไม่ใช่ทับด้วยสถานะกะก่อนจาก DB)
       if (m === 'in' && aiDraftRef.current) {
         setHo(aiDraftRef.current);
-        setAiFilledKeys(hoFilledKeys(aiDraftRef.current));
+        setAiFilledKeys(hoFilledKeys(aiDraftRef.current)); setFillSource('ai');
         return;
       }
-      setAiFilledKeys(new Set()); // โหมดส่งกะ (หรือรับกะที่ไม่มีร่าง AI) — ค่าถูกแทนทั้งชุด ไฮไลต์เดิมไม่ตรงแล้ว
-      setHo(h => fillLot(m === 'in'
-        ? (lastRef.current ? { ...lastRef.current, shift: h.shift } : initHo())
-        : { ...hoFromPrefill(prefillRef.current, lastRef.current), shift: h.shift }, pkLot(date)));
-    };
-    // ล้างร่าง AI — ทิ้งร่างแล้วกลับไปใช้สถานะกะก่อนจาก DB (โหมดรับกะ) เหมือนไม่เคยมี AI มากรอก
-    const clearAiDraft = () => {
-      aiDraftRef.current = null; aiDraftAppliedRef.current = false;
-      setAiFilledKeys(new Set()); setMode('in'); setMsg('');
+      if (m === 'out') { // ส่งกะ: เติมร่างจากข้อมูลสด + ไฮไลต์ให้ตรวจก่อนส่ง
+        const draft = fillLot({ ...hoFromPrefill(prefillRef.current, lastRef.current, backlogRef.current), shift: ho.shift }, pkLot(date));
+        setHo(draft); setAiFilledKeys(hoFilledKeys(draft)); setFillSource('live');
+        return;
+      }
+      // รับกะที่ไม่มีร่าง AI → สถานะกะก่อนจาก DB ล้วน ไม่ต้องไฮไลต์
+      setAiFilledKeys(new Set()); setFillSource(null);
       setHo(h => fillLot(lastRef.current ? { ...lastRef.current, shift: h.shift } : initHo(), pkLot(date)));
+    };
+    // ล้างไฮไลต์ — โหมดส่งกะ (live): แค่เอาสีอำพันออก ข้อมูลอยู่ครบ · โหมดรับกะ (ai): ทิ้งร่าง AI กลับไปสถานะกะก่อน
+    const clearHighlights = () => {
+      if (fillSource === 'live') { setAiFilledKeys(new Set()); setFillSource(null); return; }
+      aiDraftRef.current = null; aiDraftAppliedRef.current = false;
+      setAiFilledKeys(new Set()); setFillSource(null); setMode('in'); setMsg('');
+      setHo(h => fillLot(lastRef.current ? { ...lastRef.current, shift: h.shift } : initHo(), pkLot(date)));
+    };
+    // ดึงข้อมูลสดล่าสุดมาเติมร่างส่งกะใหม่ (เผื่อผลิต/CIP เพิ่มหลังเปิดฟอร์มไว้)
+    const refreshOut = async () => {
+      setMsg('');
+      let last: HoState | null = null, prefill: Record<string, PrefillLine> = {}, backlog: BacklogItem[] = [];
+      try { const d = await (await fetch(`${apiUrl}/api/handover/last`)).json(); if (d.data) last = fillLot({ shift: ho.shift, lines: d.data.lines || initHo().lines, line4: d.data.line4 || initHo().line4, note: '' }, ''); } catch { /* offline */ }
+      try { const d = await (await fetch(`${apiUrl}/api/handover/prefill?date=${date}`)).json(); prefill = d.lines || {}; backlog = d.backlog || []; } catch { /* offline */ }
+      lastRef.current = last; prefillRef.current = prefill; backlogRef.current = backlog;
+      const draft = fillLot({ ...hoFromPrefill(prefill, last, backlog), shift: ho.shift }, pkLot(date));
+      setHo(draft); setAiFilledKeys(hoFilledKeys(draft)); setFillSource('live');
     };
 
     const setLine = (i: number, patch: Partial<HoLine>) => {
@@ -365,7 +393,7 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
       setBusy(true); setMsg('');
       try {
         await fetch(`${apiUrl}/api/handover`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, operator: operatorName, kind: mode, ...ho }) });
-        setMsg(mode === 'in' ? '✅ รับกะ & แจ้งกลุ่มแล้ว' : '✅ ส่งกะเข้า Telegram แล้ว'); setAiFilledKeys(new Set()); aiDraftRef.current = null; reload(); setTimeout(() => setOpen(false), 900);
+        setMsg(mode === 'in' ? '✅ รับกะ & แจ้งกลุ่มแล้ว' : '✅ ส่งกะเข้า Telegram แล้ว'); setAiFilledKeys(new Set()); setFillSource(null); aiDraftRef.current = null; reload(); setTimeout(() => setOpen(false), 900);
       } catch { setMsg('❌ ส่งไม่สำเร็จ'); } finally { setBusy(false); }
     };
 
@@ -388,11 +416,11 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
           <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>📋 บันทึกกะ</div>
           <button onClick={() => setOpen(false)} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: '#90a4ae', cursor: 'pointer', fontSize: '1.1rem' }}>×</button>
         </div>
-        {/* แบนเนอร์: ข้อมูลนี้มาจากผู้ช่วย AI — ตรวจสอบก่อนส่ง (หายไปเองเมื่อไม่มีฟิลด์ AI เหลือ/กดส่งแล้ว) */}
+        {/* แบนเนอร์: เตือนว่ามีข้อมูลเติมอัตโนมัติรอตรวจ (AI สำหรับรับกะ / ข้อมูลสดสำหรับส่งกะ) */}
         {aiFilledKeys.size > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff8e1', border: '1px solid #f0d68a', borderRadius: 10, padding: '9px 11px', marginBottom: 10, fontSize: '0.78rem', color: '#8a6100' }}>
-            <span style={{ flex: 1 }}>🤖 ข้อมูลนี้มาจากผู้ช่วย AI — ตรวจสอบก่อนส่ง</span>
-            <button onClick={clearAiDraft} style={{ border: 'none', background: 'none', color: '#8a6100', fontWeight: 700, cursor: 'pointer', fontSize: '0.76rem', textDecoration: 'underline', flexShrink: 0 }}>ล้างข้อมูล AI</button>
+            <span style={{ flex: 1 }}>{fillSource === 'live' ? '🔄 เติมจากข้อมูลสด — ตรวจก่อนส่ง' : '🤖 ข้อมูลนี้มาจากผู้ช่วย AI — ตรวจสอบก่อนส่ง'}</span>
+            <button onClick={clearHighlights} style={{ border: 'none', background: 'none', color: '#8a6100', fontWeight: 700, cursor: 'pointer', fontSize: '0.76rem', textDecoration: 'underline', flexShrink: 0 }}>{fillSource === 'live' ? 'ล้างไฮไลต์' : 'ล้างข้อมูล AI'}</button>
           </div>
         )}
         {/* segmented: รับกะ / ส่งกะ — โหมดที่เลือกอยู่เติมสีเต็ม (เขียวรับ / ส้มส่ง) ให้เห็นชัดว่ากำลังทำอะไร */}
@@ -410,8 +438,13 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
             );
           })}
         </div>
-        <div style={{ fontSize: '0.72rem', color: mode === 'in' ? '#00897b' : '#ff6b00', fontWeight: 600, marginBottom: 10 }}>
-          {mode === 'in' ? '📥 กำลัง “รับกะ” — ทบทวนสถานะจากกะก่อน/AI แล้วกดรับทราบ' : '📤 กำลัง “ส่งกะ” — เติมรส/Batch ล่าสุดให้อัตโนมัติ แก้ได้ตามจริง'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <span style={{ fontSize: '0.72rem', color: mode === 'in' ? '#00897b' : '#ff6b00', fontWeight: 600, flex: 1 }}>
+            {mode === 'in' ? '📥 กำลัง “รับกะ” — ทบทวนสถานะจากกะก่อน/AI แล้วกดรับทราบ' : '📤 กำลัง “ส่งกะ” — เติมจากข้อมูลสดให้ ตรวจ/แก้ แล้วกดส่ง'}
+          </span>
+          {mode === 'out' && (
+            <button onClick={refreshOut} title="ดึงยอดผลิต/CIP/งานค้างล่าสุดมาเติมใหม่" style={{ flexShrink: 0, border: '1px solid #ffd0a8', background: '#fff7f0', color: '#b34700', borderRadius: 20, padding: '5px 11px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>🔄 ดึงข้อมูลสดล่าสุด</button>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
           <select value={ho.shift} onChange={e => setHo(h => ({ ...h, shift: e.target.value }))} style={{ ...inp, width: 'auto' }}>
