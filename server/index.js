@@ -300,6 +300,31 @@ const SCHEMA = [
       created_at TEXT,
       UNIQUE(chat_id, user_id)
     )`,
+  // ── Duty board: รายชื่อผู้รับผิดชอบ (ย้ายจาก hardcode → DB เพื่อเพิ่ม/แก้เองได้) ─
+  `CREATE TABLE IF NOT EXISTS duty_people (
+      person_key TEXT PRIMARY KEY,
+      name TEXT,
+      role TEXT,
+      color TEXT,
+      wash TEXT,
+      initial TEXT,
+      dot TEXT,
+      sort_order INTEGER DEFAULT 0,
+      active INTEGER DEFAULT 1,
+      created_at TEXT
+    )`,
+  // ── Duty board: เช็กลิสต์งานประจำ (ซ้อนชั้นผ่าน parent_id) — จัดการเองได้ ─────
+  `CREATE TABLE IF NOT EXISTS duty_routines (
+      id ${db.pk},
+      person_key TEXT,
+      parent_id INTEGER,
+      node_key TEXT,
+      title TEXT,
+      mono INTEGER DEFAULT 0,
+      sort_order INTEGER DEFAULT 0,
+      active INTEGER DEFAULT 1,
+      created_at TEXT
+    )`,
 ];
 
 const DEFAULT_OPERATORS = [
@@ -338,9 +363,15 @@ async function initDb() {
   for (const [name, pin] of DEFAULT_OPERATORS) {
     await db.exec("INSERT INTO operators (name, pin) VALUES (?, ?) ON CONFLICT (name) DO NOTHING", [name, pin]);
   }
+  // migration: คอลัมน์แจ้งเตือนล่วงหน้าใน daily_tasks (วันที่ทำ/เตือนล่วงหน้า → Telegram)
+  for (const [col, type] of [['remind_at', 'TEXT'], ['remind_lead', 'TEXT'], ['reminded', 'INTEGER DEFAULT 0']]) {
+    try { await db.exec(`ALTER TABLE daily_tasks ADD COLUMN ${col} ${type}`); } catch { /* มีแล้ว */ }
+  }
   // seed แถวตั้งค่ารายงาน (แถวเดียว)
   const cfg = await dbAll('SELECT id FROM report_config LIMIT 1', []);
   if (!cfg.length) await db.exec("INSERT INTO report_config (auto_enabled, times, weekdays, only_if_pending, updated_at) VALUES (0, '[]', '[1,2,3,4,5]', 0, ?)", [nowBKK()]);
+  // seed รายชื่อ + เช็กลิสต์ duty board (ครั้งแรกที่ตารางว่าง) — ย้ายจาก hardcode
+  await seedDutyBoard();
   console.log('[db] schema ready');
 }
 
@@ -1621,13 +1652,23 @@ app.get('/api/tasks/calendar', async (req, res) => {
 });
 
 // ── งานตามหน้าที่รับผิดชอบรายบุคคล (Duty board) ─────────────────────────────
-// รายชื่อผู้รับผิดชอบ + เช็กลิสต์งานประจำ (โครงตายตัวตาม Notion, ซ้อนชั้นได้)
-const DUTY_PEOPLE = [
-  { key: 'mam',  name: 'ม้ำ',   role: 'ผู้ช่วยหลัก · ควบคุมผลิต & CIP' },
-  { key: 'nai',  name: 'นาย',   role: 'ส่วนผสม & ผู้ช่วย ม้ำ' },
-  { key: 'pluk', name: 'พลุ๊ก', role: 'ส่วนผสม & เครื่องบรรจุ' },
+// รายชื่อ + เช็กลิสต์เก็บใน DB (ตาราง duty_people / duty_routines) เพื่อเพิ่ม/แก้เองได้
+// ค่าด้านล่างเป็น "seed เริ่มต้น" ใช้ครั้งแรกที่ตารางว่างเท่านั้น (ย้ายจาก hardcode เดิม)
+const DUTY_PEOPLE_SEED = [
+  { key: 'mam',  name: 'ม้ำ',   role: 'ผู้ช่วยหลัก · ควบคุมผลิต & CIP', color: '#00897b', wash: '#e0f2f1', initial: 'ม', dot: '🟢' },
+  { key: 'nai',  name: 'นาย',   role: 'ส่วนผสม & ผู้ช่วย ม้ำ',        color: '#3949ab', wash: '#e8eaf6', initial: 'น', dot: '🔵' },
+  { key: 'pluk', name: 'พลุ๊ก', role: 'ส่วนผสม & เครื่องบรรจุ',       color: '#c2185b', wash: '#fce4ec', initial: 'พ', dot: '🟣' },
+  { key: 'kao',  name: 'เก้า',  role: 'ผู้ช่วยการผลิต',               color: '#f57f17', wash: '#fff8e1', initial: 'ก', dot: '🟠' },
 ];
-const ROUTINES = {
+// จานสีสำรองสำหรับคนที่เพิ่มใหม่เอง (วนใช้ตามลำดับ)
+const DUTY_PALETTE = [
+  { color: '#00897b', wash: '#e0f2f1' }, { color: '#3949ab', wash: '#e8eaf6' },
+  { color: '#c2185b', wash: '#fce4ec' }, { color: '#f57f17', wash: '#fff8e1' },
+  { color: '#00838f', wash: '#e0f7fa' }, { color: '#6d4c41', wash: '#efebe9' },
+  { color: '#5e35b1', wash: '#ede7f6' }, { color: '#43a047', wash: '#e8f5e9' },
+];
+const DUTY_DOTS = ['🟢', '🔵', '🟣', '🟠', '🟡', '🟤', '🔴', '⚪'];
+const ROUTINES_SEED = {
   mam: [
     { key: 'plan', title: 'ตรวจสอบแผนผลิต / CIP' },
     { key: 'assist', title: 'ทำหน้าที่ผู้ช่วย จักรกฤษ', children: [
@@ -1662,13 +1703,80 @@ const ROUTINES = {
       ] },
     ] },
   ],
+  kao: [],
 };
-const dutyName = (k) => (DUTY_PEOPLE.find(p => p.key === k) || {}).name || k;
+
+// ── cache รายชื่อในหน่วยความจำ เพื่อให้ dutyName()/DUTY_DOT ใช้แบบ sync ได้ ────
+// refresh ตอน seed และทุกครั้งที่มีการแก้ไขคน
+let _peopleCache = [];
+const _peopleNameMap = {};
+const _peopleDotMap = {};
+async function refreshPeopleCache() {
+  try {
+    _peopleCache = await dbAll('SELECT * FROM duty_people WHERE active = 1 ORDER BY sort_order, created_at', []);
+  } catch { _peopleCache = []; }
+  for (const k of Object.keys(_peopleNameMap)) delete _peopleNameMap[k];
+  for (const k of Object.keys(_peopleDotMap)) delete _peopleDotMap[k];
+  for (const p of _peopleCache) { _peopleNameMap[p.person_key] = p.name; _peopleDotMap[p.person_key] = p.dot || '👤'; }
+}
+const dutyName = (k) => _peopleNameMap[k] || k;
+const dutyDot = (k) => _peopleDotMap[k] || '👤';
+const getPeople = () => _peopleCache;
+
+// seed duty board ครั้งแรก (idempotent) — คนจาก DUTY_PEOPLE_SEED, งานจาก ROUTINES_SEED
+async function seedDutyBoard() {
+  const existing = await dbAll('SELECT person_key FROM duty_people', []);
+  if (!existing.length) {
+    let i = 0;
+    for (const p of DUTY_PEOPLE_SEED) {
+      await db.exec(
+        `INSERT INTO duty_people (person_key, name, role, color, wash, initial, dot, sort_order, active, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?) ON CONFLICT (person_key) DO NOTHING`,
+        [p.key, p.name, p.role, p.color, p.wash, p.initial, p.dot, i++, nowBKK()]);
+      // seed เช็กลิสต์ของคนนี้ (เดินต้นไม้ รักษา node_key เดิมไว้)
+      await seedRoutineNodes(p.key, ROUTINES_SEED[p.key] || [], null);
+    }
+  }
+  await refreshPeopleCache();
+}
+// insert เช็กลิสต์แบบ recursive — ใช้ lastID (dbRun) เป็น parent ของลูก
+async function seedRoutineNodes(personKey, nodes, parentId) {
+  let order = 0;
+  for (const n of nodes) {
+    const r = await dbRun(
+      `INSERT INTO duty_routines (person_key, parent_id, node_key, title, mono, sort_order, active, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+      [personKey, parentId, n.key, n.title, n.mono ? 1 : 0, order++, nowBKK()]);
+    if (n.children && n.children.length) await seedRoutineNodes(personKey, n.children, r.lastID);
+  }
+}
+
+// สร้างโครงต้นไม้เช็กลิสต์ของคนหนึ่งจาก DB (รูปแบบเดียวกับ ROUTINES_SEED เดิม)
+// cache ในหน่วยความจำ (เช็กลิสต์เปลี่ยนไม่บ่อย) — เลี่ยง query ซ้ำตอน buildDutyRange ยิงหลายร้อยวัน
+let _routineCache = {};
+const invalidateRoutineCache = () => { _routineCache = {}; };
+async function buildRoutineTree(personKey) {
+  if (_routineCache[personKey]) return _routineCache[personKey];
+  const rows = await dbAll('SELECT * FROM duty_routines WHERE person_key = ? AND active = 1 ORDER BY parent_id, sort_order, id', [personKey]);
+  const byParent = {};
+  for (const r of rows) { const k = r.parent_id == null ? 'root' : String(r.parent_id); (byParent[k] = byParent[k] || []).push(r); }
+  const build = (key) => (byParent[key] || []).map(r => {
+    const node = { key: r.node_key, title: r.title, id: r.id, parentId: r.parent_id == null ? null : r.parent_id };
+    if (r.mono) node.mono = true;
+    const kids = build(String(r.id));
+    if (kids.length) node.children = kids;
+    return node;
+  });
+  const tree = build('root');
+  _routineCache[personKey] = tree;
+  return tree;
+}
+
 function flattenRoutine(nodes, depth = 0, prefix = '') {
   const out = [];
   for (const n of nodes) {
     const key = prefix ? `${prefix}/${n.key}` : n.key;
-    out.push({ key, title: n.title, depth, mono: !!n.mono });
+    out.push({ key, title: n.title, depth, mono: !!n.mono, id: n.id, parentId: n.parentId });
     if (n.children) out.push(...flattenRoutine(n.children, depth + 1, key));
   }
   return out;
@@ -1682,8 +1790,11 @@ async function buildDuty(date) {
   const adhoc = await dbAll(`SELECT * FROM daily_tasks WHERE task_date = ? AND source = 'assigned' ORDER BY id`, [date]);
 
   let teamDone = 0, teamTotal = 0;
-  const people = DUTY_PEOPLE.map(p => {
-    const nodes = flattenRoutine(ROUTINES[p.key] || []).map(n => {
+  const peopleList = getPeople();
+  const people = await Promise.all(peopleList.map(async (pRow) => {
+    const p = { key: pRow.person_key, name: pRow.name, role: pRow.role, color: pRow.color, wash: pRow.wash, initial: pRow.initial, dot: pRow.dot };
+    const tree = await buildRoutineTree(p.key);
+    const nodes = flattenRoutine(tree).map(n => {
       const st = stateMap[`${p.key}|${n.key}`];
       return {
         ...n,
@@ -1712,7 +1823,7 @@ async function buildDuty(date) {
     done += myAdhoc.filter(t => t.status === 'done').length; total += myAdhoc.length;
     teamDone += done; teamTotal += total;
     return { ...p, nodes, received, adhoc: myAdhoc, done, total, pct: total ? Math.round(done / total * 100) : 100 };
-  });
+  }));
   return { date, holiday: weekdayOf(date) === 6, people, team: { done: teamDone, total: teamTotal, left: teamTotal - teamDone, pct: teamTotal ? Math.round(teamDone / teamTotal * 100) : 100 } };
 }
 
@@ -1720,6 +1831,109 @@ app.get('/api/duty', async (req, res) => {
   const date = req.query.date || workDayBKK();
   try { res.json(await buildDuty(date)); }
   catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── จัดการคน/งานของ Duty board (ไม่ต้องแก้โค้ด) ─────────────────────────────
+// สร้าง key จากข้อความ (รองรับไทย → ถ้าว่างใช้ p + timestamp) แล้วกันซ้ำ
+const slugKey = (text, taken) => {
+  let base = String(text || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!base) base = 'p' + Date.now().toString(36);
+  let k = base, i = 2;
+  while (taken.includes(k)) k = `${base}-${i++}`;
+  return k;
+};
+
+// upsert คน — สร้างใหม่ (auto key + สี default) หรือแก้ที่มีอยู่
+app.post('/api/duty/person', async (req, res) => {
+  const { key, name, role, color, wash, initial, sortOrder } = req.body;
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'name จำเป็น' });
+  try {
+    if (key) {
+      // แก้คนเดิม (เฉพาะฟิลด์ที่ส่งมา)
+      const cur = (await dbAll('SELECT * FROM duty_people WHERE person_key = ?', [key]))[0];
+      if (!cur) return res.status(404).json({ error: 'ไม่พบคนนี้' });
+      await db.exec('UPDATE duty_people SET name = ?, role = ?, color = ?, wash = ?, initial = ?, sort_order = ? WHERE person_key = ?',
+        [name.trim(), role != null ? role : cur.role, color || cur.color, wash || cur.wash, initial || cur.initial, sortOrder != null ? sortOrder : cur.sort_order, key]);
+      await refreshPeopleCache();
+      return res.json({ success: true, key });
+    }
+    // สร้างใหม่
+    const all = await dbAll('SELECT person_key FROM duty_people', []);
+    const taken = all.map(r => r.person_key);
+    const newKey = slugKey(name, taken);
+    const pal = DUTY_PALETTE[all.length % DUTY_PALETTE.length];
+    const dot = DUTY_DOTS[all.length % DUTY_DOTS.length];
+    const maxOrder = (await dbAll('SELECT MAX(sort_order) AS m FROM duty_people', []))[0];
+    const order = sortOrder != null ? sortOrder : ((maxOrder && maxOrder.m != null ? Number(maxOrder.m) : 0) + 1);
+    await db.exec(
+      `INSERT INTO duty_people (person_key, name, role, color, wash, initial, dot, sort_order, active, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      [newKey, name.trim(), role || '', color || pal.color, wash || pal.wash, initial || name.trim().slice(0, 1), dot, order, nowBKK()]);
+    await refreshPeopleCache();
+    res.json({ success: true, key: newKey });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ปิดใช้งานคน (soft delete — ไม่ลบสถานะเก่า)
+app.post('/api/duty/person/delete', async (req, res) => {
+  const { key } = req.body;
+  if (!key) return res.status(400).json({ error: 'key จำเป็น' });
+  try {
+    await db.exec('UPDATE duty_people SET active = 0 WHERE person_key = ?', [key]);
+    await refreshPeopleCache();
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// upsert งาน (node ในเช็กลิสต์) — สร้างใหม่ (บนสุด/เป็นลูก) หรือแก้ชื่อ/mono
+app.post('/api/duty/routine', async (req, res) => {
+  const { id, personKey, parentId, title, mono, sortOrder } = req.body;
+  if (!title || !String(title).trim()) return res.status(400).json({ error: 'title จำเป็น' });
+  try {
+    if (id) {
+      const cur = (await dbAll('SELECT * FROM duty_routines WHERE id = ?', [id]))[0];
+      if (!cur) return res.status(404).json({ error: 'ไม่พบงานนี้' });
+      await db.exec('UPDATE duty_routines SET title = ?, mono = ?, sort_order = ? WHERE id = ?',
+        [title.trim(), mono ? 1 : 0, sortOrder != null ? sortOrder : cur.sort_order, id]);
+      invalidateRoutineCache();
+      return res.json({ success: true, id });
+    }
+    if (!personKey) return res.status(400).json({ error: 'personKey จำเป็น' });
+    // node_key ต้องไม่ซ้ำใน sibling เดียวกัน (เพื่อ path ที่ derive ไม่ชน)
+    const sibs = await dbAll(
+      parentId ? 'SELECT node_key FROM duty_routines WHERE person_key = ? AND parent_id = ?'
+               : 'SELECT node_key FROM duty_routines WHERE person_key = ? AND parent_id IS NULL',
+      parentId ? [personKey, parentId] : [personKey]);
+    const nodeKey = slugKey(title, sibs.map(s => s.node_key));
+    const maxOrder = (await dbAll(
+      parentId ? 'SELECT MAX(sort_order) AS m FROM duty_routines WHERE person_key = ? AND parent_id = ?'
+               : 'SELECT MAX(sort_order) AS m FROM duty_routines WHERE person_key = ? AND parent_id IS NULL',
+      parentId ? [personKey, parentId] : [personKey]))[0];
+    const order = sortOrder != null ? sortOrder : ((maxOrder && maxOrder.m != null ? Number(maxOrder.m) : -1) + 1);
+    const r = await dbRun(
+      `INSERT INTO duty_routines (person_key, parent_id, node_key, title, mono, sort_order, active, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+      [personKey, parentId || null, nodeKey, title.trim(), mono ? 1 : 0, order, nowBKK()]);
+    invalidateRoutineCache();
+    res.json({ success: true, id: r.lastID, nodeKey });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ลบงาน (soft delete node + ลูกทั้งหมด)
+app.post('/api/duty/routine/delete', async (req, res) => {
+  const { id } = req.body;
+  if (!id) return res.status(400).json({ error: 'id จำเป็น' });
+  try {
+    // เก็บ id ทั้งกิ่ง (BFS) แล้ว soft delete
+    const all = await dbAll('SELECT id, parent_id FROM duty_routines WHERE active = 1', []);
+    const toDel = [Number(id)];
+    for (let i = 0; i < toDel.length; i++) {
+      for (const r of all) if (Number(r.parent_id) === toDel[i]) toDel.push(Number(r.id));
+    }
+    for (const did of toDel) await db.exec('UPDATE duty_routines SET active = 0 WHERE id = ?', [did]);
+    invalidateRoutineCache();
+    res.json({ success: true, removed: toDel.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ประวัติ %ความคืบหน้าทีมต่อวัน — reuse โดย /api/duty/history และ /api/kpi/summary (KPI data layer)
@@ -1890,40 +2104,71 @@ app.post('/api/routine/restore', async (req, res) => {
 });
 
 // มอบหมายงานระหว่างวัน → เก็บลง daily_tasks (source = 'assigned') ผูก assignee
+// ── งานมอบหมาย: หมวด, วันที่ทำ, แจ้งเตือนล่วงหน้า ──────────────────────────
+const CAT_ICON = { production: '🏭', cip: '💧', backwash: '🧴', cleaning: '🧽', mixing: '🥤', packing: '📦', maintenance: '🔧', manual: '📌', am: '🔧' };
+const catIcon = (c) => CAT_ICON[c] || '📌';
+// ป้ายเวลาแจ้งเตือนล่วงหน้า (สำหรับแสดงใน caption)
+const REMIND_LABEL = { '30m': 'ล่วงหน้า 30 นาที', '1h': 'ล่วงหน้า 1 ชม.', '2h': 'ล่วงหน้า 2 ชม.', '1d': 'ล่วงหน้า 1 วัน', morning: 'เช้าวันงาน 08:00' };
+// คำนวณเวลาแจ้งเตือนจริง (BKK wall-clock string 'YYYY-MM-DDTHH:MM') จากวันที่ทำ+เวลา+ล่วงหน้า
+const _pad2 = (n) => String(n).padStart(2, '0');
+function computeRemindAt(workDate, dueTime, lead) {
+  if (!lead || lead === 'none') return null;
+  const date = workDate || todayBKK();
+  if (lead === 'morning') return `${date}T08:00`;
+  const mins = { '30m': 30, '1h': 60, '2h': 120, '1d': 1440 }[lead];
+  if (!mins) return null;
+  const time = (dueTime && /^\d\d:\d\d/.test(dueTime)) ? dueTime.slice(0, 5) : '08:00'; // ไม่กำหนดเวลา → อิง 08:00
+  const base = new Date(`${date}T${time}:00Z`); // คิดเลขบน wall-clock (Z เข้า Z ออก) เลี่ยง tz ของเซิร์ฟเวอร์
+  base.setUTCMinutes(base.getUTCMinutes() - mins);
+  return `${base.getUTCFullYear()}-${_pad2(base.getUTCMonth() + 1)}-${_pad2(base.getUTCDate())}T${_pad2(base.getUTCHours())}:${_pad2(base.getUTCMinutes())}`;
+}
+
 app.post('/api/duty/assign', async (req, res) => {
-  const { date, category, title, location, priority, operator } = req.body;
+  const { date, category, title, location, priority, operator, workDate, dueTime, remindLead } = req.body;
   // รองรับทั้งคนเดียว (assignTo) และหลายคน (assignees[]) — มอบงานเดียวให้หลายคนพร้อมกัน
   const rawAssignees = Array.isArray(req.body.assignees) ? req.body.assignees
     : (req.body.assignTo != null ? [req.body.assignTo] : []);
   const assignees = [...new Set(rawAssignees.filter(a => typeof a === 'string' && a.trim()))];
   if (!title || assignees.length === 0) return res.status(400).json({ error: 'title/assignTo จำเป็น' });
-  const d = date || todayBKK();
+  // task_date = วันที่ทำ (workDate) เพื่อให้งานไปโผล่บอร์ดของวันนั้น — ถ้าไม่ระบุใช้วันที่ปัจจุบันของบอร์ด
+  const d = workDate || date || todayBKK();
+  const due = (dueTime && /^\d\d:\d\d/.test(dueTime)) ? dueTime.slice(0, 5) : null;
+  const remindAt = computeRemindAt(d, due, remindLead);
   const images = (Array.isArray(req.body.images) ? req.body.images : []).filter(x => typeof x === 'string' && x.startsWith('data:')).slice(0, 10);
   try {
     // เก็บ line_name = assignee เพื่อให้ UNIQUE(task_date, line_name, category, title) แยกตามคน
     // → งานชื่อเดียวกันมอบให้หลายคนได้ (แต่ละคนได้แถวของตัวเอง) แทนที่จะทับกันเหลือคนสุดท้าย
     for (const assignTo of assignees) {
       await db.exec(
-        `INSERT INTO daily_tasks (task_date, line_name, category, title, status, source, assignee, location, priority, images, created_by, created_at)
-         VALUES (?, ?, ?, ?, 'pending', 'assigned', ?, ?, ?, ?, ?, ?)
+        `INSERT INTO daily_tasks (task_date, line_name, category, title, status, source, assignee, location, priority, images, due_time, remind_at, remind_lead, reminded, created_by, created_at)
+         VALUES (?, ?, ?, ?, 'pending', 'assigned', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
          ON CONFLICT(task_date, line_name, category, title)
-         DO UPDATE SET assignee = excluded.assignee, location = excluded.location, priority = excluded.priority, images = excluded.images`,
-        [d, assignTo, category || 'manual', title, assignTo, location || null, priority || 'normal', JSON.stringify(images), operator || null, nowBKK()]);
+         DO UPDATE SET assignee = excluded.assignee, location = excluded.location, priority = excluded.priority, images = excluded.images, due_time = excluded.due_time, remind_at = excluded.remind_at, remind_lead = excluded.remind_lead, reminded = 0`,
+        [d, assignTo, category || 'manual', title, assignTo, location || null, priority || 'normal', JSON.stringify(images), due, remindAt, remindLead || null, operator || null, nowBKK()]);
     }
     if (process.env.TELEGRAM_CHAT_ID) {
       const who = assignees.map(a => escapeHtml(dutyName(a))).join(', ');
-      const msg = `🆕 <b>มอบหมายงานใหม่</b> → ${who}\n${escapeHtml(title)}${location ? ` · 📍${escapeHtml(location)}` : ''}${priority === 'urgent' ? ' · 🔴 ด่วน' : ''}\nโดย ${escapeHtml(operator || 'จักรกฤษ')}`;
+      const L = [
+        `🆕 <b>มอบหมายงานใหม่</b>`,
+        `${catIcon(category)} ${escapeHtml(title)}${priority === 'urgent' ? '  🔴 <b>ด่วน</b>' : ''}`,
+        ``,
+        `👤 <b>ผู้รับ:</b> ${who}`,
+      ];
+      if (location) L.push(`📍 <b>สถานที่:</b> ${escapeHtml(location)}`);
+      L.push(`🗓 <b>วันที่ทำ:</b> ${thaiDate(d)}${due ? ` · ${due} น.` : ''}`);
+      if (remindAt) L.push(`⏰ <b>เตือน:</b> ${REMIND_LABEL[remindLead] || remindLead} (${remindAt.slice(11)} น.)`);
+      L.push(`✍️ โดย ${escapeHtml(operator || 'จักรกฤษ')}`);
+      const msg = L.join('\n');
       if (images.length) sendMediaGroupToTelegram(images, msg); // มีรูป → ส่งเป็นอัลบั้มพร้อมข้อความ
       else sendToTelegram(msg);
     }
-    res.json({ success: true });
+    res.json({ success: true, remindAt });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // สร้างข้อความสรุป + ส่งเข้า Telegram
 const THAI_MON_ABBR = ['', 'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 const thaiDate = (d) => { const [y, m, day] = String(d).split('-').map(Number); return `${day} ${THAI_MON_ABBR[m] || m} ${y + 543}`; };
-const DUTY_DOT = { mam: '🟢', nai: '🔵', pluk: '🟣' };
 
 function buildDutyText(duty) {
   if (duty.holiday) return `📋 <b>สรุปงานตามหน้าที่</b>\n🗓 ${thaiDate(duty.date)}\n\n🚫 <b>วันเสาร์ — วันหยุด</b> (ไม่มีกะทำงาน)`;
@@ -1939,7 +2184,7 @@ function buildDutyText(duty) {
   ];
   for (const p of duty.people) {
     L.push('');
-    const dot = DUTY_DOT[p.key] || '👤';
+    const dot = p.dot || dutyDot(p.key);
     const full = p.total && p.done >= p.total;
     L.push(`${dot} <b>${escapeHtml(p.name)}</b> · ${p.done}/${p.total} (${p.pct}%)${full ? ' 🎉' : ''}`);
     const pending = p.nodes.filter(n => !n.bypassed && !n.checked).map(n => escapeHtml(n.title))
@@ -2056,9 +2301,39 @@ async function reportTick() {
   } catch (e) { console.error('[report] tick error', e.message); }
 }
 
+// ── แจ้งเตือนงานมอบหมายตามเวลาที่ตั้งไว้ล่วงหน้า → Telegram (เกาะจังหวะ tick เดิม) ─
+async function reminderTick() {
+  try {
+    const bkk = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' });
+    const nowKey = bkk.slice(0, 10) + 'T' + bkk.slice(11, 16); // 'YYYY-MM-DDTHH:MM'
+    const due = await dbAll(
+      "SELECT * FROM daily_tasks WHERE source = 'assigned' AND reminded = 0 AND remind_at IS NOT NULL AND remind_at <= ? AND status != 'done' ORDER BY id",
+      [nowKey]);
+    for (const t of due) {
+      await db.exec('UPDATE daily_tasks SET reminded = 1 WHERE id = ?', [t.id]); // กันส่งซ้ำก่อน
+      if (process.env.TELEGRAM_CHAT_ID) {
+        const L = [
+          `⏰ <b>เตือนงาน</b>${t.priority === 'urgent' ? '  🔴 <b>ด่วน</b>' : ''}`,
+          `${catIcon(t.category)} ${escapeHtml(t.title)}`,
+          ``,
+          `👤 <b>ผู้รับ:</b> ${escapeHtml(dutyName(t.assignee))}`,
+        ];
+        if (t.location) L.push(`📍 <b>สถานที่:</b> ${escapeHtml(t.location)}`);
+        L.push(`🗓 <b>กำหนด:</b> ${thaiDate(t.task_date)}${t.due_time ? ` · ${t.due_time} น.` : ''}`);
+        const imgs = (() => { try { return JSON.parse(t.images || '[]'); } catch { return []; } })();
+        const msg = L.join('\n');
+        if (imgs.length) sendMediaGroupToTelegram(imgs, msg);
+        else sendToTelegram(msg);
+      }
+      console.log(`[reminder] task#${t.id} "${t.title}" → sent`);
+    }
+  } catch (e) { console.error('[reminder] tick error', e.message); }
+}
+
 // ให้ n8n Schedule เคาะทุกนาที (ปลุก Render + ทริกส่งตามตั้งค่าในแอป) — เสริม setInterval ให้ตรงเวลาแม้ Render หลับ
 app.post('/api/report/tick', async (req, res) => {
   await reportTick();
+  await reminderTick();
   await shiftAnalysisTick();
   await kpiReportTick();
   await kpiAlertTick();
@@ -3869,7 +4144,7 @@ if (require.main === module) {
         // เปิดอีกครั้งได้เมื่อ n8n ฝั่งนั้น deactivate ไปแล้วจริงๆ หรือออกแบบให้ทำงานร่วมกันแล้ว
         // registerTelegramWebhook();
         // ตัวจับเวลาส่งรายงานอัตโนมัติ + วิเคราะห์สิ้นกะ (เฟส 1) — เช็กทุกนาที (ต้องให้เซิร์ฟเวอร์ตื่นอยู่; มี Keep-Warm ping ช่วย)
-        setInterval(() => { reportTick(); shiftAnalysisTick(); kpiReportTick(); kpiAlertTick(); }, 60 * 1000);
+        setInterval(() => { reportTick(); reminderTick(); shiftAnalysisTick(); kpiReportTick(); kpiAlertTick(); }, 60 * 1000);
         console.log('[report] scheduler started (every 60s) + shift-analysis');
       });
     })

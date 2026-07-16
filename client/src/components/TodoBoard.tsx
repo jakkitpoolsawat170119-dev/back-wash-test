@@ -53,8 +53,13 @@ const DUTY_COLOR: Record<string, { c: string; wash: string; initial: string }> =
 };
 const BYPASS_REASONS = ['ไม่มีการผลิต', 'เครื่องหยุด/ซ่อม', 'ทำล่วงหน้าแล้ว', 'ไม่ถึงรอบ', 'ให้คนอื่นทำแทน', 'อื่นๆ'];
 const LOCATIONS = ['Line 1', 'Line 2', 'Line 3', 'Line 4', 'FVH', 'บรรจุ A1/A2/A3', 'L2', 'อื่นๆ'];
+// ตัวเลือกแจ้งเตือนล่วงหน้า (ค่า = ส่งให้ backend, label = แสดงผล)
+const REMIND_OPTIONS: [string, string][] = [
+  ['none', 'ไม่เตือน'], ['30m', 'ล่วงหน้า 30 นาที'], ['1h', 'ล่วงหน้า 1 ชม.'],
+  ['2h', 'ล่วงหน้า 2 ชม.'], ['1d', 'ล่วงหน้า 1 วัน'], ['morning', 'เช้าวันงาน 08:00'],
+];
 
-type DutyNode = { key: string; title: string; depth: number; mono: boolean; checked: boolean; bypassed: boolean; bypassReason: string | null; handoffTo: string | null; handoffToName: string | null };
+type DutyNode = { key: string; title: string; depth: number; mono: boolean; id?: number; parentId?: number | null; checked: boolean; bypassed: boolean; bypassReason: string | null; handoffTo: string | null; handoffToName: string | null };
 type Received = { ownerKey: string; fromName: string; nodeKey: string; title: string; checked: boolean };
 type AdhocTask = { id: number; title: string; category: string; location: string | null; priority: string; status: string; handoffFrom: string | null; images?: string[]; doneImages?: string[] };
 
@@ -78,7 +83,7 @@ const resizePhoto = (file: File): Promise<PhotoAttach> => new Promise((resolve, 
   };
   reader.onerror = reject; reader.readAsDataURL(file);
 });
-type DutyPerson = { key: string; name: string; role: string; nodes: DutyNode[]; received: Received[]; adhoc: AdhocTask[]; done: number; total: number; pct: number };
+type DutyPerson = { key: string; name: string; role: string; color?: string; wash?: string; initial?: string; dot?: string; nodes: DutyNode[]; received: Received[]; adhoc: AdhocTask[]; done: number; total: number; pct: number };
 type Duty = { date: string; holiday?: boolean; people: DutyPerson[]; team: { done: number; total: number; left: number; pct: number } };
 
 // ─── Timeline: type + shift metadata ───────────────────────────
@@ -1219,8 +1224,8 @@ const CalendarTab: React.FC<{ card: React.CSSProperties; onOpenDate: (date: stri
         {/* per-person KPI */}
         {eyebrow('KPI รายบุคคล')}
         <div style={{ ...card }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
-            {duty.people.map(p => { const col = DUTY_COLOR[p.key]?.c || '#607d8b'; const lvl = p.pct >= 80 ? ['ดีเยี่ยม', '#e7f5e8', '#2e7d32'] : p.pct >= 50 ? ['กำลังไป', '#fff3e0', '#e65100'] : ['ต้องเร่ง', '#ffebee', '#c62828']; return (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 10 }}>
+            {duty.people.map(p => { const col = p.color || DUTY_COLOR[p.key]?.c || '#607d8b'; const lvl = p.pct >= 80 ? ['ดีเยี่ยม', '#e7f5e8', '#2e7d32'] : p.pct >= 50 ? ['กำลังไป', '#fff3e0', '#e65100'] : ['ต้องเร่ง', '#ffebee', '#c62828']; return (
               <div key={p.key} style={{ border: '1px solid #eee', borderRadius: 12, padding: '12px 6px', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: col }} />
                 <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0 6px' }}>
@@ -1238,7 +1243,7 @@ const CalendarTab: React.FC<{ card: React.CSSProperties; onOpenDate: (date: stri
         {eyebrow('เปรียบเทียบรายคน')}
         <div style={{ ...card }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {duty.people.map(p => { const col = DUTY_COLOR[p.key]?.c || '#607d8b'; return (
+            {duty.people.map(p => { const col = p.color || DUTY_COLOR[p.key]?.c || '#607d8b'; return (
               <div key={p.key} style={{ display: 'grid', gridTemplateColumns: '46px 1fr 40px', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: '.78rem', fontWeight: 700, color: col }}>{p.name}</span>
                 <div style={{ height: 12, background: '#eef1f3', borderRadius: 7, overflow: 'hidden' }}><div style={{ height: '100%', width: `${p.pct}%`, background: col, borderRadius: 7, transition: 'width .4s' }} /></div>
@@ -1654,6 +1659,126 @@ const ReportTab: React.FC<{ card: React.CSSProperties }> = ({ card }) => {
   );
 };
 
+// ─── Panel จัดการคน/งาน ของ Duty board (เพิ่ม/แก้/ลบ ได้เอง ไม่ต้องแก้โค้ด) ──
+const ManagePanel: React.FC<{ people: DutyPerson[]; onClose: () => void; reload: () => Promise<void> }> =
+  ({ people, onClose, reload }) => {
+    const [tab, setTab] = useState<'people' | 'tasks'>('people');
+    const [busy, setBusy] = useState(false);
+    const [selKey, setSelKey] = useState(people[0]?.key || '');
+    // draft แก้ชื่อ/role รายคน (เริ่มจากค่าปัจจุบัน)
+    const [edits, setEdits] = useState<Record<string, { name: string; role: string }>>({});
+    const [newName, setNewName] = useState(''); const [newRole, setNewRole] = useState('');
+    // เพิ่มงาน: text ต่อ parent (คีย์ = parentId หรือ 'root'); แก้งาน: id + text
+    const [addText, setAddText] = useState<Record<string, string>>({});
+    const [editId, setEditId] = useState<number | null>(null); const [editText, setEditText] = useState('');
+
+    const api = async (url: string, body: Record<string, unknown>) => {
+      setBusy(true);
+      try { await fetch(`${apiUrl}${url}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); await reload(); }
+      finally { setBusy(false); }
+    };
+    const draft = (p: DutyPerson) => edits[p.key] || { name: p.name, role: p.role || '' };
+    const setDraft = (k: string, patch: Partial<{ name: string; role: string }>) =>
+      setEdits(prev => ({ ...prev, [k]: { ...(prev[k] || { name: people.find(x => x.key === k)?.name || '', role: people.find(x => x.key === k)?.role || '' }), ...patch } }));
+    const savePerson = (p: DutyPerson) => { const d = draft(p); if (!d.name.trim()) return; return api('/api/duty/person', { key: p.key, name: d.name.trim(), role: d.role }); };
+    const addPerson = async () => { if (!newName.trim()) return; await api('/api/duty/person', { name: newName.trim(), role: newRole }); setNewName(''); setNewRole(''); };
+    const delPerson = (p: DutyPerson) => { if (window.confirm(`เอา "${p.name}" ออกจากรายการงานหลัก?`)) api('/api/duty/person/delete', { key: p.key }); };
+    const addTask = async (parentId: number | null) => {
+      const k = parentId == null ? 'root' : String(parentId);
+      const t = (addText[k] || '').trim(); if (!t) return;
+      await api('/api/duty/routine', { personKey: selKey, parentId, title: t });
+      setAddText(prev => ({ ...prev, [k]: '' }));
+    };
+    const saveTask = async (id: number) => { if (!editText.trim()) return; await api('/api/duty/routine', { id, title: editText.trim() }); setEditId(null); setEditText(''); };
+    const delTask = (n: DutyNode) => { if (n.id && window.confirm(`ลบงาน "${n.title}" (รวมงานย่อย)?`)) api('/api/duty/routine/delete', { id: n.id }); };
+
+    const sel = people.find(p => p.key === selKey);
+    const inp: React.CSSProperties = { boxSizing: 'border-box', padding: '7px 9px', border: '1px solid #ddd', borderRadius: 9, fontSize: '0.82rem', fontFamily: 'inherit' };
+    const btn = (bg: string): React.CSSProperties => ({ border: 'none', background: bg, color: '#fff', borderRadius: 9, padding: '7px 11px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0 });
+    const tabBtn = (on: boolean): React.CSSProperties => ({ flex: 1, border: 'none', background: on ? '#37474f' : '#eceff1', color: on ? '#fff' : '#607d8b', borderRadius: 10, padding: '9px 0', fontSize: '0.85rem', fontWeight: 800, cursor: 'pointer' });
+
+    return (
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 1100, display: 'grid', placeItems: 'center', padding: 16 }}>
+        <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 18, width: '100%', maxWidth: 520, maxHeight: '88vh', overflow: 'auto', padding: 18, boxShadow: '0 12px 48px rgba(0,0,0,.3)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+            <div style={{ fontWeight: 800, fontSize: '1rem' }}>⚙️ จัดการคน / งาน</div>
+            <button onClick={onClose} style={{ border: 'none', background: '#eceff1', borderRadius: '50%', width: 30, height: 30, fontSize: '1rem', cursor: 'pointer', color: '#546e7a' }}>×</button>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <button onClick={() => setTab('people')} style={tabBtn(tab === 'people')}>👤 คน</button>
+            <button onClick={() => setTab('tasks')} style={tabBtn(tab === 'tasks')}>✅ งาน</button>
+          </div>
+
+          {tab === 'people' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {people.map(p => { const d = draft(p); const c = p.color || '#607d8b'; return (
+                <div key={p.key} style={{ display: 'flex', gap: 7, alignItems: 'center', borderLeft: `3px solid ${c}`, paddingLeft: 9 }}>
+                  <div style={{ width: 30, height: 30, borderRadius: '50%', flexShrink: 0, display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 800, fontSize: '0.8rem', background: c }}>{p.initial || p.name[0]}</div>
+                  <div style={{ flex: 1, minWidth: 0, display: 'grid', gap: 4 }}>
+                    <input value={d.name} onChange={e => setDraft(p.key, { name: e.target.value })} style={{ ...inp, fontWeight: 700 }} />
+                    <input value={d.role} onChange={e => setDraft(p.key, { role: e.target.value })} placeholder="หน้าที่/บทบาท" style={{ ...inp, fontSize: '0.74rem', color: '#78828a' }} />
+                  </div>
+                  <button onClick={() => savePerson(p)} disabled={busy} style={btn('#2e7d32')}>บันทึก</button>
+                  <button onClick={() => delPerson(p)} disabled={busy} style={btn('#c62828')}>ลบ</button>
+                </div>
+              ); })}
+              <div style={{ borderTop: '1px dashed #e0e0e0', paddingTop: 12, marginTop: 4 }}>
+                <div style={{ fontSize: '0.74rem', fontWeight: 800, color: '#546e7a', marginBottom: 7 }}>➕ เพิ่มคนใหม่</div>
+                <div style={{ display: 'flex', gap: 7 }}>
+                  <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="ชื่อ" style={{ ...inp, flex: 1, minWidth: 0 }} />
+                  <input value={newRole} onChange={e => setNewRole(e.target.value)} placeholder="หน้าที่ (ไม่บังคับ)" style={{ ...inp, flex: 1, minWidth: 0 }} />
+                  <button onClick={addPerson} disabled={busy || !newName.trim()} style={btn('#37474f')}>เพิ่ม</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {tab === 'tasks' && (
+            <div>
+              <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 14 }}>
+                {people.map(p => (
+                  <button key={p.key} onClick={() => setSelKey(p.key)} style={{ border: '2px solid', borderColor: selKey === p.key ? 'transparent' : '#e0e0e0', background: selKey === p.key ? (p.color || '#37474f') : '#fff', color: selKey === p.key ? '#fff' : '#666', borderRadius: 20, padding: '6px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}>{p.name}</button>
+                ))}
+              </div>
+              {sel && (<>
+                {sel.nodes.length === 0 && <div style={{ color: '#9aa0a6', fontSize: '0.82rem', padding: '4px 0 10px' }}>ยังไม่มีงาน — เพิ่มด้านล่างได้เลย</div>}
+                {sel.nodes.map(n => (
+                  <div key={n.key} style={{ marginLeft: n.depth * 18 }}>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '4px 0' }}>
+                      <span style={{ color: '#cfd8dc', flexShrink: 0 }}>{n.depth > 0 ? '└' : '•'}</span>
+                      {editId === n.id ? (<>
+                        <input value={editText} autoFocus onChange={e => setEditText(e.target.value)} onKeyDown={e => e.key === 'Enter' && n.id && saveTask(n.id)} style={{ ...inp, flex: 1, minWidth: 0 }} />
+                        <button onClick={() => n.id && saveTask(n.id)} disabled={busy} style={btn('#2e7d32')}>✓</button>
+                        <button onClick={() => { setEditId(null); setEditText(''); }} style={btn('#90a4ae')}>✕</button>
+                      </>) : (<>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: '0.86rem', fontFamily: n.mono ? 'ui-monospace, Menlo, monospace' : 'inherit', color: '#37474f' }}>{n.title}</span>
+                        <button onClick={() => { setEditId(n.id ?? null); setEditText(n.title); }} title="แก้ไข" style={{ ...btn('#eceff1'), color: '#546e7a' }}>✏️</button>
+                        <button onClick={() => { const k = String(n.id); setAddText(prev => ({ ...prev, [k]: prev[k] ?? '' })); document.getElementById(`add-${n.id}`)?.focus(); }} title="เพิ่มงานย่อย" style={{ ...btn('#eceff1'), color: '#546e7a' }}>＋ย่อย</button>
+                        <button onClick={() => delTask(n)} title="ลบ" style={{ ...btn('#fdecea'), color: '#c62828' }}>🗑</button>
+                      </>)}
+                    </div>
+                    {/* ช่องเพิ่มงานย่อยใต้ node นี้ */}
+                    <div style={{ display: 'flex', gap: 6, marginLeft: 18, padding: '2px 0 6px' }}>
+                      <input id={`add-${n.id}`} value={addText[String(n.id)] || ''} onChange={e => setAddText(prev => ({ ...prev, [String(n.id)]: e.target.value }))} onKeyDown={e => e.key === 'Enter' && addTask(n.id ?? null)} placeholder="＋ งานย่อย…" style={{ ...inp, flex: 1, minWidth: 0, fontSize: '0.78rem', borderStyle: 'dashed' }} />
+                      {(addText[String(n.id)] || '').trim() && <button onClick={() => addTask(n.id ?? null)} disabled={busy} style={btn('#37474f')}>เพิ่ม</button>}
+                    </div>
+                  </div>
+                ))}
+                <div style={{ borderTop: '1px dashed #e0e0e0', paddingTop: 12, marginTop: 8 }}>
+                  <div style={{ fontSize: '0.74rem', fontWeight: 800, color: '#546e7a', marginBottom: 7 }}>➕ เพิ่มงานหลัก (ของ {sel.name})</div>
+                  <div style={{ display: 'flex', gap: 7 }}>
+                    <input value={addText.root || ''} onChange={e => setAddText(prev => ({ ...prev, root: e.target.value }))} onKeyDown={e => e.key === 'Enter' && addTask(null)} placeholder="ชื่องาน" style={{ ...inp, flex: 1, minWidth: 0 }} />
+                    <button onClick={() => addTask(null)} disabled={busy || !(addText.root || '').trim()} style={btn('#37474f')}>เพิ่ม</button>
+                  </div>
+                </div>
+              </>)}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
 // ─── Duty board (งานตามหน้าที่รับผิดชอบรายบุคคล) ─────────────────
 const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: React.CSSProperties }> =
   ({ date, operatorName, card }) => {
@@ -1697,8 +1822,28 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
     const [prio, setPrio] = useState('normal');
     const [assignImgs, setAssignImgs] = useState<PhotoAttach[]>([]); // รูปแนบงาน (≤10)
     const [zoom, setZoom] = useState<string | null>(null);           // รูปที่กดขยาย (lightbox)
+    const [workDate, setWorkDate] = useState(date);                  // วันที่ทำงาน (default = วันที่บอร์ด)
+    const [dueTime, setDueTime] = useState('');                      // เวลากำหนด (ไม่บังคับ)
+    const [remindLead, setRemindLead] = useState('none');            // แจ้งเตือนล่วงหน้า
+    const [newName, setNewName] = useState('');                      // ช่องเพิ่มชื่อคนใหม่
+    const [addingName, setAddingName] = useState(false);
+    const [manageOpen, setManageOpen] = useState(false);            // เปิด panel จัดการคน/งาน
     const assignFileRef = useRef<HTMLInputElement>(null);
+    useEffect(() => { setWorkDate(date); }, [date]);                 // เปลี่ยนวันบอร์ด → sync วันที่ทำ
     const toggleAssignee = (key: string) => setAssignees(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+    // เพิ่มชื่อคนใหม่ (บันทึกถาวรลง DB) → เลือกเป็นผู้รับให้เลย
+    const addPerson = async () => {
+      const nm = newName.trim();
+      if (!nm || addingName) return;
+      setAddingName(true);
+      try {
+        const r = await fetch(`${apiUrl}/api/duty/person`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: nm }) });
+        const d = await r.json();
+        setNewName('');
+        await load();
+        if (d.key) setAssignees(prev => prev.includes(d.key) ? prev : [...prev, d.key]);
+      } catch { /* offline */ } finally { setAddingName(false); }
+    };
     const addAssignImgs = async (files: FileList | File[]) => {
       const list = Array.from(files).filter(f => f.type.startsWith('image/'));
       const attaches: PhotoAttach[] = [];
@@ -1707,8 +1852,8 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
     };
     const assign = async () => {
       if (!title.trim() || assignees.length === 0) return;
-      await post('/api/duty/assign', { date, assignees, category: cat, title: title.trim(), location: loc, priority: prio, operator: operatorName, images: assignImgs.map(a => a.preview) });
-      setTitle(''); setAssignImgs([]); // คงคนที่เลือกไว้ เผื่อมอบงานถัดไปให้กลุ่มเดิม
+      await post('/api/duty/assign', { date, assignees, category: cat, title: title.trim(), location: loc, priority: prio, operator: operatorName, images: assignImgs.map(a => a.preview), workDate, dueTime, remindLead });
+      setTitle(''); setAssignImgs([]); setRemindLead('none'); setDueTime(''); // คงคน+วันที่ไว้ เผื่อมอบงานถัดไป
     };
 
     const sendTg = async () => {
@@ -1728,6 +1873,8 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
     const sel: React.CSSProperties = { fontFamily: 'inherit', fontSize: '0.72rem', fontWeight: 700, color: '#ff6b00', background: '#fff3e9', border: '1px dashed #ff8c00', borderRadius: 9, padding: '5px 7px', flexShrink: 0 };
     const subLbl: React.CSSProperties = { fontSize: '0.68rem', fontWeight: 800, letterSpacing: '.04em', color: '#9aa0a6', textTransform: 'uppercase', margin: '10px 0 2px' };
     const chip = (on: boolean, color = '#ff6b00'): React.CSSProperties => ({ border: '2px solid', borderColor: on ? 'transparent' : '#e0e0e0', background: on ? color : '#fff', color: on ? '#fff' : '#666', borderRadius: 22, padding: '7px 13px', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer' });
+    // สี/ตัวย่อของคน: ใช้ค่าจาก API ก่อน (เก็บใน DB) แล้วค่อย fallback DUTY_COLOR เดิม
+    const colOf = (p: DutyPerson) => ({ c: p.color || (DUTY_COLOR[p.key] || {}).c || '#607d8b', wash: p.wash || (DUTY_COLOR[p.key] || {}).wash || '#eceff1', initial: p.initial || (DUTY_COLOR[p.key] || {}).initial || (p.name || '?')[0] });
 
     if (!duty) return <div style={{ textAlign: 'center', color: '#bbb', padding: 24 }}>{loading ? 'กำลังโหลด…' : 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้'}</div>;
     if (duty.holiday) return <div style={{ ...card, textAlign: 'center', padding: 40 }}><div style={{ fontSize: '2rem' }}>🚫</div><div style={{ fontWeight: 800, marginTop: 8 }}>วันเสาร์ — วันหยุด</div><div style={{ fontSize: '0.8rem', color: '#90a4ae', marginTop: 4 }}>ไม่มีกะทำงาน</div></div>;
@@ -1740,8 +1887,8 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
             <div><div style={subLbl}>ความคืบหน้าทีมวันนี้</div><div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#ff6b00' }}>{duty.team.pct}%<small style={{ fontSize: '0.8rem', color: '#9aa0a6', fontWeight: 600 }}> เสร็จ</small></div></div>
             <div style={{ textAlign: 'right' }}><div style={subLbl}>งานคงค้าง</div><div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#e65100' }}>{duty.team.left}<small style={{ fontSize: '0.8rem', color: '#9aa0a6', fontWeight: 600 }}> งาน</small></div></div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
-            {duty.people.map(p => { const col = DUTY_COLOR[p.key] || { c: '#607d8b', wash: '#eee', initial: p.name[0] }; return (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: 10 }}>
+            {duty.people.map(p => { const col = colOf(p); return (
               <div key={p.key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, padding: '9px 4px', border: '1px solid #eee', borderRadius: 12 }}>
                 <div style={{ width: 32, height: 32, borderRadius: '50%', display: 'grid', placeItems: 'center', fontWeight: 800, color: '#fff', fontSize: '0.85rem', background: col.c }}>{col.initial}</div>
                 <div style={{ fontSize: '0.78rem', fontWeight: 700, color: col.c }}>{p.name}</div>
@@ -1753,7 +1900,7 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
         </div>
 
         {/* person cards */}
-        {duty.people.map(p => { const col = DUTY_COLOR[p.key] || { c: '#607d8b', wash: '#eee', initial: p.name[0] }; return (
+        {duty.people.map(p => { const col = colOf(p); return (
           <div key={p.key} style={{ ...card, padding: 0, overflow: 'hidden', borderTop: `3px solid ${col.c}` }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 15px', background: col.wash }}>
               <div style={{ width: 38, height: 38, borderRadius: '50%', display: 'grid', placeItems: 'center', fontWeight: 800, color: '#fff', background: col.c }}>{col.initial}</div>
@@ -1831,13 +1978,24 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
 
         {/* assign form */}
         <div style={{ ...card }}>
-          <div style={{ fontWeight: 800, fontSize: '0.9rem', marginBottom: 12 }}>➕ มอบหมายงานระหว่างวัน</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>➕ มอบหมายงานระหว่างวัน</div>
+            <button onClick={() => setManageOpen(true)} style={{ border: '1px solid #e0e0e0', background: '#fff', color: '#546e7a', borderRadius: 9, padding: '5px 10px', fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer' }}>⚙️ จัดการคน/งาน</button>
+          </div>
           <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a', marginBottom: 7 }}>ส่งให้ <span style={{ fontWeight: 600, color: '#9aa0a6' }}>(เลือกได้หลายคน)</span></div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-            {duty.people.map(p => <button key={p.key} onClick={() => toggleAssignee(p.key)} style={chip(assignees.includes(p.key), (DUTY_COLOR[p.key] || {}).c || '#ff6b00')}>{p.name}</button>)}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+            {duty.people.map(p => <button key={p.key} onClick={() => toggleAssignee(p.key)} style={chip(assignees.includes(p.key), colOf(p).c)}>{p.name}</button>)}
             {(() => { const all = duty.people.length > 0 && duty.people.every(p => assignees.includes(p.key)); return (
               <button onClick={() => setAssignees(all ? [] : duty.people.map(p => p.key))} style={chip(all, '#37474f')}>👥 ทั้งหมด</button>
             ); })()}
+          </div>
+          {/* เพิ่มชื่อคนใหม่เอง (บันทึกถาวร) */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addPerson()}
+              placeholder="➕ เพิ่มชื่อคนใหม่…"
+              style={{ flex: 1, minWidth: 0, boxSizing: 'border-box', padding: '8px 10px', border: '1px dashed #cbd5db', borderRadius: 10, fontSize: '0.82rem' }} />
+            <button onClick={addPerson} disabled={!newName.trim() || addingName}
+              style={{ border: 'none', background: newName.trim() ? '#37474f' : '#cfd8dc', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: '0.82rem', fontWeight: 700, cursor: newName.trim() ? 'pointer' : 'default', flexShrink: 0 }}>{addingName ? '…' : 'เพิ่ม'}</button>
           </div>
           <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a', marginBottom: 7 }}>ประเภทงาน</div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -1856,6 +2014,20 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
               <button onClick={() => setPrio('urgent')} style={{ ...chip(prio === 'urgent', '#c62828'), flex: 1, textAlign: 'center' }}>🔴 ด่วน</button>
             </div>
           </div>
+          {/* วันที่ทำ + เวลา + แจ้งเตือนล่วงหน้า */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
+            <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#546e7a' }}>🗓 วันที่ทำ
+              <input type="date" value={workDate} onChange={e => setWorkDate(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 9, border: '1px solid #ddd', borderRadius: 11, fontFamily: 'inherit', fontSize: '0.85rem' }} />
+            </label>
+            <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#546e7a' }}>⏰ เวลา (ไม่บังคับ)
+              <input type="time" value={dueTime} onChange={e => setDueTime(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 9, border: '1px solid #ddd', borderRadius: 11, fontFamily: 'inherit', fontSize: '0.85rem' }} />
+            </label>
+          </div>
+          <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#546e7a', marginBottom: 12 }}>🔔 แจ้งเตือนล่วงหน้า (เข้า Telegram)
+            <select value={remindLead} onChange={e => setRemindLead(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 10, border: '1px solid #ddd', borderRadius: 11, fontFamily: 'inherit', fontSize: '0.85rem', background: remindLead !== 'none' ? '#fff8e1' : '#fff' }}>
+              {REMIND_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
           {/* แนบรูป (ทุกประเภท) */}
           <input ref={assignFileRef} type="file" accept="image/*" multiple onChange={e => { if (e.target.files?.length) addAssignImgs(e.target.files); e.target.value = ''; }} style={{ display: 'none' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -1872,6 +2044,9 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
           </div>
           <button onClick={assign} style={{ width: '100%', border: 'none', borderRadius: 12, padding: 13, fontWeight: 800, fontSize: '0.92rem', color: '#fff', background: 'linear-gradient(135deg,#ff6b00,#ff8c00)', cursor: 'pointer' }}>📨 มอบหมายงาน &amp; แจ้งเตือน</button>
         </div>
+
+        {/* panel จัดการคน/งาน */}
+        {manageOpen && <ManagePanel people={duty.people} onClose={() => setManageOpen(false)} reload={load} />}
 
         {/* lightbox ขยายรูป */}
         {zoom && (
