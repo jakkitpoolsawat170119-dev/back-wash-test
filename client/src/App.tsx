@@ -423,7 +423,7 @@ const App: React.FC = () => {
           </div>
 
           <div style={{ display: appMode === 'todo' ? 'block' : 'none' }}>
-            <TodoBoard operatorName={operator} onBackToMain={() => switchMode('selection')} />
+            <TodoBoard operatorName={operator} onBackToMain={() => switchMode('selection')} onGoToProduction={() => switchMode('production')} />
           </div>
 
           <div style={{ display: appMode === 'stickerGuideChat' ? 'block' : 'none' }}>

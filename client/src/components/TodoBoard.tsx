@@ -100,9 +100,9 @@ const parseHM = (s?: string): { h: number; hm: string } | null => {
   if (h > 23) return null;
   return { h, hm: `${String(h).padStart(2, '0')}:${m[2]}` };
 };
-interface Props { operatorName: string | null; onBackToMain: () => void; }
+interface Props { operatorName: string | null; onBackToMain: () => void; onGoToProduction?: () => void; }
 
-const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
+const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProduction }) => {
   const [tab, setTab] = useState<'today' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs'>('today');
   const [date, setDate] = useState(currentWorkDay());
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -184,7 +184,8 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
         <TimelineTab date={date} operatorName={operatorName} events={events} reload={loadTimeline} card={card}
           aiDraft={aiHandoverDraft} onDraftConsumed={() => setAiHandoverDraft(null)}
           onGoToPlan={() => { setAiPlanSignal(n => n + 1); setTab('ai'); }}
-          onGoToHandoverAI={() => { setAiHandoverSignal(n => n + 1); setTab('ai'); }} />
+          onGoToHandoverAI={() => { setAiHandoverSignal(n => n + 1); setTab('ai'); }}
+          onGoToProduction={onGoToProduction} />
       )}
 
       {/* ── TAB: recurring ────────────────────────────────────── */}
@@ -744,25 +745,21 @@ const PackingReportForm: React.FC<{ date: string; operatorName: string | null; r
     );
   };
 
-const TimelineTab: React.FC<{ date: string; operatorName: string | null; events: TimelineEvent[]; reload: () => void; card: React.CSSProperties; aiDraft?: HoState | null; onDraftConsumed?: () => void; onGoToPlan?: () => void; onGoToHandoverAI?: () => void }> =
-  ({ date, operatorName, events, reload, card, aiDraft, onDraftConsumed, onGoToPlan, onGoToHandoverAI }) => {
+const TimelineTab: React.FC<{ date: string; operatorName: string | null; events: TimelineEvent[]; reload: () => void; card: React.CSSProperties; aiDraft?: HoState | null; onDraftConsumed?: () => void; onGoToPlan?: () => void; onGoToHandoverAI?: () => void; onGoToProduction?: () => void }> =
+  ({ date, operatorName, events, reload, card, aiDraft, onDraftConsumed, onGoToPlan, onGoToHandoverAI, onGoToProduction }) => {
     const [filter, setFilter] = useState('all');
     const [hoData, setHoData] = useState<HoState | null>(null); // สถานะรับกะสด → ป้อนฟอร์มบรรจุ
     const [receiveActive, setReceiveActive] = useState(false); // ฟอร์มรับกะเปิดอยู่ (mode in) → โชว์รายงานบรรจุ · ส่งกะ = ซ่อน
     // แถบขั้นตอนงาน (stepper): สั่งเปิดฟอร์ม + เลื่อนไปหา
     const [hoCmd, setHoCmd] = useState<{ mode: 'in' | 'out'; n: number }>({ mode: 'in', n: 0 });
-    const [pkCmd, setPkCmd] = useState(0);
     const [receiveChoice, setReceiveChoice] = useState(false); // ① รับกะ กด → ให้เลือก กรอกเอง / ให้ AI ช่วย
     const handoverRef = useRef<HTMLDivElement>(null);
-    const packingRef = useRef<HTMLDivElement>(null);
     const scrollTo = (r: React.RefObject<HTMLDivElement | null>, delay = 50) => setTimeout(() => r.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), delay);
     const goHandover = (mode: 'in' | 'out') => { setHoCmd(c => ({ mode, n: c.n + 1 })); scrollTo(handoverRef); };
-    // บันทึกผลิต & บรรจุ: การ์ดบรรจุอยู่ในโหมดรับกะ → เปิดรับกะให้ก่อน แล้วกางการ์ดบรรจุ + เลื่อนไปหา
-    const goPacking = () => { setHoCmd(c => ({ mode: 'in', n: c.n + 1 })); setPkCmd(n => n + 1); scrollTo(packingRef, 250); };
     const STEPS: { ic: string; label: string; sub: string; c: string; on: () => void }[] = [
       { ic: '📥', label: 'รับกะ', sub: 'กรอกเอง / ให้ AI ช่วย', c: '#00897b', on: () => setReceiveChoice(v => !v) },
       { ic: '🏭', label: 'ลงแผนผลิต', sub: 'วางแผน → AI แกะ', c: '#5e35b1', on: () => { setReceiveChoice(false); onGoToPlan?.(); } },
-      { ic: '📦', label: 'บันทึกผลิต & บรรจุ', sub: 'รายงาน Batch + Boxes', c: '#8d5524', on: () => { setReceiveChoice(false); goPacking(); } },
+      { ic: '📋', label: 'แผนผลิตวันนี้', sub: 'ตั้ง Line/กลิ่น/Batch (หน้าผลิต)', c: '#8d5524', on: () => { setReceiveChoice(false); onGoToProduction?.(); } },
       { ic: '📤', label: 'ส่งกะ', sub: 'สรุป + คำนวณถัง', c: '#ff6b00', on: () => { setReceiveChoice(false); goHandover('out'); } },
     ];
 
@@ -838,8 +835,8 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
         </div>
 
         {/* packing-staff report (Batch + Boxes ให้พนักงานบรรจุ) — อยู่คู่กับรับกะ (โชว์เฉพาะตอนรับกะ ซ่อนตอนส่งกะ) */}
-        <div ref={packingRef} style={{ display: receiveActive ? 'block' : 'none' }}>
-          <PackingReportForm date={date} operatorName={operatorName} reload={reload} card={card} source={hoData} openCmd={pkCmd} />
+        <div style={{ display: receiveActive ? 'block' : 'none' }}>
+          <PackingReportForm date={date} operatorName={operatorName} reload={reload} card={card} source={hoData} />
         </div>
 
         {/* live status board (สด, auto-refresh) */}
