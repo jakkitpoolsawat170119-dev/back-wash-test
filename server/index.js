@@ -82,6 +82,21 @@ const SCHEMA = [
       created_at TEXT,
       UNIQUE(plan_date, line_name, flavor)
     )`,
+  // แผนผลิตรายกะ (วางข้อความ → AI แกะ) — เก็บเป้าเป็น Boxes/batch ต่อรส ไม่ผูก Line (match ด้วยรสตอนทำ balance)
+  // แยกจาก production_plans เดิม (line-keyed, ผูก daily_tasks/KPI) เพื่อไม่กระทบ flow เดิม · 1 batch = 100 boxes
+  `CREATE TABLE IF NOT EXISTS shift_plans (
+      id ${db.pk},
+      work_day TEXT,
+      shift TEXT,
+      flavor TEXT,
+      target_boxes INTEGER,
+      target_batches REAL,
+      staff INTEGER,
+      machine_code TEXT,
+      spec TEXT,
+      created_at TEXT,
+      UNIQUE(work_day, shift, flavor)
+    )`,
   `CREATE TABLE IF NOT EXISTS cip_line2_sessions (
       id ${db.pk},
       operator_name TEXT,
@@ -1304,6 +1319,43 @@ app.get('/api/production/plan', (req, res) => {
   db.all("SELECT * FROM production_plans WHERE plan_date = ? ORDER BY line_name, flavor", [date], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ planDate: date, items: rows });
+  });
+});
+
+// ── แผนผลิตรายกะ (material balance Phase 1) — บันทึก/ดึงเป้าผลิตต่อรสต่อกะ ──
+// upsert หลายรายการต่อ (วันทำงาน+กะ) · 1 batch = 100 boxes (client คำนวณ target_batches มาแล้ว/เดารับได้)
+app.post('/api/shift-plan', async (req, res) => {
+  const { workDay, shift, operator, items } = req.body;
+  const day = workDay || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+  if (!shift) return res.status(400).json({ error: 'shift จำเป็น' });
+  if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'items ต้องเป็น array และไม่ว่าง' });
+  const createdAt = nowBKK();
+  const sql = `INSERT INTO shift_plans (work_day, shift, flavor, target_boxes, target_batches, staff, machine_code, spec, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(work_day, shift, flavor)
+    DO UPDATE SET target_boxes=excluded.target_boxes, target_batches=excluded.target_batches, staff=excluded.staff, machine_code=excluded.machine_code, spec=excluded.spec, created_at=excluded.created_at`;
+  try {
+    let saved = 0;
+    for (const it of items) {
+      const flavor = String(it.flavor || '').trim();
+      const boxes = Math.round(Number(it.target_boxes));
+      if (!flavor || !isFinite(boxes) || boxes <= 0) continue;
+      const batches = isFinite(Number(it.target_batches)) ? Number(it.target_batches) : Math.round((boxes / 100) * 10) / 10;
+      const staff = isFinite(Number(it.staff)) && Number(it.staff) > 0 ? Math.round(Number(it.staff)) : null;
+      await db.exec(sql, [day, shift, flavor, boxes, batches, staff, String(it.machine_code || ''), String(it.spec || ''), createdAt]);
+      saved++;
+    }
+    res.json({ success: true, saved, workDay: day, shift });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/shift-plan', (req, res) => {
+  const date = req.query.date || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+  const params = [date]; let where = 'work_day = ?';
+  if (req.query.shift) { where += ' AND shift = ?'; params.push(req.query.shift); }
+  db.all(`SELECT * FROM shift_plans WHERE ${where} ORDER BY shift, flavor`, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ workDay: date, items: rows });
   });
 });
 
@@ -3280,6 +3332,19 @@ const ASSISTANT_TOOLS = [
         } },
       note: { type: 'string', description: 'หมายเหตุรวม (ถ้ามี)' },
     }, required: ['shift', 'lines', 'line4'] } },
+  // ── โหมดลงแผนผลิตด้วย AI: แกะข้อความแผนเป็นรายการเป้าผลิต ไม่เขียน DB (ส่งร่างให้ client ตรวจ/บันทึกเอง) ──
+  { name: 'fill_production_plan', description: 'แกะข้อความ "แผนผลิต" ที่ผู้ใช้วางมา ให้เป็นรายการเป้าผลิตแบบโครงสร้าง เพื่อให้ผู้ใช้ตรวจ/แก้/บันทึกเอง — ไม่บันทึกลง DB ไม่ต้องขอยืนยัน เรียกได้ทันทีเมื่ออยู่ในโหมดนี้ · รูปแบบแต่ละรายการในแผน: "<สินค้า/รส> <สเปก> [<เครื่องบรรจุ>] = <เป้าBoxes>/<จำนวนคน>" เช่น "Syrup 1.8×8 [L1] =1200/7" · [L1]/[A3] คือหมายเลขเครื่องบรรจุ ไม่ใช่ Line ผลิต · แกะเฉพาะรายการที่มีเป้า Boxes (เลขก่อน /) ข้ามงานซัพพอร์ตที่เป็นแค่ "ชื่อ=จำนวนคน" (เช่น "ผู้ช่วยต้ม=2", "จัด Packaging =2") · ห้ามเดา/แต่งเลข เอาตามที่เขียนมา',
+    input_schema: { type: 'object', properties: {
+      shift: { type: 'string', enum: ['กะเช้า', 'กะบ่าย', 'กะดึก'], description: 'กะของแผน (จากหัวแผน เช่น 14.00-22.00=กะบ่าย, 18.00-06.00=กะดึก, 06.00-14.00=กะเช้า)' },
+      items: { type: 'array', description: 'รายการเป้าผลิต — 1 รายการต่อ 1 สินค้า/รสที่มีเป้า Boxes',
+        items: { type: 'object', properties: {
+          flavor: { type: 'string', description: 'ชื่อสินค้า/รส ตามที่เขียนมา เช่น "Syrup", "Fast Dissolving", "Amazon", "Coconut Señorita"' },
+          target_boxes: { type: 'integer', description: 'เป้า Boxes = เลขก่อนเครื่องหมาย / เช่น "=1200/7" → 1200' },
+          staff: { type: 'integer', description: 'จำนวนคนที่จัดให้งานนี้ = เลขหลัง / เช่น "=1200/7" → 7' },
+          machine_code: { type: 'string', description: 'หมายเลขเครื่องบรรจุในวงเล็บ เช่น "L1", "A3" (ถ้ามี) — เก็บอ้างอิงเฉยๆ' },
+          spec: { type: 'string', description: 'สเปกบรรจุ เช่น "1.8×8", "800×12" (ถ้ามี) — เก็บอ้างอิงเฉยๆ' },
+        }, required: ['flavor', 'target_boxes'] } },
+    }, required: ['items'] } },
 ];
 
 async function runAssistantTool(name, input, operator, ctx = {}) {
@@ -3400,7 +3465,33 @@ async function runAssistantTool(name, input, operator, ctx = {}) {
     if (ctx) ctx.handoverDraft = draft; // ไม่เขียน DB — ส่งร่างกลับให้ client เติมฟอร์มเอง
     return { ok: true, filled: true, note: 'ส่งร่างข้อมูลไปเติมในฟอร์มรับกะให้แล้ว ยังไม่ได้บันทึกอะไรทั้งสิ้น บอกผู้ใช้สรุปสั้นๆ ว่ากรอกอะไรให้บ้าง และให้ไปตรวจสอบ/แก้ไข/กดส่งเองที่ฟอร์ม ห้ามพูดว่าบันทึกแล้ว' };
   }
+  if (name === 'fill_production_plan') {
+    const draft = normalizePlanDraft(input);
+    if (ctx) ctx.planDraft = draft; // ไม่เขียน DB — ส่งร่างแผนกลับให้ client ตรวจ/บันทึกเอง
+    return { ok: true, filled: true, count: draft.items.length, note: 'แกะแผนเป็นรายการเป้าผลิตแล้ว ยังไม่ได้บันทึก บอกผู้ใช้สรุปสั้นๆ ว่ามีกี่รายการ/รสอะไรบ้าง แล้วให้ไปตรวจ/แก้/กดบันทึกเองที่การ์ด ห้ามพูดว่าบันทึกแล้ว' };
+  }
   return { error: 'unknown tool' };
+}
+
+// แปลง args จาก fill_production_plan → รายการเป้าผลิตที่สะอาด (คำนวณ batch = boxes/100, ตัดรายการไม่มีรส/เป้า)
+function normalizePlanDraft(input) {
+  const shift = ['กะเช้า', 'กะบ่าย', 'กะดึก'].includes(input.shift) ? input.shift : '';
+  const itemsIn = Array.isArray(input.items) ? input.items : [];
+  const items = itemsIn.map(it => {
+    const flavor = String((it && it.flavor) || '').trim();
+    const boxes = Math.round(Number(it && it.target_boxes));
+    if (!flavor || !isFinite(boxes) || boxes <= 0) return null; // ต้องมีรส + เป้า Boxes เป็นบวก
+    const staffN = Math.round(Number(it && it.staff));
+    return {
+      flavor,
+      target_boxes: boxes,
+      target_batches: Math.round((boxes / 100) * 10) / 10, // 1 batch = 100 boxes (ทศนิยม 1 ตำแหน่ง)
+      staff: isFinite(staffN) && staffN > 0 ? staffN : null,
+      machine_code: String((it && it.machine_code) || '').trim(),
+      spec: String((it && it.spec) || '').trim(),
+    };
+  }).filter(Boolean);
+  return { shift, items };
 }
 
 // เดาช่อง Batch dropdown (ตัวอักษร A-Z เดี่ยว) จากข้อความถัง — เอา batch "ล่าสุด" = ตัวอักษรสูงสุด
@@ -3514,7 +3605,7 @@ async function runAssistantConversation(opts) {
   if (systemExtra) system += '\n\n' + systemExtra;
 
   const actions = [];
-  const ctx = { session, pending: [], resolved: [], handoverDraft: null }; // pending = การ์ดยืนยันที่เกิดใหม่รอบนี้, handoverDraft = ร่างฟอร์มรับกะจาก fill_handover_form
+  const ctx = { session, pending: [], resolved: [], handoverDraft: null, planDraft: null }; // pending = การ์ดยืนยัน, handoverDraft = ร่างฟอร์มรับกะ, planDraft = ร่างแผนผลิต
   // โหลดบทสนทนาก่อนหน้าของ session นี้ (multi-turn memory) — เก็บเฉพาะข้อความเป็น text
   let history = [];
   if (session) {
@@ -3571,7 +3662,7 @@ async function runAssistantConversation(opts) {
     await db.exec('INSERT INTO assistant_messages (session, role, content, created_at) VALUES (?, ?, ?, ?)', [session, 'assistant', reply, ts]);
     await db.exec(`DELETE FROM assistant_messages WHERE session = ? AND id NOT IN (SELECT id FROM assistant_messages WHERE session = ? ORDER BY id DESC LIMIT 30)`, [session, session]);
   }
-  return { reply, actions, pending: ctx.pending, handoverDraft: ctx.handoverDraft };
+  return { reply, actions, pending: ctx.pending, handoverDraft: ctx.handoverDraft, planDraft: ctx.planDraft };
 }
 
 // hint พิเศษต่อ intent — บังคับให้ turn นี้เรียก fill_handover_form ทันทีเมื่อได้ข้อความ กันหลุดไปคุยทั่วไป
@@ -3582,6 +3673,13 @@ const ASSISTANT_INTENT_HINTS = {
       + 'หน้าที่ของคุณรอบนี้คือแกะข้อความให้เป็นฟิลด์แล้วเรียก fill_handover_form ทันที — ห้ามเดา/แต่งข้อมูลที่ไม่มีในข้อความ ปล่อยฟิลด์ว่างไว้ถ้าไม่มีข้อมูลในข้อความ '
       + 'ไม่ต้องขอยืนยันก่อนเรียก tool นี้ (ไม่ได้เขียน DB) จากนั้นสรุปสั้นๆ ว่ากรอกอะไรให้บ้าง และบอกให้ผู้ใช้ไปตรวจสอบ/แก้ไข/กดส่งเองที่ฟอร์มรับกะ ห้ามพูดว่าบันทึกแล้ว',
     tool: 'fill_handover_form',
+  },
+  fill_plan: {
+    hint: 'โหมดพิเศษ: ผู้ใช้กำลังจะวางข้อความ "แผนผลิต" (มีหัวแผน วันที่/กะ/staffing แล้วตามด้วยรายการผลิตแต่ละบรรทัด) '
+      + 'หน้าที่ของคุณรอบนี้คือแกะเป็นรายการเป้าผลิตแล้วเรียก fill_production_plan ทันที — แต่ละรายการรูปแบบ "<สินค้า/รส> <สเปก> [<เครื่องบรรจุ>] = <เป้าBoxes>/<จำนวนคน>" '
+      + 'เอาเฉพาะรายการที่มีเป้า Boxes (เลขก่อน /) · ข้ามงานซัพพอร์ตที่เป็นแค่ "ชื่อ=จำนวนคน" (เช่น "ผู้ช่วยต้ม=2", "บดน้ำตาล=2", "จัด Packaging =2", "ดู CheckWeight =1") · [L1]/[A3] คือเครื่องบรรจุ ไม่ใช่ Line · ห้ามเดา/แต่งเลข '
+      + 'กะดูจากเวลาในหัวแผน (06-14=กะเช้า, 14-22=กะบ่าย, 18-06 หรือ 22-06=กะดึก) · ไม่ต้องขอยืนยัน (ไม่ได้เขียน DB) จากนั้นสรุปสั้นๆ ว่าแกะได้กี่รายการ แล้วบอกให้ไปตรวจ/แก้/กดบันทึกเองที่การ์ด ห้ามพูดว่าบันทึกแล้ว',
+    tool: 'fill_production_plan',
   },
 };
 
@@ -3595,9 +3693,9 @@ app.post('/api/assistant', async (req, res) => {
   if (!message && !imgs.length) return res.status(400).json({ error: 'message หรือ image จำเป็น' });
   try {
     const intentCfg = ASSISTANT_INTENT_HINTS[intent];
-    const { reply, actions, pending, handoverDraft } = await runAssistantConversation({ userMessage: String(message || ''), images: imgs, operator, session,
+    const { reply, actions, pending, handoverDraft, planDraft } = await runAssistantConversation({ userMessage: String(message || ''), images: imgs, operator, session,
       systemExtra: intentCfg?.hint || '', forceTool: intentCfg?.tool || null });
-    res.json({ reply, actions, pending, handoverDraft });
+    res.json({ reply, actions, pending, handoverDraft, planDraft });
   } catch (err) {
     console.error('[assistant] error', err.message);
     res.status(500).json({ error: err.message });
