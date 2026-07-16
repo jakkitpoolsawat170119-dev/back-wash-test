@@ -455,27 +455,12 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
             <button onClick={clearHighlights} style={{ border: 'none', background: 'none', color: '#8a6100', fontWeight: 700, cursor: 'pointer', fontSize: '0.76rem', textDecoration: 'underline', flexShrink: 0 }}>{fillSource === 'live' ? 'ล้างไฮไลต์' : 'ล้างข้อมูล AI'}</button>
           </div>
         )}
-        {/* segmented: รับกะ / ส่งกะ — โหมดที่เลือกอยู่เติมสีเต็ม (เขียวรับ / ส้มส่ง) ให้เห็นชัดว่ากำลังทำอะไร */}
-        <div style={{ display: 'flex', gap: 6, background: '#eef1f4', borderRadius: 14, padding: 5, marginBottom: 10 }}>
-          {([['in', '📥 รับกะ', '#00897b'], ['out', '📤 ส่งกะ', '#ff6b00']] as ['in' | 'out', string, string][]).map(([m, lb, c]) => {
-            const active = mode === m;
-            return (
-              <button key={m} onClick={() => applyMode(m)} aria-pressed={active} style={{
-                flex: 1, border: active ? 'none' : `1.5px solid ${c}33`, borderRadius: 10, padding: '11px 6px',
-                fontSize: '0.9rem', fontWeight: 800, cursor: 'pointer', letterSpacing: '.01em',
-                background: active ? c : '#fff', color: active ? '#fff' : `${c}cc`,
-                boxShadow: active ? `0 3px 10px ${c}59` : 'none',
-                transform: active ? 'translateY(-1px)' : 'none', transition: 'background .15s, color .15s, box-shadow .15s, transform .15s',
-              }}>{active ? '✓ ' : ''}{lb}</button>
-            );
-          })}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <span style={{ fontSize: '0.72rem', color: mode === 'in' ? '#00897b' : '#ff6b00', fontWeight: 600, flex: 1 }}>
-            {mode === 'in' ? '📥 กำลัง “รับกะ” — ทบทวนสถานะจากกะก่อน/AI แล้วกดรับทราบ' : '📤 กำลัง “ส่งกะ” — เติมจากข้อมูลสดให้ ตรวจ/แก้ แล้วกดส่ง'}
-          </span>
+        {/* หัวโหมด — คงที่ตามที่เปิดจากแถบขั้นตอน (รับกะ = รับกะเท่านั้น · ส่งกะ = ส่งกะเท่านั้น ไม่มีปุ่มสลับ) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: mode === 'in' ? '#00897b' : '#ff6b00', color: '#fff', borderRadius: 12, padding: '11px 14px', marginBottom: 10 }}>
+          <span style={{ fontWeight: 800, fontSize: '0.95rem' }}>{mode === 'in' ? '📥 รับกะ' : '📤 ส่งกะ'}</span>
+          <span style={{ fontSize: '0.68rem', opacity: 0.9, flex: 1 }}>{mode === 'in' ? 'ทบทวนสถานะจากกะก่อน/AI แล้วกดรับทราบ' : 'เติมจากข้อมูลสด ตรวจ/แก้ แล้วกดส่ง'}</span>
           {mode === 'out' && (
-            <button onClick={refreshOut} title="ดึงยอดผลิต/CIP/งานค้างล่าสุดมาเติมใหม่" style={{ flexShrink: 0, border: '1px solid #ffd0a8', background: '#fff7f0', color: '#b34700', borderRadius: 20, padding: '5px 11px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>🔄 ดึงข้อมูลสดล่าสุด</button>
+            <button onClick={refreshOut} title="ดึงยอดผลิต/CIP/งานค้างล่าสุดมาเติมใหม่" style={{ flexShrink: 0, border: '1px solid rgba(255,255,255,.6)', background: 'rgba(255,255,255,.18)', color: '#fff', borderRadius: 20, padding: '5px 11px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}>🔄 ดึงข้อมูลสด</button>
           )}
         </div>
 
