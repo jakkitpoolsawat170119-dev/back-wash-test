@@ -110,6 +110,7 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [aiHandoverDraft, setAiHandoverDraft] = useState<HoState | null>(null); // ร่างฟอร์มรับกะจากผู้ช่วย AI → รอ HandoverForm มาเก็บไปใช้
   const [aiPlanSignal, setAiPlanSignal] = useState(0); // stepper "ลงแผนผลิต" → เด้งไปแท็บ AI + เข้าโหมดลงแผน
+  const [aiHandoverSignal, setAiHandoverSignal] = useState(0); // stepper "รับกะ → ให้ AI ช่วย" → เด้งไปแท็บ AI + โหมดกรอกรับกะ
 
   // ── data loaders ───────────────────────────────────────────────
   const loadTasks = useCallback(async () => {
@@ -182,7 +183,8 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
       {tab === 'timeline' && (
         <TimelineTab date={date} operatorName={operatorName} events={events} reload={loadTimeline} card={card}
           aiDraft={aiHandoverDraft} onDraftConsumed={() => setAiHandoverDraft(null)}
-          onGoToPlan={() => { setAiPlanSignal(n => n + 1); setTab('ai'); }} />
+          onGoToPlan={() => { setAiPlanSignal(n => n + 1); setTab('ai'); }}
+          onGoToHandoverAI={() => { setAiHandoverSignal(n => n + 1); setTab('ai'); }} />
       )}
 
       {/* ── TAB: recurring ────────────────────────────────────── */}
@@ -193,7 +195,7 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
       {/* ── TAB: AI — คงไว้ตลอด (ซ่อนด้วย CSS) เพื่อไม่ให้บทสนทนาหายเมื่อสลับแท็บ ── */}
       <div style={{ display: tab === 'ai' ? 'block' : 'none' }}>
         <AssistantTab operatorName={operatorName} onAfterAction={loadTasks} card={card}
-          onHandoverDraft={(draft) => setAiHandoverDraft(draft)} onGoToHandoverForm={() => setTab('timeline')} planSignal={aiPlanSignal} />
+          onHandoverDraft={(draft) => setAiHandoverDraft(draft)} onGoToHandoverForm={() => setTab('timeline')} planSignal={aiPlanSignal} handoverSignal={aiHandoverSignal} />
       </div>
 
       {/* ── TAB: สเปกคุณภาพ (baseline Brix/pH) ─────────────────── */}
@@ -433,11 +435,8 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
     // ฟิลด์ที่ AI เติมให้ (ยังไม่ถูกแก้) → ไฮไลต์อำพันอ่อน ให้เห็นชัดว่าอันไหนต้องตรวจสอบ
     const aiStyle = (key: string): React.CSSProperties => aiFilledKeys.has(key) ? { background: '#fff8e1', borderColor: '#f0b429' } : {};
 
-    if (!open) return (
-      <button onClick={() => setOpen(true)} style={{ ...card, width: '100%', textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontWeight: 800, fontSize: '0.9rem', color: '#37474f' }}>
-        📋 บันทึกกะ <span style={{ marginLeft: 'auto', fontSize: '0.74rem', color: '#90a4ae', fontWeight: 600 }}>แตะเพื่อ รับกะ / ส่งกะ ›</span>
-      </button>
-    );
+    // เมื่อปิด: ไม่แสดงการ์ด "บันทึกกะ" (ซ้ำกับแถบขั้นตอน ①/④) — เปิดผ่าน stepper เท่านั้น
+    if (!open) return null;
 
     const modeC = mode === 'in' ? '#00897b' : '#ff6b00';
     return (
@@ -743,23 +742,24 @@ const PackingReportForm: React.FC<{ date: string; operatorName: string | null; r
     );
   };
 
-const TimelineTab: React.FC<{ date: string; operatorName: string | null; events: TimelineEvent[]; reload: () => void; card: React.CSSProperties; aiDraft?: HoState | null; onDraftConsumed?: () => void; onGoToPlan?: () => void }> =
-  ({ date, operatorName, events, reload, card, aiDraft, onDraftConsumed, onGoToPlan }) => {
+const TimelineTab: React.FC<{ date: string; operatorName: string | null; events: TimelineEvent[]; reload: () => void; card: React.CSSProperties; aiDraft?: HoState | null; onDraftConsumed?: () => void; onGoToPlan?: () => void; onGoToHandoverAI?: () => void }> =
+  ({ date, operatorName, events, reload, card, aiDraft, onDraftConsumed, onGoToPlan, onGoToHandoverAI }) => {
     const [filter, setFilter] = useState('all');
     const [hoData, setHoData] = useState<HoState | null>(null); // สถานะรับกะสด → ป้อนฟอร์มบรรจุ
     // แถบขั้นตอนงาน (stepper): สั่งเปิดฟอร์ม + เลื่อนไปหา
     const [hoCmd, setHoCmd] = useState<{ mode: 'in' | 'out'; n: number }>({ mode: 'in', n: 0 });
     const [pkCmd, setPkCmd] = useState(0);
+    const [receiveChoice, setReceiveChoice] = useState(false); // ① รับกะ กด → ให้เลือก กรอกเอง / ให้ AI ช่วย
     const handoverRef = useRef<HTMLDivElement>(null);
     const packingRef = useRef<HTMLDivElement>(null);
     const scrollTo = (r: React.RefObject<HTMLDivElement | null>) => setTimeout(() => r.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
     const goHandover = (mode: 'in' | 'out') => { setHoCmd(c => ({ mode, n: c.n + 1 })); scrollTo(handoverRef); };
     const goPacking = () => { setPkCmd(n => n + 1); scrollTo(packingRef); };
     const STEPS: { ic: string; label: string; sub: string; c: string; on: () => void }[] = [
-      { ic: '📥', label: 'รับกะ', sub: 'รับสถานะจากกะก่อน', c: '#00897b', on: () => goHandover('in') },
-      { ic: '🏭', label: 'ลงแผนผลิต', sub: 'วางแผน → AI แกะ', c: '#5e35b1', on: () => onGoToPlan?.() },
-      { ic: '📦', label: 'บันทึกผลิต & บรรจุ', sub: 'ระหว่างกะ', c: '#8d5524', on: goPacking },
-      { ic: '📤', label: 'ส่งกะ', sub: 'สรุป + คำนวณถัง', c: '#ff6b00', on: () => goHandover('out') },
+      { ic: '📥', label: 'รับกะ', sub: 'กรอกเอง / ให้ AI ช่วย', c: '#00897b', on: () => setReceiveChoice(v => !v) },
+      { ic: '🏭', label: 'ลงแผนผลิต', sub: 'วางแผน → AI แกะ', c: '#5e35b1', on: () => { setReceiveChoice(false); onGoToPlan?.(); } },
+      { ic: '📦', label: 'บันทึกผลิต & บรรจุ', sub: 'ระหว่างกะ', c: '#8d5524', on: () => { setReceiveChoice(false); goPacking(); } },
+      { ic: '📤', label: 'ส่งกะ', sub: 'สรุป + คำนวณถัง', c: '#ff6b00', on: () => { setReceiveChoice(false); goHandover('out'); } },
     ];
 
     // auto-refresh ไทม์ไลน์ทุก 20 วิ ระหว่างเปิดแท็บนี้ (ล้าง interval ตอนออก)
@@ -816,6 +816,16 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
             </React.Fragment>
           ))}
         </div>
+
+        {/* ① รับกะ — เลือกวิธี: กรอกเอง หรือ ให้ AI ช่วย */}
+        {receiveChoice && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.74rem', color: '#00695c', fontWeight: 700 }}>📥 รับกะ —</span>
+            <button onClick={() => { setReceiveChoice(false); goHandover('in'); }} style={{ border: '1.5px solid #00897b', background: '#00897b', color: '#fff', borderRadius: 20, padding: '7px 14px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }}>✍️ กรอกเอง</button>
+            <button onClick={() => { setReceiveChoice(false); onGoToHandoverAI?.(); }} style={{ border: '1.5px solid #00897b', background: '#e0f2f1', color: '#00695c', borderRadius: 20, padding: '7px 14px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }}>🤖 ให้ AI ช่วย</button>
+            <button onClick={() => setReceiveChoice(false)} style={{ border: 'none', background: 'none', color: '#90a4ae', cursor: 'pointer', fontSize: '0.9rem' }}>×</button>
+          </div>
+        )}
 
         {/* handover form (รับกะ/ส่งกะ, collapsible) — เผยแพร่สถานะสดให้ฟอร์มบรรจุ */}
         <div ref={handoverRef}>
@@ -1894,8 +1904,8 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
 // ─── Assistant chat ─────────────────────────────────────────────
 const AI_GREETING: ChatMsg = { role: 'assistant', text: 'สวัสดีครับ ถามหรือสั่งได้เลย เช่น\n• "วันนี้ Line 2 ทำอะไรไปแล้วบ้าง" / "สัปดาห์นี้รสไหนผลิตเยอะสุด"\n• "บันทึกผลิต Amazon batch C Line 2 brix 12.4" (มีการ์ดให้กดยืนยันก่อนบันทึกจริง)\n• "บันทึกรอบ CIP Line 3 มี backwash" / "วางแผนพรุ่งนี้ Amazon 6 batch"\n• 📎 แนบรูปแผนผลิตรายสัปดาห์ แล้วถาม "วันนี้กะผมผลิตอะไรบ้าง"\n• ถามเรื่องระบบ/กะทำงาน/วิธีใช้แอปได้ด้วย' };
 
-const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () => void; card: React.CSSProperties; onHandoverDraft?: (draft: HoState) => void; onGoToHandoverForm?: () => void; planSignal?: number }> =
-  ({ operatorName, onAfterAction, card, onHandoverDraft, onGoToHandoverForm, planSignal }) => {
+const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () => void; card: React.CSSProperties; onHandoverDraft?: (draft: HoState) => void; onGoToHandoverForm?: () => void; planSignal?: number; handoverSignal?: number }> =
+  ({ operatorName, onAfterAction, card, onHandoverDraft, onGoToHandoverForm, planSignal, handoverSignal }) => {
     const [msgs, setMsgs] = useState<ChatMsg[]>([AI_GREETING]);
     const [input, setInput] = useState('');
     const [busy, setBusy] = useState(false);
@@ -2010,10 +2020,13 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
       setPlanMode(true); setHandoverMode(false);
       setMsgs(m => [...m, { role: 'assistant', text: 'วางข้อความแผนผลิตทั้งก้อนได้เลยครับ (คัดลอกมาทั้งหมด) — ผมจะแกะเฉพาะรายการผลิตที่มีเป้า Boxes ให้ตรวจ/แก้/บันทึกเอง' }]);
     };
-    // สั่งเข้าโหมดลงแผนจากแถบขั้นตอน (stepper ในแท็บไทม์ไลน์ → เด้งมาแท็บนี้)
+    // สั่งเข้าโหมดลงแผน/กรอกรับกะด้วย AI จากแถบขั้นตอน (stepper ในแท็บไทม์ไลน์ → เด้งมาแท็บนี้)
     const planSigRef = useRef(0);
     useEffect(() => { if (planSignal && planSignal !== planSigRef.current) { planSigRef.current = planSignal; startPlanMode(); } // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [planSignal]);
+    const hoSigRef = useRef(0);
+    useEffect(() => { if (handoverSignal && handoverSignal !== hoSigRef.current) { hoSigRef.current = handoverSignal; startHandoverMode(); } // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [handoverSignal]);
     // แก้ค่าในการ์ดตรวจแผน (ต่อรายการ)
     const setPlanItem = (i: number, patch: Partial<PlanItem>) => setPlanReview(p => p ? { ...p, items: p.items.map((it, j) => j === i ? { ...it, ...patch } : it) } : p);
     const removePlanItem = (i: number) => setPlanReview(p => p ? { ...p, items: p.items.filter((_, j) => j !== i) } : p);
