@@ -248,6 +248,8 @@ function hoPreview(h: HoState, op: string | null, date: string, kind: 'in' | 'ou
 // ไลน์ที่ไม่มีการผลิต (เช่น CIP) → ถังว่าง · Line 4 ยกจากกะก่อน · CIP ล่าสุด/งานค้าง → หมายเหตุ
 type PrefillLine = { flavor?: string; batch?: string; cipTime?: string; recentBatches?: string[] };
 type BacklogItem = { line_name?: string; category?: string; title?: string };
+// material balance (Phase 2) — ข้อมูลดิบต่อไลน์จาก /api/handover/balance (client คำนวณ boxes เอง)
+type BalLine = { line: string; receivedFlavor: string; receivedTanks: string[]; producedBatches: string[]; producedCount: number };
 function hoFromPrefill(prefill: Record<string, PrefillLine>, carry?: HoState | null, backlog?: BacklogItem[]): HoState {
   const base = carry || initHo();
   const lines = HO_LINES.map((l, i) => {
@@ -299,6 +301,10 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
     const [msg, setMsg] = useState('');
     const [aiFilledKeys, setAiFilledKeys] = useState<Set<string>>(new Set()); // ฟิลด์ที่เติมอัตโนมัติ → ไฮไลต์จนกว่าจะแก้เอง
     const [fillSource, setFillSource] = useState<'ai' | 'live' | null>(null);  // ที่มาของไฮไลต์: AI(รับกะ) / ข้อมูลสด(ส่งกะ) — คุมป้ายแบนเนอร์
+    const [balOpen, setBalOpen] = useState(false);                 // แผงคำนวณ material balance (โหมดส่งกะ)
+    const [balData, setBalData] = useState<BalLine[] | null>(null);
+    const [balPacked, setBalPacked] = useState<Record<string, string>>({}); // ยอดบรรจุออก (กรอกเอง) ต่อไลน์
+    const [balBusy, setBalBusy] = useState(false);
     const lastRef = useRef<HoState | null>(null);                 // สถานะกะก่อน (สำหรับ รับกะ)
     const prefillRef = useRef<Record<string, PrefillLine>>({});   // รส/batch/เวลา CIP ล่าสุด (สำหรับ ส่งกะ)
     const backlogRef = useRef<BacklogItem[]>([]);                 // งานค้าง → หมายเหตุส่งต่อ (ส่งกะ)
@@ -381,6 +387,14 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
       const draft = fillLot({ ...hoFromPrefill(prefill, last, backlog), shift: ho.shift }, pkLot(date));
       setHo(draft); setAiFilledKeys(hoFilledKeys(draft)); setFillSource('live');
     };
+    // material balance — ดึง รับกะ(boxes)+ผลิตเข้า ของกะนี้มาให้ client คำนวณ (บรรจุออกผู้ใช้กรอกเอง)
+    const loadBalance = async () => {
+      setBalBusy(true);
+      try {
+        const d = await (await fetch(`${apiUrl}/api/handover/balance?date=${date}&shift=${encodeURIComponent(ho.shift)}`)).json();
+        setBalData(Array.isArray(d.lines) ? d.lines : []);
+      } catch { setBalData([]); } finally { setBalBusy(false); }
+    };
 
     const setLine = (i: number, patch: Partial<HoLine>) => {
       setHo(h => ({ ...h, lines: h.lines.map((l, j) => j === i ? { ...l, ...patch } : l) }));
@@ -452,6 +466,46 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
             <button onClick={refreshOut} title="ดึงยอดผลิต/CIP/งานค้างล่าสุดมาเติมใหม่" style={{ flexShrink: 0, border: '1px solid #ffd0a8', background: '#fff7f0', color: '#b34700', borderRadius: 20, padding: '5px 11px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>🔄 ดึงข้อมูลสดล่าสุด</button>
           )}
         </div>
+
+        {/* แผงคำนวณ material balance (โหมดส่งกะ) — รับกะ + ผลิตเข้า อัตโนมัติ · บรรจุออกกรอกเอง · โชว์ควรเหลือ */}
+        {mode === 'out' && (
+          <div style={{ border: '1px solid #cfe8ff', background: '#f4faff', borderRadius: 12, marginBottom: 12, overflow: 'hidden' }}>
+            <button onClick={() => { const open = !balOpen; setBalOpen(open); if (open && !balData) loadBalance(); }}
+              style={{ width: '100%', border: 'none', background: 'none', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', cursor: 'pointer', fontWeight: 800, fontSize: '0.82rem', color: '#0369a1' }}>
+              🧮 คำนวณถังที่ควรเหลือ (material balance)
+              <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: '#7aa7c7' }}>{balOpen ? '▲ ซ่อน' : '▼ ช่วยคำนวณ'}</span>
+            </button>
+            {balOpen && (
+              <div style={{ padding: '0 12px 12px' }}>
+                <div style={{ fontSize: '0.68rem', color: '#5f7d92', marginBottom: 8 }}>รับกะ + ผลิตเข้า ดึงให้อัตโนมัติ · กรอก “บรรจุออก (Boxes)” เอง · 1 batch = 100 boxes (เอาไว้อ้างอิงกรอกถัง)</div>
+                {balBusy && <div style={{ fontSize: '0.78rem', color: '#9aa0a6' }}>กำลังคำนวณ…</div>}
+                {balData && balData.length === 0 && <div style={{ fontSize: '0.78rem', color: '#9aa0a6' }}>ยังไม่มีข้อมูลรับกะ/ผลิตของกะนี้</div>}
+                {balData && balData.map((bl, i) => {
+                  const lineNum = i + 1;
+                  const received = bl.receivedTanks.reduce((s, t) => { const p = pkParse(t); return s + (p ? pkBoxes(lineNum, bl.receivedFlavor, p.amount) : 0); }, 0);
+                  const produced = bl.producedCount * 100;
+                  const packed = Number(balPacked[bl.line] || 0);
+                  const remaining = Math.max(0, received + produced - packed);
+                  const remBatch = Math.round((remaining / 100) * 10) / 10;
+                  return (
+                    <div key={bl.line} style={{ background: '#fff', border: '1px solid #dcebf7', borderRadius: 10, padding: '8px 10px', marginBottom: 7 }}>
+                      <div style={{ fontWeight: 800, fontSize: '0.78rem', color: '#0d47a1', marginBottom: 5 }}>▶️ {bl.line} {bl.receivedFlavor && <span style={{ color: '#546e7a', fontWeight: 600 }}>· {bl.receivedFlavor}</span>}{bl.producedBatches.length > 0 && <span style={{ color: '#00897b', fontWeight: 600, fontSize: '0.72rem' }}> · ผลิต {bl.producedBatches.join(',')}</span>}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: '0.76rem', color: '#455a64' }}>
+                        <span title="รับกะ (แปลงจากถัง)">รับ <b>{received}</b></span>
+                        <span>+ ผลิต <b>{produced}</b></span>
+                        <span>− บรรจุ</span>
+                        <input type="number" value={balPacked[bl.line] || ''} onChange={e => setBalPacked(p => ({ ...p, [bl.line]: e.target.value }))} placeholder="0"
+                          style={{ width: 62, border: '1px solid #cbd5db', borderRadius: 7, padding: '4px 6px', fontSize: '0.76rem' }} />
+                        <span style={{ marginLeft: 'auto', fontWeight: 800, color: remaining > 0 ? '#00695c' : '#90a4ae' }}>= เหลือ {remaining} <span style={{ fontWeight: 600, fontSize: '0.68rem' }}>boxes ({remBatch} batch)</span></span>
+                      </div>
+                    </div>
+                  );
+                })}
+                <button onClick={loadBalance} disabled={balBusy} style={{ border: '1px solid #b3d4ea', background: '#eaf4fc', color: '#0369a1', borderRadius: 20, padding: '5px 12px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', marginTop: 2 }}>🔄 คำนวณใหม่</button>
+              </div>
+            )}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
           <select value={ho.shift} onChange={e => setHo(h => ({ ...h, shift: e.target.value }))} style={{ ...inp, width: 'auto' }}>
             {(() => { const s = shiftsForWeekday(weekdayOf(date)).map(x => x.key); return (s.length ? s : ['เช้า', 'บ่าย', 'ดึก']); })().map(k => <option key={k} value={'กะ' + k}>กะ{k}</option>)}

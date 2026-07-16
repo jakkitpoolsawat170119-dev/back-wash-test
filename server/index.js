@@ -2994,6 +2994,54 @@ app.get('/api/handover/last', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── Material balance (Phase 2): คืนข้อมูลดิบต่อไลน์ 1-3 ให้ client คำนวณ boxes เอง (client มี pkFactor) ──
+// received = ถังจากรับกะของกะนี้ · produced = จำนวน batch distinct ที่ผลิตในช่วงเวลากะนี้
+app.get('/api/handover/balance', async (req, res) => {
+  const workDay = req.query.date || workDayBKK();
+  const shiftKey = String(req.query.shift || '').replace(/^กะ/, ''); // "กะบ่าย" → "บ่าย"
+  const LINES = ['Line 1', 'Line 2', 'Line 3'];
+  try {
+    // received: รับกะ (kind='in') ล่าสุดที่ตรง work_day+กะ — ถ้าไม่ระบุกะ เอาแถวล่าสุดของวันนั้น
+    const inRows = await dbAll(
+      "SELECT shift, data FROM handover_notes WHERE kind = 'in' AND note_date = ? AND data IS NOT NULL ORDER BY id DESC",
+      [workDay]);
+    const wantShift = shiftKey ? `กะ${shiftKey}` : null;
+    const inRow = (wantShift && inRows.find(r => r.shift === wantShift)) || inRows[0] || null;
+    let receivedLines = [];
+    try { receivedLines = inRow ? (JSON.parse(inRow.data).lines || []) : []; } catch { receivedLines = []; }
+
+    // produced: ช่วงเวลาของกะนี้ (กะดึก end<=start ข้ามเที่ยงคืน) → นับ batch distinct ต่อไลน์
+    const shiftObj = factoryShiftsForWeekday(weekdayOf(workDay)).find(s => s.key === shiftKey);
+    let batchesByLine = {};
+    if (shiftObj) {
+      const start = `${workDay}T${pad2(shiftObj.start)}:00:00`;
+      const endDate = shiftObj.end <= shiftObj.start ? addDaysStr(workDay, 1) : workDay;
+      const end = `${endDate}T${pad2(shiftObj.end)}:00:00`;
+      const prodRows = await dbAll(
+        'SELECT line_name, batch FROM production_logs WHERE timestamp >= ? AND timestamp < ? AND batch IS NOT NULL',
+        [start, end]);
+      for (const r of prodRows) {
+        const b = String(r.batch || '').trim();
+        if (!b) continue;
+        (batchesByLine[r.line_name] || (batchesByLine[r.line_name] = new Set())).add(b);
+      }
+    }
+
+    const lines = LINES.map((line, i) => {
+      const rl = receivedLines[i] || {};
+      const batches = batchesByLine[line] ? Array.from(batchesByLine[line]).sort() : [];
+      return {
+        line,
+        receivedFlavor: rl.flavor || '',
+        receivedTanks: Array.isArray(rl.tanks) ? rl.tanks : [],
+        producedBatches: batches,
+        producedCount: batches.length,
+      };
+    });
+    res.json({ workDay, shift: wantShift || null, hasReceived: !!inRow, lines });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Endpoints: task templates (งานประจำ) ──────────────────────────────────
 app.get('/api/task-templates', (req, res) => {
   db.all('SELECT * FROM task_templates ORDER BY id DESC', [], (err, rows) => {
