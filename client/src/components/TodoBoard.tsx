@@ -296,8 +296,8 @@ function hoFilledKeys(h: HoState): Set<string> {
   return s;
 }
 
-const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload: () => void; card: React.CSSProperties; onLiveChange?: (ho: HoState) => void; aiDraft?: HoState | null; onDraftConsumed?: () => void; openCmd?: { mode: 'in' | 'out'; n: number } }> =
-  ({ date, operatorName, reload, card, onLiveChange, aiDraft, onDraftConsumed, openCmd }) => {
+const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload: () => void; card: React.CSSProperties; onLiveChange?: (ho: HoState) => void; aiDraft?: HoState | null; onDraftConsumed?: () => void; openCmd?: { mode: 'in' | 'out'; n: number }; onReceiveActive?: (active: boolean) => void }> =
+  ({ date, operatorName, reload, card, onLiveChange, aiDraft, onDraftConsumed, openCmd, onReceiveActive }) => {
     const [open, setOpen] = useState(false);
     const [mode, setMode] = useState<'in' | 'out'>('out'); // 📥 รับกะ · 📤 ส่งกะ
     const [ho, setHo] = useState<HoState>(initHo);
@@ -339,6 +339,8 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
 
     // ส่งสถานะรับกะสดๆ ขึ้นไปให้ฟอร์มบรรจุใช้ (real-time, ไม่ต้องกดส่ง)
     useEffect(() => { onLiveChange?.(ho); }, [ho, onLiveChange]);
+    // บอก parent ว่าอยู่ "โหมดรับกะ" (เปิด + mode in) ไหม → คุมการโชว์รายงานบรรจุ (ส่งกะ = ซ่อน)
+    useEffect(() => { onReceiveActive?.(open && mode === 'in'); }, [open, mode, onReceiveActive]);
 
     // ร่างจากผู้ช่วย AI มาถึง → เปิดฟอร์ม โหมดรับกะ เติมค่า + ไฮไลต์ฟิลด์ที่ AI กรอกให้ ผู้ใช้ต้องตรวจสอบ/กดส่งเอง
     useEffect(() => {
@@ -746,19 +748,21 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
   ({ date, operatorName, events, reload, card, aiDraft, onDraftConsumed, onGoToPlan, onGoToHandoverAI }) => {
     const [filter, setFilter] = useState('all');
     const [hoData, setHoData] = useState<HoState | null>(null); // สถานะรับกะสด → ป้อนฟอร์มบรรจุ
+    const [receiveActive, setReceiveActive] = useState(false); // ฟอร์มรับกะเปิดอยู่ (mode in) → โชว์รายงานบรรจุ · ส่งกะ = ซ่อน
     // แถบขั้นตอนงาน (stepper): สั่งเปิดฟอร์ม + เลื่อนไปหา
     const [hoCmd, setHoCmd] = useState<{ mode: 'in' | 'out'; n: number }>({ mode: 'in', n: 0 });
     const [pkCmd, setPkCmd] = useState(0);
     const [receiveChoice, setReceiveChoice] = useState(false); // ① รับกะ กด → ให้เลือก กรอกเอง / ให้ AI ช่วย
     const handoverRef = useRef<HTMLDivElement>(null);
     const packingRef = useRef<HTMLDivElement>(null);
-    const scrollTo = (r: React.RefObject<HTMLDivElement | null>) => setTimeout(() => r.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    const scrollTo = (r: React.RefObject<HTMLDivElement | null>, delay = 50) => setTimeout(() => r.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), delay);
     const goHandover = (mode: 'in' | 'out') => { setHoCmd(c => ({ mode, n: c.n + 1 })); scrollTo(handoverRef); };
-    const goPacking = () => { setPkCmd(n => n + 1); scrollTo(packingRef); };
+    // บันทึกผลิต & บรรจุ: การ์ดบรรจุอยู่ในโหมดรับกะ → เปิดรับกะให้ก่อน แล้วกางการ์ดบรรจุ + เลื่อนไปหา
+    const goPacking = () => { setHoCmd(c => ({ mode: 'in', n: c.n + 1 })); setPkCmd(n => n + 1); scrollTo(packingRef, 250); };
     const STEPS: { ic: string; label: string; sub: string; c: string; on: () => void }[] = [
       { ic: '📥', label: 'รับกะ', sub: 'กรอกเอง / ให้ AI ช่วย', c: '#00897b', on: () => setReceiveChoice(v => !v) },
       { ic: '🏭', label: 'ลงแผนผลิต', sub: 'วางแผน → AI แกะ', c: '#5e35b1', on: () => { setReceiveChoice(false); onGoToPlan?.(); } },
-      { ic: '📦', label: 'บันทึกผลิต & บรรจุ', sub: 'ระหว่างกะ', c: '#8d5524', on: () => { setReceiveChoice(false); goPacking(); } },
+      { ic: '📦', label: 'บันทึกผลิต & บรรจุ', sub: 'รายงาน Batch + Boxes', c: '#8d5524', on: () => { setReceiveChoice(false); goPacking(); } },
       { ic: '📤', label: 'ส่งกะ', sub: 'สรุป + คำนวณถัง', c: '#ff6b00', on: () => { setReceiveChoice(false); goHandover('out'); } },
     ];
 
@@ -827,14 +831,14 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
           </div>
         )}
 
-        {/* handover form (รับกะ/ส่งกะ, collapsible) — เผยแพร่สถานะสดให้ฟอร์มบรรจุ */}
+        {/* handover form (รับกะ/ส่งกะ, collapsible) — เผยแพร่สถานะสดให้ฟอร์มบรรจุ + บอกว่าอยู่โหมดรับกะไหม */}
         <div ref={handoverRef}>
           <HandoverForm date={date} operatorName={operatorName} reload={reload} card={card} onLiveChange={setHoData}
-            aiDraft={aiDraft} onDraftConsumed={onDraftConsumed} openCmd={hoCmd} />
+            aiDraft={aiDraft} onDraftConsumed={onDraftConsumed} openCmd={hoCmd} onReceiveActive={setReceiveActive} />
         </div>
 
-        {/* packing-staff report (แปลง %/kg → Boxes) — ซิงค์สดจากรับกะ */}
-        <div ref={packingRef}>
+        {/* packing-staff report (Batch + Boxes ให้พนักงานบรรจุ) — อยู่คู่กับรับกะ (โชว์เฉพาะตอนรับกะ ซ่อนตอนส่งกะ) */}
+        <div ref={packingRef} style={{ display: receiveActive ? 'block' : 'none' }}>
           <PackingReportForm date={date} operatorName={operatorName} reload={reload} card={card} source={hoData} openCmd={pkCmd} />
         </div>
 
