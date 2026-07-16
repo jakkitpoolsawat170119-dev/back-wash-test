@@ -584,19 +584,8 @@ const HandoverForm: React.FC<{ date: string; operatorName: string | null; reload
   };
 
 // ─── Packing-staff report (แปลงสถานะถัง %/kg → Boxes, แอปคำนวณล้วน) ─────────
-const PK_LINES = [
-  { line: 1, unit: '%', c: '#0d47a1' },
-  { line: 2, unit: 'kg', c: '#00838f' },
-  { line: 3, unit: 'kg', c: '#6a1b9a' },
-  { line: 4, unit: '%', c: '#4a7c59' },
-];
-const PK_BATCHES = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-const PK_NUM = ['1️⃣', '2️⃣', '3️⃣', '4️⃣'];
 type PkRow = { batch: string; amount: string };
-type PkLineState = { flavor: string; rows: PkRow[]; lotNo: string };
-const pkInit = (): PkLineState[] => PK_LINES.map(() => ({ flavor: '', rows: [{ batch: '', amount: '' }], lotNo: '' }));
-const isCipFlavor = (f: string) => /^\s*cip\b/i.test((f || '').trim());
-// สูตร: L1 %×1 · L2 Freshy kg÷12 / Senorita kg×0.15 · L3 Freshy kg×0.08 / Senorita kg×0.16 · L4 Freshy %×2.5 / Senorita %×5
+// แปลงถัง %/kg → Boxes (ใช้ในแผนคำนวณ material balance) — L1 %×1 · L2 Freshy kg÷12 / Senorita kg×0.15 · L3 Freshy kg×0.08 / Senorita kg×0.16 · L4 Freshy %×2.5 / Senorita %×5
 const pkFactor = (line: number, flavor: string): number => {
   const sen = /senorita/i.test(flavor);
   if (line === 1) return 1;
@@ -611,7 +600,7 @@ const pkBoxes = (line: number, flavor: string, amount: string): number => {
   return Math.floor(a * pkFactor(line, flavor)); // ปัดลงเสมอ
 };
 const pkLot = (d: string): string => { const p = (d || '').split('-'); return p.length === 3 ? `${p[2]}${p[1]}${p[0].slice(2)}` : ''; };
-// แกะ "Batch B 100%" / "Batch A 50%" / "Batch I 1200kg" → { batch, amount }
+// แกะ "Batch B 100%" / "Batch I 1200kg" → { batch, amount } — ใช้คำนวณ material balance
 const pkParse = (s: string): PkRow | null => {
   const str = String(s || '');
   const bm = str.match(/Batch\s*([A-Za-z])/i);
@@ -619,146 +608,19 @@ const pkParse = (s: string): PkRow | null => {
   const am = str.match(/(\d+(?:\.\d+)?)/);
   return { batch: bm[1].toUpperCase(), amount: am ? am[1] : '' };
 };
-// แปลงข้อมูลรับกะล่าสุด (lines[].tanks + line4.stages) → แถวของฟอร์มบรรจุ + Lot รายไลน์
-type HoData = { lines?: { flavor?: string; tanks?: string[]; lotNo?: string }[]; line4?: { flavor?: string; stages?: string[]; lotNo?: string } };
-const pkFromHandover = (d: HoData): PkLineState[] => PK_LINES.map((_, i) => {
-  const src = i < 3 ? (d.lines?.[i] || {}) : (d.line4 || {});
-  const cells: string[] = i < 3 ? ((d.lines?.[i]?.tanks) || []) : ((d.line4?.stages) || []);
-  const rows = cells.map(pkParse).filter((r): r is PkRow => !!r);
-  return { flavor: src.flavor || '', rows: rows.length ? rows : [{ batch: '', amount: '' }], lotNo: src.lotNo || '' };
-});
-const PK_DIV = '────────────';
-const pkBuild = (lines: PkLineState[]): { text: string; total: number } => {
-  const L = ['📦 รายงานพนักงานบรรจุ'];
-  let total = 0;
-  lines.forEach((ls, i) => {
-    const cip = isCipFlavor(ls.flavor);
-    const valid = ls.rows.filter(r => r.batch && parseFloat(r.amount) > 0);
-    if (!ls.flavor.trim() && !valid.length && !cip) return; // ข้ามไลน์ที่ไม่มีข้อมูล
-    L.push(PK_DIV, ls.flavor.trim() || '-');
-    if (cip) return; // CIP: ไม่คิด Boxes / ไม่มี Lot
-    for (const r of valid) { const b = pkBoxes(i + 1, ls.flavor, r.amount); total += b; L.push(`Batch ${r.batch} ${b} Boxes`); }
-    if ((ls.lotNo || '').trim()) L.push(`(Lot no ${ls.lotNo.trim()})`);
-  });
-  L.push(PK_DIV, `รวม ${total} Boxes`);
-  return { text: L.join('\n'), total };
-};
-
-const PackingReportForm: React.FC<{ date: string; operatorName: string | null; reload: () => void; card: React.CSSProperties; source: HoState | null; openCmd?: number }> =
-  ({ date, operatorName, reload, card, source, openCmd }) => {
-    const [open, setOpen] = useState(false);
-    const [lines, setLines] = useState<PkLineState[]>(pkInit);
-    const [busy, setBusy] = useState(false);
-    const [msg, setMsg] = useState('');
-    const openCmdRef = useRef(0);
-    useEffect(() => { if (openCmd && openCmd !== openCmdRef.current) { openCmdRef.current = openCmd; setOpen(true); } }, [openCmd]); // สั่งเปิดจาก stepper
-
-    // ซิงค์สดจากฟอร์มรับกะ: รส + แกะ Batch/จำนวน + Lot รายไลน์ จากสถานะถัง (แก้ด้วยมือได้ · รีเซ็ตเมื่อรับกะเปลี่ยนอีก)
-    const applySource = useCallback((): boolean => {
-      if (!source) return false;
-      setLines(pkFromHandover(source).map(l => ({ ...l, lotNo: l.lotNo || pkLot(date) })));
-      return true;
-    }, [source, date]);
-
-    // เด้งอัตโนมัติทุกครั้งที่รับกะเปลี่ยน (ไม่ต้องกดส่งก่อน)
-    useEffect(() => { applySource(); }, [applySource]);
-
-    const setFlavor = (i: number, v: string) => setLines(ls => ls.map((l, j) => j === i ? { ...l, flavor: v } : l));
-    const setLot = (i: number, v: string) => setLines(ls => ls.map((l, j) => j === i ? { ...l, lotNo: v } : l));
-    const setRow = (i: number, r: number, patch: Partial<PkRow>) => setLines(ls => ls.map((l, j) => j === i ? { ...l, rows: l.rows.map((x, k) => k === r ? { ...x, ...patch } : x) } : l));
-    const addRow = (i: number) => setLines(ls => ls.map((l, j) => j === i ? { ...l, rows: [...l.rows, { batch: '', amount: '' }] } : l));
-    const delRow = (i: number, r: number) => setLines(ls => ls.map((l, j) => j === i ? { ...l, rows: l.rows.filter((_, k) => k !== r) } : l));
-
-    const { text, total } = pkBuild(lines);
-
-    const send = async () => {
-      setBusy(true); setMsg('');
-      try {
-        const bkk = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
-        const cs = shiftInfo(currentWorkDay(), bkk.getHours()).shift;
-        await fetch(`${apiUrl}/api/packing-report`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, operator: operatorName, shift: cs ? 'กะ' + cs : '', text }) });
-        setMsg('✅ ส่งรายงานเข้ากลุ่มแล้ว'); reload(); setTimeout(() => setOpen(false), 900);
-      } catch { setMsg('❌ ส่งไม่สำเร็จ'); } finally { setBusy(false); }
-    };
-
-    const inp: React.CSSProperties = { border: '1px solid #dde3e7', borderRadius: 9, padding: '7px 9px', fontSize: '0.8rem', fontFamily: 'inherit', color: '#37474f', background: '#fff' };
-
-    if (!open) return (
-      <button onClick={() => setOpen(true)} style={{ ...card, width: '100%', textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontWeight: 800, fontSize: '0.9rem', color: '#37474f' }}>
-        📦 รายงานพนักงานบรรจุ <span style={{ marginLeft: 'auto', fontSize: '0.74rem', color: '#90a4ae', fontWeight: 600 }}>แปลง %/kg → Boxes ›</span>
-      </button>
-    );
-
-    return (
-      <div style={{ ...card }}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
-          <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>📦 รายงานพนักงานบรรจุ</div>
-          <button onClick={() => setOpen(false)} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: '#90a4ae', cursor: 'pointer', fontSize: '1.1rem' }}>×</button>
-        </div>
-        <div style={{ fontSize: '0.72rem', color: '#78828a', marginBottom: 8 }}>แอปคำนวณ Boxes ให้อัตโนมัติ (ปัดลง) · เติมจากรับกะให้ แก้ด้วยมือได้</div>
-        <button onClick={() => setMsg(applySource() ? '📥 ดึงจากรับกะแล้ว' : 'ยังไม่มีข้อมูลรับกะ')}
-          style={{ border: '1px solid #e8edf0', background: '#fff', borderRadius: 10, padding: '8px 12px', fontSize: '0.78rem', fontWeight: 700, color: '#546e7a', cursor: 'pointer', marginBottom: 10 }}>📥 ดึงจากรับกะ</button>
-
-        {PK_LINES.map((meta, i) => { const ls = lines[i]; const cip = isCipFlavor(ls.flavor); return (
-          <div key={meta.line} style={{ border: '1px solid #e8edf0', borderRadius: 12, marginBottom: 10, overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 11px', background: meta.c }}>
-              <span style={{ color: '#fff', fontWeight: 800, fontSize: '0.82rem' }}>{PK_NUM[i]} Line {meta.line}</span>
-              <span style={{ fontSize: '0.56rem', fontWeight: 800, color: '#fff', background: 'rgba(255,255,255,.28)', borderRadius: 20, padding: '2px 7px' }}>{meta.unit}</span>
-              <input value={ls.flavor} onChange={e => setFlavor(i, e.target.value)} placeholder="รส / CIP" style={{ marginLeft: 'auto', width: '52%', border: 'none', borderRadius: 7, padding: '6px 9px', fontSize: '0.8rem', fontWeight: 700, fontFamily: 'inherit', boxSizing: 'border-box' }} />
-            </div>
-            <div style={{ padding: '9px 11px' }}>
-              {cip ? <div style={{ fontSize: '0.76rem', color: '#78828a' }}>🧼 CIP — ไม่คิด Boxes</div> : (<>
-                {ls.rows.map((r, ri) => { const boxes = pkBoxes(meta.line, ls.flavor, r.amount); return (
-                  <div key={ri} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 76px 26px', gap: 7, alignItems: 'center', marginBottom: 7 }}>
-                    <select value={r.batch} onChange={e => setRow(i, ri, { batch: e.target.value })} style={{ ...inp, fontWeight: 700 }}>
-                      <option value="">Batch</option>
-                      {PK_BATCHES.map(b => <option key={b} value={b}>Batch {b}</option>)}
-                    </select>
-                    <div style={{ display: 'flex', alignItems: 'center', border: '1px solid #dde3e7', borderRadius: 9, overflow: 'hidden' }}>
-                      <input type="number" value={r.amount} onChange={e => setRow(i, ri, { amount: e.target.value })} placeholder="จำนวน" style={{ border: 'none', padding: '7px 9px', fontSize: '0.8rem', width: '100%', fontFamily: 'inherit', color: '#37474f', minWidth: 0 }} />
-                      <span style={{ fontSize: '0.66rem', fontWeight: 800, color: '#9aa4ad', padding: '0 8px', background: '#f4f6f8', alignSelf: 'stretch', display: 'flex', alignItems: 'center' }}>{meta.unit}</span>
-                    </div>
-                    <div style={{ textAlign: 'center', fontWeight: 800, fontSize: '0.8rem', color: '#8d5524', background: '#f3ead9', borderRadius: 9, padding: '5px 2px' }}>{boxes}<div style={{ fontSize: '0.5rem', color: '#9aa4ad', fontWeight: 700 }}>Boxes</div></div>
-                    <button onClick={() => delRow(i, ri)} disabled={ls.rows.length <= 1} style={{ border: 'none', background: 'none', color: ls.rows.length <= 1 ? '#e5e5e5' : '#ccc', cursor: ls.rows.length <= 1 ? 'default' : 'pointer', fontSize: '1.05rem' }}>×</button>
-                  </div>
-                ); })}
-                <button onClick={() => addRow(i)} style={{ border: '1px dashed #cbd3d9', background: '#fff', color: '#78828a', borderRadius: 9, padding: '6px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', width: '100%' }}>+ เพิ่ม Batch</button>
-                <div style={{ display: 'grid', gridTemplateColumns: '58px 1fr', alignItems: 'center', gap: 7, marginTop: 8 }}>
-                  <label style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a' }}>Lot No.</label>
-                  <input value={ls.lotNo || ''} onChange={e => setLot(i, e.target.value)} placeholder="เช่น 080726" style={inp} />
-                </div>
-              </>)}
-            </div>
-          </div>
-        ); })}
-
-        <div style={{ background: '#0e1621', borderRadius: 12, padding: 12, marginBottom: 12 }}>
-          <div style={{ color: '#8fa6bd', fontSize: '0.64rem', fontWeight: 800, letterSpacing: '.04em', marginBottom: 6 }}>✈ พรีวิว · รวม {total} Boxes</div>
-          <div style={{ color: '#e6edf3', fontSize: '0.8rem', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{text}</div>
-        </div>
-        <button onClick={send} disabled={busy} style={{ width: '100%', border: 'none', borderRadius: 12, padding: 13, fontWeight: 800, fontSize: '0.9rem', color: '#fff', background: '#229ed9', cursor: 'pointer', opacity: busy ? 0.6 : 1 }}>✈ ส่งรายงานเข้ากลุ่ม + timeline</button>
-        {msg && <div style={{ textAlign: 'center', fontSize: '0.78rem', color: '#546e7a', marginTop: 8 }}>{msg}</div>}
-      </div>
-    );
-  };
 
 const TimelineTab: React.FC<{ date: string; operatorName: string | null; events: TimelineEvent[]; reload: () => void; card: React.CSSProperties; aiDraft?: HoState | null; onDraftConsumed?: () => void; onGoToPlan?: () => void; onGoToHandoverAI?: () => void }> =
   ({ date, operatorName, events, reload, card, aiDraft, onDraftConsumed, onGoToPlan, onGoToHandoverAI }) => {
     const [filter, setFilter] = useState('all');
-    const [hoData, setHoData] = useState<HoState | null>(null); // สถานะรับกะสด → ป้อนฟอร์มบรรจุ
     // แถบขั้นตอนงาน (stepper): สั่งเปิดฟอร์ม + เลื่อนไปหา
     const [hoCmd, setHoCmd] = useState<{ mode: 'in' | 'out'; n: number }>({ mode: 'in', n: 0 });
-    const [pkCmd, setPkCmd] = useState(0);
     const [receiveChoice, setReceiveChoice] = useState(false); // ① รับกะ กด → ให้เลือก กรอกเอง / ให้ AI ช่วย
     const handoverRef = useRef<HTMLDivElement>(null);
-    const packingRef = useRef<HTMLDivElement>(null);
     const scrollTo = (r: React.RefObject<HTMLDivElement | null>) => setTimeout(() => r.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
     const goHandover = (mode: 'in' | 'out') => { setHoCmd(c => ({ mode, n: c.n + 1 })); scrollTo(handoverRef); };
-    const goPacking = () => { setPkCmd(n => n + 1); scrollTo(packingRef); };
     const STEPS: { ic: string; label: string; sub: string; c: string; on: () => void }[] = [
       { ic: '📥', label: 'รับกะ', sub: 'กรอกเอง / ให้ AI ช่วย', c: '#00897b', on: () => setReceiveChoice(v => !v) },
       { ic: '🏭', label: 'ลงแผนผลิต', sub: 'วางแผน → AI แกะ', c: '#5e35b1', on: () => { setReceiveChoice(false); onGoToPlan?.(); } },
-      { ic: '📦', label: 'บันทึกผลิต & บรรจุ', sub: 'ระหว่างกะ', c: '#8d5524', on: () => { setReceiveChoice(false); goPacking(); } },
       { ic: '📤', label: 'ส่งกะ', sub: 'สรุป + คำนวณถัง', c: '#ff6b00', on: () => { setReceiveChoice(false); goHandover('out'); } },
     ];
 
@@ -827,15 +689,10 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
           </div>
         )}
 
-        {/* handover form (รับกะ/ส่งกะ, collapsible) — เผยแพร่สถานะสดให้ฟอร์มบรรจุ */}
+        {/* handover form (รับกะ/ส่งกะ, collapsible) — เปิดผ่าน stepper */}
         <div ref={handoverRef}>
-          <HandoverForm date={date} operatorName={operatorName} reload={reload} card={card} onLiveChange={setHoData}
+          <HandoverForm date={date} operatorName={operatorName} reload={reload} card={card}
             aiDraft={aiDraft} onDraftConsumed={onDraftConsumed} openCmd={hoCmd} />
-        </div>
-
-        {/* packing-staff report (แปลง %/kg → Boxes) — ซิงค์สดจากรับกะ */}
-        <div ref={packingRef}>
-          <PackingReportForm date={date} operatorName={operatorName} reload={reload} card={card} source={hoData} openCmd={pkCmd} />
         </div>
 
         {/* live status board (สด, auto-refresh) */}
