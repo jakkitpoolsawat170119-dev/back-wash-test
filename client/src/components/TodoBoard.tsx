@@ -18,6 +18,8 @@ type Template = {
 };
 type PendingAction = { id: number; tool: string; summary: string; status?: 'pending' | 'approved' | 'rejected' | 'error'; result?: string };
 type ChatMsg = { role: 'user' | 'assistant'; text: string; pending?: PendingAction[]; images?: string[]; handoverReady?: boolean };
+// แผนผลิตรายกะที่ AI แกะมา (material balance Phase 1) — รอผู้ใช้ตรวจ/แก้/บันทึก
+type PlanItem = { flavor: string; target_boxes: number; staff: number | null; machine_code?: string; spec?: string };
 
 const CAT: Record<string, { icon: string; label: string }> = {
   production: { icon: '🏭', label: 'ผลิต' },
@@ -1794,6 +1796,10 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
     const [input, setInput] = useState('');
     const [busy, setBusy] = useState(false);
     const [handoverMode, setHandoverMode] = useState(false); // โหมด "กรอกฟอร์มรับกะด้วย AI" — ข้อความถัดไปจะถูกส่งพร้อม intent พิเศษ
+    const [planMode, setPlanMode] = useState(false);          // โหมด "ลงแผนผลิตด้วย AI"
+    const [planReview, setPlanReview] = useState<{ shift: string; items: PlanItem[] } | null>(null); // ร่างแผนที่ AI แกะ รอตรวจ/บันทึก
+    const [planDay, setPlanDay] = useState(currentWorkDay()); // วันทำงานของแผนที่จะบันทึก
+    const [planBusy, setPlanBusy] = useState(false);
     const [sessionN, setSessionN] = useState(0);              // เปลี่ยนเลขนี้ = เริ่ม session ใหม่ (ปุ่ม "แชทใหม่")
     // รูปที่แนบ (หลายรูป/หลายส่วน) — data = base64 ไม่รวม prefix, preview = data URL สำหรับแสดง
     type Attach = { preview: string; data: string; mediaType: string };
@@ -1849,20 +1855,23 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
       const text = input.trim();
       if ((!text && !imgs.length) || busy) return;
       const staged = imgs;
-      const usingHandoverMode = handoverMode; // เทิร์นนี้ยิง intent พิเศษไหม — จับค่าไว้ก่อน setState
+      const intent = handoverMode ? 'fill_handover' : planMode ? 'fill_plan' : undefined; // เทิร์นนี้ยิง intent พิเศษไหม — จับค่าไว้ก่อน setState
       setMsgs(m => [...m, { role: 'user', text: text || (staged.length ? '(แนบรูป)' : ''), images: staged.length ? staged.map(a => a.preview) : undefined }]);
       setInput(''); setImgs([]); setBusy(true);
       try {
         const r = await fetch(`${apiUrl}/api/assistant`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: text, operator: operatorName, session: `web-${operatorName || 'guest'}-${sessionN}`,
-            intent: usingHandoverMode ? 'fill_handover' : undefined,
+            intent,
             images: staged.length ? staged.map(a => ({ data: a.data, media_type: a.mediaType })) : undefined }),
         });
         const d = await r.json();
         setMsgs(m => [...m, { role: 'assistant', text: d.reply || d.error || 'ขออภัย เกิดข้อผิดพลาด', pending: d.pending && d.pending.length ? d.pending.map((p: PendingAction) => ({ ...p, status: 'pending' as const })) : undefined, handoverReady: !!d.handoverDraft }]);
         if (d.actions && d.actions.length) onAfterAction();
         if (d.handoverDraft) { onHandoverDraft?.(d.handoverDraft as HoState); setHandoverMode(false); }
+        if (d.planDraft && Array.isArray(d.planDraft.items) && d.planDraft.items.length) { // AI แกะแผนได้ → เปิดการ์ดตรวจ
+          setPlanReview({ shift: d.planDraft.shift || 'กะเช้า', items: d.planDraft.items as PlanItem[] }); setPlanMode(false);
+        }
       } catch {
         setMsgs(m => [...m, { role: 'assistant', text: 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้' }]);
       } finally { setBusy(false); }
@@ -1889,13 +1898,37 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
     };
     // เริ่มโหมดกรอกฟอร์มรับกะด้วย AI — ข้อความถัดไปที่พิมพ์จะถูกแกะเป็นฟิลด์แทนที่จะตอบคำถามทั่วไป
     const startHandoverMode = () => {
-      setHandoverMode(true);
+      setHandoverMode(true); setPlanMode(false);
       setMsgs(m => [...m, { role: 'assistant', text: 'วางข้อความข้อมูลกะที่ได้รับมาได้เลยครับ เช่น ไลน์ไหนรสอะไร batch อะไร ถังเหลือเท่าไหร่ lot อะไร มีหมายเหตุอะไรบ้าง' }]);
+    };
+    // เริ่มโหมดลงแผนผลิตด้วย AI — วางข้อความแผนทั้งก้อน ระบบจะแกะเป็นรายการเป้าผลิต
+    const startPlanMode = () => {
+      setPlanMode(true); setHandoverMode(false);
+      setMsgs(m => [...m, { role: 'assistant', text: 'วางข้อความแผนผลิตทั้งก้อนได้เลยครับ (คัดลอกมาทั้งหมด) — ผมจะแกะเฉพาะรายการผลิตที่มีเป้า Boxes ให้ตรวจ/แก้/บันทึกเอง' }]);
+    };
+    // แก้ค่าในการ์ดตรวจแผน (ต่อรายการ)
+    const setPlanItem = (i: number, patch: Partial<PlanItem>) => setPlanReview(p => p ? { ...p, items: p.items.map((it, j) => j === i ? { ...it, ...patch } : it) } : p);
+    const removePlanItem = (i: number) => setPlanReview(p => p ? { ...p, items: p.items.filter((_, j) => j !== i) } : p);
+    // บันทึกแผน → POST /api/shift-plan แล้วปิดการ์ด + ขึ้นข้อความยืนยัน
+    const savePlan = async () => {
+      if (!planReview || planBusy) return;
+      const items = planReview.items.filter(it => it.flavor.trim() && Number(it.target_boxes) > 0);
+      if (!items.length) { setMsgs(m => [...m, { role: 'assistant', text: 'ยังไม่มีรายการที่มีรส + เป้า Boxes ให้บันทึกครับ' }]); return; }
+      setPlanBusy(true);
+      try {
+        const body = { workDay: planDay, shift: planReview.shift, operator: operatorName,
+          items: items.map(it => ({ flavor: it.flavor.trim(), target_boxes: Math.round(Number(it.target_boxes)), target_batches: Math.round((Number(it.target_boxes) / 100) * 10) / 10, staff: it.staff, machine_code: it.machine_code || '', spec: it.spec || '' })) };
+        const r = await fetch(`${apiUrl}/api/shift-plan`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const d = await r.json();
+        if (r.ok && d.success) { setMsgs(m => [...m, { role: 'assistant', text: `✅ บันทึกแผนแล้ว ${d.saved} รายการ (${planReview.shift} · ${planDay})` }]); setPlanReview(null); onAfterAction(); }
+        else setMsgs(m => [...m, { role: 'assistant', text: `❌ บันทึกไม่สำเร็จ: ${d.error || 'ไม่ทราบสาเหตุ'}` }]);
+      } catch { setMsgs(m => [...m, { role: 'assistant', text: '❌ เชื่อมต่อเซิร์ฟเวอร์ไม่ได้' }]); }
+      finally { setPlanBusy(false); }
     };
     // แชทใหม่ — ล้างบทสนทนา + เริ่ม session ใหม่ (server จะไม่ดึงประวัติเก่ามาต่อ)
     const newChat = () => {
       if (busy) return;
-      setMsgs([AI_GREETING]); setInput(''); setImgs([]); setHandoverMode(false);
+      setMsgs([AI_GREETING]); setInput(''); setImgs([]); setHandoverMode(false); setPlanMode(false); setPlanReview(null);
       setSessionN(n => n + 1);
     };
     return (
@@ -1906,11 +1939,18 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
           <button onClick={newChat} disabled={busy} title="เริ่มบทสนทนาใหม่" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, border: '1px solid #ffd0a8', background: '#fff7f0', color: '#b34700', borderRadius: 20, padding: '6px 12px', fontSize: '0.76rem', fontWeight: 700, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.5 : 1 }}>✏️ แชทใหม่</button>
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px' }}>
-          {!handoverMode && (
-            <div style={{ background: '#fff7f0', border: '1.5px solid #ffd0a8', borderRadius: 14, padding: '12px 14px', marginBottom: 14 }}>
-              <div style={{ fontWeight: 800, fontSize: '0.86rem', color: '#b34700', marginBottom: 4 }}>📋 กรอกฟอร์มรับกะด้วย AI</div>
-              <div style={{ fontSize: '0.78rem', color: '#5d4037', lineHeight: 1.5, marginBottom: 10 }}>วางข้อความข้อมูลกะที่ได้รับมา ให้ AI ช่วยกรอกฟอร์มให้ — ตรวจสอบและกดส่งเองได้ที่ฟอร์ม</div>
-              <button onClick={startHandoverMode} style={{ border: 'none', borderRadius: 10, padding: '8px 14px', background: '#ff6b00', color: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>เริ่มกรอกด้วย AI</button>
+          {!handoverMode && !planMode && !planReview && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 200px', background: '#fff7f0', border: '1.5px solid #ffd0a8', borderRadius: 14, padding: '12px 14px' }}>
+                <div style={{ fontWeight: 800, fontSize: '0.86rem', color: '#b34700', marginBottom: 4 }}>📋 กรอกฟอร์มรับกะด้วย AI</div>
+                <div style={{ fontSize: '0.76rem', color: '#5d4037', lineHeight: 1.5, marginBottom: 10 }}>วางข้อความข้อมูลกะที่ได้รับมา ให้ AI ช่วยกรอกฟอร์มให้ — ตรวจ/แก้/กดส่งเองที่ฟอร์ม</div>
+                <button onClick={startHandoverMode} style={{ border: 'none', borderRadius: 10, padding: '8px 14px', background: '#ff6b00', color: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>เริ่มกรอกด้วย AI</button>
+              </div>
+              <div style={{ flex: '1 1 200px', background: '#eef7f3', border: '1.5px solid #b2dfdb', borderRadius: 14, padding: '12px 14px' }}>
+                <div style={{ fontWeight: 800, fontSize: '0.86rem', color: '#00695c', marginBottom: 4 }}>🏭 ลงแผนผลิตด้วย AI</div>
+                <div style={{ fontSize: '0.76rem', color: '#37474f', lineHeight: 1.5, marginBottom: 10 }}>วางข้อความแผนผลิตทั้งก้อน ให้ AI แกะเป็นรายการเป้าผลิต — ตรวจ/แก้/กดบันทึกเอง</div>
+                <button onClick={startPlanMode} style={{ border: 'none', borderRadius: 10, padding: '8px 14px', background: '#00897b', color: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>เริ่มลงแผนด้วย AI</button>
+              </div>
             </div>
           )}
           {msgs.map((m, i) => (
@@ -1959,6 +1999,35 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
               )}
             </div>
           ))}
+          {/* การ์ดตรวจแผนผลิต — AI แกะแล้ว รอผู้ใช้ตรวจ/แก้/บันทึก (batch คำนวณอัตโนมัติ = boxes/100) */}
+          {planReview && (
+            <div style={{ background: '#eef7f3', border: '1.5px solid #b2dfdb', borderRadius: 14, padding: '12px 14px', marginTop: 4 }}>
+              <div style={{ fontWeight: 800, fontSize: '0.86rem', color: '#00695c', marginBottom: 8 }}>🏭 ตรวจแผนผลิต — แก้ได้ แล้วกดบันทึก</div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                <input type="date" value={planDay} onChange={e => setPlanDay(e.target.value)} style={{ border: '1px solid #cbd5db', borderRadius: 9, padding: '6px 9px', fontSize: '0.8rem' }} />
+                <select value={planReview.shift} onChange={e => setPlanReview(p => p ? { ...p, shift: e.target.value } : p)} style={{ border: '1px solid #cbd5db', borderRadius: 9, padding: '6px 9px', fontSize: '0.8rem' }}>
+                  {['กะเช้า', 'กะบ่าย', 'กะดึก'].map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {planReview.items.map((it, i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 74px 54px 30px', gap: 6, alignItems: 'center', background: '#fff', border: '1px solid #d7ece6', borderRadius: 9, padding: '6px 8px' }}>
+                    <input value={it.flavor} onChange={e => setPlanItem(i, { flavor: e.target.value })} placeholder="รส/สินค้า" style={{ border: '1px solid #e0e6ea', borderRadius: 7, padding: '5px 7px', fontSize: '0.8rem', minWidth: 0 }} />
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <input type="number" value={it.target_boxes} onChange={e => setPlanItem(i, { target_boxes: Number(e.target.value) })} placeholder="Boxes" style={{ border: '1px solid #e0e6ea', borderRadius: 7, padding: '5px 7px', fontSize: '0.8rem', width: '100%', boxSizing: 'border-box' }} />
+                      <span style={{ fontSize: '0.6rem', color: '#00897b', fontWeight: 700, textAlign: 'center' }}>{Math.round((Number(it.target_boxes) / 100) * 10) / 10} batch</span>
+                    </div>
+                    <input type="number" value={it.staff ?? ''} onChange={e => setPlanItem(i, { staff: e.target.value === '' ? null : Number(e.target.value) })} placeholder="คน" title="จำนวนคน" style={{ border: '1px solid #e0e6ea', borderRadius: 7, padding: '5px 7px', fontSize: '0.8rem', width: '100%', boxSizing: 'border-box' }} />
+                    <button onClick={() => removePlanItem(i)} title="ลบรายการ" style={{ border: 'none', background: 'none', color: '#c62828', cursor: 'pointer', fontSize: '1rem' }}>×</button>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button onClick={savePlan} disabled={planBusy} style={{ flex: 1, border: 'none', borderRadius: 10, padding: '10px 0', background: '#00897b', color: '#fff', fontWeight: 800, fontSize: '0.84rem', cursor: planBusy ? 'default' : 'pointer', opacity: planBusy ? 0.6 : 1 }}>💾 บันทึกแผน ({planReview.items.length})</button>
+                <button onClick={() => setPlanReview(null)} disabled={planBusy} style={{ border: '1px solid #cbd5db', borderRadius: 10, padding: '10px 14px', background: '#fff', color: '#78828a', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer' }}>ยกเลิก</button>
+              </div>
+            </div>
+          )}
           {busy && <div style={{ color: '#9aa0a6', fontSize: '0.8rem' }}>กำลังคิด…</div>}
           <div ref={endRef} />
         </div>
@@ -1968,6 +2037,12 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#fff3e0', borderBottom: '1px solid #ffd0a8', fontSize: '0.76rem', color: '#b34700', fontWeight: 700 }}>
               <span style={{ flex: 1 }}>🟠 โหมด: กรอกฟอร์มรับกะ</span>
               <button onClick={() => setHandoverMode(false)} style={{ border: 'none', background: 'none', color: '#b34700', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline', fontSize: '0.74rem' }}>ยกเลิกโหมดนี้</button>
+            </div>
+          )}
+          {planMode && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#e0f2f1', borderBottom: '1px solid #b2dfdb', fontSize: '0.76rem', color: '#00695c', fontWeight: 700 }}>
+              <span style={{ flex: 1 }}>🟢 โหมด: ลงแผนผลิต</span>
+              <button onClick={() => setPlanMode(false)} style={{ border: 'none', background: 'none', color: '#00695c', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline', fontSize: '0.74rem' }}>ยกเลิกโหมดนี้</button>
             </div>
           )}
           {/* รูปที่แนบไว้ รอส่ง — thumbnail หลายรูป + ปุ่มเอาออกทีละรูป */}
@@ -1989,7 +2064,7 @@ const AssistantTab: React.FC<{ operatorName: string | null; onAfterAction: () =>
             <button onClick={() => fileRef.current?.click()} disabled={busy} title="แนบรูป (แผนผลิต ฯลฯ) — เลือกได้หลายรูป"
               style={{ padding: '10px 12px', borderRadius: '12px', border: '1px solid #ddd', background: '#fff', color: '#546e7a', fontSize: '1.05rem', cursor: 'pointer' }}>📎</button>
             <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} onPaste={onPaste}
-              placeholder={handoverMode ? 'วางข้อความข้อมูลกะที่ได้รับมา…' : imgs.length ? 'ถามเกี่ยวกับรูปนี้…' : 'พิมพ์ข้อความ… (แนบรูปแผนได้ด้วย 📎)'} style={{ flex: 1, padding: '10px', border: '1px solid #ddd', borderRadius: '12px' }} />
+              placeholder={handoverMode ? 'วางข้อความข้อมูลกะที่ได้รับมา…' : planMode ? 'วางข้อความแผนผลิตทั้งก้อน…' : imgs.length ? 'ถามเกี่ยวกับรูปนี้…' : 'พิมพ์ข้อความ… (แนบรูปแผนได้ด้วย 📎)'} style={{ flex: 1, padding: '10px', border: '1px solid #ddd', borderRadius: '12px' }} />
             <button onClick={send} disabled={busy} style={{ padding: '10px 18px', borderRadius: '12px', border: 'none', background: '#ff6b00', color: '#fff', fontWeight: 700, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}>ส่ง</button>
           </div>
         </div>
