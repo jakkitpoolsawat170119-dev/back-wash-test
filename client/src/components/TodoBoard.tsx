@@ -1790,8 +1790,9 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
 
     const load = useCallback(async () => {
       setLoading(true);
-      try { const r = await fetch(`${apiUrl}/api/duty?date=${date}`); setDuty(await r.json()); }
-      catch { /* offline */ } finally { setLoading(false); }
+      // กัน shape ผิด (เช่น DB ล่ม/quota หมด → {error}) ไม่ให้ duty.people undefined แล้ว .map จอขาว
+      try { const r = await fetch(`${apiUrl}/api/duty?date=${date}`); const d = await r.json(); setDuty(d && Array.isArray(d.people) ? d : null); }
+      catch { setDuty(null); } finally { setLoading(false); }
     }, [date]);
     useEffect(() => { load(); }, [load]);
 

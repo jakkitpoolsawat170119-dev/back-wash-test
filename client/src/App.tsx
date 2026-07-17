@@ -9,6 +9,7 @@ import Line4Manual from './components/Line4Manual';
 import TodoBoard from './components/TodoBoard';
 import StickerGuideChat from './components/StickerGuideChat';
 import StickerGuideAdmin from './components/StickerGuideAdmin';
+import ErrorBoundary from './components/ErrorBoundary';
 import styles from './App.module.css';
 
 const App: React.FC = () => {
@@ -399,39 +400,39 @@ const App: React.FC = () => {
           )}
 
           <div style={{ display: appMode === 'cip' ? 'block' : 'none' }}>
-            <Logbook operatorName={operator} onLogout={() => switchMode('production')} onBackToMain={() => switchMode('selection')} onHome={handleLogout} onStatusChange={handleCipLabStatus} />
+            <ErrorBoundary label="cip"><Logbook operatorName={operator} onLogout={() => switchMode('production')} onBackToMain={() => switchMode('selection')} onHome={handleLogout} onStatusChange={handleCipLabStatus} /></ErrorBoundary>
           </div>
 
           <div style={{ display: appMode === 'cipLine2' ? 'block' : 'none' }}>
-            <CipLine2Form operatorName={operator} onBackToMain={() => switchMode('selection')} onStatusChange={handleCipLine2Status} defaultLine="Line 2" />
+            <ErrorBoundary label="cipLine2"><CipLine2Form operatorName={operator} onBackToMain={() => switchMode('selection')} onStatusChange={handleCipLine2Status} defaultLine="Line 2" /></ErrorBoundary>
           </div>
 
           <div style={{ display: appMode === 'cipLine3' ? 'block' : 'none' }}>
-            <CipLine2Form operatorName={operator} onBackToMain={() => switchMode('selection')} onStatusChange={handleCipLine3Status} defaultLine="Line 3" />
+            <ErrorBoundary label="cipLine3"><CipLine2Form operatorName={operator} onBackToMain={() => switchMode('selection')} onStatusChange={handleCipLine3Status} defaultLine="Line 3" /></ErrorBoundary>
           </div>
 
           <div style={{ display: appMode === 'cipLine1' ? 'block' : 'none' }}>
-            <CipLine1Form operatorName={operator} onBackToMain={() => switchMode('selection')} onStatusChange={handleCipLine1Status} />
+            <ErrorBoundary label="cipLine1"><CipLine1Form operatorName={operator} onBackToMain={() => switchMode('selection')} onStatusChange={handleCipLine1Status} /></ErrorBoundary>
           </div>
 
           <div style={{ display: appMode === 'production' ? 'block' : 'none' }}>
-            <ProductionRecord operatorName={operator} onBack={() => switchMode('cip')} onBackToMain={() => switchMode('selection')} onHome={handleLogout} onStatusChange={handleProdStatus} />
+            <ErrorBoundary label="production"><ProductionRecord operatorName={operator} onBack={() => switchMode('cip')} onBackToMain={() => switchMode('selection')} onHome={handleLogout} onStatusChange={handleProdStatus} /></ErrorBoundary>
           </div>
 
           <div style={{ display: appMode === 'line4manual' ? 'block' : 'none' }}>
-            <Line4Manual operatorName={operator} onBackToMain={() => switchMode('selection')} />
+            <ErrorBoundary label="line4manual"><Line4Manual operatorName={operator} onBackToMain={() => switchMode('selection')} /></ErrorBoundary>
           </div>
 
           <div style={{ display: appMode === 'todo' ? 'block' : 'none' }}>
-            <TodoBoard operatorName={operator} onBackToMain={() => switchMode('selection')} onGoToProduction={() => switchMode('production')} />
+            <ErrorBoundary label="todo"><TodoBoard operatorName={operator} onBackToMain={() => switchMode('selection')} onGoToProduction={() => switchMode('production')} /></ErrorBoundary>
           </div>
 
           <div style={{ display: appMode === 'stickerGuideChat' ? 'block' : 'none' }}>
-            <StickerGuideChat onBackToMain={() => switchMode('selection')} darkMode={darkMode} />
+            <ErrorBoundary label="stickerGuideChat"><StickerGuideChat onBackToMain={() => switchMode('selection')} darkMode={darkMode} /></ErrorBoundary>
           </div>
 
           <div style={{ display: appMode === 'stickerGuideAdmin' ? 'block' : 'none' }}>
-            <StickerGuideAdmin onBackToMain={() => switchMode('selection')} />
+            <ErrorBoundary label="stickerGuideAdmin"><StickerGuideAdmin onBackToMain={() => switchMode('selection')} /></ErrorBoundary>
           </div>
         </div>
         </>
