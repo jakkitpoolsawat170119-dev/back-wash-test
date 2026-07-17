@@ -239,6 +239,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     "Freshy Pineapple":  { bg: '#fff9c4', border: '#f9a825' },
     "Operator Name":     { bg: '#f3f3f3', border: '#9e9e9e' },
     "Freshy Grape":      { bg: '#f3e5f5', border: '#9c27b0' },
+    "Freshy Blueberry":  { bg: '#f3e5f5', border: '#9c27b0' },
     "Freshy Punch":      { bg: '#fce4ec', border: '#ff4081' },
     "Freshy blue Lemon": { bg: '#e3f2fd', border: '#42a5f5' },
     "Senorita Fres Mint":{ bg: '#e0f7fa', border: '#00bcd4' },
