@@ -1562,7 +1562,7 @@ async function buildTimeline(date) {
       text: `${label} (${n.shift || '-'})`, operator: n.operator_name });
   }
 
-  const doneTasks = await dbAll(`SELECT * FROM daily_tasks WHERE task_date IN (?, ?) AND status = 'done' AND completed_at IS NOT NULL`, [date, next]);
+  const doneTasks = await dbAll(`SELECT line_name, title, created_by, completed_at FROM daily_tasks WHERE task_date IN (?, ?) AND status = 'done' AND completed_at IS NOT NULL`, [date, next]);
   for (const t of doneTasks) events.push({ time: t.completed_at, type: 'task', line: t.line_name,
     text: `✅ ${t.title}`, operator: t.created_by });
 
@@ -1577,8 +1577,24 @@ app.get('/api/tasks', async (req, res) => {
   try {
     await generateRecurringForDate(date); // งานประจำโผล่เองทุกวันที่เปิดหน้า
     await syncTaskProgress(date);
-    const items = await dbAll('SELECT * FROM daily_tasks WHERE task_date = ? ORDER BY line_name, category, id', [date]);
+    // ลด egress: ไม่ดึง images/done_images (base64) — client ไม่ได้ใช้รูปจาก endpoint นี้
+    const items = await dbAll(
+      `SELECT id, task_date, line_name, category, flavor, title, detail, target_count, actual_count,
+         status, source, recurring_id, created_by, created_at, due_time, completed_at,
+         assignee, location, priority, handoff_from, done_by, remind_at, remind_lead, reminded
+       FROM daily_tasks WHERE task_date = ? ORDER BY line_name, category, id`, [date]);
     res.json({ date, items });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// โหลดรูปของงานเฉพาะตอนกดดู (แยกจาก list เพื่อลด egress ของ Neon)
+app.get('/api/tasks/images', async (req, res) => {
+  const id = req.query.id;
+  if (!id) return res.status(400).json({ error: 'id จำเป็น' });
+  try {
+    const row = (await dbAll('SELECT images, done_images FROM daily_tasks WHERE id = ?', [id]))[0];
+    const parse = (s) => { try { return JSON.parse(s || '[]'); } catch { return []; } };
+    res.json({ images: parse(row && row.images), doneImages: parse(row && row.done_images) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1587,7 +1603,11 @@ app.post('/api/tasks/generate', async (req, res) => {
   try {
     await generateTasksForDate(date, req.body.operator);
     await syncTaskProgress(date);
-    const items = await dbAll('SELECT * FROM daily_tasks WHERE task_date = ? ORDER BY line_name, category, id', [date]);
+    const items = await dbAll(
+      `SELECT id, task_date, line_name, category, flavor, title, detail, target_count, actual_count,
+         status, source, recurring_id, created_by, created_at, due_time, completed_at,
+         assignee, location, priority, handoff_from, done_by, remind_at, remind_lead, reminded
+       FROM daily_tasks WHERE task_date = ? ORDER BY line_name, category, id`, [date]);
     res.json({ success: true, date, count: items.length, items });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1787,7 +1807,13 @@ async function buildDuty(date) {
   const stateRows = await dbAll('SELECT * FROM routine_state WHERE state_date = ?', [date]);
   const stateMap = {};
   for (const s of stateRows) stateMap[`${s.assignee}|${s.node_key}`] = s;
-  const adhoc = await dbAll(`SELECT * FROM daily_tasks WHERE task_date = ? AND source = 'assigned' ORDER BY id`, [date]);
+  // ลด egress: ไม่ดึงคอลัมน์ base64 (images/done_images) จาก Neon — คืนแค่ธงว่ามีรูปไหม
+  // (รูปโหลดตอนกดดูจริงผ่าน GET /api/tasks/images) — Neon นับ transfer ทุกครั้งที่ข้อมูลออกจาก DB
+  const adhoc = await dbAll(
+    `SELECT id, task_date, category, title, location, priority, status, handoff_from, assignee,
+       CASE WHEN images IS NULL OR images = '' OR images = '[]' THEN 0 ELSE 1 END AS has_images,
+       CASE WHEN done_images IS NULL OR done_images = '' OR done_images = '[]' THEN 0 ELSE 1 END AS has_done_images
+     FROM daily_tasks WHERE task_date = ? AND source = 'assigned' ORDER BY id`, [date]);
 
   let teamDone = 0, teamTotal = 0;
   const peopleList = getPeople();
@@ -1812,8 +1838,7 @@ async function buildDuty(date) {
     const myAdhoc = adhoc.filter(t => t.assignee === p.key).map(t => ({
       id: t.id, title: t.title, category: t.category, location: t.location || null,
       priority: t.priority || 'normal', status: t.status, handoffFrom: t.handoff_from || null,
-      images: (() => { try { return JSON.parse(t.images || '[]'); } catch { return []; } })(),
-      doneImages: (() => { try { return JSON.parse(t.done_images || '[]'); } catch { return []; } })(),
+      hasImages: !!t.has_images, hasDoneImages: !!t.has_done_images, // รูปโหลด lazy ตอนกดดู
     }));
 
     const active = nodes.filter(n => !n.bypassed);

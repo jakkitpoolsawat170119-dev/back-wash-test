@@ -61,7 +61,7 @@ const REMIND_OPTIONS: [string, string][] = [
 
 type DutyNode = { key: string; title: string; depth: number; mono: boolean; id?: number; parentId?: number | null; checked: boolean; bypassed: boolean; bypassReason: string | null; handoffTo: string | null; handoffToName: string | null };
 type Received = { ownerKey: string; fromName: string; nodeKey: string; title: string; checked: boolean };
-type AdhocTask = { id: number; title: string; category: string; location: string | null; priority: string; status: string; handoffFrom: string | null; images?: string[]; doneImages?: string[] };
+type AdhocTask = { id: number; title: string; category: string; location: string | null; priority: string; status: string; handoffFrom: string | null; hasImages?: boolean; hasDoneImages?: boolean; images?: string[]; doneImages?: string[] };
 
 // ย่อรูปแบบง่าย (ไม่มี auto-tiling) — ขอบยาว ≤1568 → JPEG q0.85 · คืน data URL + base64 สำหรับส่ง
 type PhotoAttach = { preview: string; data: string; mediaType: string };
@@ -753,8 +753,8 @@ const TimelineTab: React.FC<{ date: string; operatorName: string | null; events:
       { ic: '📤', label: 'ส่งกะ', sub: 'สรุป + คำนวณถัง', c: '#ff6b00', on: () => { setReceiveChoice(false); goHandover('out'); } },
     ];
 
-    // auto-refresh ไทม์ไลน์ทุก 20 วิ ระหว่างเปิดแท็บนี้ (ล้าง interval ตอนออก)
-    useEffect(() => { const id = setInterval(reload, 20000); return () => clearInterval(id); }, [reload]);
+    // auto-refresh ไทม์ไลน์ทุก 60 วิ + หยุดเมื่อสลับแท็บ/ย่อจอ (ลด egress + กัน DB ตื่นค้าง)
+    useEffect(() => { const tick = () => { if (!document.hidden) reload(); }; const id = setInterval(tick, 60000); return () => clearInterval(id); }, [reload]);
 
     // กะของวันนี้ (ตามตารางจริง — จ-พฤ 3 กะ, ศ/อา 2 กะ, เสาร์หยุด)
     const dayShifts = shiftsForWeekday(weekdayOf(date));
@@ -927,7 +927,7 @@ const LiveBoard: React.FC<{ date: string; card: React.CSSProperties }> = ({ date
     setState(ls.lines || {});
     setUpdated(new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' }));
   }, [date]);
-  useEffect(() => { load(); const id = setInterval(load, 20000); return () => clearInterval(id); }, [load]);
+  useEffect(() => { load(); const tick = () => { if (!document.hidden) load(); }; const id = setInterval(tick, 60000); return () => clearInterval(id); }, [load]);
 
   const S = {
     producing: { c: '#2e7d32', w: '#e8f5e9', lb: '🟢 กำลังผลิต' },
@@ -1823,6 +1823,17 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
     const [prio, setPrio] = useState('normal');
     const [assignImgs, setAssignImgs] = useState<PhotoAttach[]>([]); // รูปแนบงาน (≤10)
     const [zoom, setZoom] = useState<string | null>(null);           // รูปที่กดขยาย (lightbox)
+    // รูปงานโหลดแบบ lazy (กดดูค่อยดึง) เพื่อลด egress ของ DB — เก็บต่อ task id
+    const [taskImgs, setTaskImgs] = useState<Record<number, { images: string[]; doneImages: string[] } | 'loading'>>({});
+    const loadTaskImgs = async (id: number) => {
+      if (taskImgs[id]) return;
+      setTaskImgs(prev => ({ ...prev, [id]: 'loading' }));
+      try {
+        const r = await fetch(`${apiUrl}/api/tasks/images?id=${id}`);
+        const d = await r.json();
+        setTaskImgs(prev => ({ ...prev, [id]: { images: d.images || [], doneImages: d.doneImages || [] } }));
+      } catch { setTaskImgs(prev => { const n = { ...prev }; delete n[id]; return n; }); }
+    };
     const [workDate, setWorkDate] = useState(date);                  // วันที่ทำงาน (default = วันที่บอร์ด)
     const [dueTime, setDueTime] = useState('');                      // เวลากำหนด (ไม่บังคับ)
     const [remindLead, setRemindLead] = useState('none');            // แจ้งเตือนล่วงหน้า
@@ -1952,25 +1963,35 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
                     {t.priority === 'urgent' && <span style={{ ...badge, background: '#ffebee', color: '#c62828' }}>🔴 ด่วน</span>}
                     <button onClick={() => delAdhoc(t.id)} title="ลบ" style={{ ...bpBtn, fontSize: '1rem', color: '#ccc' }}>×</button>
                   </div>
-                  {t.images && t.images.length > 0 && (
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0 0 6px 29px' }}>
-                      {t.images.map((src, ii) => (
-                        <img key={ii} src={src} alt="รูปงาน" onClick={() => setZoom(src)}
-                          style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 8, border: '1px solid #e0e0e0', cursor: 'zoom-in', display: 'block' }} />
-                      ))}
-                    </div>
+                  {/* รูปโหลดตอนกดดู (ลด egress) — ปุ่มโชว์เมื่อมีรูปแนบ/รูปหลังทำ */}
+                  {(t.hasImages || t.hasDoneImages) && !taskImgs[t.id] && (
+                    <button onClick={() => loadTaskImgs(t.id)}
+                      style={{ margin: '0 0 6px 29px', border: '1px solid #e0e0e0', background: '#f7f9fa', color: '#546e7a', borderRadius: 9, padding: '4px 10px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>
+                      📷 ดูรูป{t.hasImages && t.hasDoneImages ? ' (แนบ + หลังทำ)' : t.hasDoneImages ? ' หลังทำ' : ''}
+                    </button>
                   )}
-                  {t.doneImages && t.doneImages.length > 0 && (
-                    <div style={{ margin: '0 0 6px 29px' }}>
-                      <div style={{ fontSize: '0.66rem', fontWeight: 800, color: '#2e7d32', marginBottom: 4 }}>📸 หลังทำ ({t.doneImages.length})</div>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {t.doneImages.map((src, ii) => (
-                          <img key={ii} src={src} alt="รูปหลังทำ" onClick={() => setZoom(src)}
-                            style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 8, border: '2px solid #a5d6a7', cursor: 'zoom-in', display: 'block' }} />
+                  {taskImgs[t.id] === 'loading' && <div style={{ margin: '0 0 6px 29px', fontSize: '0.72rem', color: '#9aa0a6' }}>กำลังโหลดรูป…</div>}
+                  {typeof taskImgs[t.id] === 'object' && (() => { const im = taskImgs[t.id] as { images: string[]; doneImages: string[] }; return (<>
+                    {im.images.length > 0 && (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0 0 6px 29px' }}>
+                        {im.images.map((src, ii) => (
+                          <img key={ii} src={src} alt="รูปงาน" onClick={() => setZoom(src)}
+                            style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 8, border: '1px solid #e0e0e0', cursor: 'zoom-in', display: 'block' }} />
                         ))}
                       </div>
-                    </div>
-                  )}
+                    )}
+                    {im.doneImages.length > 0 && (
+                      <div style={{ margin: '0 0 6px 29px' }}>
+                        <div style={{ fontSize: '0.66rem', fontWeight: 800, color: '#2e7d32', marginBottom: 4 }}>📸 หลังทำ ({im.doneImages.length})</div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {im.doneImages.map((src, ii) => (
+                            <img key={ii} src={src} alt="รูปหลังทำ" onClick={() => setZoom(src)}
+                              style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 8, border: '2px solid #a5d6a7', cursor: 'zoom-in', display: 'block' }} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>); })()}
                 </div>
               ); })}
             </div>
