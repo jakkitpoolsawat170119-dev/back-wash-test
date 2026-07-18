@@ -2187,6 +2187,8 @@ app.post('/api/duty/assign', async (req, res) => {
       if (images.length) sendMediaGroupToTelegram(images, msg); // มีรูป → ส่งเป็นอัลบั้มพร้อมข้อความ
       else sendToTelegram(msg);
     }
+    // อัปเดต gate ในหน่วยความจำ — กัน reminderTick ข้ามงานที่เพิ่งตั้งเตือน (ไม่ยิง DB)
+    if (remindAt && (_nextRemindAt == null || remindAt < _nextRemindAt)) { _nextRemindAt = remindAt; _nextRemindKnown = true; }
     res.json({ success: true, remindAt });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2234,10 +2236,15 @@ app.post('/api/duty/telegram', async (req, res) => {
 });
 
 // ── ตั้งค่า/นัดส่งรายงานอัตโนมัติ ────────────────────────────────────────────
+// cache report_config ในหน่วยความจำ — tick อ่านทุก 60 วิ ไม่ควรยิง DB ซ้ำ (ลด compute/egress)
+// invalidate ตอนบันทึกตั้งค่า (POST /api/report/config)
+let _reportConfigCache = null;
+const invalidateReportConfig = () => { _reportConfigCache = null; };
 async function getReportConfig() {
+  if (_reportConfigCache) return _reportConfigCache;
   const rows = await dbAll('SELECT * FROM report_config ORDER BY id LIMIT 1', []);
   const r = rows[0] || {};
-  return {
+  _reportConfigCache = {
     id: r.id,
     autoEnabled: !!r.auto_enabled,
     times: (() => { try { return JSON.parse(r.times || '[]'); } catch { return []; } })(),
@@ -2251,6 +2258,7 @@ async function getReportConfig() {
     kpiAlertStreakDays: r.kpi_alert_streak_days == null ? 2 : Number(r.kpi_alert_streak_days),
     kpiAlertCipStaleHours: r.kpi_alert_cip_stale_hours == null ? 30 : Number(r.kpi_alert_cip_stale_hours),
   };
+  return _reportConfigCache;
 }
 app.get('/api/report/config', async (req, res) => {
   try {
@@ -2271,17 +2279,22 @@ app.post('/api/report/config', async (req, res) => {
     const kch = kpiAlertCipStaleHours == null ? cfg.kpiAlertCipStaleHours : Math.max(1, Number(kpiAlertCipStaleHours) || 30);
     await db.exec('UPDATE report_config SET auto_enabled = ?, times = ?, weekdays = ?, only_if_pending = ?, auto_at_shift_end = ?, shift_analysis_enabled = ?, kpi_weekly_enabled = ?, kpi_monthly_enabled = ?, kpi_alert_enabled = ?, kpi_alert_streak_days = ?, kpi_alert_cip_stale_hours = ?, updated_at = ? WHERE id = ?',
       [autoEnabled ? 1 : 0, JSON.stringify(times || []), JSON.stringify(weekdays || []), onlyIfPending ? 1 : 0, autoAtShiftEnd ? 1 : 0, sae ? 1 : 0, kw ? 1 : 0, km ? 1 : 0, ka ? 1 : 0, ksd, kch, nowBKK(), cfg.id]);
+    invalidateReportConfig(); // ให้ tick อ่านค่าใหม่
+    _sentAutoKeys.clear();     // เปลี่ยนเวลาส่ง → ยอมส่งซ้ำในเวลาใหม่ได้
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.post('/api/report/schedule', async (req, res) => {
   const { runAt } = req.body; // 'YYYY-MM-DDTHH:MM'
   if (!runAt) return res.status(400).json({ error: 'runAt จำเป็น' });
-  try { await db.exec('INSERT INTO report_once (run_at, sent, created_at) VALUES (?, 0, ?)', [runAt, nowBKK()]); res.json({ success: true }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  try {
+    await db.exec('INSERT INTO report_once (run_at, sent, created_at) VALUES (?, 0, ?)', [runAt, nowBKK()]);
+    if (_nextOnceAt == null || runAt < _nextOnceAt) { _nextOnceAt = runAt; _nextOnceKnown = true; } // อัปเดต gate (ไม่ยิง DB)
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.post('/api/report/schedule/delete', async (req, res) => {
-  try { await db.exec('DELETE FROM report_once WHERE id = ?', [req.body.id]); res.json({ success: true }); }
+  try { await db.exec('DELETE FROM report_once WHERE id = ?', [req.body.id]); await refreshNextOnceAt(); res.json({ success: true }); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2291,6 +2304,20 @@ async function sendDutyReport(date, onlyIfPending) {
   if (onlyIfPending && duty.team.left <= 0) return false;
   await sendToTelegram(buildDutyText(duty));
   return true;
+}
+
+// ── Gate: จำ "เวลานัดถัดไป" ใน RAM เพื่อไม่ยิง DB ทุกนาที (ให้ Neon หลับได้ → ลด compute) ─
+// nextOnceAt = MIN(run_at) ของนัดส่งรายงานครั้งเดียวที่ยังไม่ส่ง · nextRemindAt = MIN(remind_at) ของงานที่ยังไม่เตือน
+// null = ไม่มีคิว · known=false = ยังไม่เคยคำนวณตั้งแต่ start (tick แรกจะไปคำนวณ)
+let _nextOnceAt = null, _nextOnceKnown = false;
+let _nextRemindAt = null, _nextRemindKnown = false;
+async function refreshNextOnceAt() {
+  const rows = await dbAll('SELECT MIN(run_at) AS m FROM report_once WHERE sent = 0', []);
+  _nextOnceAt = rows[0] && rows[0].m ? rows[0].m : null; _nextOnceKnown = true;
+}
+async function refreshNextRemindAt() {
+  const rows = await dbAll("SELECT MIN(remind_at) AS m FROM daily_tasks WHERE source = 'assigned' AND reminded = 0 AND remind_at IS NOT NULL AND status != 'done'", []);
+  _nextRemindAt = rows[0] && rows[0].m ? rows[0].m : null; _nextRemindKnown = true;
 }
 
 // ตัวจับเวลา: เช็กทุกนาที ว่าถึงเวลาส่ง auto หรือถึงนัดครั้งเดียวไหม
@@ -2315,13 +2342,17 @@ async function reportTick() {
         console.log(`[report] auto ${key} → ${sent ? 'sent' : 'skipped (no pending)'}`);
       }
     }
-    // one-time
+    // one-time — gate ด้วย _nextOnceAt ใน RAM: ยิง DB เฉพาะตอนถึงเวลานัดจริง
     const nowKey = `${date}T${hm}`;
-    const due = await dbAll("SELECT id, run_at FROM report_once WHERE sent = 0 AND run_at <= ?", [nowKey]);
-    for (const row of due) {
-      await db.exec('UPDATE report_once SET sent = 1 WHERE id = ?', [row.id]);
-      await sendDutyReport(sendDay, false);
-      console.log(`[report] once ${row.run_at} → sent`);
+    if (!_nextOnceKnown) await refreshNextOnceAt();           // tick แรกหลัง start
+    if (_nextOnceAt != null && nowKey >= _nextOnceAt) {       // ถึงเวลานัด → ค่อยแตะ DB
+      const due = await dbAll("SELECT id, run_at FROM report_once WHERE sent = 0 AND run_at <= ?", [nowKey]);
+      for (const row of due) {
+        await db.exec('UPDATE report_once SET sent = 1 WHERE id = ?', [row.id]);
+        await sendDutyReport(sendDay, false);
+        console.log(`[report] once ${row.run_at} → sent`);
+      }
+      await refreshNextOnceAt();                              // คำนวณนัดถัดไป
     }
   } catch (e) { console.error('[report] tick error', e.message); }
 }
@@ -2331,8 +2362,11 @@ async function reminderTick() {
   try {
     const bkk = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' });
     const nowKey = bkk.slice(0, 10) + 'T' + bkk.slice(11, 16); // 'YYYY-MM-DDTHH:MM'
+    // gate ด้วย _nextRemindAt ใน RAM: ยิง DB เฉพาะตอนถึงเวลาเตือนจริง (นาทีปกติ = 0 query → Neon หลับได้)
+    if (!_nextRemindKnown) await refreshNextRemindAt();       // tick แรกหลัง start
+    if (_nextRemindAt == null || nowKey < _nextRemindAt) return;
     const due = await dbAll(
-      "SELECT * FROM daily_tasks WHERE source = 'assigned' AND reminded = 0 AND remind_at IS NOT NULL AND remind_at <= ? AND status != 'done' ORDER BY id",
+      "SELECT id, category, title, priority, assignee, location, task_date, due_time, images FROM daily_tasks WHERE source = 'assigned' AND reminded = 0 AND remind_at IS NOT NULL AND remind_at <= ? AND status != 'done' ORDER BY id",
       [nowKey]);
     for (const t of due) {
       await db.exec('UPDATE daily_tasks SET reminded = 1 WHERE id = ?', [t.id]); // กันส่งซ้ำก่อน
@@ -2352,6 +2386,7 @@ async function reminderTick() {
       }
       console.log(`[reminder] task#${t.id} "${t.title}" → sent`);
     }
+    await refreshNextRemindAt(); // คำนวณเวลาเตือนถัดไป
   } catch (e) { console.error('[reminder] tick error', e.message); }
 }
 
