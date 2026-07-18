@@ -1,8 +1,32 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { currentWorkDay, shiftInfo, shiftsForWeekday, weekdayOf, nextShiftName } from '../shiftSchedule';
+import { supabase } from '../lib/supabase';
 
 // ใช้ Render เป็นค่าเริ่มต้น; override ด้วย VITE_API_BASE เวลาทดสอบ local
 const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
+
+// bucket เก็บรูปงานมอบหมายบน Supabase Storage (ต้องสร้าง bucket นี้แบบ public ใน Supabase)
+const DUTY_BUCKET = 'duty-images';
+// แปลง data URL (base64) → Blob เพื่ออัปโหลด
+const dataUrlToBlob = (dataUrl: string): Blob => {
+  const [head, b64] = dataUrl.split(',');
+  const mime = head.match(/data:(.*?);/)?.[1] || 'image/jpeg';
+  const bin = atob(b64 || '');
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+};
+// อัปโหลดรูปขึ้น Supabase Storage → คืน public URL · ถ้าไม่มี Supabase/พลาด → คืน base64 เดิม (fallback)
+const uploadDutyImage = async (dataUrl: string): Promise<string> => {
+  if (!supabase || !dataUrl.startsWith('data:')) return dataUrl;
+  try {
+    const blob = dataUrlToBlob(dataUrl);
+    const path = `${todayBKK()}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.jpg`;
+    const { error } = await supabase.storage.from(DUTY_BUCKET).upload(path, blob, { cacheControl: '3600', upsert: false, contentType: 'image/jpeg' });
+    if (error) { console.error('[duty upload]', error.message); return dataUrl; }
+    return supabase.storage.from(DUTY_BUCKET).getPublicUrl(path).data.publicUrl;
+  } catch (e) { console.error('[duty upload]', e); return dataUrl; }
+};
 
 const todayBKK = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
 
@@ -1862,10 +1886,17 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
       for (const f of list) { try { attaches.push(await resizePhoto(f)); } catch { /* ข้ามไฟล์เสีย */ } }
       if (attaches.length) setAssignImgs(prev => [...prev, ...attaches].slice(0, 10));
     };
+    const [assigning, setAssigning] = useState(false);
     const assign = async () => {
-      if (!title.trim() || assignees.length === 0) return;
-      await post('/api/duty/assign', { date, assignees, category: cat, title: title.trim(), location: loc, priority: prio, operator: operatorName, images: assignImgs.map(a => a.preview), workDate, dueTime, remindLead });
-      setTitle(''); setAssignImgs([]); setRemindLead('none'); setDueTime(''); // คงคน+วันที่ไว้ เผื่อมอบงานถัดไป
+      if (!title.trim() || assignees.length === 0 || assigning) return;
+      setAssigning(true);
+      try {
+        // อัปโหลดรูปขึ้น Supabase Storage ก่อน → ส่งเป็น URL (ไม่เก็บ base64 ใน DB อีก)
+        const images: string[] = [];
+        for (const a of assignImgs) images.push(await uploadDutyImage(a.preview));
+        await post('/api/duty/assign', { date, assignees, category: cat, title: title.trim(), location: loc, priority: prio, operator: operatorName, images, workDate, dueTime, remindLead });
+        setTitle(''); setAssignImgs([]); setRemindLead('none'); setDueTime(''); // คงคน+วันที่ไว้ เผื่อมอบงานถัดไป
+      } finally { setAssigning(false); }
     };
 
     const sendTg = async () => {
@@ -2064,7 +2095,7 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
               </div>
             ))}
           </div>
-          <button onClick={assign} style={{ width: '100%', border: 'none', borderRadius: 12, padding: 13, fontWeight: 800, fontSize: '0.92rem', color: '#fff', background: 'linear-gradient(135deg,#ff6b00,#ff8c00)', cursor: 'pointer' }}>📨 มอบหมายงาน &amp; แจ้งเตือน</button>
+          <button onClick={assign} disabled={assigning} style={{ width: '100%', border: 'none', borderRadius: 12, padding: 13, fontWeight: 800, fontSize: '0.92rem', color: '#fff', background: assigning ? '#f0a868' : 'linear-gradient(135deg,#ff6b00,#ff8c00)', cursor: assigning ? 'default' : 'pointer' }}>{assigning ? '⏳ กำลังส่ง…' : '📨 มอบหมายงาน & แจ้งเตือน'}</button>
         </div>
 
         {/* panel จัดการคน/งาน */}

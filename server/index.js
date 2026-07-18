@@ -815,6 +815,36 @@ const sendMediaGroupToTelegram = async (dataUrls, caption) => {
   }
 };
 
+// ส่งรูปด้วย "URL" (Supabase Storage) — Telegram ดึงรูปเองจาก URL (ไม่ต้องโหลดผ่าน server → ประหยัด egress)
+const sendPhotoUrlsToTelegram = async (urls, caption) => {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const list = (urls || []).slice(0, 6);
+  if (!list.length) { if (caption) await sendToTelegram(caption); return; }
+  if (!token || !chatId) { console.error('[TG url] missing token/chatId'); return; }
+  try {
+    if (list.length === 1) {
+      await axios.post(`https://api.telegram.org/bot${token}/sendPhoto`,
+        { chat_id: chatId, photo: list[0], caption: (caption || '').slice(0, 1024), parse_mode: 'HTML' });
+    } else {
+      const media = list.map((u, i) => ({ type: 'photo', media: u,
+        ...(i === 0 && caption ? { caption: caption.slice(0, 1024), parse_mode: 'HTML' } : {}) }));
+      await axios.post(`https://api.telegram.org/bot${token}/sendMediaGroup`, { chat_id: chatId, media });
+    }
+    console.log(`[TG url] sent OK (${list.length} รูป)`);
+  } catch (error) {
+    console.error('[TG url] error:', JSON.stringify(error.response?.data) || error.message);
+  }
+};
+
+// ตัวส่งรูปรวม: ถ้าเป็น URL ทั้งหมด → ส่งแบบ URL (ประหยัด) · ถ้าเป็น base64 (legacy/fallback) → ส่งแบบ buffer เดิม
+const sendPhotosToTelegram = async (items, caption) => {
+  const list = (items || []).filter(x => typeof x === 'string' && x);
+  if (!list.length) { if (caption) await sendToTelegram(caption); return; }
+  if (list.every(x => /^https?:\/\//.test(x))) return sendPhotoUrlsToTelegram(list, caption);
+  return sendMediaGroupToTelegram(list, caption);
+};
+
 const dbAll = (sql, params = []) => new Promise((resolve, reject) => {
   db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows || []));
 });
@@ -2159,7 +2189,8 @@ app.post('/api/duty/assign', async (req, res) => {
   const d = workDate || date || todayBKK();
   const due = (dueTime && /^\d\d:\d\d/.test(dueTime)) ? dueTime.slice(0, 5) : null;
   const remindAt = computeRemindAt(d, due, remindLead);
-  const images = (Array.isArray(req.body.images) ? req.body.images : []).filter(x => typeof x === 'string' && x.startsWith('data:')).slice(0, 10);
+  // รับได้ทั้ง URL (Supabase Storage) และ base64 (fallback ตอนไม่มี Supabase)
+  const images = (Array.isArray(req.body.images) ? req.body.images : []).filter(x => typeof x === 'string' && (x.startsWith('http') || x.startsWith('data:'))).slice(0, 10);
   try {
     // เก็บ line_name = assignee เพื่อให้ UNIQUE(task_date, line_name, category, title) แยกตามคน
     // → งานชื่อเดียวกันมอบให้หลายคนได้ (แต่ละคนได้แถวของตัวเอง) แทนที่จะทับกันเหลือคนสุดท้าย
@@ -2184,7 +2215,7 @@ app.post('/api/duty/assign', async (req, res) => {
       if (remindAt) L.push(`⏰ <b>เตือน:</b> ${REMIND_LABEL[remindLead] || remindLead} (${remindAt.slice(11)} น.)`);
       L.push(`✍️ โดย ${escapeHtml(operator || 'จักรกฤษ')}`);
       const msg = L.join('\n');
-      if (images.length) sendMediaGroupToTelegram(images, msg); // มีรูป → ส่งเป็นอัลบั้มพร้อมข้อความ
+      if (images.length) sendPhotosToTelegram(images, msg); // มีรูป → ส่งเป็นอัลบั้มพร้อมข้อความ (URL/base64)
       else sendToTelegram(msg);
     }
     // อัปเดต gate ในหน่วยความจำ — กัน reminderTick ข้ามงานที่เพิ่งตั้งเตือน (ไม่ยิง DB)
@@ -2381,7 +2412,7 @@ async function reminderTick() {
         L.push(`🗓 <b>กำหนด:</b> ${thaiDate(t.task_date)}${t.due_time ? ` · ${t.due_time} น.` : ''}`);
         const imgs = (() => { try { return JSON.parse(t.images || '[]'); } catch { return []; } })();
         const msg = L.join('\n');
-        if (imgs.length) sendMediaGroupToTelegram(imgs, msg);
+        if (imgs.length) sendPhotosToTelegram(imgs, msg);
         else sendToTelegram(msg);
       }
       console.log(`[reminder] task#${t.id} "${t.title}" → sent`);
@@ -3158,7 +3189,7 @@ app.post('/api/telegram/duty-update', (req, res) => {
             await clearPhotoWait(cq.message?.chat?.id, cq.from?.id);
             let imgs = []; try { imgs = JSON.parse(trow?.done_images || '[]'); } catch { imgs = []; }
             const who = trow?.done_by || cq.from?.first_name || '';
-            if (imgs.length) await sendMediaGroupToTelegram(imgs, `✅ <b>${escapeHtml(who)}</b> ทำ "${escapeHtml(trow?.title || '')}" เสร็จแล้ว (${imgs.length} รูป)`);
+            if (imgs.length) await sendPhotosToTelegram(imgs, `✅ <b>${escapeHtml(who)}</b> ทำ "${escapeHtml(trow?.title || '')}" เสร็จแล้ว (${imgs.length} รูป)`);
             else await sendToTelegram(`✅ <b>${escapeHtml(who)}</b> ทำ "${escapeHtml(trow?.title || '')}" เสร็จแล้ว`);
             note = 'ปิดงานแล้ว ✅';
           } else if (kind === 'a') { await toggleAdhocDone(Number(parts[3])); note = 'อัปเดตแล้ว ✅'; }
