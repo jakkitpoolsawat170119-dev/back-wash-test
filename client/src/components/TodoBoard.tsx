@@ -129,9 +129,9 @@ const parseHM = (s?: string): { h: number; hm: string } | null => {
   if (h > 23) return null;
   return { h, hm: `${String(h).padStart(2, '0')}:${m[2]}` };
 };
-interface Props { operatorName: string | null; onBackToMain: () => void; onGoToProduction?: () => void; }
+interface Props { operatorName: string | null; onBackToMain: () => void; onGoToProduction?: () => void; onGoToAudit?: () => void; }
 
-const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProduction }) => {
+const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProduction, onGoToAudit }) => {
   const [tab, setTab] = useState<'today' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs'>('today');
   const [date, setDate] = useState(currentWorkDay());
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -198,7 +198,7 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProducti
       </div>
 
       {/* ── TAB: duty (หน้าที่รับผิดชอบ) ───────────────────────── */}
-      {tab === 'today' && <DutyBoard date={date} operatorName={operatorName} card={card} />}
+      {tab === 'today' && <DutyBoard date={date} operatorName={operatorName} card={card} onGoToAudit={onGoToAudit} />}
 
       {/* ── TAB: calendar ─────────────────────────────────────── */}
       {tab === 'calendar' && (
@@ -1804,8 +1804,8 @@ const ManagePanel: React.FC<{ people: DutyPerson[]; onClose: () => void; reload:
   };
 
 // ─── Duty board (งานตามหน้าที่รับผิดชอบรายบุคคล) ─────────────────
-const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: React.CSSProperties }> =
-  ({ date, operatorName, card }) => {
+const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: React.CSSProperties; onGoToAudit?: () => void }> =
+  ({ date, operatorName, card, onGoToAudit }) => {
     const [duty, setDuty] = useState<Duty | null>(null);
     const [loading, setLoading] = useState(false);
     const [pick, setPick] = useState('');       // "personKey|nodeKey" ที่กำลังเลือกเหตุผลข้าม
@@ -2050,7 +2050,15 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
             <button onClick={addPerson} disabled={!newName.trim() || addingName}
               style={{ border: 'none', background: newName.trim() ? '#37474f' : '#cfd8dc', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: '0.82rem', fontWeight: 700, cursor: newName.trim() ? 'pointer' : 'default', flexShrink: 0 }}>{addingName ? '…' : 'เพิ่ม'}</button>
           </div>
-          <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a', marginBottom: 7 }}>ประเภทงาน</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
+            <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a' }}>ประเภทงาน</div>
+            {onGoToAudit && (
+              <button onClick={onGoToAudit} title="เปิดฟอร์มใบตรวจ — แบ่งงานตามพื้นที่รับผิดชอบอัตโนมัติ"
+                style={{ border: '1px solid #b2ebf2', background: '#e0f7fa', color: '#00838f', borderRadius: 20, padding: '5px 12px', fontSize: '0.74rem', fontWeight: 800, cursor: 'pointer' }}>
+                🧾 พื้นที่รับผิดชอบ →
+              </button>
+            )}
+          </div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
             {CAT_KEYS.map(k => { const cc = CAT_COLOR[k] || { c: '#ff6b00', w: '#fff3e9' }; const on = cat === k; return (
               <button key={k} onClick={() => setCat(k)} style={{ border: '2px solid', borderColor: on ? 'transparent' : '#e0e0e0', background: on ? '#ff6b00' : cc.w, color: on ? '#fff' : cc.c, borderRadius: 22, padding: '7px 13px', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer' }}>{CAT[k].icon} {CAT[k].label}</button>

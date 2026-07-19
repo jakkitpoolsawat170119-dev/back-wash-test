@@ -52,7 +52,8 @@ type Row = {
   issue: string;
   location: string;
   priority: 'normal' | 'urgent';
-  photo: PhotoAttach | null;
+  photo: PhotoAttach | null;      // ภาพก่อนทำ (ตอนพบ)
+  donePhoto: PhotoAttach | null;  // ภาพหลังทำ (ถ้าแก้เสร็จหน้างานเลย → ปิดงานทันที)
   category: string;
   assignees: string[];      // person keys
   source: string | null;    // 'rule' | 'ai' | 'review' | null(ยังไม่แบ่ง)
@@ -63,7 +64,7 @@ type Row = {
 
 let _seq = 1;
 const blankRow = (): Row => ({
-  id: _seq++, issue: '', location: '', priority: 'normal', photo: null,
+  id: _seq++, issue: '', location: '', priority: 'normal', photo: null, donePhoto: null,
   category: 'cleaning', assignees: [], source: null, confidence: 0, lowConfidence: false, matchedRule: null,
 });
 
@@ -100,6 +101,10 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
   const onPhoto = async (id: number, file?: File) => {
     if (!file) return;
     try { patchRow(id, { photo: await resizePhoto(file) }); } catch { /* ข้ามถ้าอ่านรูปไม่ได้ */ }
+  };
+  const onDonePhoto = async (id: number, file?: File) => {
+    if (!file) return;
+    try { patchRow(id, { donePhoto: await resizePhoto(file) }); } catch { /* ข้ามถ้าอ่านรูปไม่ได้ */ }
   };
 
   // ── แบ่งงานอัตโนมัติ: ส่งทุกแถวที่กรอกครบ → รับ suggestion กลับมาเติม ─────────
@@ -153,7 +158,9 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
           body: JSON.stringify({
             workDate: date, title: r.issue.trim(), location: r.location.trim() || null,
             category: r.category, priority: r.priority, assignees: r.assignees,
-            images: r.photo ? [r.photo.preview] : [], operator: operatorName || 'จักรกฤษ',
+            images: r.photo ? [r.photo.preview] : [],
+            doneImages: r.donePhoto ? [r.donePhoto.preview] : [], // แนบรูปหลังทำ = ปิดงานทันที
+            operator: operatorName || 'จักรกฤษ',
           }),
         });
         if (resp.ok) ok++;
@@ -229,11 +236,20 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
                 {r.priority === 'urgent' ? '🔴 ด่วน' : 'ปกติ'}
               </button>
               <label className="ab-btn" style={{ border: '1px solid #dde3e7', background: r.photo ? '#e8f5e9' : '#fff', borderRadius: 9, padding: '8px 12px', fontSize: '0.76rem', fontWeight: 700, color: r.photo ? '#2e7d32' : '#78909c', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                {r.photo ? '📷 มีรูป' : '📷 รูปก่อนทำ'}
+                {r.photo ? '📷 ก่อนทำ ✓' : '📷 รูปก่อนทำ'}
                 <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => onPhoto(r.id, e.target.files?.[0])} />
               </label>
+              <label className="ab-btn" style={{ border: '1px solid #dde3e7', background: r.donePhoto ? '#e3f2fd' : '#fff', borderRadius: 9, padding: '8px 12px', fontSize: '0.76rem', fontWeight: 700, color: r.donePhoto ? '#1565c0' : '#78909c', cursor: 'pointer', whiteSpace: 'nowrap' }} title="ถ้าแก้เสร็จหน้างานแล้ว แนบรูปหลังทำ → ระบบจะปิดงานให้เลย">
+                {r.donePhoto ? '✅ หลังทำ ✓' : '📷 รูปหลังทำ'}
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => onDonePhoto(r.id, e.target.files?.[0])} />
+              </label>
             </div>
-            {r.photo && <img src={r.photo.preview} alt="ก่อนทำ" style={{ maxHeight: 96, borderRadius: 8, marginBottom: 8, border: '1px solid #eceff1' }} />}
+            {(r.photo || r.donePhoto) && (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                {r.photo && <div><div style={{ fontSize: '0.64rem', color: '#78909c', marginBottom: 2 }}>ก่อนทำ</div><img src={r.photo.preview} alt="ก่อนทำ" style={{ maxHeight: 90, borderRadius: 8, border: '1px solid #eceff1' }} /></div>}
+                {r.donePhoto && <div><div style={{ fontSize: '0.64rem', color: '#1565c0', marginBottom: 2 }}>หลังทำ ✅</div><img src={r.donePhoto.preview} alt="หลังทำ" style={{ maxHeight: 90, borderRadius: 8, border: '1px solid #cfe4fb' }} /></div>}
+              </div>
+            )}
 
             {/* ผู้รับผิดชอบ (ชิป + เพิ่มคน) */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', background: '#fafbfc', border: '1px solid #eef1f3', borderRadius: 10, padding: '8px 10px' }}>

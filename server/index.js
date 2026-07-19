@@ -2345,32 +2345,41 @@ app.post('/api/duty/assign', async (req, res) => {
   const due = (dueTime && /^\d\d:\d\d/.test(dueTime)) ? dueTime.slice(0, 5) : null;
   const remindAt = computeRemindAt(d, due, remindLead);
   // รับได้ทั้ง URL (Supabase Storage) และ base64 (fallback ตอนไม่มี Supabase)
-  const images = (Array.isArray(req.body.images) ? req.body.images : []).filter(x => typeof x === 'string' && (x.startsWith('http') || x.startsWith('data:'))).slice(0, 10);
+  const filterImgs = (arr) => (Array.isArray(arr) ? arr : []).filter(x => typeof x === 'string' && (x.startsWith('http') || x.startsWith('data:'))).slice(0, 10);
+  const images = filterImgs(req.body.images);
+  // รูปหลังทำ (ใบตรวจ: แก้เสร็จหน้างานแล้ว) → บันทึกเป็นหลักฐาน + ปิดงานทันที
+  const doneImages = filterImgs(req.body.doneImages);
+  const hasDone = doneImages.length > 0;
+  const status = hasDone ? 'done' : 'pending';
+  const completedAt = hasDone ? nowBKK() : null;
+  const doneBy = hasDone ? (operator || assignees[0] || null) : null;
   try {
     // เก็บ line_name = assignee เพื่อให้ UNIQUE(task_date, line_name, category, title) แยกตามคน
     // → งานชื่อเดียวกันมอบให้หลายคนได้ (แต่ละคนได้แถวของตัวเอง) แทนที่จะทับกันเหลือคนสุดท้าย
     for (const assignTo of assignees) {
       await db.exec(
-        `INSERT INTO daily_tasks (task_date, line_name, category, title, status, source, assignee, location, priority, images, due_time, remind_at, remind_lead, reminded, created_by, created_at)
-         VALUES (?, ?, ?, ?, 'pending', 'assigned', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        `INSERT INTO daily_tasks (task_date, line_name, category, title, status, source, assignee, location, priority, images, done_images, due_time, remind_at, remind_lead, reminded, completed_at, done_by, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
          ON CONFLICT(task_date, line_name, category, title)
-         DO UPDATE SET assignee = excluded.assignee, location = excluded.location, priority = excluded.priority, images = excluded.images, due_time = excluded.due_time, remind_at = excluded.remind_at, remind_lead = excluded.remind_lead, reminded = 0`,
-        [d, assignTo, category || 'manual', title, assignTo, location || null, priority || 'normal', JSON.stringify(images), due, remindAt, remindLead || null, operator || null, nowBKK()]);
+         DO UPDATE SET assignee = excluded.assignee, location = excluded.location, priority = excluded.priority, images = excluded.images, done_images = excluded.done_images, status = excluded.status, due_time = excluded.due_time, remind_at = excluded.remind_at, remind_lead = excluded.remind_lead, reminded = 0, completed_at = excluded.completed_at, done_by = excluded.done_by`,
+        [d, assignTo, category || 'manual', title, status, assignTo, location || null, priority || 'normal', JSON.stringify(images), JSON.stringify(doneImages), due, remindAt, remindLead || null, completedAt, doneBy, operator || null, nowBKK()]);
     }
     if (process.env.TELEGRAM_CHAT_ID) {
       const who = assignees.map(a => escapeHtml(dutyName(a))).join(', ');
       const L = [
-        `🆕 <b>มอบหมายงานใหม่</b>`,
+        hasDone ? `✅ <b>บันทึกงานที่แก้เสร็จแล้ว</b>` : `🆕 <b>มอบหมายงานใหม่</b>`,
         `${catIcon(category)} ${escapeHtml(title)}${priority === 'urgent' ? '  🔴 <b>ด่วน</b>' : ''}`,
         ``,
         `👤 <b>ผู้รับ:</b> ${who}`,
       ];
       if (location) L.push(`📍 <b>สถานที่:</b> ${escapeHtml(location)}`);
       L.push(`🗓 <b>วันที่ทำ:</b> ${thaiDate(d)}${due ? ` · ${due} น.` : ''}`);
-      if (remindAt) L.push(`⏰ <b>เตือน:</b> ${REMIND_LABEL[remindLead] || remindLead} (${remindAt.slice(11)} น.)`);
+      if (hasDone) L.push(`✅ <b>สถานะ:</b> เสร็จแล้ว (แนบรูปก่อน/หลัง)`);
+      if (remindAt && !hasDone) L.push(`⏰ <b>เตือน:</b> ${REMIND_LABEL[remindLead] || remindLead} (${remindAt.slice(11)} น.)`);
       L.push(`✍️ โดย ${escapeHtml(operator || 'จักรกฤษ')}`);
       const msg = L.join('\n');
-      if (images.length) sendPhotosToTelegram(images, msg); // มีรูป → ส่งเป็นอัลบั้มพร้อมข้อความ (URL/base64)
+      const photoSet = hasDone ? [...images, ...doneImages].slice(0, 10) : images;
+      if (photoSet.length) sendPhotosToTelegram(photoSet, msg); // มีรูป → ส่งเป็นอัลบั้มพร้อมข้อความ (URL/base64)
       else sendToTelegram(msg);
     }
     // อัปเดต gate ในหน่วยความจำ — กัน reminderTick ข้ามงานที่เพิ่งตั้งเตือน (ไม่ยิง DB)

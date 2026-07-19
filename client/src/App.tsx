@@ -435,7 +435,7 @@ const App: React.FC = () => {
           </div>
 
           <div style={{ display: appMode === 'todo' ? 'block' : 'none' }}>
-            <ErrorBoundary label="todo"><TodoBoard operatorName={operator} onBackToMain={() => switchMode('selection')} onGoToProduction={() => switchMode('production')} /></ErrorBoundary>
+            <ErrorBoundary label="todo"><TodoBoard operatorName={operator} onBackToMain={() => switchMode('selection')} onGoToProduction={() => switchMode('production')} onGoToAudit={() => switchMode('audit')} /></ErrorBoundary>
           </div>
 
           <div style={{ display: appMode === 'audit' ? 'block' : 'none' }}>
