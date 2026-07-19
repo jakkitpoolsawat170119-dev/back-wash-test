@@ -214,10 +214,11 @@ const App: React.FC = () => {
               { mode: 'cip',      icon: '⚗️', label: 'CIP ทดลอง', color: '#546e7a' },
               { mode: 'production', icon: '🏭', label: 'ผลิต', color: '#1b5e20' },
               { mode: 'todo', icon: '✅', label: 'To-do', color: '#ff6b00' },
+              { mode: 'audit', icon: '🧾', label: 'ใบตรวจ', color: '#00838f' },
               { mode: 'line4manual', icon: '📋', label: 'Line 4', color: '#4a7c59' },
               { mode: 'stickerGuideChat', icon: '💬', label: 'วิธีติดสติ๊กเกอร์', color: '#ff8c00' },
               { mode: 'stickerGuideAdmin', icon: '🛠️', label: 'จัดการคู่มือ', color: '#e65100' },
-            ] as { mode: 'selection'|'cip'|'cipLine2'|'cipLine3'|'cipLine1'|'production'|'line4manual'|'todo'|'stickerGuideChat'|'stickerGuideAdmin'; icon: string; label: string; color: string }[]).map(({ mode, icon, label, color }) => (
+            ] as { mode: 'selection'|'cip'|'cipLine2'|'cipLine3'|'cipLine1'|'production'|'line4manual'|'todo'|'audit'|'stickerGuideChat'|'stickerGuideAdmin'; icon: string; label: string; color: string }[]).map(({ mode, icon, label, color }) => (
               <button
                 key={mode}
                 onClick={() => switchMode(mode)}
