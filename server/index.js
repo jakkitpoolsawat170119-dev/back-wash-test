@@ -325,6 +325,19 @@ const SCHEMA = [
       active INTEGER DEFAULT 1,
       created_at TEXT
     )`,
+  // ── ระบบแบ่งงานใบตรวจ (Audit auto-assign): กฎ zone/keyword → ผู้รับผิดชอบ ─────
+  `CREATE TABLE IF NOT EXISTS assign_rules (
+      id ${db.pk},
+      rule_type TEXT,          -- 'keyword' (อ่านช่องประเด็น) | 'zone' (อ่านช่องสถานที่)
+      pattern TEXT,
+      owner_key TEXT,
+      co_owner_key TEXT,       -- ผู้รับร่วม (เช่น เจ้าของโซนตรวจซ้ำงานช่าง)
+      category TEXT,
+      priority TEXT,
+      specificity INTEGER DEFAULT 0,  -- มาก = จำเพาะ = แมตช์ก่อน
+      active INTEGER DEFAULT 1,
+      created_at TEXT
+    )`,
 ];
 
 const DEFAULT_OPERATORS = [
@@ -370,8 +383,12 @@ async function initDb() {
   // seed แถวตั้งค่ารายงาน (แถวเดียว)
   const cfg = await dbAll('SELECT id FROM report_config LIMIT 1', []);
   if (!cfg.length) await db.exec("INSERT INTO report_config (auto_enabled, times, weekdays, only_if_pending, updated_at) VALUES (0, '[]', '[1,2,3,4,5]', 0, ?)", [nowBKK()]);
+  // migration: แยกทีมกะ (kind='shift') ออกจากผู้รับผิดชอบใบตรวจ (kind='audit') — กันคน audit ปนใน duty board รายวัน
+  try { await db.exec("ALTER TABLE duty_people ADD COLUMN kind TEXT DEFAULT 'shift'"); } catch { /* มีแล้ว */ }
   // seed รายชื่อ + เช็กลิสต์ duty board (ครั้งแรกที่ตารางว่าง) — ย้ายจาก hardcode
   await seedDutyBoard();
+  // seed ผู้รับผิดชอบใบตรวจ + กฎแบ่งงานอัตโนมัติ (idempotent)
+  await seedAuditBoard();
   console.log('[db] schema ready');
 }
 
@@ -1801,6 +1818,113 @@ async function seedRoutineNodes(personKey, nodes, parentId) {
   }
 }
 
+// ══ ระบบแบ่งงานใบตรวจอัตโนมัติ (Audit auto-assign) ═══════════════════════════
+// ผู้รับผิดชอบใบตรวจ (kind='audit') — แยกจากทีมกะ ไม่ปนใน duty board รายวัน
+// "เก้า" (kao) อยู่ในทีมกะแล้ว จึงไม่ seed ซ้ำ — กฎอ้าง key เดิมได้เลย
+const AUDIT_ROSTER_SEED = [
+  { key: 'jiab',   name: 'เจี๊ยบ',        role: 'ดูแลห้องเก็บ Ingredient',   dot: '🟡' },
+  { key: 'keng',   name: 'เก่ง',          role: 'ดูแลหน้าไลน์ Icing',        dot: '🟤' },
+  { key: 'dong',   name: 'โด้ง',          role: 'ดูแลชั้น 3',                dot: '🔴' },
+  { key: 'note',   name: 'โน้ต',          role: 'ดูแลชั้น 3',                dot: '⚪' },
+  { key: 'boy',    name: 'บอย (ดำรงค์)',  role: 'ดูแลโซน Icing / บรรจุ',      dot: '🟢' },
+  { key: 'maeban', name: 'แม่บ้าน',       role: 'ความสะอาด/PPE ส่วนกลาง',    dot: '🔵' },
+  { key: 'chang',  name: 'ทีมช่าง',       role: 'งานซ่อมบำรุง',              dot: '🔧' },
+];
+// กฎแบ่งงาน (seed) — ถอดจากใบตรวจจริง 17 ข้อ; specificity มาก = จำเพาะ = แมตช์ก่อน
+const ASSIGN_RULES_SEED = [
+  // keyword (อ่านช่อง "ประเด็น") — override โซน
+  { rule_type: 'keyword', pattern: 'ประตูชำรุด', owner_key: 'chang',  category: 'maintenance', priority: 'normal', specificity: 100 },
+  { rule_type: 'keyword', pattern: 'ปิดไม่ได้',  owner_key: 'chang',  category: 'maintenance', priority: 'normal', specificity: 100 },
+  { rule_type: 'keyword', pattern: 'GMP',        owner_key: 'maeban', category: 'cleaning',    priority: 'normal', specificity: 95 },
+  { rule_type: 'keyword', pattern: 'safety',     owner_key: 'maeban', category: 'cleaning',    priority: 'normal', specificity: 95 },
+  { rule_type: 'keyword', pattern: 'หมวก',       owner_key: 'maeban', category: 'cleaning',    priority: 'normal', specificity: 95 },
+  // zone (อ่านช่อง "สถานที่")
+  { rule_type: 'zone', pattern: 'ingredient',     owner_key: 'jiab',   category: 'cleaning', priority: 'normal', specificity: 90 },
+  { rule_type: 'zone', pattern: 'หน้าไลน์ icing', owner_key: 'keng',   category: 'cleaning', priority: 'normal', specificity: 85 },
+  { rule_type: 'zone', pattern: 'ห้องแต่งตัว',    owner_key: 'maeban', category: 'cleaning', priority: 'normal', specificity: 80 },
+  { rule_type: 'zone', pattern: 'ห้องต้ม',        owner_key: 'kao',    category: 'cleaning', priority: 'normal', specificity: 70 },
+  { rule_type: 'zone', pattern: 'icing',          owner_key: 'boy',    category: 'cleaning', priority: 'normal', specificity: 50 },
+  { rule_type: 'zone', pattern: 'ชั้น 2',         owner_key: 'kao',    category: 'cleaning', priority: 'normal', specificity: 40 },
+  { rule_type: 'zone', pattern: 'ชั้น 3',         owner_key: 'dong',   category: 'cleaning', priority: 'normal', specificity: 30 },
+  { rule_type: 'zone', pattern: 'ชั้น 1',         owner_key: 'maeban', category: 'cleaning', priority: 'normal', specificity: 30 },
+];
+
+let _assignRules = [];
+async function refreshAssignRules() {
+  try { _assignRules = await dbAll('SELECT * FROM assign_rules WHERE active = 1 ORDER BY specificity DESC, id', []); }
+  catch { _assignRules = []; }
+}
+// seed คน audit + กฎ (idempotent) — ผูก dot/สีจาก DUTY_PALETTE ต่อจากทีมกะ
+async function seedAuditBoard() {
+  let i = DUTY_PEOPLE_SEED.length;
+  for (const p of AUDIT_ROSTER_SEED) {
+    const pal = DUTY_PALETTE[i % DUTY_PALETTE.length];
+    await db.exec(
+      `INSERT INTO duty_people (person_key, name, role, color, wash, initial, dot, kind, sort_order, active, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'audit', ?, 1, ?) ON CONFLICT (person_key) DO NOTHING`,
+      [p.key, p.name, p.role, pal.color, pal.wash, p.name.slice(0, 1), p.dot, i, nowBKK()]);
+    i++;
+  }
+  const has = await dbAll('SELECT id FROM assign_rules LIMIT 1', []);
+  if (!has.length) {
+    for (const r of ASSIGN_RULES_SEED) {
+      await db.exec(
+        `INSERT INTO assign_rules (rule_type, pattern, owner_key, co_owner_key, category, priority, specificity, active, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+        [r.rule_type, r.pattern, r.owner_key, r.co_owner_key || null, r.category, r.priority, r.specificity, nowBKK()]);
+    }
+  }
+  await refreshPeopleCache();
+  await refreshAssignRules();
+}
+
+// แมตช์แบบไม่สนช่องว่าง/ตัวพิมพ์ (ไทยไม่มีเคส · ละตินเทียบ lower)
+const _normText = (s) => String(s || '').replace(/\s+/g, '').toLowerCase();
+// สร้าง suggestion จากกฎที่แมตช์
+function _mkSuggestion(keys, rule, source, confidence, desc) {
+  const assignees = [...new Set(keys.filter(Boolean))];
+  return {
+    assignees, primary: assignees[0] || null,
+    category: rule.category || 'cleaning', priority: rule.priority || 'normal',
+    // needsReview = ไม่เข้ากฎเลย (→ ส่ง AI/คนช่วย) · low-spec zone ยังเชื่อได้แต่ UI ขึ้นหมายเหตุจาก confidence
+    source, confidence, needsReview: confidence < 0.5, lowConfidence: confidence < 0.8, matchedRule: desc,
+  };
+}
+// เครื่องตัดสินใจ 2 ปัจจัย: keyword (ประเด็น) override → zone (สถานที่) → ไม่เข้า = ต้องรีวิว
+function routeFinding(f) {
+  const issueN = _normText(f.issue);
+  const locN = _normText(f.location);
+  for (const r of _assignRules) {
+    if (r.rule_type !== 'keyword') continue;
+    if (issueN.includes(_normText(r.pattern)))
+      return _mkSuggestion([r.owner_key, r.co_owner_key], r, 'rule', 0.95, `กฎคำสำคัญ “${r.pattern}”`);
+  }
+  for (const r of _assignRules) {
+    if (r.rule_type !== 'zone') continue;
+    if (locN.includes(_normText(r.pattern)))
+      return _mkSuggestion([r.owner_key, r.co_owner_key], r, 'rule', r.specificity >= 60 ? 0.9 : 0.72, `กฎโซน “${r.pattern}”`);
+  }
+  return { assignees: [], primary: null, category: 'cleaning', priority: 'normal', source: 'review', confidence: 0, needsReview: true, matchedRule: null };
+}
+// AI fallback — เรียก Claude เดาผู้รับเมื่อกฎไม่เข้า (คืน null ถ้าไม่มี key / ตอบไม่ได้)
+async function aiSuggestAssignee(finding, roster) {
+  const client = getAnthropic();
+  if (!client) return null;
+  const list = roster.map(p => `${p.person_key}=${p.name} (${p.role || ''})`).join('; ');
+  const prompt = `ใบตรวจโรงงานอาหาร มีประเด็นที่กฎอัตโนมัติแบ่งไม่ได้ ช่วยเลือกผู้รับผิดชอบที่เหมาะสมที่สุด 1 คน จากรายชื่อนี้เท่านั้น\n`
+    + `รายชื่อ (key=ชื่อ · หน้าที่): ${list}\n`
+    + `ประเด็น: ${finding.issue || '-'}\nสถานที่: ${finding.location || '-'}\n`
+    + `ตอบเป็น JSON บรรทัดเดียวเท่านั้น: {"owner_key":"...","category":"cleaning|maintenance","reason":"เหตุผลสั้นๆ","confidence":0.0-1.0}`;
+  try {
+    const resp = await client.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: 300, messages: [{ role: 'user', content: prompt }] });
+    const txt = resp.content.filter(b => b.type === 'text').map(b => b.text).join('');
+    const m = txt.match(/\{[\s\S]*\}/); if (!m) return null;
+    const j = JSON.parse(m[0]);
+    if (!j.owner_key || !roster.find(p => p.person_key === j.owner_key)) return null;
+    return { owner_key: j.owner_key, category: j.category === 'maintenance' ? 'maintenance' : 'cleaning', reason: j.reason || '', confidence: typeof j.confidence === 'number' ? j.confidence : 0.6 };
+  } catch { return null; }
+}
+
 // สร้างโครงต้นไม้เช็กลิสต์ของคนหนึ่งจาก DB (รูปแบบเดียวกับ ROUTINES_SEED เดิม)
 // cache ในหน่วยความจำ (เช็กลิสต์เปลี่ยนไม่บ่อย) — เลี่ยง query ซ้ำตอน buildDutyRange ยิงหลายร้อยวัน
 let _routineCache = {};
@@ -1846,7 +1970,8 @@ async function buildDuty(date) {
      FROM daily_tasks WHERE task_date = ? AND source = 'assigned' ORDER BY id`, [date]);
 
   let teamDone = 0, teamTotal = 0;
-  const peopleList = getPeople();
+  // เฉพาะทีมกะ — ผู้รับผิดชอบใบตรวจ (kind='audit') ไม่โผล่ในบอร์ดหน้าที่รายวัน
+  const peopleList = getPeople().filter(p => (p.kind || 'shift') !== 'audit');
   const people = await Promise.all(peopleList.map(async (pRow) => {
     const p = { key: pRow.person_key, name: pRow.name, role: pRow.role, color: pRow.color, wash: pRow.wash, initial: pRow.initial, dot: pRow.dot };
     const tree = await buildRoutineTree(p.key);
@@ -1886,6 +2011,36 @@ app.get('/api/duty', async (req, res) => {
   const date = req.query.date || workDayBKK();
   try { res.json(await buildDuty(date)); }
   catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── ระบบแบ่งงานใบตรวจอัตโนมัติ (Audit auto-assign) ──────────────────────────
+// รับ findings[] → เดาผู้รับผิดชอบ (กฎก่อน · AI เติมเคสที่กฎไม่เข้า) → คืน suggestions[]
+// ยังไม่บันทึก/ส่ง — หน้าเว็บเอาไปโชว์ตารางรีวิว แล้วค่อยกด "ส่งทั้งหมด" ผ่าน /api/duty/assign
+app.post('/api/audit/route', async (req, res) => {
+  const findings = Array.isArray(req.body.findings) ? req.body.findings : [];
+  const useAi = req.body.ai !== false; // ปิดด้วย {ai:false} เพื่อวัด accuracy เฉพาะกฎ
+  const roster = getPeople(); // ทุกคน (ทีมกะ + audit) เป็นผู้รับได้
+  const nameOf = (k) => { const p = roster.find(x => x.person_key === k); return p ? { key: k, name: p.name, dot: p.dot, color: p.color } : { key: k, name: k, dot: '👤', color: '#607d8b' }; };
+  try {
+    const suggestions = [];
+    for (const f of findings) {
+      let s = routeFinding(f);
+      if (s.needsReview && useAi) {
+        const ai = await aiSuggestAssignee(f, roster);
+        if (ai) s = { assignees: [ai.owner_key], primary: ai.owner_key, category: ai.category, priority: 'normal', source: 'ai', confidence: ai.confidence, needsReview: ai.confidence < 0.7, matchedRule: `AI: ${ai.reason}` };
+      }
+      suggestions.push({ issue: f.issue || '', location: f.location || '', date: f.date || null, ...s, names: s.assignees.map(nameOf) });
+    }
+    res.json({ count: suggestions.length, suggestions });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+// รายชื่อผู้รับได้ทั้งหมด (dropdown ในตารางรีวิว)
+app.get('/api/audit/people', (req, res) => {
+  res.json({ people: getPeople().map(p => ({ key: p.person_key, name: p.name, role: p.role, color: p.color, dot: p.dot, kind: p.kind || 'shift' })) });
+});
+// กฎแบ่งงานปัจจุบัน (โชว์ที่มา/ให้ผู้ใช้ตรวจ)
+app.get('/api/audit/rules', (req, res) => {
+  res.json({ rules: _assignRules.map(r => ({ id: r.id, rule_type: r.rule_type, pattern: r.pattern, owner_key: r.owner_key, co_owner_key: r.co_owner_key, category: r.category, priority: r.priority, specificity: r.specificity })) });
 });
 
 // ── จัดการคน/งานของ Duty board (ไม่ต้องแก้โค้ด) ─────────────────────────────

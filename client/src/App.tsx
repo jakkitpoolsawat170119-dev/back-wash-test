@@ -7,6 +7,7 @@ import CipLine1Form from './components/CipLine1Form';
 import ProductionRecord from './components/ProductionRecord';
 import Line4Manual from './components/Line4Manual';
 import TodoBoard from './components/TodoBoard';
+import AuditBoard from './components/AuditBoard';
 import StickerGuideChat from './components/StickerGuideChat';
 import StickerGuideAdmin from './components/StickerGuideAdmin';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -14,7 +15,7 @@ import styles from './App.module.css';
 
 const App: React.FC = () => {
   const [operator, setOperator] = useState<string | null>(null);
-  const [appMode, setAppMode] = useState<'selection' | 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'line4manual' | 'todo' | 'stickerGuideChat' | 'stickerGuideAdmin'>('selection');
+  const [appMode, setAppMode] = useState<'selection' | 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'line4manual' | 'todo' | 'audit' | 'stickerGuideChat' | 'stickerGuideAdmin'>('selection');
   const [isFlipping, setIsFlipping] = useState(false);
   const [isCipLine2Active, setIsCipLine2Active] = useState(false);
   const [isCipLine3Active, setIsCipLine3Active] = useState(false);
@@ -56,7 +57,7 @@ const App: React.FC = () => {
     }
   };
 
-  const switchMode = (targetMode: 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'selection' | 'line4manual' | 'todo' | 'stickerGuideChat' | 'stickerGuideAdmin') => {
+  const switchMode = (targetMode: 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'selection' | 'line4manual' | 'todo' | 'audit' | 'stickerGuideChat' | 'stickerGuideAdmin') => {
     setIsFlipping(true);
     setTimeout(() => {
       setAppMode(targetMode);
@@ -380,6 +381,15 @@ const App: React.FC = () => {
                     subtitle="Line 2 (ใหม่)"
                     badge={isCipLabActive && <div style={{ position: 'absolute', top: '10px', right: '12px', width: '8px', height: '8px', background: '#ff3b30', borderRadius: '50%', animation: 'pulse 1.5s infinite' }} />}
                   />
+                  <div style={{ marginTop: '8px' }}>
+                    <SoftCard
+                      onClick={() => switchMode('audit')}
+                      bg="#e0f7fa" iconBg="#c5eef2"
+                      icon={<span style={{ fontSize: '1.5rem' }}>📋</span>}
+                      title="ใบตรวจ — แบ่งงาน"
+                      subtitle="ป้อนประเด็นตรวจ → แบ่งผู้รับผิดชอบอัตโนมัติ"
+                    />
+                  </div>
                 </div>
 
                 {/* หมวดหมู่: Sticker how to */}
@@ -425,6 +435,10 @@ const App: React.FC = () => {
 
           <div style={{ display: appMode === 'todo' ? 'block' : 'none' }}>
             <ErrorBoundary label="todo"><TodoBoard operatorName={operator} onBackToMain={() => switchMode('selection')} onGoToProduction={() => switchMode('production')} /></ErrorBoundary>
+          </div>
+
+          <div style={{ display: appMode === 'audit' ? 'block' : 'none' }}>
+            <ErrorBoundary label="audit"><AuditBoard operatorName={operator} onBackToMain={() => switchMode('selection')} /></ErrorBoundary>
           </div>
 
           <div style={{ display: appMode === 'stickerGuideChat' ? 'block' : 'none' }}>
