@@ -71,6 +71,7 @@ const blankRow = (): Row => ({
 interface Props { operatorName: string | null; onBackToMain: () => void; }
 
 const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
+  const [tab, setTab] = useState<'form' | 'track' | 'rules'>('form');
   const [date, setDate] = useState(todayBKK());
   const [rows, setRows] = useState<Row[]>([blankRow(), blankRow(), blankRow()]);
   const [people, setPeople] = useState<Person[]>([]);
@@ -150,6 +151,8 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
     const ready = rows.filter(r => r.issue.trim() && r.assignees.length);
     if (!ready.length) { setSentMsg('ยังไม่มีแถวที่พร้อมส่ง (ต้องมีประเด็น + ผู้รับผิดชอบ)'); return; }
     setSending(true); setSentMsg(null);
+    // 1 ครั้งที่กดส่ง = 1 batch → ใช้จัดกลุ่ม "ใบตรวจ 1 ใบ" ในหน้าติดตามผล
+    const batch = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T').slice(0, 16);
     let ok = 0;
     try {
       for (const r of ready) {
@@ -160,6 +163,7 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
             category: r.category, priority: r.priority, assignees: r.assignees,
             images: r.photo ? [r.photo.preview] : [],
             doneImages: r.donePhoto ? [r.donePhoto.preview] : [], // แนบรูปหลังทำ = ปิดงานทันที
+            auditBatch: batch, // ทำเครื่องหมายว่ามาจากใบตรวจ → โผล่ในหน้าติดตามผล
             operator: operatorName || 'จักรกฤษ',
           }),
         });
@@ -194,9 +198,23 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
       {/* header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
         <button className="ab-btn" onClick={onBackToMain} style={{ border: '1px solid #eee', background: '#fff', borderRadius: 10, padding: '6px 10px', cursor: 'pointer' }}>← กลับ</button>
-        <h2 style={{ margin: 0, fontSize: '1.1rem', color: '#37474f', flex: 1 }}>📋 ใบตรวจ — แบ่งงานอัตโนมัติ</h2>
+        <h2 style={{ margin: 0, fontSize: '1.1rem', color: '#37474f', flex: 1 }}>📋 ใบตรวจ</h2>
       </div>
 
+      {/* แท็บ: กรอก / ติดตามผล / กฎ */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, background: '#eceff1', borderRadius: 12, padding: 4 }}>
+        {([['form', '📝 กรอกใบตรวจ'], ['track', '📊 ติดตามผล'], ['rules', '⚙️ กฎแบ่งงาน']] as const).map(([k, label]) => (
+          <button key={k} className="ab-btn" onClick={() => setTab(k)}
+            style={{ flex: 1, border: 'none', background: tab === k ? '#fff' : 'transparent', color: tab === k ? '#e65100' : '#607d8b', borderRadius: 9, padding: '9px 4px', fontSize: '0.78rem', fontWeight: 800, cursor: 'pointer', boxShadow: tab === k ? '0 2px 6px -2px rgba(38,50,56,.25)' : 'none' }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'track' && <TrackPanel people={people} operatorName={operatorName} card={card} />}
+      {tab === 'rules' && <RulesPanel people={people} card={card} inp={inp} />}
+
+      {tab === 'form' && (<>
       {/* วันที่ + สรุป */}
       <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <label style={{ fontSize: '0.8rem', color: '#546e7a', fontWeight: 700 }}>วันที่ตรวจ</label>
@@ -289,8 +307,333 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
       </div>
 
       {sentMsg && <div style={{ marginTop: 12, background: '#f1f8f2', border: '1px solid #cde9d2', borderRadius: 10, padding: '10px 12px', fontSize: '0.8rem', color: '#2e7d32' }}>{sentMsg}</div>}
+      </>)}
     </div>
   );
 };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ติดตามผล — ประเด็นที่ส่งไปแล้ว: ค้าง (สะสมข้ามวัน) / ปิดแล้ว + ปิดงานจากหน้านี้
+// ═══════════════════════════════════════════════════════════════════════════
+type TrackItem = {
+  id: number; date: string; title: string; location: string | null; category: string;
+  priority: string; status: string; assignee: string; assigneeName: string;
+  completedAt: string | null; doneBy: string | null;
+  hasImages: boolean; hasDoneImages: boolean; ageDays: number;
+};
+type TrackData = { pending: TrackItem[]; done: TrackItem[]; summary: { open: number; closed: number; overdue3: number } };
+
+const TrackPanel: React.FC<{ people: Person[]; operatorName: string | null; card: React.CSSProperties }> =
+  ({ people, operatorName, card }) => {
+    const [data, setData] = useState<TrackData | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [imgs, setImgs] = useState<Record<number, { images: string[]; doneImages: string[] } | 'loading'>>({});
+    const [busy, setBusy] = useState<number | null>(null);
+    const [showDone, setShowDone] = useState(false);
+
+    const load = useCallback(async () => {
+      setLoading(true);
+      try { setData(await (await fetch(`${apiUrl}/api/audit/tracking?days=7`)).json()); }
+      catch { setData(null); }
+      finally { setLoading(false); }
+    }, []);
+    useEffect(() => { load(); }, [load]);
+
+    // รูปโหลดตอนกดดูเท่านั้น (เหมือน DutyBoard) — ลด egress ของ Neon
+    const loadImgs = async (id: number) => {
+      setImgs(p => ({ ...p, [id]: 'loading' }));
+      try {
+        const d = await (await fetch(`${apiUrl}/api/tasks/images?id=${id}`)).json();
+        setImgs(p => ({ ...p, [id]: { images: d.images || [], doneImages: d.doneImages || [] } }));
+      } catch { setImgs(p => { const n = { ...p }; delete n[id]; return n; }); }
+    };
+
+    const closeTask = async (t: TrackItem, file?: File) => {
+      setBusy(t.id);
+      try {
+        const body: Record<string, unknown> = { id: t.id, status: 'done', doneBy: operatorName || 'จักรกฤษ' };
+        if (file) { try { body.doneImages = [(await resizePhoto(file)).preview]; } catch { /* อ่านรูปไม่ได้ → ปิดงานเฉยๆ */ } }
+        await fetch(`${apiUrl}/api/tasks/update`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        setImgs(p => { const n = { ...p }; delete n[t.id]; return n; });
+        await load();
+      } catch { /* ปล่อยให้ผู้ใช้กดใหม่ */ }
+      finally { setBusy(null); }
+    };
+    const reopen = async (t: TrackItem) => {
+      setBusy(t.id);
+      try { await fetch(`${apiUrl}/api/tasks/update`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: t.id, status: 'pending' }) }); await load(); }
+      catch { /* ignore */ } finally { setBusy(null); }
+    };
+
+    const pm: Record<string, Person> = {};
+    for (const p of people) pm[p.key] = p;
+    const colorOf = (k: string) => pm[k]?.color || '#607d8b';
+    const dotOf = (k: string) => pm[k]?.dot || '👤';
+
+    if (loading) return <div style={{ ...card, textAlign: 'center', color: '#90a4ae', fontSize: '0.85rem' }}>กำลังโหลด…</div>;
+    if (!data) return <div style={{ ...card, textAlign: 'center', color: '#c62828', fontSize: '0.85rem' }}>โหลดไม่สำเร็จ — เช็คว่าเซิร์ฟเวอร์ทำงานอยู่</div>;
+
+    // จัดกลุ่มงานค้างตามผู้รับผิดชอบ (ค้างนานสุดขึ้นก่อน)
+    const groups: { key: string; name: string; items: TrackItem[] }[] = [];
+    for (const t of [...data.pending].sort((a, b) => b.ageDays - a.ageDays)) {
+      let g = groups.find(x => x.key === t.assignee);
+      if (!g) { g = { key: t.assignee, name: t.assigneeName, items: [] }; groups.push(g); }
+      g.items.push(t);
+    }
+
+    const photoBlock = (id: number) => {
+      const im = imgs[id];
+      if (im === 'loading') return <div style={{ fontSize: '0.72rem', color: '#90a4ae', marginTop: 6 }}>กำลังโหลดรูป…</div>;
+      if (!im || typeof im !== 'object') return null;
+      return (
+        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+          {im.images.map((src, i) => (
+            <div key={`b${i}`}><div style={{ fontSize: '0.62rem', color: '#78909c', marginBottom: 2 }}>ก่อนทำ</div>
+              <img src={src} alt="ก่อนทำ" style={{ maxHeight: 88, borderRadius: 8, border: '1px solid #eceff1' }} /></div>
+          ))}
+          {im.doneImages.map((src, i) => (
+            <div key={`a${i}`}><div style={{ fontSize: '0.62rem', color: '#2e7d32', marginBottom: 2 }}>หลังทำ ✅</div>
+              <img src={src} alt="หลังทำ" style={{ maxHeight: 88, borderRadius: 8, border: '1px solid #cde9d2' }} /></div>
+          ))}
+          {im.images.length === 0 && im.doneImages.length === 0 && <div style={{ fontSize: '0.72rem', color: '#b0bec5' }}>— ไม่มีรูป —</div>}
+        </div>
+      );
+    };
+
+    return (
+      <>
+        {/* สรุป */}
+        <div style={{ ...card, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {[
+            { n: data.summary.open, label: 'ค้าง', c: '#e65100', bg: '#fff3e9' },
+            { n: data.summary.closed, label: 'ปิดแล้ว (7 วัน)', c: '#2e7d32', bg: '#e8f5e9' },
+            { n: data.summary.overdue3, label: 'ค้างเกิน 3 วัน', c: '#c62828', bg: '#ffebee' },
+          ].map(s => (
+            <div key={s.label} style={{ flex: '1 1 92px', background: s.bg, borderRadius: 10, padding: '9px 10px' }}>
+              <div style={{ fontSize: '1.25rem', fontWeight: 800, color: s.c, lineHeight: 1.1 }}>{s.n}</div>
+              <div style={{ fontSize: '0.68rem', color: s.c, opacity: .85 }}>{s.label}</div>
+            </div>
+          ))}
+          <button className="ab-btn" onClick={load} title="รีเฟรช"
+            style={{ border: '1px solid #dde3e7', background: '#fff', borderRadius: 10, padding: '9px 12px', cursor: 'pointer', fontSize: '0.9rem' }}>🔄</button>
+        </div>
+
+        {/* งานค้าง */}
+        {groups.length === 0 && (
+          <div style={{ ...card, textAlign: 'center', color: '#2e7d32', fontSize: '0.86rem', fontWeight: 700 }}>🎉 ไม่มีประเด็นค้าง</div>
+        )}
+        {groups.map(g => (
+          <div key={g.key} style={card}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 9 }}>
+              <span>{dotOf(g.key)}</span>
+              <span style={{ fontWeight: 800, fontSize: '0.88rem', color: colorOf(g.key) }}>{g.name}</span>
+              <span style={{ marginLeft: 'auto', fontSize: '0.72rem', fontWeight: 700, color: '#e65100', background: '#fff3e9', borderRadius: 20, padding: '2px 9px' }}>ค้าง {g.items.length}</span>
+            </div>
+            {g.items.map(t => {
+              const cm = catMeta(t.category);
+              const late = t.ageDays >= 3;
+              return (
+                <div key={t.id} style={{ borderTop: '1px solid #f0f3f4', paddingTop: 9, marginTop: 9 }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 7, marginBottom: 5 }}>
+                    <span style={{ fontSize: '0.72rem' }}>{cm.ic}</span>
+                    <div style={{ flex: 1, fontSize: '0.84rem', fontWeight: 700, color: '#37474f', lineHeight: 1.35 }}>
+                      {t.priority === 'urgent' && <span style={{ color: '#c62828' }}>🔴 </span>}{t.title}
+                    </div>
+                    <span title={`ลงวันที่ ${t.date}`} style={{ fontSize: '0.66rem', fontWeight: 800, whiteSpace: 'nowrap', color: late ? '#c62828' : '#90a4ae', background: late ? '#ffebee' : '#f5f7f8', borderRadius: 20, padding: '2px 8px' }}>
+                      {t.ageDays === 0 ? 'วันนี้' : `ค้าง ${t.ageDays} วัน`}
+                    </span>
+                  </div>
+                  {t.location && <div style={{ fontSize: '0.74rem', color: '#78909c', marginBottom: 6 }}>📍 {t.location}</div>}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {(t.hasImages || t.hasDoneImages) && !imgs[t.id] && (
+                      <button className="ab-btn" onClick={() => loadImgs(t.id)}
+                        style={{ border: '1px solid #dde3e7', background: '#fff', color: '#607d8b', borderRadius: 8, padding: '5px 10px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>📷 ดูรูป</button>
+                    )}
+                    <label className="ab-btn" style={{ border: '1px solid #b6dcc0', background: '#f1f8f2', color: '#2e7d32', borderRadius: 8, padding: '5px 10px', fontSize: '0.72rem', fontWeight: 800, cursor: busy === t.id ? 'wait' : 'pointer', opacity: busy === t.id ? .5 : 1 }}>
+                      📷 ปิดงาน + แนบรูปหลังทำ
+                      <input type="file" accept="image/*" style={{ display: 'none' }} disabled={busy === t.id}
+                        onChange={e => { const f = e.target.files?.[0]; if (f) closeTask(t, f); e.currentTarget.value = ''; }} />
+                    </label>
+                    <button className="ab-btn" onClick={() => closeTask(t)} disabled={busy === t.id}
+                      style={{ border: '1px solid #dde3e7', background: '#fff', color: '#607d8b', borderRadius: 8, padding: '5px 10px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', opacity: busy === t.id ? .5 : 1 }}>
+                      ✅ ปิดเลย
+                    </button>
+                  </div>
+                  {photoBlock(t.id)}
+                </div>
+              );
+            })}
+          </div>
+        ))}
+
+        {/* ปิดแล้ว (ย่อ/ขยาย) */}
+        {data.done.length > 0 && (
+          <div style={card}>
+            <button className="ab-btn" onClick={() => setShowDone(s => !s)}
+              style={{ width: '100%', border: 'none', background: 'none', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>
+              <span style={{ fontWeight: 800, fontSize: '0.86rem', color: '#2e7d32' }}>✅ ปิดแล้ว {data.done.length} ประเด็น</span>
+              <span style={{ marginLeft: 'auto', color: '#90a4ae', fontSize: '0.78rem' }}>{showDone ? 'ซ่อน ▲' : 'ดู ▼'}</span>
+            </button>
+            {showDone && data.done.map(t => (
+              <div key={t.id} style={{ borderTop: '1px solid #f0f3f4', paddingTop: 8, marginTop: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 7 }}>
+                  <span style={{ fontSize: '0.72rem' }}>{catMeta(t.category).ic}</span>
+                  <div style={{ flex: 1, fontSize: '0.8rem', color: '#607d8b', textDecoration: 'line-through', lineHeight: 1.35 }}>{t.title}</div>
+                  <span style={{ fontSize: '0.66rem', color: '#90a4ae', whiteSpace: 'nowrap' }}>{t.assigneeName}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {t.doneBy && <span style={{ fontSize: '0.68rem', color: '#2e7d32' }}>ปิดโดย {t.doneBy}</span>}
+                  {(t.hasImages || t.hasDoneImages) && !imgs[t.id] && (
+                    <button className="ab-btn" onClick={() => loadImgs(t.id)}
+                      style={{ border: '1px solid #dde3e7', background: '#fff', color: '#607d8b', borderRadius: 8, padding: '4px 9px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}>
+                      📷 ดูรูป{t.hasDoneImages ? ' (มีหลังทำ)' : ''}
+                    </button>
+                  )}
+                  <button className="ab-btn" onClick={() => reopen(t)} disabled={busy === t.id}
+                    style={{ border: 'none', background: 'none', color: '#b0bec5', fontSize: '0.7rem', cursor: 'pointer', textDecoration: 'underline' }}>เปิดใหม่</button>
+                </div>
+                {photoBlock(t.id)}
+              </div>
+            ))}
+          </div>
+        )}
+      </>
+    );
+  };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// กฎแบ่งงาน — เพิ่ม/แก้/ลบเองได้ (specificity มาก = จำเพาะ = แมตช์ก่อน)
+// ═══════════════════════════════════════════════════════════════════════════
+type Rule = {
+  id: number; rule_type: string; pattern: string; owner_key: string;
+  co_owner_key: string | null; category: string; priority: string; specificity: number; active?: number;
+};
+
+const RulesPanel: React.FC<{ people: Person[]; card: React.CSSProperties; inp: React.CSSProperties }> =
+  ({ people, card, inp }) => {
+    const [rules, setRules] = useState<Rule[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [msg, setMsg] = useState<string | null>(null);
+    const [adding, setAdding] = useState(false);
+    const [draft, setDraft] = useState<{ rule_type: string; pattern: string; owner_key: string; category: string; specificity: number }>(
+      { rule_type: 'zone', pattern: '', owner_key: '', category: 'cleaning', specificity: 50 });
+
+    const load = useCallback(async () => {
+      setLoading(true);
+      try { const d = await (await fetch(`${apiUrl}/api/audit/rules`)).json(); setRules(d.rules || []); }
+      catch { setRules([]); }
+      finally { setLoading(false); }
+    }, []);
+    useEffect(() => { load(); }, [load]);
+
+    const save = async (body: Record<string, unknown>, note: string) => {
+      try {
+        const r = await (await fetch(`${apiUrl}/api/audit/rules`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+        if (r.error) { setMsg(`❌ ${r.error}`); return false; }
+        setMsg(note); await load(); return true;
+      } catch { setMsg('❌ บันทึกไม่สำเร็จ'); return false; }
+    };
+    const del = async (id: number, pattern: string) => {
+      if (!window.confirm(`ลบกฎ "${pattern}" ?`)) return;
+      try {
+        await fetch(`${apiUrl}/api/audit/rules/delete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+        setMsg('🗑 ลบกฎแล้ว'); await load();
+      } catch { setMsg('❌ ลบไม่สำเร็จ'); }
+    };
+    const addRule = async () => {
+      if (!draft.pattern.trim() || !draft.owner_key) { setMsg('❌ ต้องกรอกคำ/โซน และเลือกผู้รับผิดชอบ'); return; }
+      if (await save({ ...draft, pattern: draft.pattern.trim() }, '✅ เพิ่มกฎแล้ว')) {
+        setDraft({ rule_type: 'zone', pattern: '', owner_key: '', category: 'cleaning', specificity: 50 });
+        setAdding(false);
+      }
+    };
+
+    const sel: React.CSSProperties = { border: '1px solid #dde3e7', borderRadius: 8, padding: '5px 7px', fontSize: '0.74rem', fontFamily: 'inherit', color: '#37474f', background: '#fff' };
+    if (loading) return <div style={{ ...card, textAlign: 'center', color: '#90a4ae', fontSize: '0.85rem' }}>กำลังโหลด…</div>;
+
+    return (
+      <>
+        <div style={{ ...card, fontSize: '0.76rem', color: '#546e7a', lineHeight: 1.6 }}>
+          กฎใช้เดาผู้รับผิดชอบตอนกด "แบ่งงานอัตโนมัติ" — <b>คำในประเด็น (keyword) ชนะโซน (zone)</b> เสมอ
+          และตัวเลข <b>ความจำเพาะ</b> มาก = ตรวจก่อน (เช่น "ห้องเก็บ Ingredient" 90 ต้องมาก่อน "ชั้น 3" 30)
+        </div>
+
+        {msg && <div style={{ ...card, padding: '9px 12px', fontSize: '0.78rem', color: msg.startsWith('❌') ? '#c62828' : '#2e7d32', background: msg.startsWith('❌') ? '#ffebee' : '#f1f8f2' }}>{msg}</div>}
+
+        {(['keyword', 'zone'] as const).map(type => {
+          const list = rules.filter(r => r.rule_type === type).sort((a, b) => b.specificity - a.specificity);
+          return (
+            <div key={type} style={card}>
+              <div style={{ fontWeight: 800, fontSize: '0.82rem', color: '#37474f', marginBottom: 3 }}>
+                {type === 'keyword' ? '🔑 คำในประเด็น' : '📍 โซน/สถานที่'}
+                <span style={{ fontWeight: 500, color: '#90a4ae', fontSize: '0.72rem' }}> · {list.length} กฎ</span>
+              </div>
+              <div style={{ fontSize: '0.7rem', color: '#90a4ae', marginBottom: 9 }}>
+                {type === 'keyword' ? 'เจอคำนี้ในช่อง "ประเด็น" → บังคับผู้รับ + หมวด (ข้ามโซน)' : 'ช่อง "สถานที่" มีคำนี้ → เจ้าของโซนรับงาน'}
+              </div>
+              {list.length === 0 && <div style={{ fontSize: '0.76rem', color: '#b0bec5' }}>— ยังไม่มีกฎ —</div>}
+              {list.map(r => (
+                <div key={r.id} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid #f0f3f4', paddingTop: 8, marginTop: 8 }}>
+                  <input defaultValue={r.pattern} title="คำที่ใช้จับคู่"
+                    onBlur={e => { const v = e.target.value.trim(); if (v && v !== r.pattern) save({ id: r.id, pattern: v }, '✅ แก้คำแล้ว'); }}
+                    style={{ ...inp, flex: '1 1 130px', width: 'auto', padding: '5px 8px', fontSize: '0.78rem', fontWeight: 700 }} />
+                  <span style={{ color: '#b0bec5', fontSize: '0.8rem' }}>→</span>
+                  <select value={r.owner_key} onChange={e => save({ id: r.id, owner_key: e.target.value }, '✅ เปลี่ยนผู้รับแล้ว')} style={sel}>
+                    {people.map(p => <option key={p.key} value={p.key}>{p.dot} {p.name}</option>)}
+                    {!people.some(p => p.key === r.owner_key) && <option value={r.owner_key}>{r.owner_key}</option>}
+                  </select>
+                  <select value={r.category} onChange={e => save({ id: r.id, category: e.target.value }, '✅ เปลี่ยนหมวดแล้ว')} style={sel}>
+                    <option value="cleaning">🧽 สะอาด</option>
+                    <option value="maintenance">🔧 ซ่อม</option>
+                  </select>
+                  <input type="number" defaultValue={r.specificity} title="ความจำเพาะ — มาก = ตรวจก่อน" min={0} max={100}
+                    onBlur={e => { const v = Number(e.target.value); if (!Number.isNaN(v) && v !== r.specificity) save({ id: r.id, specificity: v }, '✅ แก้ลำดับแล้ว'); }}
+                    style={{ ...sel, width: 54, textAlign: 'center' }} />
+                  <button className="ab-btn" onClick={() => del(r.id, r.pattern)} title="ลบกฎ"
+                    style={{ border: 'none', background: 'none', color: '#cfd8dc', cursor: 'pointer', fontSize: '1.05rem', padding: '0 2px' }}>🗑</button>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+
+        {/* เพิ่มกฎใหม่ */}
+        {!adding && (
+          <button className="ab-btn" onClick={() => setAdding(true)}
+            style={{ width: '100%', border: '1px dashed #cfd8dc', background: '#fff', borderRadius: 12, padding: 11, fontSize: '0.85rem', fontWeight: 700, color: '#607d8b', cursor: 'pointer' }}>+ เพิ่มกฎใหม่</button>
+        )}
+        {adding && (
+          <div style={card}>
+            <div style={{ fontWeight: 800, fontSize: '0.82rem', color: '#37474f', marginBottom: 9 }}>เพิ่มกฎใหม่</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 9 }}>
+              <select value={draft.rule_type} onChange={e => setDraft(d => ({ ...d, rule_type: e.target.value, specificity: e.target.value === 'keyword' ? 95 : 50 }))} style={sel}>
+                <option value="zone">📍 โซน/สถานที่</option>
+                <option value="keyword">🔑 คำในประเด็น</option>
+              </select>
+              <input value={draft.pattern} onChange={e => setDraft(d => ({ ...d, pattern: e.target.value }))}
+                placeholder={draft.rule_type === 'keyword' ? 'เช่น ประตูชำรุด' : 'เช่น ห้องเก็บ Ingredient'}
+                style={{ ...inp, flex: '1 1 150px', width: 'auto', padding: '6px 9px', fontSize: '0.8rem' }} />
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <select value={draft.owner_key} onChange={e => setDraft(d => ({ ...d, owner_key: e.target.value }))} style={sel}>
+                <option value="">— เลือกผู้รับผิดชอบ —</option>
+                {people.map(p => <option key={p.key} value={p.key}>{p.dot} {p.name}</option>)}
+              </select>
+              <select value={draft.category} onChange={e => setDraft(d => ({ ...d, category: e.target.value }))} style={sel}>
+                <option value="cleaning">🧽 สะอาด</option>
+                <option value="maintenance">🔧 ซ่อม</option>
+              </select>
+              <input type="number" value={draft.specificity} onChange={e => setDraft(d => ({ ...d, specificity: Number(e.target.value) }))}
+                title="ความจำเพาะ" min={0} max={100} style={{ ...sel, width: 54, textAlign: 'center' }} />
+              <button className="ab-btn" onClick={addRule}
+                style={{ marginLeft: 'auto', border: 'none', background: '#ff6b00', color: '#fff', borderRadius: 9, padding: '7px 14px', fontSize: '0.78rem', fontWeight: 800, cursor: 'pointer' }}>บันทึก</button>
+              <button className="ab-btn" onClick={() => setAdding(false)}
+                style={{ border: '1px solid #dde3e7', background: '#fff', color: '#78909c', borderRadius: 9, padding: '7px 12px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }}>ยกเลิก</button>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  };
 
 export default AuditBoard;

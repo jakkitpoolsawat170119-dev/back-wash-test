@@ -354,7 +354,9 @@ async function initDb() {
     catch { /* มีคอลัมน์อยู่แล้ว — ข้าม */ }
   }
   // migration: คอลัมน์งานมอบหมายรายบุคคลใน daily_tasks (assignee/location/priority/handoff_from)
-  for (const col of ['assignee', 'location', 'priority', 'handoff_from', 'images', 'done_images', 'done_by']) {
+  // audit_batch: NULL = งานปกติ | ไม่ NULL = มาจากใบตรวจ (ค่า = id ของการส่ง 1 ครั้ง → จัดกลุ่ม "ใบตรวจ 1 ใบ")
+  // แยกจาก source เพราะ source='assigned' ถูกใช้โดย duty board + reminder tick — เปลี่ยนไม่ได้
+  for (const col of ['assignee', 'location', 'priority', 'handoff_from', 'images', 'done_images', 'done_by', 'audit_batch']) {
     try { await db.exec(`ALTER TABLE daily_tasks ADD COLUMN ${col} TEXT`); }
     catch { /* มีคอลัมน์อยู่แล้ว — ข้าม */ }
   }
@@ -1634,6 +1636,9 @@ app.get('/api/tasks', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// กรองรายการรูปที่รับเข้ามา — รับได้ทั้ง URL (Supabase Storage) และ base64 (fallback ตอนไม่มี Supabase)
+const filterImgs = (arr) => (Array.isArray(arr) ? arr : []).filter(x => typeof x === 'string' && (x.startsWith('http') || x.startsWith('data:'))).slice(0, 10);
+
 // โหลดรูปของงานเฉพาะตอนกดดู (แยกจาก list เพื่อลด egress ของ Neon)
 app.get('/api/tasks/images', async (req, res) => {
   const id = req.query.id;
@@ -1674,17 +1679,22 @@ app.post('/api/tasks', (req, res) => {
 });
 
 app.post('/api/tasks/update', (req, res) => {
-  const { id, status, actualCount, title, detail } = req.body;
+  const { id, status, actualCount, title, detail, doneBy } = req.body;
   if (!id) return res.status(400).json({ error: 'id จำเป็น' });
   const completedAt = status === 'done' ? nowBKK() : null;
+  // ปิดงานพร้อมแนบรูปหลังทำ (หน้าติดตามผลใบตรวจ) — ไม่ส่งมาก็ไม่แตะของเดิม (COALESCE)
+  const di = filterImgs(req.body.doneImages);
   db.run(`UPDATE daily_tasks SET
       status = COALESCE(?, status),
       actual_count = COALESCE(?, actual_count),
       title = COALESCE(?, title),
       detail = COALESCE(?, detail),
+      done_images = COALESCE(?, done_images),
+      done_by = COALESCE(?, done_by),
       completed_at = CASE WHEN ? = 'done' THEN ? ELSE completed_at END
     WHERE id = ?`,
-    [status || null, actualCount == null ? null : Number(actualCount), title || null, detail || null, status || '', completedAt, id],
+    [status || null, actualCount == null ? null : Number(actualCount), title || null, detail || null,
+      di.length ? JSON.stringify(di) : null, doneBy || null, status || '', completedAt, id],
     (err) => {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ success: true });
@@ -1957,24 +1967,32 @@ function flattenRoutine(nodes, depth = 0, prefix = '') {
 }
 
 // รวมสถานะงานประจำ + งานมอบหมาย ของทุกคนในวันนั้น
-async function buildDuty(date) {
-  const stateRows = await dbAll('SELECT * FROM routine_state WHERE state_date = ?', [date]);
+// opts.audit = true → บอร์ด "ใบตรวจ": คน kind='audit' + งานจากใบตรวจแบบค้างสะสมข้ามวัน
+// (คืนโครงเดียวกับบอร์ดกะ nodes/received/adhoc → buildDutyPerson ใช้ซ้ำได้ทั้งดุ้น)
+async function buildDuty(date, opts = {}) {
+  const audit = !!opts.audit;
+  const stateRows = audit ? [] : await dbAll('SELECT * FROM routine_state WHERE state_date = ?', [date]);
   const stateMap = {};
   for (const s of stateRows) stateMap[`${s.assignee}|${s.node_key}`] = s;
   // ลด egress: ไม่ดึงคอลัมน์ base64 (images/done_images) จาก Neon — คืนแค่ธงว่ามีรูปไหม
   // (รูปโหลดตอนกดดูจริงผ่าน GET /api/tasks/images) — Neon นับ transfer ทุกครั้งที่ข้อมูลออกจาก DB
-  const adhoc = await dbAll(
-    `SELECT id, task_date, category, title, location, priority, status, handoff_from, assignee,
+  const cols = `id, task_date, category, title, location, priority, status, handoff_from, assignee,
        CASE WHEN images IS NULL OR images = '' OR images = '[]' THEN 0 ELSE 1 END AS has_images,
-       CASE WHEN done_images IS NULL OR done_images = '' OR done_images = '[]' THEN 0 ELSE 1 END AS has_done_images
-     FROM daily_tasks WHERE task_date = ? AND source = 'assigned' ORDER BY id`, [date]);
+       CASE WHEN done_images IS NULL OR done_images = '' OR done_images = '[]' THEN 0 ELSE 1 END AS has_done_images`;
+  const adhoc = await dbAll(
+    audit
+      // ค้างทุกวัน (ยังไม่ปิด) + ที่เพิ่งปิดวันนี้ — ประเด็นใบตรวจต้องตามจนกว่าจะปิด
+      ? `SELECT ${cols} FROM daily_tasks
+         WHERE audit_batch IS NOT NULL AND (status != 'done' OR task_date = ?) ORDER BY task_date, id`
+      : `SELECT ${cols} FROM daily_tasks WHERE task_date = ? AND source = 'assigned' ORDER BY id`, [date]);
 
   let teamDone = 0, teamTotal = 0;
-  // เฉพาะทีมกะ — ผู้รับผิดชอบใบตรวจ (kind='audit') ไม่โผล่ในบอร์ดหน้าที่รายวัน
-  const peopleList = getPeople().filter(p => (p.kind || 'shift') !== 'audit');
+  // เฉพาะทีมกะ — ผู้รับผิดชอบใบตรวจ (kind='audit') ไม่โผล่ในบอร์ดหน้าที่รายวัน (โหมด audit กลับด้าน)
+  const peopleList = getPeople().filter(p => audit ? (p.kind === 'audit') : ((p.kind || 'shift') !== 'audit'));
   const people = await Promise.all(peopleList.map(async (pRow) => {
-    const p = { key: pRow.person_key, name: pRow.name, role: pRow.role, color: pRow.color, wash: pRow.wash, initial: pRow.initial, dot: pRow.dot };
-    const tree = await buildRoutineTree(p.key);
+    const p = { key: pRow.person_key, name: pRow.name, role: pRow.role, color: pRow.color, wash: pRow.wash, initial: pRow.initial, dot: pRow.dot, kind: pRow.kind || 'shift' };
+    // คนใบตรวจไม่มีงานประจำ — ข้าม query routine ทั้งก้อน
+    const tree = audit ? [] : await buildRoutineTree(p.key);
     const nodes = flattenRoutine(tree).map(n => {
       const st = stateMap[`${p.key}|${n.key}`];
       return {
@@ -2004,7 +2022,18 @@ async function buildDuty(date) {
     teamDone += done; teamTotal += total;
     return { ...p, nodes, received, adhoc: myAdhoc, done, total, pct: total ? Math.round(done / total * 100) : 100 };
   }));
-  return { date, holiday: weekdayOf(date) === 6, people, team: { done: teamDone, total: teamTotal, left: teamTotal - teamDone, pct: teamTotal ? Math.round(teamDone / teamTotal * 100) : 100 } };
+  // โหมด audit ไม่มีวันหยุด — ประเด็นค้างต้องตามได้ทุกวัน (รวมเสาร์)
+  return { date, audit, holiday: !audit && weekdayOf(date) === 6, people, team: { done: teamDone, total: teamTotal, left: teamTotal - teamDone, pct: teamTotal ? Math.round(teamDone / teamTotal * 100) : 100 } };
+}
+
+// คนนี้เป็นผู้รับผิดชอบใบตรวจไหม (ใช้เลือกว่าจะสร้างบอร์ดกะหรือบอร์ดใบตรวจ)
+const isAuditKey = (k) => ((getPeople().find(p => p.person_key === k) || {}).kind || 'shift') === 'audit';
+// นับประเด็นใบตรวจที่ยังไม่ปิด — ใช้ติดป้ายบนปุ่มเมนูบอท
+async function countAuditOpen() {
+  try {
+    const r = await dbAll("SELECT COUNT(*) AS n FROM daily_tasks WHERE audit_batch IS NOT NULL AND status != 'done'", []);
+    return Number((r[0] || {}).n || 0);
+  } catch { return 0; }
 }
 
 app.get('/api/duty', async (req, res) => {
@@ -2040,7 +2069,80 @@ app.get('/api/audit/people', (req, res) => {
 });
 // กฎแบ่งงานปัจจุบัน (โชว์ที่มา/ให้ผู้ใช้ตรวจ)
 app.get('/api/audit/rules', (req, res) => {
-  res.json({ rules: _assignRules.map(r => ({ id: r.id, rule_type: r.rule_type, pattern: r.pattern, owner_key: r.owner_key, co_owner_key: r.co_owner_key, category: r.category, priority: r.priority, specificity: r.specificity })) });
+  res.json({ rules: _assignRules.map(r => ({ id: r.id, rule_type: r.rule_type, pattern: r.pattern, owner_key: r.owner_key, co_owner_key: r.co_owner_key, category: r.category, priority: r.priority, specificity: r.specificity, active: r.active })) });
+});
+
+// เพิ่ม/แก้กฎแบ่งงานจาก UI (ไม่ต้องแก้โค้ด) — ปิดท้ายด้วย refreshAssignRules() ให้ cache ตรงกับ DB
+app.post('/api/audit/rules', async (req, res) => {
+  const { id, rule_type, pattern, owner_key, co_owner_key, category, priority, specificity, active } = req.body;
+  const type = rule_type === 'keyword' ? 'keyword' : 'zone';
+  const pat = String(pattern || '').trim();
+  if (!id && (!pat || !owner_key)) return res.status(400).json({ error: 'pattern และ owner_key จำเป็น' });
+  try {
+    if (id) {
+      // co_owner_key ใช้ = ? ตรงๆ (ไม่ COALESCE) เพื่อให้ล้างผู้รับร่วมออกได้
+      await db.exec(
+        `UPDATE assign_rules SET rule_type = COALESCE(?, rule_type), pattern = COALESCE(?, pattern),
+           owner_key = COALESCE(?, owner_key), co_owner_key = ?, category = COALESCE(?, category),
+           priority = COALESCE(?, priority), specificity = COALESCE(?, specificity), active = COALESCE(?, active)
+         WHERE id = ?`,
+        [rule_type ? type : null, pat || null, owner_key || null, co_owner_key || null, category || null,
+          priority || null, specificity == null ? null : Number(specificity),
+          active == null ? null : (active ? 1 : 0), id]);
+    } else {
+      await db.exec(
+        `INSERT INTO assign_rules (rule_type, pattern, owner_key, co_owner_key, category, priority, specificity, active, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [type, pat, owner_key, co_owner_key || null, category || 'cleaning', priority || 'normal',
+          specificity == null ? 50 : Number(specificity), active === 0 || active === false ? 0 : 1, nowBKK()]);
+    }
+    await refreshAssignRules();
+    res.json({ success: true, count: _assignRules.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/audit/rules/delete', async (req, res) => {
+  if (!req.body.id) return res.status(400).json({ error: 'id จำเป็น' });
+  try {
+    await db.exec('DELETE FROM assign_rules WHERE id = ?', [req.body.id]);
+    await refreshAssignRules();
+    res.json({ success: true, count: _assignRules.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// จำนวนวันระหว่าง 2 วันที่ (YYYY-MM-DD) — ใช้บอกว่าประเด็นค้างมากี่วัน
+const daysBetween = (from, to) => Math.max(0, Math.round((new Date(`${to}T12:00:00`) - new Date(`${from}T12:00:00`)) / 86400000));
+
+// ── ติดตามผลใบตรวจ — เฉพาะงานที่มาจากใบตรวจ (audit_batch ไม่ NULL) ──────────
+// ค้าง = ทุกวันไม่จำกัดวันที่ (ประเด็นค้างต้องตามจนกว่าจะปิด) · ปิดแล้ว = ย้อนหลัง N วัน
+app.get('/api/audit/tracking', async (req, res) => {
+  const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 90);
+  const today = todayBKK();
+  const since = addDaysStr(today, -days);
+  try {
+    // ลด egress: ไม่ดึง images/done_images (base64) — คืนแค่ธงว่ามีรูป (โหลดจริงตอนกดดูผ่าน /api/tasks/images)
+    const rows = await dbAll(
+      `SELECT id, task_date, category, title, location, priority, status, assignee, completed_at, done_by, audit_batch,
+         CASE WHEN images IS NULL OR images = '' OR images = '[]' THEN 0 ELSE 1 END AS has_images,
+         CASE WHEN done_images IS NULL OR done_images = '' OR done_images = '[]' THEN 0 ELSE 1 END AS has_done_images
+       FROM daily_tasks
+       WHERE audit_batch IS NOT NULL AND (status != 'done' OR task_date >= ?)
+       ORDER BY task_date DESC, id DESC`, [since]);
+    const items = rows.map(t => ({
+      id: t.id, date: t.task_date, title: t.title, location: t.location || null,
+      category: t.category, priority: t.priority || 'normal', status: t.status,
+      assignee: t.assignee, assigneeName: dutyName(t.assignee), batch: t.audit_batch,
+      completedAt: t.completed_at || null, doneBy: t.done_by || null,
+      hasImages: !!t.has_images, hasDoneImages: !!t.has_done_images,
+      ageDays: daysBetween(t.task_date, today),
+    }));
+    const pending = items.filter(t => t.status !== 'done');
+    const done = items.filter(t => t.status === 'done');
+    res.json({
+      today, days, pending, done,
+      summary: { open: pending.length, closed: done.length, overdue3: pending.filter(t => t.ageDays >= 3).length },
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── จัดการคน/งานของ Duty board (ไม่ต้องแก้โค้ด) ─────────────────────────────
@@ -2344,8 +2446,6 @@ app.post('/api/duty/assign', async (req, res) => {
   const d = workDate || date || todayBKK();
   const due = (dueTime && /^\d\d:\d\d/.test(dueTime)) ? dueTime.slice(0, 5) : null;
   const remindAt = computeRemindAt(d, due, remindLead);
-  // รับได้ทั้ง URL (Supabase Storage) และ base64 (fallback ตอนไม่มี Supabase)
-  const filterImgs = (arr) => (Array.isArray(arr) ? arr : []).filter(x => typeof x === 'string' && (x.startsWith('http') || x.startsWith('data:'))).slice(0, 10);
   const images = filterImgs(req.body.images);
   // รูปหลังทำ (ใบตรวจ: แก้เสร็จหน้างานแล้ว) → บันทึกเป็นหลักฐาน + ปิดงานทันที
   const doneImages = filterImgs(req.body.doneImages);
@@ -2353,16 +2453,18 @@ app.post('/api/duty/assign', async (req, res) => {
   const status = hasDone ? 'done' : 'pending';
   const completedAt = hasDone ? nowBKK() : null;
   const doneBy = hasDone ? (operator || assignees[0] || null) : null;
+  // มาจากใบตรวจไหม — 1 ครั้งที่กด "ส่งทั้งหมด" = 1 batch (ใช้จัดกลุ่ม + กรองในหน้าติดตามผล)
+  const auditBatch = typeof req.body.auditBatch === 'string' && req.body.auditBatch.trim() ? req.body.auditBatch.trim().slice(0, 40) : null;
   try {
     // เก็บ line_name = assignee เพื่อให้ UNIQUE(task_date, line_name, category, title) แยกตามคน
     // → งานชื่อเดียวกันมอบให้หลายคนได้ (แต่ละคนได้แถวของตัวเอง) แทนที่จะทับกันเหลือคนสุดท้าย
     for (const assignTo of assignees) {
       await db.exec(
-        `INSERT INTO daily_tasks (task_date, line_name, category, title, status, source, assignee, location, priority, images, done_images, due_time, remind_at, remind_lead, reminded, completed_at, done_by, created_by, created_at)
-         VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+        `INSERT INTO daily_tasks (task_date, line_name, category, title, status, source, assignee, location, priority, images, done_images, due_time, remind_at, remind_lead, reminded, completed_at, done_by, audit_batch, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
          ON CONFLICT(task_date, line_name, category, title)
-         DO UPDATE SET assignee = excluded.assignee, location = excluded.location, priority = excluded.priority, images = excluded.images, done_images = excluded.done_images, status = excluded.status, due_time = excluded.due_time, remind_at = excluded.remind_at, remind_lead = excluded.remind_lead, reminded = 0, completed_at = excluded.completed_at, done_by = excluded.done_by`,
-        [d, assignTo, category || 'manual', title, status, assignTo, location || null, priority || 'normal', JSON.stringify(images), JSON.stringify(doneImages), due, remindAt, remindLead || null, completedAt, doneBy, operator || null, nowBKK()]);
+         DO UPDATE SET assignee = excluded.assignee, location = excluded.location, priority = excluded.priority, images = excluded.images, done_images = excluded.done_images, status = excluded.status, due_time = excluded.due_time, remind_at = excluded.remind_at, remind_lead = excluded.remind_lead, reminded = 0, completed_at = excluded.completed_at, done_by = excluded.done_by, audit_batch = COALESCE(excluded.audit_batch, daily_tasks.audit_batch)`,
+        [d, assignTo, category || 'manual', title, status, assignTo, location || null, priority || 'normal', JSON.stringify(images), JSON.stringify(doneImages), due, remindAt, remindLead || null, completedAt, doneBy, auditBatch, operator || null, nowBKK()]);
     }
     if (process.env.TELEGRAM_CHAT_ID) {
       const who = assignees.map(a => escapeHtml(dutyName(a))).join(', ');
@@ -3219,13 +3321,16 @@ const clip = (s) => (s.length > 60 ? s.slice(0, 59) + '…' : s);
 
 // ── หน้า "เลือกคน" (home) — เมนูรายบุคคล + แถบทีม + ปุ่มส่งสรุป ──
 // callback: p:<key> = เปิดหน้าคน, p:home = กลับ, sum = ส่งสรุป, t:<page>:<r|a>:<ref> = ปิด/เปิดงาน
-function buildDutyHome(duty) {
-  if (duty.holiday) return { text: `📋 <b>งานตามหน้าที่</b> · ${duty.date}\n🚫 วันเสาร์ — วันหยุด`, keyboard: [] };
+function buildDutyHome(duty, auditOpen = 0) {
+  // ปุ่มใบตรวจโชว์ทุกวัน (รวมเสาร์) — ประเด็นค้างไม่หยุดตามวันหยุด
+  const auditRow = [{ text: `🧾 ใบตรวจ${auditOpen > 0 ? ` (ค้าง ${auditOpen})` : ' ✅'}`, callback_data: 'p:audithome' }];
+  if (duty.holiday) return { text: `📋 <b>งานตามหน้าที่</b> · ${duty.date}\n🚫 วันเสาร์ — วันหยุด`, keyboard: [auditRow] };
   const rows = duty.people.map(p => {
     const done = p.total > 0 && p.done >= p.total;
     return [{ text: clip(`👤 ${p.name}　${p.done}/${p.total}${done ? ' ✅' : ''}`), callback_data: `p:${p.key}` }];
   });
   rows.push([{ text: '✈ ส่งสรุปเข้ากลุ่ม', callback_data: 'sum' }]);
+  rows.push(auditRow);
   const text =
     `📋 <b>งานตามหน้าที่วันนี้</b> · ${duty.date}\n` +
     `${progressBar(duty.team.pct)} <b>${duty.team.pct}%</b> · คงค้าง ${duty.team.left} งาน\n\n` +
@@ -3246,16 +3351,32 @@ function buildDutyPerson(duty, pkey) {
   }
   for (const r of p.received) push(`${r.checked ? '✅' : '☐'} ${r.title} ⟵${r.fromName}`, `t:${pkey}:r:${r.ownerKey}:${r.nodeKey}`);
   // งานมอบหมาย: แถวละ 2 ปุ่ม — ปิด/เปิดงาน + 📸 แนบรูปหลังทำ
+  const isAudit = p.kind === 'audit';
   for (const t of p.adhoc) rows.push([
-    { text: clip(`${t.status === 'done' ? '✅' : '☐'} ${t.priority === 'urgent' ? '🔴 ' : ''}${t.title}`), callback_data: `t:${pkey}:a:${t.id}` },
+    { text: clip(`${t.status === 'done' ? '✅' : '☐'} ${t.priority === 'urgent' ? '🔴 ' : ''}${t.title}${isAudit && t.location ? ` · ${t.location}` : ''}`), callback_data: `t:${pkey}:a:${t.id}` },
     { text: '📸', callback_data: `t:${pkey}:img:${t.id}` },
   ]);
-  rows.push([{ text: '⬅️ กลับ', callback_data: 'p:home' }, { text: '🔄 รีเฟรช', callback_data: `p:${pkey}` }]);
+  rows.push([{ text: '⬅️ กลับ', callback_data: isAudit ? 'p:audithome' : 'p:home' }, { text: '🔄 รีเฟรช', callback_data: `p:${pkey}` }]);
 
   let text = `👤 <b>คุณ ${p.name}</b> · ${p.role}\n${progressBar(p.pct)} <b>${p.pct}%</b> · เสร็จ ${p.done}/${p.total}`;
   const byp = p.nodes.filter(n => n.bypassed);
   for (const n of byp) text += n.handoffTo ? `\n🔁 มอบ ${n.handoffToName}: ${n.title}` : `\n⤼ ข้าม: ${n.title} (${n.bypassReason || ''})`;
-  if (rows.length === 1) text += `\n\n— ไม่มีงานประจำ/มอบหมายวันนี้ —`;
+  if (rows.length === 1) text += isAudit ? `\n\n— ไม่มีประเด็นค้าง 🎉 —` : `\n\n— ไม่มีงานประจำ/มอบหมายวันนี้ —`;
+  return { text, keyboard: rows };
+}
+
+// ── หน้าแรกของบอร์ดใบตรวจในบอท — รายชื่อผู้รับผิดชอบที่มีประเด็นค้าง ────────
+function buildAuditHome(duty) {
+  const withWork = duty.people.filter(p => p.total > 0);
+  const rows = withWork.map(p => {
+    const left = p.total - p.done;
+    return [{ text: clip(`${p.dot || '👤'} ${p.name}　${left > 0 ? `ค้าง ${left}` : 'ครบ ✅'}`), callback_data: `p:${p.key}` }];
+  });
+  rows.push([{ text: '⬅️ กลับ', callback_data: 'p:home' }, { text: '🔄 รีเฟรช', callback_data: 'p:audithome' }]);
+  const left = duty.team.total - duty.team.done;
+  const text = withWork.length
+    ? `🧾 <b>ใบตรวจ — ประเด็นค้าง</b>\n${progressBar(duty.team.pct)} <b>${duty.team.pct}%</b> · ค้าง ${left} ประเด็น\n\nแตะเลือกคนเพื่อปิดงาน + ส่งรูปหลังทำ 👇`
+    : `🧾 <b>ใบตรวจ</b>\n\n— ไม่มีประเด็นค้าง 🎉 —`;
   return { text, keyboard: rows };
 }
 
@@ -3277,8 +3398,12 @@ async function toggleRoutineDone(owner, nodeKey, date) {
 // GET keyboard (สำหรับทดสอบ) — ?person=<key> = หน้ารายบุคคล, ไม่ใส่ = หน้า home
 app.get('/api/duty/keyboard', async (req, res) => {
   try {
-    const duty = await buildDuty(req.query.date || workDayBKK());
-    res.json(req.query.person ? buildDutyPerson(duty, req.query.person) : buildDutyHome(duty));
+    const date = req.query.date || workDayBKK(), person = req.query.person;
+    // บอร์ดใบตรวจ (คน kind='audit') แยกจากบอร์ดกะ — ค้างสะสมข้ามวัน
+    if (person === 'audithome') return res.json(buildAuditHome(await buildDuty(date, { audit: true })));
+    if (person && isAuditKey(person)) return res.json(buildDutyPerson(await buildDuty(date, { audit: true }), person));
+    const duty = await buildDuty(date);
+    res.json(person ? buildDutyPerson(duty, person) : buildDutyHome(duty, await countAuditOpen()));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -3358,11 +3483,15 @@ app.post('/api/telegram/duty-update', (req, res) => {
             note = 'ปิดงานแล้ว ✅';
           } else if (kind === 'a') { await toggleAdhocDone(Number(parts[3])); note = 'อัปเดตแล้ว ✅'; }
           else if (kind === 'r') { await toggleRoutineDone(parts[3], parts.slice(4).join(':'), date); note = 'อัปเดตแล้ว ✅'; }
-          kb = buildDutyPerson(await buildDuty(date), page);
-        } else if (data.startsWith('p:')) {              // นำทาง: home / หน้าคน
+          kb = buildDutyPerson(await buildDuty(date, { audit: isAuditKey(page) }), page);
+        } else if (data.startsWith('p:')) {              // นำทาง: home / หน้าคน / บอร์ดใบตรวจ
           const target = data.slice(2);
-          const duty = await buildDuty(date);
-          kb = target === 'home' ? buildDutyHome(duty) : buildDutyPerson(duty, target);
+          if (target === 'audithome') kb = buildAuditHome(await buildDuty(date, { audit: true }));
+          else if (isAuditKey(target)) kb = buildDutyPerson(await buildDuty(date, { audit: true }), target);
+          else {
+            const duty = await buildDuty(date);
+            kb = target === 'home' ? buildDutyHome(duty, await countAuditOpen()) : buildDutyPerson(duty, target);
+          }
         }
         if (kb && cq.message) {
           await tgApi('editMessageText', {
@@ -3393,7 +3522,7 @@ app.post('/api/telegram/duty-update', (req, res) => {
       }
       const text = upd.message?.text || '';
       if (/ปิดงาน|งานค้าง|เช็[กค]งาน|เช็[กค]\s*งาน|หน้าที่/.test(text)) {
-        const kb = buildDutyHome(await buildDuty(date));
+        const kb = buildDutyHome(await buildDuty(date), await countAuditOpen());
         await tgApi('sendMessage', {
           chat_id: upd.message.chat.id, text: kb.text, parse_mode: 'HTML',
           reply_markup: { inline_keyboard: kb.keyboard },
