@@ -130,14 +130,9 @@ const parseHM = (s?: string): { h: number; hm: string } | null => {
   if (h > 23) return null;
   return { h, hm: `${String(h).padStart(2, '0')}:${m[2]}` };
 };
-// tabRequest: คำสั่งเปิดแท็บจากหน้าแม่ (ปุ่มลัดเมนูบน/หน้าแรก) — n เพิ่มขึ้น = คำสั่งใหม่
-// onAuditTabChange: บอกหน้าแม่ว่าตอนนี้อยู่แท็บใบตรวจไหม → ใช้ไฮไลต์ปุ่มเมนูให้ถูก
-interface Props {
-  operatorName: string | null; onBackToMain: () => void; onGoToProduction?: () => void;
-  tabRequest?: { tab: 'today' | 'audit'; n: number }; onAuditTabChange?: (onAudit: boolean) => void;
-}
+interface Props { operatorName: string | null; onBackToMain: () => void; onGoToProduction?: () => void; }
 
-const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProduction, tabRequest, onAuditTabChange }) => {
+const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProduction }) => {
   const [tab, setTab] = useState<'today' | 'audit' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs'>('today');
   const [date, setDate] = useState(currentWorkDay());
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -170,16 +165,6 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProducti
       setTemplates(await r.json());
     } catch { /* offline */ }
   }, []);
-
-  // ปุ่มลัดจากเมนูบน/หน้าแรก → เด้งไปแท็บที่สั่ง (ข้ามค่าเริ่มต้นตอน mount)
-  const tabReqSeen = useRef(tabRequest?.n);
-  useEffect(() => {
-    if (tabRequest && tabRequest.n !== tabReqSeen.current) {
-      tabReqSeen.current = tabRequest.n;
-      setTab(tabRequest.tab);
-    }
-  }, [tabRequest]);
-  useEffect(() => { onAuditTabChange?.(tab === 'audit'); }, [tab, onAuditTabChange]);
 
   useEffect(() => { if (tab === 'timeline') loadTimeline(); }, [tab, loadTimeline]);
   useEffect(() => { if (tab === 'recurring') { loadTemplates(); loadTasks(); } }, [tab, loadTemplates, loadTasks]);
