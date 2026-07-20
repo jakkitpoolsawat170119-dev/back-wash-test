@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import styles from '../App.module.css';
+import { FLAVORS, getFlavorColor } from '../data/flavors';
 
 interface ProductionRecordProps {
   operatorName: string;
@@ -77,41 +78,6 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     onStatusChange(anyProcessing);
   }, [lines, onStatusChange]);
 
-  const flavorList = [
-    "Amazon", "FDS", "Golden", "Freshy Lychee", "Freshy Strawberry",
-    "Senorita Coconut", "Senorita Caramel", "Freshy Blue Hawaii", "Freshy Lime",
-     "Freshy Green Apple", "Freshy Sala", "Senorita Yuzu",
-    "MLH 02", "Freshy Pineapple", "Operator Name", "Freshy Grape",
-    "Freshy Punch", "Freshy blue Lemon", "Senorita Fres Mint",
-    "Freshy Orange", "Signature Rose", "Freshy Shine Muscat Grape"
-  ];
-
-  const flavorColors: Record<string, { bg: string; border: string }> = {
-    "Amazon":            { bg: '#efebe9', border: '#795548' },
-    "FDS":               { bg: '#eceff1', border: '#607d8b' },
-    "Golden":            { bg: '#fff8e1', border: '#ffc107' },
-    "Freshy Lychee":     { bg: '#fce4ec', border: '#e91e63' },
-    "Freshy Strawberry": { bg: '#ffebee', border: '#f44336' },
-    "Senorita Coconut":  { bg: '#fafafa', border: '#bdbdbd' },
-    "Senorita Caramel":  { bg: '#efebe9', border: '#a1887f' },
-    "Freshy Blue Hawaii":{ bg: '#e1f5fe', border: '#03a9f4' },
-    "Freshy Lime":       { bg: '#f9fbe7', border: '#8bc34a' },
-    "CIP":               { bg: '#f5f5f5', border: '#9e9e9e' },
-    "ว่าง":              { bg: '#eeeeee', border: '#bdbdbd' },
-    "Freshy Green Apple":{ bg: '#e8f5e9', border: '#43a047' },
-    "Freshy Sala":       { bg: '#fce4ec', border: '#e91e63' },
-    "Senorita Yuzu":     { bg: '#fffde7', border: '#f9a825' },
-    "MLH 02":            { bg: '#e0f2f1', border: '#009688' },
-    "Freshy Pineapple":  { bg: '#fff9c4', border: '#f9a825' },
-    "Operator Name":     { bg: '#f3f3f3', border: '#9e9e9e' },
-    "Freshy Grape":      { bg: '#f3e5f5', border: '#9c27b0' },
-    "Freshy Punch":      { bg: '#fce4ec', border: '#ff4081' },
-    "Freshy blue Lemon": { bg: '#e3f2fd', border: '#42a5f5' },
-    "Senorita Fres Mint":{ bg: '#e0f7fa', border: '#00bcd4' },
-    "Freshy Orange":          { bg: '#fff3e0', border: '#ff9800' },
-    "Signature Rose":         { bg: '#fce4ec', border: '#f06292' },
-    "Freshy Shine Muscat Grape": { bg: '#f0fce4', border: '#76b82a' },
-  };
 
   const getNextBatch = (currentBatch: string) => {
     const index = batchOptions.indexOf(currentBatch);
@@ -193,7 +159,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
           const line = lines[lineId];
           const lastBatch = line.history.length > 0 ? line.history[line.history.length - 1].batch : line.shiftBatch;
           const nextExpectedBatch = getNextBatch(lastBatch);
-          const flavorTheme = line.isProcessing && line.flavor ? flavorColors[line.flavor] : null;
+          const flavorTheme = line.isProcessing && line.flavor ? getFlavorColor(line.flavor) : null;
           return (
             <div key={lineId} className={styles.stepCard} style={{ borderColor: flavorTheme ? flavorTheme.border : '#4caf50', borderWidth: flavorTheme ? '3px' : undefined, background: flavorTheme ? flavorTheme.bg : (line.showInputs ? '#ffffff' : '#f1f8e9'), padding: '20px', transition: 'background 0.5s ease, border-color 0.5s ease' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
@@ -206,7 +172,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
                     <label className={styles.formLabel}>รสชาติ/แบรนด์ (Flavor)</label>
                     <select className={styles.formInput} value={line.flavor} onChange={(e) => setLines(prev => ({ ...prev, [lineId]: { ...prev[lineId], flavor: e.target.value } }))} disabled={line.isProcessing}>
                       <option value="">-- เลือกกลิ่น --</option>
-                      {flavorList.map(f => <option key={f} value={f}>{f}</option>)}
+                      {FLAVORS.map(f => <option key={f.name} value={f.name}>{f.name}</option>)}
                     </select>
                   </div>
                   <div className={styles.formGroup} style={{ marginBottom: '10px' }}>
