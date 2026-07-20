@@ -2068,9 +2068,9 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
             <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a' }}>ประเภทงาน</div>
             {onGoToAudit && (
-              <button onClick={onGoToAudit} title="เปิดฟอร์มใบตรวจ — แบ่งงานตามพื้นที่รับผิดชอบอัตโนมัติ"
+              <button onClick={onGoToAudit} title="เปิดใบตรวจ — แบ่งงานตามพื้นที่รับผิดชอบอัตโนมัติ / ติดตามผล / แก้กฎ"
                 style={{ border: '1px solid #b2ebf2', background: '#e0f7fa', color: '#00838f', borderRadius: 20, padding: '5px 12px', fontSize: '0.74rem', fontWeight: 800, cursor: 'pointer' }}>
-                🧾 พื้นที่รับผิดชอบ →
+                🧾 ใบตรวจ →
               </button>
             )}
           </div>
