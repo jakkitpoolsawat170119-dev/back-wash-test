@@ -188,7 +188,7 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProducti
       {/* tabs */}
       <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', marginBottom: '14px' }}>
         {([
-          ['today', '✅ งานวันนี้'], ['audit', '🧾 ใบตรวจ'], ['recurring', '🔁 งานประจำ'], ['timeline', '🕐 ไทม์ไลน์'], ['calendar', '📊 สรุป & KPI'], ['report', '📤 ส่งรายงาน'], ['ai', '🤖 ผู้ช่วย AI'], ['specs', '🧪 สเปกคุณภาพ'],
+          ['today', '✅ งานวันนี้'], ['recurring', '🔁 งานประจำ'], ['timeline', '🕐 ไทม์ไลน์'], ['calendar', '📊 สรุป & KPI'], ['report', '📤 ส่งรายงาน'], ['ai', '🤖 ผู้ช่วย AI'], ['specs', '🧪 สเปกคุณภาพ'],
         ] as [typeof tab, string][]).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)} style={{
             flex: '0 0 auto', padding: '7px 13px', borderRadius: '20px', border: '2px solid',
@@ -201,8 +201,19 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProducti
       {/* ── TAB: duty (หน้าที่รับผิดชอบ) ───────────────────────── */}
       {tab === 'today' && <DutyBoard date={date} operatorName={operatorName} card={card} onGoToAudit={() => setTab('audit')} />}
 
-      {/* ── TAB: ใบตรวจ (แบ่งงาน / ติดตามผล / กฎ) ───────────────── */}
-      {tab === 'audit' && <AuditBoard operatorName={operatorName} onBackToMain={onBackToMain} embedded />}
+      {/* ── ใบตรวจ — ไม่มีแท็บของตัวเอง เข้าทางปุ่ม "พื้นที่รับผิดชอบ" ในงานวันนี้ ── */}
+      {tab === 'audit' && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+            <button onClick={() => setTab('today')} style={{
+              border: '1px solid #e0e0e0', background: '#fff', borderRadius: '10px',
+              padding: '6px 12px', fontSize: '0.8rem', fontWeight: 700, color: '#666', cursor: 'pointer',
+            }}>← งานวันนี้</button>
+            <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#37474f' }}>🧾 ใบตรวจ</span>
+          </div>
+          <AuditBoard operatorName={operatorName} onBackToMain={onBackToMain} embedded />
+        </>
+      )}
 
       {/* ── TAB: calendar ─────────────────────────────────────── */}
       {tab === 'calendar' && (
