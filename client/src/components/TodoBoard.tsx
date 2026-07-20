@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { currentWorkDay, shiftInfo, shiftsForWeekday, weekdayOf, nextShiftName } from '../shiftSchedule';
 import { supabase } from '../lib/supabase';
+import AuditBoard from './AuditBoard';
 
 // ใช้ Render เป็นค่าเริ่มต้น; override ด้วย VITE_API_BASE เวลาทดสอบ local
 const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
@@ -129,10 +130,15 @@ const parseHM = (s?: string): { h: number; hm: string } | null => {
   if (h > 23) return null;
   return { h, hm: `${String(h).padStart(2, '0')}:${m[2]}` };
 };
-interface Props { operatorName: string | null; onBackToMain: () => void; onGoToProduction?: () => void; onGoToAudit?: () => void; }
+// tabRequest: คำสั่งเปิดแท็บจากหน้าแม่ (ปุ่มลัดเมนูบน/หน้าแรก) — n เพิ่มขึ้น = คำสั่งใหม่
+// onAuditTabChange: บอกหน้าแม่ว่าตอนนี้อยู่แท็บใบตรวจไหม → ใช้ไฮไลต์ปุ่มเมนูให้ถูก
+interface Props {
+  operatorName: string | null; onBackToMain: () => void; onGoToProduction?: () => void;
+  tabRequest?: { tab: 'today' | 'audit'; n: number }; onAuditTabChange?: (onAudit: boolean) => void;
+}
 
-const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProduction, onGoToAudit }) => {
-  const [tab, setTab] = useState<'today' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs'>('today');
+const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProduction, tabRequest, onAuditTabChange }) => {
+  const [tab, setTab] = useState<'today' | 'audit' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs'>('today');
   const [date, setDate] = useState(currentWorkDay());
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
@@ -165,6 +171,16 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProducti
     } catch { /* offline */ }
   }, []);
 
+  // ปุ่มลัดจากเมนูบน/หน้าแรก → เด้งไปแท็บที่สั่ง (ข้ามค่าเริ่มต้นตอน mount)
+  const tabReqSeen = useRef(tabRequest?.n);
+  useEffect(() => {
+    if (tabRequest && tabRequest.n !== tabReqSeen.current) {
+      tabReqSeen.current = tabRequest.n;
+      setTab(tabRequest.tab);
+    }
+  }, [tabRequest]);
+  useEffect(() => { onAuditTabChange?.(tab === 'audit'); }, [tab, onAuditTabChange]);
+
   useEffect(() => { if (tab === 'timeline') loadTimeline(); }, [tab, loadTimeline]);
   useEffect(() => { if (tab === 'recurring') { loadTemplates(); loadTasks(); } }, [tab, loadTemplates, loadTasks]);
 
@@ -187,7 +203,7 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProducti
       {/* tabs */}
       <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', marginBottom: '14px' }}>
         {([
-          ['today', '✅ งานวันนี้'], ['recurring', '🔁 งานประจำ'], ['timeline', '🕐 ไทม์ไลน์'], ['calendar', '📊 สรุป & KPI'], ['report', '📤 ส่งรายงาน'], ['ai', '🤖 ผู้ช่วย AI'], ['specs', '🧪 สเปกคุณภาพ'],
+          ['today', '✅ งานวันนี้'], ['audit', '🧾 ใบตรวจ'], ['recurring', '🔁 งานประจำ'], ['timeline', '🕐 ไทม์ไลน์'], ['calendar', '📊 สรุป & KPI'], ['report', '📤 ส่งรายงาน'], ['ai', '🤖 ผู้ช่วย AI'], ['specs', '🧪 สเปกคุณภาพ'],
         ] as [typeof tab, string][]).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)} style={{
             flex: '0 0 auto', padding: '7px 13px', borderRadius: '20px', border: '2px solid',
@@ -198,7 +214,10 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProducti
       </div>
 
       {/* ── TAB: duty (หน้าที่รับผิดชอบ) ───────────────────────── */}
-      {tab === 'today' && <DutyBoard date={date} operatorName={operatorName} card={card} onGoToAudit={onGoToAudit} />}
+      {tab === 'today' && <DutyBoard date={date} operatorName={operatorName} card={card} onGoToAudit={() => setTab('audit')} />}
+
+      {/* ── TAB: ใบตรวจ (แบ่งงาน / ติดตามผล / กฎ) ───────────────── */}
+      {tab === 'audit' && <AuditBoard operatorName={operatorName} onBackToMain={onBackToMain} embedded />}
 
       {/* ── TAB: calendar ─────────────────────────────────────── */}
       {tab === 'calendar' && (

@@ -7,7 +7,6 @@ import CipLine1Form from './components/CipLine1Form';
 import ProductionRecord from './components/ProductionRecord';
 import Line4Manual from './components/Line4Manual';
 import TodoBoard from './components/TodoBoard';
-import AuditBoard from './components/AuditBoard';
 import StickerGuideChat from './components/StickerGuideChat';
 import StickerGuideAdmin from './components/StickerGuideAdmin';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -15,7 +14,10 @@ import styles from './App.module.css';
 
 const App: React.FC = () => {
   const [operator, setOperator] = useState<string | null>(null);
-  const [appMode, setAppMode] = useState<'selection' | 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'line4manual' | 'todo' | 'audit' | 'stickerGuideChat' | 'stickerGuideAdmin'>('selection');
+  const [appMode, setAppMode] = useState<'selection' | 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'line4manual' | 'todo' | 'stickerGuideChat' | 'stickerGuideAdmin'>('selection');
+  // ใบตรวจย้ายไปเป็นแท็บในหน้า To-do — ปุ่มลัดสั่งเปิดแท็บผ่าน request นี้ (n เพิ่ม = คำสั่งใหม่)
+  const [todoReq, setTodoReq] = useState<{ tab: 'today' | 'audit'; n: number }>({ tab: 'today', n: 0 });
+  const [todoOnAudit, setTodoOnAudit] = useState(false);
   const [isFlipping, setIsFlipping] = useState(false);
   const [isCipLine2Active, setIsCipLine2Active] = useState(false);
   const [isCipLine3Active, setIsCipLine3Active] = useState(false);
@@ -57,13 +59,17 @@ const App: React.FC = () => {
     }
   };
 
-  const switchMode = (targetMode: 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'selection' | 'line4manual' | 'todo' | 'audit' | 'stickerGuideChat' | 'stickerGuideAdmin') => {
+  const switchMode = (targetMode: 'cip' | 'cipLine2' | 'cipLine3' | 'cipLine1' | 'production' | 'selection' | 'line4manual' | 'todo' | 'stickerGuideChat' | 'stickerGuideAdmin') => {
     setIsFlipping(true);
     setTimeout(() => {
       setAppMode(targetMode);
       setTimeout(() => setIsFlipping(false), 300);
     }, 300);
   };
+  // ปุ่มลัด To-do / ใบตรวจ → เข้าหน้า To-do แล้วสั่งเปิดแท็บที่ต้องการ
+  // (ต้องสั่งแท็บด้วย เพราะถ้าอยู่หน้า To-do อยู่แล้ว switchMode เฉยๆ จะไม่เปลี่ยนอะไร)
+  const goToTodoTab = (tab: 'today' | 'audit') => { switchMode('todo'); setTodoReq(r => ({ tab, n: r.n + 1 })); };
+  const goToAudit = () => goToTodoTab('audit');
 
   const handleCipLine2Status = useCallback((active: boolean) => setIsCipLine2Active(active), []);
   const handleCipLine3Status = useCallback((active: boolean) => setIsCipLine3Active(active), []);
@@ -214,25 +220,30 @@ const App: React.FC = () => {
               { mode: 'cip',      icon: '⚗️', label: 'CIP ทดลอง', color: '#546e7a' },
               { mode: 'production', icon: '🏭', label: 'ผลิต', color: '#1b5e20' },
               { mode: 'todo', icon: '✅', label: 'To-do', color: '#ff6b00' },
-              { mode: 'audit', icon: '🧾', label: 'ใบตรวจ', color: '#00838f' },
+              // ใบตรวจ = แท็บในหน้า To-do → ปุ่มนี้พาไปหน้า To-do แล้วเปิดแท็บนั้นให้
+              { mode: 'todo', icon: '🧾', label: 'ใบตรวจ', color: '#00838f', audit: true },
               { mode: 'line4manual', icon: '📋', label: 'Line 4', color: '#4a7c59' },
               { mode: 'stickerGuideChat', icon: '💬', label: 'วิธีติดสติ๊กเกอร์', color: '#ff8c00' },
               { mode: 'stickerGuideAdmin', icon: '🛠️', label: 'จัดการคู่มือ', color: '#e65100' },
-            ] as { mode: 'selection'|'cip'|'cipLine2'|'cipLine3'|'cipLine1'|'production'|'line4manual'|'todo'|'audit'|'stickerGuideChat'|'stickerGuideAdmin'; icon: string; label: string; color: string }[]).map(({ mode, icon, label, color }) => (
+            ] as { mode: 'selection'|'cip'|'cipLine2'|'cipLine3'|'cipLine1'|'production'|'line4manual'|'todo'|'stickerGuideChat'|'stickerGuideAdmin'; icon: string; label: string; color: string; audit?: boolean }[]).map(({ mode, icon, label, color, audit }) => {
+              // To-do กับ ใบตรวจ ใช้ mode เดียวกัน — แยกไฮไลต์ด้วยว่าอยู่แท็บใบตรวจไหม
+              const active = appMode === mode && (mode !== 'todo' || !!audit === todoOnAudit);
+              return (
               <button
-                key={mode}
-                onClick={() => switchMode(mode)}
+                key={`${mode}${audit ? '-audit' : ''}`}
+                onClick={() => (mode === 'todo' ? goToTodoTab(audit ? 'audit' : 'today') : switchMode(mode))}
                 style={{
                   flex: '0 0 auto', padding: '7px 13px', borderRadius: '20px', border: '2px solid',
-                  borderColor: appMode === mode ? color : '#e0e0e0',
-                  background: appMode === mode ? color : '#f5f5f5',
-                  color: appMode === mode ? 'white' : '#666',
+                  borderColor: active ? color : '#e0e0e0',
+                  background: active ? color : '#f5f5f5',
+                  color: active ? 'white' : '#666',
                   fontWeight: 'bold', fontSize: '0.75rem', cursor: 'pointer', whiteSpace: 'nowrap',
                 }}
               >
                 {icon} {label}
               </button>
-            ))}
+              );
+            })}
             </div>
           </div>
         )}
@@ -384,7 +395,7 @@ const App: React.FC = () => {
                   />
                   <div style={{ marginTop: '8px' }}>
                     <SoftCard
-                      onClick={() => switchMode('audit')}
+                      onClick={goToAudit}
                       bg="#e0f7fa" iconBg="#c5eef2"
                       icon={<span style={{ fontSize: '1.5rem' }}>📋</span>}
                       title="ใบตรวจ — แบ่งงาน"
@@ -435,11 +446,7 @@ const App: React.FC = () => {
           </div>
 
           <div style={{ display: appMode === 'todo' ? 'block' : 'none' }}>
-            <ErrorBoundary label="todo"><TodoBoard operatorName={operator} onBackToMain={() => switchMode('selection')} onGoToProduction={() => switchMode('production')} onGoToAudit={() => switchMode('audit')} /></ErrorBoundary>
-          </div>
-
-          <div style={{ display: appMode === 'audit' ? 'block' : 'none' }}>
-            <ErrorBoundary label="audit"><AuditBoard operatorName={operator} onBackToMain={() => switchMode('selection')} /></ErrorBoundary>
+            <ErrorBoundary label="todo"><TodoBoard operatorName={operator} onBackToMain={() => switchMode('selection')} onGoToProduction={() => switchMode('production')} tabRequest={todoReq} onAuditTabChange={setTodoOnAudit} /></ErrorBoundary>
           </div>
 
           <div style={{ display: appMode === 'stickerGuideChat' ? 'block' : 'none' }}>

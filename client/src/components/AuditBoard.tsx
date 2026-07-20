@@ -68,9 +68,10 @@ const blankRow = (): Row => ({
   category: 'cleaning', assignees: [], source: null, confidence: 0, lowConfidence: false, matchedRule: null,
 });
 
-interface Props { operatorName: string | null; onBackToMain: () => void; }
+// embedded = ฝังเป็นแท็บในหน้าอื่น (To-do) → ไม่ต้องมีหัวข้อ/ปุ่มกลับของตัวเอง
+interface Props { operatorName: string | null; onBackToMain: () => void; embedded?: boolean; }
 
-const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
+const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain, embedded }) => {
   const [tab, setTab] = useState<'form' | 'track' | 'rules'>('form');
   const [date, setDate] = useState(todayBKK());
   const [rows, setRows] = useState<Row[]>([blankRow(), blankRow(), blankRow()]);
@@ -184,7 +185,9 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
   const card: React.CSSProperties = { background: '#fff', borderRadius: 14, border: '1px solid #eceff1', padding: 12, marginBottom: 12, boxShadow: '0 1px 2px rgba(38,50,56,.05), 0 6px 18px -8px rgba(38,50,56,.12)' };
 
   return (
-    <div style={{ maxWidth: 640, margin: '0 auto', padding: '12px 12px 80px', fontFamily: 'Inter, sans-serif' }}>
+    <div style={embedded
+      ? { fontFamily: 'Inter, sans-serif' }  // หน้าแม่ (To-do) คุม layout/padding ให้แล้ว
+      : { maxWidth: 640, margin: '0 auto', padding: '12px 12px 80px', fontFamily: 'Inter, sans-serif' }}>
       {/* hover/focus states (guardrail: animate transform เท่านั้น) */}
       <style>{`
         .ab-btn{transition:transform .12s ease, box-shadow .12s ease;}
@@ -195,11 +198,13 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain }) => {
         .ab-chip:hover{transform:translateY(-1px);}
       `}</style>
 
-      {/* header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-        <button className="ab-btn" onClick={onBackToMain} style={{ border: '1px solid #eee', background: '#fff', borderRadius: 10, padding: '6px 10px', cursor: 'pointer' }}>← กลับ</button>
-        <h2 style={{ margin: 0, fontSize: '1.1rem', color: '#37474f', flex: 1 }}>📋 ใบตรวจ</h2>
-      </div>
+      {/* header — ซ่อนตอนฝังเป็นแท็บ (หน้าแม่มีหัวข้อ/ปุ่มกลับอยู่แล้ว) */}
+      {!embedded && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+          <button className="ab-btn" onClick={onBackToMain} style={{ border: '1px solid #eee', background: '#fff', borderRadius: 10, padding: '6px 10px', cursor: 'pointer' }}>← กลับ</button>
+          <h2 style={{ margin: 0, fontSize: '1.1rem', color: '#37474f', flex: 1 }}>📋 ใบตรวจ</h2>
+        </div>
+      )}
 
       {/* แท็บ: กรอก / ติดตามผล / กฎ */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, background: '#eceff1', borderRadius: 12, padding: 4 }}>
