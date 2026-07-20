@@ -3323,7 +3323,7 @@ const clip = (s) => (s.length > 60 ? s.slice(0, 59) + '…' : s);
 // callback: p:<key> = เปิดหน้าคน, p:home = กลับ, sum = ส่งสรุป, t:<page>:<r|a>:<ref> = ปิด/เปิดงาน
 function buildDutyHome(duty, auditOpen = 0) {
   // ปุ่มใบตรวจโชว์ทุกวัน (รวมเสาร์) — ประเด็นค้างไม่หยุดตามวันหยุด
-  const auditRow = [{ text: `🧾 ใบตรวจ${auditOpen > 0 ? ` (ค้าง ${auditOpen})` : ' ✅'}`, callback_data: 'p:audithome' }];
+  const auditRow = [{ text: `🧾 พื้นที่รับผิดชอบ${auditOpen > 0 ? ` (ค้าง ${auditOpen})` : ' ✅'}`, callback_data: 'p:audithome' }];
   if (duty.holiday) return { text: `📋 <b>งานตามหน้าที่</b> · ${duty.date}\n🚫 วันเสาร์ — วันหยุด`, keyboard: [auditRow] };
   const rows = duty.people.map(p => {
     const done = p.total > 0 && p.done >= p.total;
@@ -3375,8 +3375,8 @@ function buildAuditHome(duty) {
   rows.push([{ text: '⬅️ กลับ', callback_data: 'p:home' }, { text: '🔄 รีเฟรช', callback_data: 'p:audithome' }]);
   const left = duty.team.total - duty.team.done;
   const text = withWork.length
-    ? `🧾 <b>ใบตรวจ — ประเด็นค้าง</b>\n${progressBar(duty.team.pct)} <b>${duty.team.pct}%</b> · ค้าง ${left} ประเด็น\n\nแตะเลือกคนเพื่อปิดงาน + ส่งรูปหลังทำ 👇`
-    : `🧾 <b>ใบตรวจ</b>\n\n— ไม่มีประเด็นค้าง 🎉 —`;
+    ? `🧾 <b>พื้นที่รับผิดชอบ — ประเด็นค้าง</b>\n${progressBar(duty.team.pct)} <b>${duty.team.pct}%</b> · ค้าง ${left} ประเด็น\n\nแตะเลือกคนเพื่อปิดงาน + ส่งรูปหลังทำ 👇`
+    : `🧾 <b>พื้นที่รับผิดชอบ</b>\n\n— ไม่มีประเด็นค้าง 🎉 —`;
   return { text, keyboard: rows };
 }
 

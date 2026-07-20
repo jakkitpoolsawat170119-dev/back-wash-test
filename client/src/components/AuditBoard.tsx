@@ -202,13 +202,13 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain, embedded }) =
       {!embedded && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
           <button className="ab-btn" onClick={onBackToMain} style={{ border: '1px solid #eee', background: '#fff', borderRadius: 10, padding: '6px 10px', cursor: 'pointer' }}>← กลับ</button>
-          <h2 style={{ margin: 0, fontSize: '1.1rem', color: '#37474f', flex: 1 }}>📋 ใบตรวจ</h2>
+          <h2 style={{ margin: 0, fontSize: '1.1rem', color: '#37474f', flex: 1 }}>📋 พื้นที่รับผิดชอบ</h2>
         </div>
       )}
 
       {/* แท็บ: กรอก / ติดตามผล / กฎ */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, background: '#eceff1', borderRadius: 12, padding: 4 }}>
-        {([['form', '📝 กรอกใบตรวจ'], ['track', '📊 ติดตามผล'], ['rules', '⚙️ กฎแบ่งงาน']] as const).map(([k, label]) => (
+        {([['form', '📝 กรอกประเด็น'], ['track', '📊 ติดตามผล'], ['rules', '⚙️ กฎแบ่งงาน']] as const).map(([k, label]) => (
           <button key={k} className="ab-btn" onClick={() => setTab(k)}
             style={{ flex: 1, border: 'none', background: tab === k ? '#fff' : 'transparent', color: tab === k ? '#e65100' : '#607d8b', borderRadius: 9, padding: '9px 4px', fontSize: '0.78rem', fontWeight: 800, cursor: 'pointer', boxShadow: tab === k ? '0 2px 6px -2px rgba(38,50,56,.25)' : 'none' }}>
             {label}

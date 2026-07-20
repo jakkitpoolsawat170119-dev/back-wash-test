@@ -209,7 +209,7 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProducti
               border: '1px solid #e0e0e0', background: '#fff', borderRadius: '10px',
               padding: '6px 12px', fontSize: '0.8rem', fontWeight: 700, color: '#666', cursor: 'pointer',
             }}>← งานวันนี้</button>
-            <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#37474f' }}>🧾 ใบตรวจ</span>
+            <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#37474f' }}>🧾 พื้นที่รับผิดชอบ</span>
           </div>
           <AuditBoard operatorName={operatorName} onBackToMain={onBackToMain} embedded />
         </>
@@ -2068,9 +2068,9 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
             <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a' }}>ประเภทงาน</div>
             {onGoToAudit && (
-              <button onClick={onGoToAudit} title="เปิดใบตรวจ — แบ่งงานตามพื้นที่รับผิดชอบอัตโนมัติ / ติดตามผล / แก้กฎ"
+              <button onClick={onGoToAudit} title="เปิดพื้นที่รับผิดชอบ — แบ่งงานอัตโนมัติ / ติดตามผล / แก้กฎ"
                 style={{ border: '1px solid #b2ebf2', background: '#e0f7fa', color: '#00838f', borderRadius: 20, padding: '5px 12px', fontSize: '0.74rem', fontWeight: 800, cursor: 'pointer' }}>
-                🧾 ใบตรวจ →
+                🧾 พื้นที่รับผิดชอบ →
               </button>
             )}
           </div>
