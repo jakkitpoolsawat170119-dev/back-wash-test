@@ -1715,6 +1715,30 @@ app.post('/api/tasks/update', (req, res) => {
     });
 });
 
+// ย้ายงานมอบหมายไปให้อีกคน (ลากการ์ดในบอร์ดหน้าที่)
+// ต้องอัปเดตทั้ง assignee และ line_name เพราะงานมอบหมายเก็บ line_name = คนรับ
+// (UNIQUE(task_date, line_name, category, title) คือตัวที่ทำให้งานชื่อเดียวกันมอบหลายคนได้)
+app.post('/api/tasks/reassign', async (req, res) => {
+  const { id, assignTo, operator } = req.body;
+  if (!id || !assignTo) return res.status(400).json({ error: 'id/assignTo จำเป็น' });
+  try {
+    const row = (await dbAll('SELECT task_date, category, title, assignee, priority FROM daily_tasks WHERE id = ?', [id]))[0];
+    if (!row) return res.status(404).json({ error: 'ไม่พบงานนี้' });
+    if (row.assignee === assignTo) return res.json({ success: true, unchanged: true });
+    // กันชนกับงานชื่อเดียวกันที่ปลายทางมีอยู่แล้ว — ไม่กันจะติด UNIQUE แล้ว error ดิบๆ
+    const dup = (await dbAll('SELECT id FROM daily_tasks WHERE task_date = ? AND line_name = ? AND category = ? AND title = ?',
+      [row.task_date, assignTo, row.category, row.title]))[0];
+    if (dup) return res.status(409).json({ error: 'duplicate', message: `${dutyName(assignTo)} มีงาน "${row.title}" อยู่แล้ว` });
+    await db.exec('UPDATE daily_tasks SET assignee = ?, line_name = ? WHERE id = ?', [assignTo, assignTo, id]);
+    res.json({ success: true, from: row.assignee, to: assignTo });
+    if (process.env.TELEGRAM_CHAT_ID) {
+      sendToTelegram(`🔁 <b>ย้ายงาน</b>\n${catIcon(row.category)} ${escapeHtml(row.title)}${row.priority === 'urgent' ? '  🔴 <b>ด่วน</b>' : ''}\n\n`
+        + `👤 ${escapeHtml(dutyName(row.assignee))} → <b>${escapeHtml(dutyName(assignTo))}</b>\n`
+        + `🗓 ${thaiDate(row.task_date)}\n✍️ โดย ${escapeHtml(operator || 'จักรกฤษ')}`);
+    }
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/tasks/delete-one', (req, res) => {
   db.run('DELETE FROM daily_tasks WHERE id = ?', [req.body.id], (err) => {
     if (err) return res.status(500).json({ error: err.message });

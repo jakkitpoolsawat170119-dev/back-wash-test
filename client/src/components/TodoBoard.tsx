@@ -1894,6 +1894,88 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
       } catch { /* ดูรูปไม่ได้ก็ข้าม */ }
     };
 
+    // ── ลากงานมอบหมายข้ามการ์ด = เปลี่ยนคนทำ ────────────────────────
+    // ใช้ Pointer Events ตัวเดียวคุมทั้งเมาส์และนิ้ว:
+    //   เมาส์ = กดแล้วลากเกิน 6px เริ่มลากเลย · นิ้ว = ต้องแตะค้าง 380ms ก่อน
+    //   (ถ้าลากทันทีบนมือถือจะไปชนกับการเลื่อนหน้าจอ)
+    const [drag, setDrag] = useState<{ title: string; x: number; y: number; over: string | null; from: string } | null>(null);
+    const dragRef = useRef<{ task: AdhocTask; from: string; sx: number; sy: number; active: boolean; timer: number | null; over: string | null } | null>(null);
+
+    const reassign = async (t: AdhocTask, to: string) => {
+      try {
+        const r = await fetch(`${apiUrl}/api/tasks/reassign`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: t.id, assignTo: to, operator: operatorName }),
+        });
+        if (!r.ok) { const d = await r.json().catch(() => null); alert(d?.message || 'ย้ายงานไม่สำเร็จ'); return; }
+        await load();
+      } catch { alert('ย้ายงานไม่สำเร็จ — เช็คเน็ต'); }
+    };
+
+    const onTaskPointerDown = (e: React.PointerEvent, t: AdhocTask, from: string) => {
+      if (e.button > 0) return;                                            // เมาส์: เฉพาะปุ่มซ้าย
+      if ((e.target as HTMLElement).closest('input,button,label,select,a,img')) return; // ติ๊ก/ลบ/ดูรูป ต้องกดได้ปกติ
+      const touch = e.pointerType !== 'mouse';
+      dragRef.current = { task: t, from, sx: e.clientX, sy: e.clientY, active: false, timer: null, over: from };
+      if (touch) {
+        dragRef.current.timer = window.setTimeout(() => {
+          const d = dragRef.current; if (!d) return;
+          d.active = true;
+          setDrag({ title: t.title, x: d.sx, y: d.sy, over: from, from });
+          navigator.vibrate?.(30);                                          // บอกด้วยการสั่นว่าจับงานขึ้นมาแล้ว
+        }, 380);
+      }
+    };
+
+    // เก็บ reassign ล่าสุดไว้ใน ref เพื่อให้ effect ข้างล่างผูก listener ครั้งเดียว ([] deps)
+    // ไม่งั้นต้อง re-register ทุกเฟรมระหว่างลาก (setDrag ยิงทุก pointermove)
+    const reassignRef = useRef(reassign);
+    reassignRef.current = reassign;
+
+    useEffect(() => {
+      const start = (d: NonNullable<typeof dragRef.current>, x: number, y: number) => {
+        d.active = true;
+        setDrag({ title: d.task.title, x, y, over: d.from, from: d.from });
+      };
+      const move = (e: PointerEvent) => {
+        const d = dragRef.current; if (!d) return;
+        const far = Math.hypot(e.clientX - d.sx, e.clientY - d.sy);
+        if (!d.active) {
+          if (e.pointerType === 'mouse') { if (far > 6) start(d, e.clientX, e.clientY); }
+          else if (far > 10 && d.timer) { clearTimeout(d.timer); dragRef.current = null; } // นิ้วขยับก่อนครบเวลา = ตั้งใจเลื่อนจอ
+          return;
+        }
+        e.preventDefault();                                                 // กันหน้าจอเลื่อนตามนิ้วระหว่างลาก
+        const over = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)
+          ?.closest('[data-person-key]')?.getAttribute('data-person-key') || null;
+        d.over = over;
+        setDrag(prev => (prev ? { ...prev, x: e.clientX, y: e.clientY, over } : prev));
+      };
+      const end = () => {
+        const d = dragRef.current;
+        dragRef.current = null;
+        if (d?.timer) clearTimeout(d.timer);
+        setDrag(null);
+        if (d?.active && d.over && d.over !== d.from) reassignRef.current(d.task, d.over);
+      };
+      window.addEventListener('pointermove', move, { passive: false });
+      window.addEventListener('pointerup', end);
+      window.addEventListener('pointercancel', end);
+      return () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', end);
+        window.removeEventListener('pointercancel', end);
+      };
+    }, []);
+
+    // ระหว่างลาก ล็อก touch-action ทั้งหน้าไว้ ไม่ให้เบราว์เซอร์แย่ง gesture ไปเลื่อนจอ
+    useEffect(() => {
+      if (!drag) return;
+      const prev = document.body.style.touchAction;
+      document.body.style.touchAction = 'none';
+      return () => { document.body.style.touchAction = prev; };
+    }, [drag]);
+
     const toggleAdhoc = (t: AdhocTask) => post('/api/tasks/update', { id: t.id, status: t.status === 'done' ? 'pending' : 'done' });
     const delAdhoc = (id: number) => post('/api/tasks/delete-one', { id });
 
@@ -2005,7 +2087,15 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
 
         {/* person cards */}
         {duty.people.map(p => { const col = colOf(p); return (
-          <div key={p.key} style={{ ...card, padding: 0, overflow: 'hidden', borderTop: `3px solid ${col.c}` }}>
+          <div key={p.key} data-person-key={p.key}
+            style={{
+              ...card, padding: 0, overflow: 'hidden', borderTop: `3px solid ${col.c}`,
+              // ไฮไลต์การ์ดที่กำลังลากไปวาง (ไม่ไฮไลต์การ์ดต้นทาง)
+              ...(drag && drag.over === p.key && drag.from !== p.key
+                ? { outline: `2px dashed ${col.c}`, outlineOffset: 2, background: col.wash }
+                : {}),
+              ...(drag && drag.from === p.key ? { opacity: 0.75 } : {}),
+            }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 15px', background: col.wash }}>
               <div style={{ width: 38, height: 38, borderRadius: '50%', display: 'grid', placeItems: 'center', fontWeight: 800, color: '#fff', background: col.c }}>{col.initial}</div>
               <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 800 }}>คุณ {p.name}</div><div style={{ fontSize: '0.72rem', color: '#78828a' }}>{p.role}</div></div>
@@ -2079,7 +2169,9 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
               {p.adhoc.length > 0 && <div style={subLbl}>📌 งานมอบหมาย</div>}
               {p.adhoc.map(t => { const c = CAT[t.category] || CAT.manual; return (
                 <div key={t.id}>
-                  <div style={row}>
+                  {/* ลากแถวนี้ไปวางบนการ์ดคนอื่น = ย้ายงานให้คนนั้นทำ */}
+                  <div style={{ ...row, cursor: 'grab', touchAction: 'pan-y', userSelect: 'none' }}
+                    onPointerDown={e => onTaskPointerDown(e, t, p.key)} title="ลากไปวางที่การ์ดคนอื่นเพื่อย้ายงาน">
                     <input type="checkbox" checked={t.status === 'done'} onChange={() => toggleAdhoc(t)} style={cb(false)} />
                     <span style={{ flex: 1, minWidth: 0, fontSize: '0.88rem', fontWeight: 500, color: t.status === 'done' ? '#9aa0a6' : '#37474f', textDecoration: t.status === 'done' ? 'line-through' : 'none' }}>{c.icon} {t.title}{t.location ? <small style={{ color: '#9aa0a6' }}> · 📍{t.location}</small> : null}</span>
                     {t.priority === 'urgent' && <span style={{ ...badge, background: '#ffebee', color: '#c62828' }}>🔴 ด่วน</span>}
@@ -2204,6 +2296,19 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
         {zoom && (
           <div onClick={() => setZoom(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.82)', zIndex: 1000, display: 'grid', placeItems: 'center', padding: 20 }}>
             <img src={zoom} alt="ขยาย" style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 12, boxShadow: '0 8px 40px rgba(0,0,0,.5)' }} />
+          </div>
+        )}
+
+        {/* เงางานที่กำลังลาก — ลอยตามนิ้ว/เมาส์ ไม่รับ event เพื่อให้ elementFromPoint เจอการ์ดข้างล่าง */}
+        {drag && (
+          <div style={{
+            position: 'fixed', left: drag.x, top: drag.y, transform: 'translate(-50%, -140%)',
+            zIndex: 1200, pointerEvents: 'none', maxWidth: 260,
+            background: '#37474f', color: '#fff', borderRadius: 10, padding: '7px 12px',
+            fontSize: '0.8rem', fontWeight: 700, boxShadow: '0 10px 28px rgba(0,0,0,.32)',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>
+            {drag.over && drag.over !== drag.from ? '📥 ' : '✊ '}{drag.title}
           </div>
         )}
 
