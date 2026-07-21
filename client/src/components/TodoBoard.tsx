@@ -1994,6 +1994,15 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
     const [loc, setLoc] = useState(LOCATIONS[0]);
     const [prio, setPrio] = useState('normal');
     const [assignImgs, setAssignImgs] = useState<PhotoAttach[]>([]); // รูปแนบงาน (≤10)
+    // รายการรูปที่คนทำต้องถ่ายส่งกลับ — บอทจะถามทีละใบตามลำดับนี้ ครบแล้วปิดงานเอง
+    const [photoSpecs, setPhotoSpecs] = useState<string[]>(['หลังทำ']);
+    const [newSpec, setNewSpec] = useState('');
+    const toggleSpec = (s: string) => setPhotoSpecs(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
+    const addSpec = () => {
+      const s = newSpec.trim().slice(0, 24);
+      if (!s || photoSpecs.includes(s) || photoSpecs.length >= 6) return;
+      setPhotoSpecs(prev => [...prev, s]); setNewSpec('');
+    };
     const [zoom, setZoom] = useState<string | null>(null);           // รูปที่กดขยาย (lightbox)
     // รูปงานโหลดแบบ lazy (กดดูค่อยดึง) เพื่อลด egress ของ DB — เก็บต่อ task id
     const [taskImgs, setTaskImgs] = useState<Record<number, { images: string[]; doneImages: string[] } | 'loading'>>({});
@@ -2042,8 +2051,8 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
         // อัปโหลดรูปขึ้น Supabase Storage ก่อน → ส่งเป็น URL (ไม่เก็บ base64 ใน DB อีก)
         const images: string[] = [];
         for (const a of assignImgs) images.push(await uploadDutyImage(a.preview));
-        await post('/api/duty/assign', { date, assignees, category: cat, title: title.trim(), location: loc, priority: prio, operator: operatorName, images, workDate, dueTime, remindLead });
-        setTitle(''); setAssignImgs([]); setRemindLead('none'); setDueTime(''); // คงคน+วันที่ไว้ เผื่อมอบงานถัดไป
+        await post('/api/duty/assign', { date, assignees, category: cat, title: title.trim(), location: loc, priority: prio, operator: operatorName, images, workDate, dueTime, remindLead, photoSpecs });
+        setTitle(''); setAssignImgs([]); setRemindLead('none'); setDueTime(''); // คงคน+วันที่+รายการรูปไว้ เผื่อมอบงานถัดไป
       } finally { setAssigning(false); }
     };
 
@@ -2283,6 +2292,29 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
               {REMIND_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
           </label>
+          {/* รายการรูปที่ต้องถ่ายส่งกลับ — บอทถามทีละใบตามลำดับนี้ ครบแล้วปิดงาน + ส่งการ์ดเอง */}
+          <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a', marginBottom: 7 }}>
+            ต้องถ่ายรูปอะไรส่งกลับบ้าง <span style={{ fontWeight: 600, color: '#9aa0a6' }}>(บอทจะถามทีละรูปตามลำดับนี้)</span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            {['ก่อนทำ', 'หลังทำ', 'จุดที่แก้', 'มิเตอร์'].map(s => (
+              <button key={s} onClick={() => toggleSpec(s)} style={chip(photoSpecs.includes(s), '#00838f')}>{s}</button>
+            ))}
+            {photoSpecs.filter(s => !['ก่อนทำ', 'หลังทำ', 'จุดที่แก้', 'มิเตอร์'].includes(s)).map(s => (
+              <button key={s} onClick={() => toggleSpec(s)} style={chip(true, '#00838f')}>{s} ×</button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
+            <input value={newSpec} onChange={e => setNewSpec(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSpec()}
+              placeholder="➕ เพิ่มรูปที่ต้องถ่ายเอง…" maxLength={24}
+              style={{ flex: 1, minWidth: 0, boxSizing: 'border-box', padding: '8px 10px', border: '1px dashed #cbd5db', borderRadius: 10, fontSize: '0.82rem' }} />
+            <button onClick={addSpec} disabled={!newSpec.trim() || photoSpecs.length >= 6}
+              style={{ border: 'none', background: newSpec.trim() && photoSpecs.length < 6 ? '#37474f' : '#cfd8dc', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: '0.82rem', fontWeight: 700, cursor: newSpec.trim() ? 'pointer' : 'default', flexShrink: 0 }}>เพิ่ม</button>
+          </div>
+          <div style={{ fontSize: '0.7rem', color: photoSpecs.length ? '#9aa0a6' : '#c62828', marginBottom: 12 }}>
+            {photoSpecs.length ? `ลำดับ: ${photoSpecs.join(' → ')}` : '⚠️ ไม่เลือกเลย = ใช้ค่าเริ่มต้น "หลังทำ" 1 รูป'}
+          </div>
+
           {/* แนบรูป (ทุกประเภท) */}
           <input ref={assignFileRef} type="file" accept="image/*" multiple onChange={e => { if (e.target.files?.length) addAssignImgs(e.target.files); e.target.value = ''; }} style={{ display: 'none' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>

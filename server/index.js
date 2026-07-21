@@ -356,7 +356,9 @@ async function initDb() {
   // migration: คอลัมน์งานมอบหมายรายบุคคลใน daily_tasks (assignee/location/priority/handoff_from)
   // audit_batch: NULL = งานปกติ | ไม่ NULL = มาจากใบตรวจ (ค่า = id ของการส่ง 1 ครั้ง → จัดกลุ่ม "ใบตรวจ 1 ใบ")
   // แยกจาก source เพราะ source='assigned' ถูกใช้โดย duty board + reminder tick — เปลี่ยนไม่ได้
-  for (const col of ['assignee', 'location', 'priority', 'handoff_from', 'images', 'done_images', 'done_by', 'audit_batch']) {
+  // photo_specs: JSON array ป้ายรูปที่ต้องถ่าย เช่น ["ก่อนทำ","หลังทำ"] — คนมอบงานกำหนดตอนมอบ
+  // NULL/ว่าง = ["หลังทำ"] (งานเก่าทั้งหมดยังทำงานได้เหมือนเดิม)
+  for (const col of ['assignee', 'location', 'priority', 'handoff_from', 'images', 'done_images', 'done_by', 'audit_batch', 'photo_specs']) {
     try { await db.exec(`ALTER TABLE daily_tasks ADD COLUMN ${col} TEXT`); }
     catch { /* มีคอลัมน์อยู่แล้ว — ข้าม */ }
   }
@@ -797,9 +799,10 @@ const dataUrlToBuffer = (dataUrl) => {
   return { buffer: Buffer.from(b64, 'base64'), mimeType: mime };
 };
 
-const sendPhotoBufferToTelegram = async (buffer, mimeType, caption) => {
+// toChatId: ส่งเข้าแชทที่ระบุ (ปุ่มดูรูปต้องตอบในแชทที่กด) — ไม่ระบุ = กลุ่มหลักเหมือนเดิม
+const sendPhotoBufferToTelegram = async (buffer, mimeType, caption, toChatId) => {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const chatId = toChatId || process.env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) { console.error('[TG Photo] missing token/chatId'); return; }
   console.log(`[TG Photo] sending buffer size=${buffer?.length} mime=${mimeType}`);
   try {
@@ -876,6 +879,16 @@ const sendPhotosToTelegram = async (items, caption) => {
   if (!list.length) { if (caption) await sendToTelegram(caption); return; }
   if (list.every(x => /^https?:\/\//.test(x))) return sendPhotoUrlsToTelegram(list, caption);
   return sendMediaGroupToTelegram(list, caption);
+};
+
+// ส่งรูปเข้าแชทที่ระบุ — รองรับทั้ง URL (Supabase) และ base64 · ใช้กับปุ่ม 🖼 "ดูรูปงาน"
+const sendPhotoToChat = async (chatId, image, caption) => {
+  if (!image || !chatId) return;
+  if (/^https?:\/\//.test(image)) {
+    return tgApi('sendPhoto', { chat_id: chatId, photo: image, caption: (caption || '').slice(0, 1024), parse_mode: 'HTML' });
+  }
+  const b = dataUrlToBuffer(image);
+  if (b) return sendPhotoBufferToTelegram(b.buffer, b.mimeType, caption || '', chatId);
 };
 
 const dbAll = (sql, params = []) => new Promise((resolve, reject) => {
@@ -2635,16 +2648,22 @@ app.post('/api/duty/assign', async (req, res) => {
   const doneBy = hasDone ? (operator || assignees[0] || null) : null;
   // มาจากใบตรวจไหม — 1 ครั้งที่กด "ส่งทั้งหมด" = 1 batch (ใช้จัดกลุ่ม + กรองในหน้าติดตามผล)
   const auditBatch = typeof req.body.auditBatch === 'string' && req.body.auditBatch.trim() ? req.body.auditBatch.trim().slice(0, 40) : null;
+  // รายการรูปที่ต้องถ่าย — บอทจะถามทีละใบตามลำดับนี้ · ไม่ส่งมา = null → ฝั่งบอทใช้ default ["หลังทำ"]
+  const rawSpecs = Array.isArray(req.body.photoSpecs) ? req.body.photoSpecs : null;
+  const specs = rawSpecs
+    ? rawSpecs.map(s => String(s || '').trim().slice(0, 24)).filter(Boolean).slice(0, 6)
+    : null;
+  const photoSpecs = specs && specs.length ? JSON.stringify(specs) : null;
   try {
     // เก็บ line_name = assignee เพื่อให้ UNIQUE(task_date, line_name, category, title) แยกตามคน
     // → งานชื่อเดียวกันมอบให้หลายคนได้ (แต่ละคนได้แถวของตัวเอง) แทนที่จะทับกันเหลือคนสุดท้าย
     for (const assignTo of assignees) {
       await db.exec(
-        `INSERT INTO daily_tasks (task_date, line_name, category, title, status, source, assignee, location, priority, images, done_images, due_time, remind_at, remind_lead, reminded, completed_at, done_by, audit_batch, created_by, created_at)
-         VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+        `INSERT INTO daily_tasks (task_date, line_name, category, title, status, source, assignee, location, priority, images, done_images, due_time, remind_at, remind_lead, reminded, completed_at, done_by, audit_batch, photo_specs, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(task_date, line_name, category, title)
-         DO UPDATE SET assignee = excluded.assignee, location = excluded.location, priority = excluded.priority, images = excluded.images, done_images = excluded.done_images, status = excluded.status, due_time = excluded.due_time, remind_at = excluded.remind_at, remind_lead = excluded.remind_lead, reminded = 0, completed_at = excluded.completed_at, done_by = excluded.done_by, audit_batch = COALESCE(excluded.audit_batch, daily_tasks.audit_batch)`,
-        [d, assignTo, category || 'manual', title, status, assignTo, location || null, priority || 'normal', JSON.stringify(images), JSON.stringify(doneImages), due, remindAt, remindLead || null, completedAt, doneBy, auditBatch, operator || null, nowBKK()]);
+         DO UPDATE SET assignee = excluded.assignee, location = excluded.location, priority = excluded.priority, images = excluded.images, done_images = excluded.done_images, status = excluded.status, due_time = excluded.due_time, remind_at = excluded.remind_at, remind_lead = excluded.remind_lead, reminded = 0, completed_at = excluded.completed_at, done_by = excluded.done_by, audit_batch = COALESCE(excluded.audit_batch, daily_tasks.audit_batch), photo_specs = COALESCE(excluded.photo_specs, daily_tasks.photo_specs)`,
+        [d, assignTo, category || 'manual', title, status, assignTo, location || null, priority || 'normal', JSON.stringify(images), JSON.stringify(doneImages), due, remindAt, remindLead || null, completedAt, doneBy, auditBatch, photoSpecs, operator || null, nowBKK()]);
     }
     if (process.env.TELEGRAM_CHAT_ID) {
       const who = assignees.map(a => escapeHtml(dutyName(a))).join(', ');
@@ -3529,18 +3548,22 @@ function buildDutyPerson(duty, pkey) {
   for (const n of p.nodes) {
     if (n.bypassed) continue; // งานข้ามโชว์ในข้อความด้านล่างแทน
     const pre = n.depth ? '↳ '.repeat(n.depth) : '';
-    rows.push([
-      { text: clip(`${n.checked ? '✅' : '☐'} ${pre}${n.title}`), callback_data: `t:${pkey}:r:${pkey}:${n.key}` },
-      { text: n.hasDoneImage || n.doneImage ? '🔄' : '📸', callback_data: `t:${pkey}:ri:${pkey}:${n.key}` },
-    ]);
+    const row = [{ text: clip(`${n.checked ? '✅' : '☐'} ${pre}${n.title}`), callback_data: `t:${pkey}:r:${pkey}:${n.key}` }];
+    // 🖼 = ดูรูปอ้างอิงว่าต้องทำตรงไหน (โชว์เฉพาะหัวข้อที่ตั้งรูปอ้างอิงไว้แล้ว)
+    if (n.hasRefImage || n.refImage) row.push({ text: '🖼', callback_data: `t:${pkey}:rv:${pkey}:${n.key}` });
+    row.push({ text: n.hasDoneImage || n.doneImage ? '🔄' : '📸', callback_data: `t:${pkey}:ri:${pkey}:${n.key}` });
+    rows.push(row);
   }
   for (const r of p.received) push(`${r.checked ? '✅' : '☐'} ${r.title} ⟵${r.fromName}`, `t:${pkey}:r:${r.ownerKey}:${r.nodeKey}`);
   // งานมอบหมาย: แถวละ 2 ปุ่ม — ปิด/เปิดงาน + 📸 แนบรูปหลังทำ
   const isAudit = p.kind === 'audit';
-  for (const t of p.adhoc) rows.push([
-    { text: clip(`${t.status === 'done' ? '✅' : '☐'} ${t.priority === 'urgent' ? '🔴 ' : ''}${t.title}${isAudit && t.location ? ` · ${t.location}` : ''}`), callback_data: `t:${pkey}:a:${t.id}` },
-    { text: '📸', callback_data: `t:${pkey}:img:${t.id}` },
-  ]);
+  for (const t of p.adhoc) {
+    const row = [{ text: clip(`${t.status === 'done' ? '✅' : '☐'} ${t.priority === 'urgent' ? '🔴 ' : ''}${t.title}${isAudit && t.location ? ` · ${t.location}` : ''}`), callback_data: `t:${pkey}:a:${t.id}` }];
+    // 🖼 = ดูรูปที่แนบตอนมอบงาน (จุดที่ต้องไปทำ) — โชว์เฉพาะงานที่มีรูปแนบ
+    if (t.hasImages) row.push({ text: '🖼', callback_data: `t:${pkey}:v:${t.id}` });
+    row.push({ text: '📸', callback_data: `t:${pkey}:img:${t.id}` });
+    rows.push(row);
+  }
   rows.push([{ text: '⬅️ กลับ', callback_data: isAudit ? 'p:audithome' : 'p:home' }, { text: '🔄 รีเฟรช', callback_data: `p:${pkey}` }]);
 
   let text = `👤 <b>คุณ ${p.name}</b> · ${p.role}\n${progressBar(p.pct)} <b>${p.pct}%</b> · เสร็จ ${p.done}/${p.total}`;
@@ -3593,27 +3616,37 @@ app.get('/api/duty/keyboard', async (req, res) => {
 });
 
 // ── สถานะ "รอรับรูปหลังทำ" ผ่าน Telegram (ต่อผู้ใช้) + ดาวน์โหลดรูปจาก Telegram ──
-// ── รวมรูปทั้งอัลบั้มก่อนปิดงาน (งานมอบหมายแนบได้หลายรูป) ────────────────────
-// Telegram ส่งอัลบั้มมาเป็นหลาย update แยกกัน → หน่วงไว้ก่อน ถ้ามีรูปใหม่เข้ามาก็นับเวลาใหม่
-// key = chat:user:task — ละเอียดระดับ "งาน" เพื่อไม่ให้รูปของงานถัดไปไหลไปรวมกับงานก่อนหน้า
-const _adhocPhotoTimers = new Map();
-const ADHOC_PHOTO_WAIT_MS = 4000;
-function scheduleAdhocFinish(chatId, userId, taskId, operator) {
-  const key = `${chatId}:${userId}:${taskId}`;
-  clearTimeout(_adhocPhotoTimers.get(key));
-  _adhocPhotoTimers.set(key, setTimeout(() => {
-    _adhocPhotoTimers.delete(key);
-    finishAdhocWithPhotos(chatId, userId, taskId, operator).catch(e => console.error('[adhoc finish]', e.message));
-  }, ADHOC_PHOTO_WAIT_MS));
+// ── รายการรูปที่ต้องถ่ายของงานมอบหมาย ────────────────────────────────────────
+// บอทถามทีละใบตามรายการนี้ · ครบเมื่อไหร่ = ปิดงาน (ไม่ใช้การหน่วงเวลาเดาเอาแล้ว)
+const DEFAULT_PHOTO_SPECS = ['หลังทำ'];
+function parseImgs(raw) {
+  try { const a = JSON.parse(raw || '[]'); return Array.isArray(a) ? a.filter(Boolean) : []; } catch { return []; }
 }
-// ปิดงาน + ส่งการ์ด (ใช้ทั้งตอน timer ครบ และตอนผู้ใช้กดปุ่ม "ส่งรายงานเลย")
+// ข้อความขอรูปใบถัดไป — ความคืบหน้าคำนวณจากจำนวนรูปที่ถ่ายไปแล้ว ไม่ต้องเก็บ state เพิ่ม
+// (เข้ามาใหม่กลางคันก็ทำต่อจากเดิมได้เอง)
+function askNextPhoto(trow, taskId, page) {
+  const specs = parsePhotoSpecs(trow?.photo_specs);
+  const have = parseImgs(trow?.done_images).length;
+  const idx = Math.min(have, specs.length - 1);
+  return {
+    text: `📸 <b>รูปที่ ${have + 1}/${specs.length} — ${escapeHtml(specs[idx])}</b>\n`
+      + `งาน "${escapeHtml(trow?.title || '')}"\n\n`
+      + `<i>ถ่ายใหม่หรือเลือกจากคลังก็ได้ · ส่งทีละรูป</i>`,
+    reply_markup: { inline_keyboard: [[{ text: '✖️ ยกเลิก', callback_data: `t:${page}:x:${taskId}` }]] },
+  };
+}
+function parsePhotoSpecs(raw) {
+  try {
+    const a = JSON.parse(raw || '[]');
+    if (Array.isArray(a) && a.length) return a.map(String);
+  } catch { /* ค่าเสีย → ใช้ default */ }
+  return DEFAULT_PHOTO_SPECS;          // งานเก่าที่ไม่มี photo_specs ต้องยังทำงานได้
+}
+// ปิดงาน + ส่งการ์ด — เรียกตอนถ่ายครบรายการแล้วเท่านั้น
 async function finishAdhocWithPhotos(chatId, userId, taskId, operator) {
-  const key = `${chatId}:${userId}:${taskId}`;
-  clearTimeout(_adhocPhotoTimers.get(key));   // กันยิงซ้ำเมื่อกดปุ่มก่อน timer ครบ
-  _adhocPhotoTimers.delete(key);
   await db.exec('UPDATE daily_tasks SET status = ?, completed_at = ? WHERE id = ?', ['done', nowBKK(), taskId]);
-  // ล้าง wait เฉพาะตอนที่ยังชี้งานนี้อยู่ — คนหนึ่งมี wait ได้แถวเดียว ถ้าเขากด 📸 งานถัดไปแล้ว
-  // timer ของงานก่อนหน้ามายิงทีหลัง จะไปล้าง wait ของงานใหม่ทิ้ง แล้วรูปงานใหม่จะถูกปฏิเสธ
+  // ล้าง wait เฉพาะตอนที่ยังชี้งานนี้อยู่ — คนหนึ่งมี wait ได้แถวเดียว ถ้าเขาสลับไปกด 📸 งานอื่นแล้ว
+  // การล้างมั่วจะไปฆ่า wait ของงานใหม่ทิ้ง แล้วรูปงานใหม่จะถูกปฏิเสธ
   if (chatId != null && userId != null) {
     const w = await getPhotoWait(chatId, userId);
     if (w && String(w.task_id) === String(taskId)) await clearPhotoWait(chatId, userId);
@@ -3673,19 +3706,45 @@ app.post('/api/telegram/duty-update', (req, res) => {
         if (data.startsWith('t:')) {                     // ปิด/เปิดงาน แล้วอยู่หน้าคนเดิม
           const parts = data.split(':');
           const page = parts[1], kind = parts[2];
-          if (kind === 'img') {                          // กด 📸 → เข้าโหมดรอรับรูปหลังทำของงานนี้
+          if (kind === 'v') {                            // 🖼 ดูรูปงานมอบหมาย (จุดที่ต้องไปทำ)
+            const taskId = Number(parts[3]);
+            const chatId = cq.message?.chat?.id;
+            const trow = (await dbAll('SELECT title, location, images FROM daily_tasks WHERE id = ?', [taskId]))[0];
+            const imgs = parseImgs(trow?.images);
+            if (!imgs.length) { await tgApi('answerCallbackQuery', { callback_query_id: cq.id, text: 'งานนี้ไม่มีรูปแนบ' }); return; }
+            const cap = `🖼 <b>${escapeHtml(trow?.title || '')}</b>${trow?.location ? `\n📍 ${escapeHtml(trow.location)}` : ''}`
+              + (imgs.length > 1 ? `\n(${imgs.length} รูป)` : '');
+            for (let i = 0; i < Math.min(imgs.length, 3); i++) await sendPhotoToChat(chatId, imgs[i], i === 0 ? cap : '');
+            await tgApi('answerCallbackQuery', { callback_query_id: cq.id, text: 'ส่งรูปงานให้แล้ว 🖼' });
+            return;
+          }
+          if (kind === 'rv') {                           // 🖼 ดูรูปอ้างอิงของงานประจำ
+            const owner = parts[3], nodeKey = parts.slice(4).join(':');
+            const chatId = cq.message?.chat?.id;
+            const duty0 = await buildDuty(date, { audit: isAuditKey(page) });
+            const node = (duty0.people.find(x => x.key === owner)?.nodes || []).find(n => n.key === nodeKey);
+            const rrow = node?.id != null ? (await dbAll('SELECT ref_image FROM duty_routines WHERE id = ?', [node.id]))[0] : null;
+            if (!rrow?.ref_image) { await tgApi('answerCallbackQuery', { callback_query_id: cq.id, text: 'ยังไม่ได้ตั้งรูปอ้างอิง' }); return; }
+            await sendPhotoToChat(chatId, rrow.ref_image, `🖼 <b>${escapeHtml(node?.title || nodeKey)}</b>\n<i>รูปอ้างอิง — ทำให้ได้แบบนี้</i>`);
+            await tgApi('answerCallbackQuery', { callback_query_id: cq.id, text: 'ส่งรูปอ้างอิงให้แล้ว 🖼' });
+            return;
+          }
+          if (kind === 'x') {                            // ✖️ ออกจากโหมดถ่ายรูป (งานยังเปิด รูปที่ถ่ายไปแล้วไม่หาย)
+            await clearPhotoWait(cq.message?.chat?.id, cq.from?.id);
+            await tgApi('answerCallbackQuery', { callback_query_id: cq.id, text: 'ยกเลิกการถ่ายรูปแล้ว' });
+            return;
+          }
+          if (kind === 'img') {                          // กด 📸 → เริ่มถ่ายทีละรูปตามรายการ
             const taskId = Number(parts[3]);
             const chatId = cq.message?.chat?.id, userId = cq.from?.id;
-            const trow = (await dbAll('SELECT title FROM daily_tasks WHERE id = ?', [taskId]))[0];
+            const trow = (await dbAll('SELECT title, location, images, done_images, photo_specs FROM daily_tasks WHERE id = ?', [taskId]))[0];
             await setPhotoWait(chatId, userId, taskId, page);
-            await tgApi('sendMessage', {
-              chat_id: chatId, parse_mode: 'HTML',
-              text: `📸 ส่งรูป <b>หลังทำ</b> ของงาน "${escapeHtml(trow?.title || '')}" เข้ามาได้เลย\n`
-                + `(ส่งทีเดียวหลายรูปได้ · ถ่ายใหม่หรือเลือกจากคลังก็ได้)\n\n`
-                + `<i>ส่งครบแล้วระบบจะปิดงานและส่งรายงานให้เอง — หรือกดปุ่มข้างล่างเพื่อส่งทันที</i>`,
-              reply_markup: { inline_keyboard: [[{ text: '📤 ส่งรายงานเลย', callback_data: `t:${page}:done:${taskId}` }]] },
-            });
-            await tgApi('answerCallbackQuery', { callback_query_id: cq.id, text: 'ส่งรูปเข้ามาได้เลย 📸' });
+            // 1) โชว์รูปงานให้ดูก่อนว่าต้องไปทำตรงไหน
+            const refs = parseImgs(trow?.images);
+            if (refs.length) await sendPhotoToChat(chatId, refs[0], `🖼 <b>${escapeHtml(trow?.title || '')}</b>${trow?.location ? `\n📍 ${escapeHtml(trow.location)}` : ''}\n<i>จุดที่ต้องไปทำ</i>`);
+            // 2) ขอรูปใบถัดไปตามรายการ
+            await tgApi('sendMessage', { chat_id: chatId, parse_mode: 'HTML', ...askNextPhoto(trow, taskId, page) });
+            await tgApi('answerCallbackQuery', { callback_query_id: cq.id, text: 'ถ่ายรูปได้เลย 📸' });
             return;
           }
           if (kind === 'ri') {                           // กด 📸 บนงานประจำ → รอรับรูปหลังทำของหัวข้อนี้
@@ -3703,11 +3762,11 @@ app.post('/api/telegram/duty-update', (req, res) => {
             await tgApi('answerCallbackQuery', { callback_query_id: cq.id, text: 'ส่งรูปเข้ามาได้เลย 📸' });
             return;
           }
-          if (kind === 'done') {                         // กด "ส่งรายงานเลย" → ไม่ต้องรอ timer
-            const taskId = Number(parts[3]);
-            await finishAdhocWithPhotos(cq.message?.chat?.id, cq.from?.id, taskId, cq.from?.first_name || '');
-            note = 'ส่งรายงานแล้ว ✅';
-          } else if (kind === 'a') { await toggleAdhocDone(Number(parts[3])); note = 'อัปเดตแล้ว ✅'; }
+          if (kind === 'done') {                         // ปุ่มเก่าจากข้อความก่อนอัปเดต — บอกให้ถ่ายให้ครบแทน
+            await tgApi('answerCallbackQuery', { callback_query_id: cq.id, text: 'ตอนนี้ถ่ายให้ครบรายการแล้วระบบจะปิดงานให้เอง', show_alert: true });
+            return;
+          }
+          if (kind === 'a') { await toggleAdhocDone(Number(parts[3])); note = 'อัปเดตแล้ว ✅'; }
           else if (kind === 'r') { await toggleRoutineDone(parts[3], parts.slice(4).join(':'), date); note = 'อัปเดตแล้ว ✅'; }
           kb = buildDutyPerson(await buildDuty(date, { audit: isAuditKey(page) }), page);
         } else if (data.startsWith('p:')) {              // นำทาง: home / หน้าคน / บอร์ดใบตรวจ
@@ -3756,18 +3815,21 @@ app.post('/api/telegram/duty-update', (req, res) => {
             doneImage: dataUrl, routineId: node?.id, operator: upd.message.from?.first_name || '' });
           return;
         }
-        // งานมอบหมาย: เก็บรูปสะสม แล้วหน่วงรอจนอัลบั้มมาครบ ค่อยปิดงาน + ส่งการ์ดอัตโนมัติ
-        const trow = (await dbAll('SELECT done_images FROM daily_tasks WHERE id = ?', [wait.task_id]))[0];
-        let imgs = []; try { imgs = JSON.parse(trow?.done_images || '[]'); } catch { imgs = []; }
+        // งานมอบหมาย: เก็บรูปตามรายการที่คนมอบงานกำหนด — ครบเมื่อไหร่ = ปิดงาน (ไม่เดาเวลาแล้ว)
+        const trow = (await dbAll('SELECT title, done_images, photo_specs FROM daily_tasks WHERE id = ?', [wait.task_id]))[0];
+        const specs = parsePhotoSpecs(trow?.photo_specs);
+        let imgs = parseImgs(trow?.done_images);
         imgs.push(dataUrl); imgs = imgs.slice(-10);
         const who = upd.message.from?.first_name || '';
         await db.exec('UPDATE daily_tasks SET done_images = ?, done_by = ? WHERE id = ?', [JSON.stringify(imgs), who, wait.task_id]);
-        scheduleAdhocFinish(chatId, userId, wait.task_id, who);
-        // ตอบเฉพาะรูปแรก — ถ้าตอบทุกใบของอัลบั้มจะรกแชท
-        if (imgs.length === 1) {
+        if (imgs.length >= specs.length) {
           await tgApi('sendMessage', { chat_id: chatId, parse_mode: 'HTML',
-            text: `📥 รับรูปแล้ว — รออีกสักครู่เผื่อมีรูปเพิ่ม แล้วระบบจะปิดงาน + ส่งรายงานให้เอง`,
-            reply_markup: { inline_keyboard: [[{ text: '📤 ส่งรายงานเลย', callback_data: `t:${wait.page}:done:${wait.task_id}` }]] } });
+            text: `✅ ครบ ${specs.length} รูปแล้ว — ปิดงาน "<b>${escapeHtml(trow?.title || '')}</b>" กำลังส่งรายงานเข้ากลุ่ม…` });
+          await finishAdhocWithPhotos(chatId, userId, wait.task_id, who);
+        } else {
+          // ยังไม่ครบ → ขอใบถัดไปตามรายการ
+          await tgApi('sendMessage', { chat_id: chatId, parse_mode: 'HTML',
+            ...askNextPhoto({ ...trow, done_images: JSON.stringify(imgs) }, wait.task_id, wait.page) });
         }
         return;
       }
