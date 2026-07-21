@@ -369,6 +369,11 @@ async function initDb() {
   for (const col of ['done_image', 'done_image_at']) {
     try { await db.exec(`ALTER TABLE routine_state ADD COLUMN ${col} TEXT`); } catch { /* มีแล้ว */ }
   }
+  // migration: ให้บอทรอรับรูปของ "งานประจำ" ได้ด้วย (เดิมรองรับแค่งานมอบหมายที่อ้างด้วย task_id)
+  // มี node_key = โหมดงานประจำ · ไม่มี = โหมดงานมอบหมายเดิม
+  for (const col of ['node_key', 'node_owner']) {
+    try { await db.exec(`ALTER TABLE tg_photo_wait ADD COLUMN ${col} TEXT`); } catch { /* มีแล้ว */ }
+  }
   // migration: เก็บ JSON โครงสร้างส่งกะ (สำหรับ "คัดลอกจากกะก่อน")
   try { await db.exec('ALTER TABLE handover_notes ADD COLUMN data TEXT'); } catch { /* มีแล้ว */ }
   try { await db.exec("ALTER TABLE handover_notes ADD COLUMN kind TEXT DEFAULT 'out'"); } catch { /* มีแล้ว */ }
@@ -3471,10 +3476,15 @@ function buildDutyPerson(duty, pkey) {
   if (!p) return buildDutyHome(duty);
   const rows = [];
   const push = (label, data) => rows.push([{ text: clip(label), callback_data: data }]);
+  // งานประจำ: แถวละ 2 ปุ่ม — ติ๊กเสร็จ + 📸 แนบรูปหลังทำ (แนบแล้วส่งการ์ดก่อน/หลังทันที)
+  // 'ri' ย่อจาก routine-image ให้สั้น เพราะ callback_data จำกัด 64 ไบต์และ node key เป็น path ได้
   for (const n of p.nodes) {
     if (n.bypassed) continue; // งานข้ามโชว์ในข้อความด้านล่างแทน
     const pre = n.depth ? '↳ '.repeat(n.depth) : '';
-    push(`${n.checked ? '✅' : '☐'} ${pre}${n.title}`, `t:${pkey}:r:${pkey}:${n.key}`);
+    rows.push([
+      { text: clip(`${n.checked ? '✅' : '☐'} ${pre}${n.title}`), callback_data: `t:${pkey}:r:${pkey}:${n.key}` },
+      { text: n.hasDoneImage || n.doneImage ? '🔄' : '📸', callback_data: `t:${pkey}:ri:${pkey}:${n.key}` },
+    ]);
   }
   for (const r of p.received) push(`${r.checked ? '✅' : '☐'} ${r.title} ⟵${r.fromName}`, `t:${pkey}:r:${r.ownerKey}:${r.nodeKey}`);
   // งานมอบหมาย: แถวละ 2 ปุ่ม — ปิด/เปิดงาน + 📸 แนบรูปหลังทำ
@@ -3535,16 +3545,18 @@ app.get('/api/duty/keyboard', async (req, res) => {
 });
 
 // ── สถานะ "รอรับรูปหลังทำ" ผ่าน Telegram (ต่อผู้ใช้) + ดาวน์โหลดรูปจาก Telegram ──
-async function setPhotoWait(chatId, userId, taskId, page) {
+// nodeOwner/nodeKey มีค่า = รอรับรูปของ "งานประจำ" · ไม่มี = งานมอบหมาย (อ้างด้วย taskId เหมือนเดิม)
+async function setPhotoWait(chatId, userId, taskId, page, nodeOwner = null, nodeKey = null) {
   await db.exec(
-    `INSERT INTO tg_photo_wait (chat_id, user_id, task_id, page, created_at) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(chat_id, user_id) DO UPDATE SET task_id = excluded.task_id, page = excluded.page, created_at = excluded.created_at`,
-    [String(chatId), String(userId), taskId, page, nowBKK()]);
+    `INSERT INTO tg_photo_wait (chat_id, user_id, task_id, page, node_owner, node_key, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(chat_id, user_id) DO UPDATE SET task_id = excluded.task_id, page = excluded.page,
+       node_owner = excluded.node_owner, node_key = excluded.node_key, created_at = excluded.created_at`,
+    [String(chatId), String(userId), taskId, page, nodeOwner, nodeKey, nowBKK()]);
 }
 async function getPhotoWait(chatId, userId) {
   const cutoff = new Date(Date.now() - 30 * 60000).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
   await db.exec('DELETE FROM tg_photo_wait WHERE created_at < ?', [cutoff]); // ล้างที่ค้างเกิน 30 นาที
-  const rows = await dbAll('SELECT task_id, page FROM tg_photo_wait WHERE chat_id = ? AND user_id = ?', [String(chatId), String(userId)]);
+  const rows = await dbAll('SELECT task_id, page, node_owner, node_key FROM tg_photo_wait WHERE chat_id = ? AND user_id = ?', [String(chatId), String(userId)]);
   return rows[0] || null;
 }
 async function clearPhotoWait(chatId, userId) {
@@ -3598,6 +3610,21 @@ app.post('/api/telegram/duty-update', (req, res) => {
             await tgApi('answerCallbackQuery', { callback_query_id: cq.id, text: 'ส่งรูปเข้ามาได้เลย 📸' });
             return;
           }
+          if (kind === 'ri') {                           // กด 📸 บนงานประจำ → รอรับรูปหลังทำของหัวข้อนี้
+            const owner = parts[3], nodeKey = parts.slice(4).join(':');
+            const chatId = cq.message?.chat?.id, userId = cq.from?.id;
+            const duty0 = await buildDuty(date, { audit: isAuditKey(page) });
+            const node = (duty0.people.find(x => x.key === owner)?.nodes || []).find(n => n.key === nodeKey);
+            await setPhotoWait(chatId, userId, null, page, owner, nodeKey);
+            await tgApi('sendMessage', {
+              chat_id: chatId, parse_mode: 'HTML',
+              text: `📸 ส่งรูป <b>หลังทำ</b> ของ "${escapeHtml(node?.title || nodeKey)}" เข้ามาได้เลย\n`
+                + `(ถ่ายใหม่หรือเลือกจากคลังก็ได้ · ส่งรูปเดียว)\n\n`
+                + `<i>พอส่งรูปปุ๊บ ระบบจะติ๊กเสร็จให้ แล้วส่งการ์ดก่อน/หลังเข้ากลุ่มทันที</i>`,
+            });
+            await tgApi('answerCallbackQuery', { callback_query_id: cq.id, text: 'ส่งรูปเข้ามาได้เลย 📸' });
+            return;
+          }
           if (kind === 'done') {                         // ปิดงาน + ส่งอัลบั้มรูปหลังทำกลับกลุ่ม
             const taskId = Number(parts[3]);
             const trow = (await dbAll('SELECT title, done_images, done_by FROM daily_tasks WHERE id = ?', [taskId]))[0];
@@ -3637,6 +3664,26 @@ app.post('/api/telegram/duty-update', (req, res) => {
         const best = upd.message.photo[upd.message.photo.length - 1]; // ความละเอียดสูงสุด
         const dataUrl = await downloadTelegramFile(best.file_id);
         if (!dataUrl) return;
+        // งานประจำ: รับรูป → ติ๊กเสร็จ + ส่งการ์ดก่อน/หลังทันที (ไม่ต้องกดปิดงานซ้ำ)
+        if (wait.node_key) {
+          const owner = wait.node_owner, nodeKey = wait.node_key;
+          const duty0 = await buildDuty(date, { audit: isAuditKey(wait.page) });
+          const node = (duty0.people.find(x => x.key === owner)?.nodes || []).find(n => n.key === nodeKey);
+          const ts = nowBKK();
+          await db.exec(
+            `INSERT INTO routine_state (state_date, assignee, node_key, title, checked, done_image, done_image_at, updated_at)
+             VALUES (?, ?, ?, ?, 1, ?, ?, ?)
+             ON CONFLICT(state_date, assignee, node_key)
+             DO UPDATE SET checked = 1, done_image = excluded.done_image, done_image_at = excluded.done_image_at,
+                           title = COALESCE(excluded.title, routine_state.title), updated_at = excluded.updated_at`,
+            [date, owner, nodeKey, node?.title || null, dataUrl, ts, ts]);
+          await clearPhotoWait(chatId, userId);
+          await tgApi('sendMessage', { chat_id: chatId, parse_mode: 'HTML',
+            text: `✅ รับรูปแล้ว — ติ๊ก "<b>${escapeHtml(node?.title || nodeKey)}</b>" เสร็จ กำลังส่งรายงานเข้ากลุ่ม…` });
+          await sendRoutineDoneCard({ date, assignee: owner, nodeKey, title: node?.title,
+            doneImage: dataUrl, routineId: node?.id, operator: upd.message.from?.first_name || '' });
+          return;
+        }
         const trow = (await dbAll('SELECT done_images FROM daily_tasks WHERE id = ?', [wait.task_id]))[0];
         let imgs = []; try { imgs = JSON.parse(trow?.done_images || '[]'); } catch { imgs = []; }
         imgs.push(dataUrl); imgs = imgs.slice(-10);
