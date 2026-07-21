@@ -84,7 +84,9 @@ const REMIND_OPTIONS: [string, string][] = [
   ['2h', 'ล่วงหน้า 2 ชม.'], ['1d', 'ล่วงหน้า 1 วัน'], ['morning', 'เช้าวันงาน 08:00'],
 ];
 
-type DutyNode = { key: string; title: string; depth: number; mono: boolean; id?: number; parentId?: number | null; checked: boolean; bypassed: boolean; bypassReason: string | null; handoffTo: string | null; handoffToName: string | null };
+// refImage = รูปอ้างอิงของหัวข้อ (ตั้งครั้งเดียว ใช้ทุกวัน) · doneImage = รูปหลังทำของวันนั้น (เปลี่ยนได้ตลอด)
+// ถ้าเก็บเป็น base64 (ตอนไม่มี Supabase) server จะส่งมาแค่ hasRefImage/hasDoneImage แล้วค่อยโหลดตอนกดดู
+type DutyNode = { key: string; title: string; depth: number; mono: boolean; id?: number; parentId?: number | null; checked: boolean; bypassed: boolean; bypassReason: string | null; handoffTo: string | null; handoffToName: string | null; refImage?: string | null; hasRefImage?: boolean; doneImage?: string | null; hasDoneImage?: boolean };
 type Received = { ownerKey: string; fromName: string; nodeKey: string; title: string; checked: boolean };
 type AdhocTask = { id: number; title: string; category: string; location: string | null; priority: string; status: string; handoffFrom: string | null; hasImages?: boolean; hasDoneImages?: boolean; images?: string[]; doneImages?: string[] };
 
@@ -1851,6 +1853,47 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
       if (val === 'ให้คนอื่นทำแทน') setHandoffKey(`${pKey}|${n.key}`);
       else doBypass(pKey, n, val);
     };
+    // ── รูปงานประจำ ────────────────────────────────────────────────
+    const [busyPhoto, setBusyPhoto] = useState('');   // gk ที่กำลังอัปโหลด (กันกดซ้ำ)
+    // รูปอ้างอิง (ก่อนทำ) — ผูกกับหัวข้อ ใช้ร่วมทุกวัน · มีอยู่แล้วต้องยืนยันก่อนทับ
+    const setRefImage = async (gk: string, n: DutyNode, file?: File) => {
+      if (!file || !n.id) return;
+      setBusyPhoto(gk);
+      try {
+        const url = await uploadDutyImage((await resizePhoto(file)).preview);
+        const send = (replace: boolean) => fetch(`${apiUrl}/api/duty/routine/ref-image`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: n.id, image: url, operator: operatorName, replace }),
+        });
+        let r = await send(false);
+        if (r.status === 409) {   // มีรูปอ้างอิงอยู่แล้ว → ถามก่อนทับ
+          if (!window.confirm(`"${n.title}" มีรูปอ้างอิงอยู่แล้ว\nต้องการเปลี่ยนเป็นรูปใหม่ไหม?`)) return;
+          r = await send(true);
+        }
+        if (!r.ok) { alert('บันทึกรูปอ้างอิงไม่สำเร็จ'); return; }
+        await load();
+      } catch { alert('อ่านรูปไม่ได้ ลองใหม่อีกครั้ง'); }
+      finally { setBusyPhoto(''); }
+    };
+    // รูปหลังทำ — รายวัน เปลี่ยนทับได้ตลอด · แนบแล้วระบบติ๊กเสร็จ + ส่งการ์ดเข้า Telegram ให้เอง
+    const setDonePhoto = async (gk: string, pKey: string, n: DutyNode, file?: File) => {
+      if (!file) return;
+      setBusyPhoto(gk);
+      try {
+        const url = await uploadDutyImage((await resizePhoto(file)).preview);
+        await post('/api/routine/photo', { date, assignee: pKey, nodeKey: n.key, title: n.title, image: url, operator: operatorName, routineId: n.id });
+      } catch { alert('อ่านรูปไม่ได้ ลองใหม่อีกครั้ง'); }
+      finally { setBusyPhoto(''); }
+    };
+    // โหลดรูปที่เก็บเป็น base64 (ไม่มี URL ใน list) ตอนกดดู
+    const zoomLazy = async (which: 'ref' | 'done', n: DutyNode, pKey: string) => {
+      const q = which === 'ref' ? `which=ref&id=${n.id}` : `which=done&date=${date}&assignee=${pKey}&nodeKey=${encodeURIComponent(n.key)}`;
+      try {
+        const d = await (await fetch(`${apiUrl}/api/routine/image?${q}`)).json();
+        if (d.image) setZoom(d.image);
+      } catch { /* ดูรูปไม่ได้ก็ข้าม */ }
+    };
+
     const toggleAdhoc = (t: AdhocTask) => post('/api/tasks/update', { id: t.id, status: t.status === 'done' ? 'pending' : 'done' });
     const delAdhoc = (id: number) => post('/api/tasks/delete-one', { id });
 
@@ -1929,6 +1972,9 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
     const badge: React.CSSProperties = { fontSize: '0.6rem', fontWeight: 800, borderRadius: 20, padding: '2px 8px', flexShrink: 0, whiteSpace: 'nowrap' };
     const bpBtn: React.CSSProperties = { border: 'none', background: 'none', color: '#b0b8bd', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', padding: '3px 7px', borderRadius: 7, flexShrink: 0 };
     const sel: React.CSSProperties = { fontFamily: 'inherit', fontSize: '0.72rem', fontWeight: 700, color: '#ff6b00', background: '#fff3e9', border: '1px dashed #ff8c00', borderRadius: 9, padding: '5px 7px', flexShrink: 0 };
+    // แถบรูปใต้ชื่องาน — เล็กไว้ ไม่ให้แถวสูงจนไล่อ่านยาก
+    const photoChip: React.CSSProperties = { border: '1px solid #e0e6ea', background: '#fff', color: '#78909c', fontSize: '0.66rem', fontWeight: 700, borderRadius: 14, padding: '3px 9px', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap', lineHeight: 1.6 };
+    const thumb = (border: string): React.CSSProperties => ({ width: 34, height: 34, objectFit: 'cover', borderRadius: 7, border: `2px solid ${border}`, cursor: 'zoom-in', display: 'block', flexShrink: 0 });
     const subLbl: React.CSSProperties = { fontSize: '0.68rem', fontWeight: 800, letterSpacing: '.04em', color: '#9aa0a6', textTransform: 'uppercase', margin: '10px 0 2px' };
     const chip = (on: boolean, color = '#ff6b00'): React.CSSProperties => ({ border: '2px solid', borderColor: on ? 'transparent' : '#e0e0e0', background: on ? color : '#fff', color: on ? '#fff' : '#666', borderRadius: 22, padding: '7px 13px', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer' });
     // สี/ตัวย่อของคน: ใช้ค่าจาก API ก่อน (เก็บใน DB) แล้วค่อย fallback DUTY_COLOR เดิม
@@ -1967,7 +2013,8 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
             </div>
             <div style={{ padding: '8px 15px 14px' }}>
               {p.nodes.map(n => { const gk = `${p.key}|${n.key}`; return (
-                <div key={gk} style={{ ...row, marginLeft: n.depth * 22 }}>
+                <div key={gk} style={{ marginLeft: n.depth * 22 }}>
+                <div style={row}>
                   <input type="checkbox" disabled={n.bypassed} checked={n.checked} onChange={() => toggleNode(p.key, n)} style={cb(n.bypassed)} />
                   <span style={{ flex: 1, minWidth: 0, fontSize: '0.88rem', fontWeight: 500, fontFamily: n.mono ? 'ui-monospace, Menlo, monospace' : 'inherit', color: n.bypassed ? '#b0b8bd' : (n.checked ? '#9aa0a6' : '#37474f'), textDecoration: (n.checked || n.bypassed) ? 'line-through' : 'none' }}>{n.title}</span>
                   {n.bypassed ? (<>
@@ -1988,6 +2035,35 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
                   </>) : (
                     <button onClick={() => { setPick(gk); setHandoffKey(''); }} style={bpBtn}>ข้าม</button>
                   )}
+                </div>
+                {/* แถบรูป: ก่อนทำ (อ้างอิง — ตั้งครั้งเดียวใช้ทุกวัน) → หลังทำ (รายวัน เปลี่ยนได้ตลอด) */}
+                {!n.bypassed && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', margin: '0 0 9px 29px' }}>
+                    {n.refImage
+                      ? <img src={n.refImage} alt="อ้างอิง" title="รูปอ้างอิง (ก่อนทำ)" onClick={() => setZoom(n.refImage!)} style={thumb('#cfd8dc')} />
+                      : n.hasRefImage
+                        ? <button onClick={() => zoomLazy('ref', n, p.key)} style={photoChip}>🖼 อ้างอิง</button>
+                        : null}
+                    {n.id != null && (
+                      <label style={{ ...photoChip, ...(n.refImage || n.hasRefImage ? {} : { borderStyle: 'dashed', color: '#90a4ae' }) }}
+                        title={n.refImage || n.hasRefImage ? 'เปลี่ยนรูปอ้างอิง (ต้องยืนยัน)' : 'ตั้งรูปอ้างอิง — ใช้เป็นมาตรฐานทุกวัน'}>
+                        {n.refImage || n.hasRefImage ? 'เปลี่ยนอ้างอิง' : '＋ รูปก่อนทำ'}
+                        <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { setRefImage(gk, n, e.target.files?.[0]); e.target.value = ''; }} />
+                      </label>
+                    )}
+                    <span style={{ color: '#cfd8dc', fontSize: '0.7rem', flexShrink: 0 }}>→</span>
+                    {n.doneImage
+                      ? <img src={n.doneImage} alt="หลังทำ" title="รูปหลังทำ" onClick={() => setZoom(n.doneImage!)} style={thumb('#a5d6a7')} />
+                      : n.hasDoneImage
+                        ? <button onClick={() => zoomLazy('done', n, p.key)} style={photoChip}>🖼 หลังทำ</button>
+                        : null}
+                    <label style={{ ...photoChip, ...(n.doneImage || n.hasDoneImage ? {} : { borderColor: '#c8e6c9', color: '#2e7d32', background: '#f1f8f2' }) }}
+                      title="แนบรูปหลังทำ → ติ๊กเสร็จ + ส่งการ์ดก่อน/หลังเข้า Telegram">
+                      {busyPhoto === gk ? '⏳ กำลังส่ง…' : (n.doneImage || n.hasDoneImage ? 'เปลี่ยนหลังทำ' : '📷 หลังทำ')}
+                      <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { setDonePhoto(gk, p.key, n, e.target.files?.[0]); e.target.value = ''; }} />
+                    </label>
+                  </div>
+                )}
                 </div>
               ); })}
 

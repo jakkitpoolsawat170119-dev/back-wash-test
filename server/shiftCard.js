@@ -36,6 +36,9 @@ const esc = (s) => String(s == null ? '' : s)
 // ประมาณความกว้างตัวอักษร (ไทย+ละติน) เพื่อ wrap เอง — SVG <text> ไม่ตัดบรรทัดให้
 function charW(ch, size) {
   const c = ch.codePointAt(0);
+  // า (0E32) และ ำ (0E33) อยู่ในช่วงสระบน/ล่างก็จริง แต่กินความกว้างเต็มตัว — ต้องแยกออกมาก่อน
+  // ไม่งั้น measure/wrap จะคิดความกว้างขาด ทำให้ข้อความยาวเกินกรอบ
+  if (c === 0x0e32 || c === 0x0e33) return 0.57 * size;
   if ((c >= 0x0e31 && c <= 0x0e3a) || (c >= 0x0e47 && c <= 0x0e4e)) return 0; // สระบน/ล่าง + วรรณยุกต์ = ไม่กินความกว้าง
   if (c >= 0x0e00 && c <= 0x0e7f) return 0.57 * size; // อักษรไทยฐาน
   if (ch === ' ') return 0.28 * size;
@@ -391,4 +394,106 @@ function renderKpiCardPNG(data) {
   return r.render().asPng();
 }
 
-module.exports = { renderShiftCardPNG, buildShiftCardSVG, renderKpiCardPNG, buildKpiCardSVG, canRenderCard };
+// ═══════════════════════════════════════════════════════════════════════════
+// buildBeforeAfterSVG — การ์ด "ก่อนทำ | หลังทำ" ของงานประจำ (วางซ้าย-ขวา)
+// เหตุผลที่ต้องวาดข้อความลงในรูป: Telegram album ผูก caption ไว้กับรูปแรกเท่านั้น
+// พอ forward ต่อเข้ากลุ่ม Line รูปกับข้อความจะหลุดจากกัน → ยัดทุกอย่างไว้ในภาพเดียวจบ
+//
+// ⚠️ beforeUri/afterUri ต้องเป็น data: URI เท่านั้น — resvg ไม่ดาวน์โหลด URL ระยะไกลให้
+//    ผู้เรียกต้อง fetch มาแปลงเป็น base64 ก่อน (ดู fetchAsDataUri ใน index.js)
+// ═══════════════════════════════════════════════════════════════════════════
+// วางข้อความหลายชิ้นต่อกันแนวนอน โดยแยกเป็น <text> คนละชิ้น
+// เหตุผล: ตัวอักษรที่อยู่ถัดจากสระ ำ จะถูกกลืนหายตอน shaping (resvg + Sarabun)
+// เช่น "คุณ ม้ำ · 21/07" จะได้ "คุณ ม้ำ 21/07" (จุดหาย) → ห้ามให้มีอะไรตามหลัง ำ ในรันเดียวกัน
+function textRun(x, y, parts, gap = 7) {
+  const out = [];
+  let cx = x;
+  for (const p of parts) {
+    if (p.t == null || p.t === '') continue;
+    out.push(text(cx, y, p.size, p.weight, p.fill, p.t));
+    cx += measure(p.t, p.size) + (p.gap == null ? gap : p.gap);
+  }
+  return out.join('');
+}
+
+function buildBeforeAfterSVG(d) {
+  const el = [];
+  const push = (s) => el.push(s);
+  let y = 0;
+
+  // 1) HEADER — ชื่องาน (wrap ได้ 2 บรรทัด) + คน/วันที่/เวลา
+  const titleLines = wrap(d.title || 'งานประจำ', W - PX * 2 - 4, 17).slice(0, 2);
+  const headH = 44 + titleLines.length * 22 + 26;
+  push(`<rect x="0" y="0" width="${W}" height="${headH}" fill="${C.surf}"/>`);
+  push(`<rect x="0" y="0" width="${W}" height="${headH}" fill="${C.good}" opacity="0.07"/>`);
+  push(`<rect x="0" y="0" width="4" height="${headH}" fill="${C.good}"/>`);
+  push(icon('clip', PX, 14, 15, C.good));
+  push(text(PX + 22, 26, 12.5, 600, C.dim, 'บันทึกผลงานประจำ'));
+  titleLines.forEach((ln, i) => push(text(PX, 52 + i * 22, 17, 700, C.ink, ln)));
+  // ชื่อคน/วันที่/เวลา — แยกชิ้นเพราะชื่ออาจลงท้ายด้วย ำ (เช่น "ม้ำ") แล้วกลืนตัวคั่น
+  const metaY = 52 + titleLines.length * 22 + 4;
+  const metaParts = [];
+  [d.personName, d.dateLabel, d.timeLabel].filter(Boolean).forEach((t, i) => {
+    if (i) metaParts.push({ t: '·', size: 12.5, weight: 500, fill: C.line });
+    metaParts.push({ t, size: 12.5, weight: 500, fill: C.dim });
+  });
+  push(textRun(PX, metaY, metaParts));
+  y = headH;
+  push(`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
+
+  // 2) รูปคู่ ซ้าย-ขวา — กรอบเท่ากัน ครอบรูปแบบ slice (ไม่ยืดผิดสัดส่วน)
+  const gap = 10;
+  const pw = Math.floor((W - PX * 2 - gap) / 2);
+  const ph = 148;
+  y += 14;
+  const panel = (x, label, sub, uri, tint) => {
+    // label ลงท้ายด้วย ำ ("ก่อนทำ"/"หลังทำ") → คำต่อท้ายต้องแยกชิ้น ไม่งั้นโดนกลืน
+    push(textRun(x, y + 11, [
+      { t: label, size: 11.5, weight: 700, fill: tint },
+      ...(sub ? [{ t: sub, size: 10.5, weight: 600, fill: C.line }] : []),
+    ], 6));
+    const top = y + 20;
+    const cid = `p${x}`;
+    push(`<defs><clipPath id="${cid}"><rect x="${x}" y="${top}" width="${pw}" height="${ph}" rx="10"/></clipPath></defs>`);
+    push(`<rect x="${x}" y="${top}" width="${pw}" height="${ph}" rx="10" fill="${C.surf2}"/>`);
+    if (uri) {
+      push(`<image href="${uri}" x="${x}" y="${top}" width="${pw}" height="${ph}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${cid})"/>`);
+    } else {
+      push(text(x + pw / 2, top + ph / 2 + 4, 12.5, 500, C.dim, 'ไม่มีรูป', 'middle'));
+    }
+    push(`<rect x="${x}" y="${top}" width="${pw}" height="${ph}" rx="10" fill="none" stroke="${C.line}" stroke-width="1"/>`);
+  };
+  panel(PX, 'ก่อนทำ', 'อ้างอิง', d.beforeUri, C.dim);
+  panel(PX + pw + gap, 'หลังทำ', d.timeLabel || '', d.afterUri, C.good);
+  y += 20 + ph + 14;
+
+  // 3) FOOTER — ความคืบหน้าทีม (ซ้าย) + คนบันทึก (ขวา)
+  const footH = 40;
+  push(`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
+  push(`<rect x="0" y="${y}" width="${W}" height="${footH}" fill="${C.surf}"/>`);
+  if (d.footer) push(text(PX, y + 25, 12, 500, C.dim, d.footer));
+  if (d.by) push(text(W - PX, y + 25, 12, 500, C.dim, `โดย ${d.by}`, 'end'));
+  y += footH;
+
+  const H = y;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<defs><clipPath id="rcba"><rect x="0" y="0" width="${W}" height="${H}" rx="22"/></clipPath></defs>
+<g clip-path="url(#rcba)">
+<rect x="0" y="0" width="${W}" height="${H}" fill="${C.bg}"/>
+${el.join('\n')}
+</g></svg>`;
+}
+
+function renderBeforeAfterCardPNG(data) {
+  if (!canRenderCard()) return null;
+  const svg = buildBeforeAfterSVG(data);
+  const r = new Resvg(svg, {
+    fitTo: { mode: 'width', value: W * 2 },
+    font: { fontFiles: FONT_FILES, defaultFontFamily: FONT, loadSystemFonts: false },
+    background: C.bg,
+  });
+  return r.render().asPng();
+}
+
+module.exports = { renderShiftCardPNG, buildShiftCardSVG, renderKpiCardPNG, buildKpiCardSVG, canRenderCard,
+  renderBeforeAfterCardPNG, buildBeforeAfterSVG };

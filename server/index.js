@@ -8,7 +8,7 @@ const multer = require('multer');
 const axios = require('axios');
 const FormData = require('form-data');
 const Anthropic = require('@anthropic-ai/sdk');
-const { renderShiftCardPNG, renderKpiCardPNG, canRenderCard } = require('./shiftCard');
+const { renderShiftCardPNG, renderKpiCardPNG, canRenderCard, renderBeforeAfterCardPNG } = require('./shiftCard');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -359,6 +359,15 @@ async function initDb() {
   for (const col of ['assignee', 'location', 'priority', 'handoff_from', 'images', 'done_images', 'done_by', 'audit_batch']) {
     try { await db.exec(`ALTER TABLE daily_tasks ADD COLUMN ${col} TEXT`); }
     catch { /* มีคอลัมน์อยู่แล้ว — ข้าม */ }
+  }
+  // migration: รูปของงานประจำ (หัวข้อหน้าที่)
+  // ref_image = "รูปอ้างอิง" ผูกกับหัวข้อ ไม่ใช่รายวัน → ตั้งครั้งเดียวใช้เป็นมาตรฐานทุกวัน
+  for (const col of ['ref_image', 'ref_image_by', 'ref_image_at']) {
+    try { await db.exec(`ALTER TABLE duty_routines ADD COLUMN ${col} TEXT`); } catch { /* มีแล้ว */ }
+  }
+  // done_image = "รูปหลังทำ" รายวัน เปลี่ยนทับได้ตลอด
+  for (const col of ['done_image', 'done_image_at']) {
+    try { await db.exec(`ALTER TABLE routine_state ADD COLUMN ${col} TEXT`); } catch { /* มีแล้ว */ }
   }
   // migration: เก็บ JSON โครงสร้างส่งกะ (สำหรับ "คัดลอกจากกะก่อน")
   try { await db.exec('ALTER TABLE handover_notes ADD COLUMN data TEXT'); } catch { /* มีแล้ว */ }
@@ -1941,11 +1950,18 @@ let _routineCache = {};
 const invalidateRoutineCache = () => { _routineCache = {}; };
 async function buildRoutineTree(personKey) {
   if (_routineCache[personKey]) return _routineCache[personKey];
-  const rows = await dbAll('SELECT * FROM duty_routines WHERE person_key = ? AND active = 1 ORDER BY parent_id, sort_order, id', [personKey]);
+  // ลด egress: ไม่ดึง ref_image ที่เป็น base64 (fallback ตอนไม่มี Supabase) — คืน URL ตรงๆ ถ้าเป็น URL
+  // ไม่งั้นคืนแค่ธง แล้วให้ client โหลดผ่าน GET /api/routine/image ตอนกดดู
+  const rows = await dbAll(
+    `SELECT id, parent_id, node_key, title, mono, sort_order,
+       CASE WHEN ref_image LIKE 'http%' THEN ref_image ELSE NULL END AS ref_image_url,
+       CASE WHEN ref_image IS NULL OR ref_image = '' THEN 0 ELSE 1 END AS has_ref_image
+     FROM duty_routines WHERE person_key = ? AND active = 1 ORDER BY parent_id, sort_order, id`, [personKey]);
   const byParent = {};
   for (const r of rows) { const k = r.parent_id == null ? 'root' : String(r.parent_id); (byParent[k] = byParent[k] || []).push(r); }
   const build = (key) => (byParent[key] || []).map(r => {
-    const node = { key: r.node_key, title: r.title, id: r.id, parentId: r.parent_id == null ? null : r.parent_id };
+    const node = { key: r.node_key, title: r.title, id: r.id, parentId: r.parent_id == null ? null : r.parent_id,
+      refImage: r.ref_image_url || null, hasRefImage: !!r.has_ref_image };
     if (r.mono) node.mono = true;
     const kids = build(String(r.id));
     if (kids.length) node.children = kids;
@@ -1960,7 +1976,8 @@ function flattenRoutine(nodes, depth = 0, prefix = '') {
   const out = [];
   for (const n of nodes) {
     const key = prefix ? `${prefix}/${n.key}` : n.key;
-    out.push({ key, title: n.title, depth, mono: !!n.mono, id: n.id, parentId: n.parentId });
+    out.push({ key, title: n.title, depth, mono: !!n.mono, id: n.id, parentId: n.parentId,
+      refImage: n.refImage || null, hasRefImage: !!n.hasRefImage });
     if (n.children) out.push(...flattenRoutine(n.children, depth + 1, key));
   }
   return out;
@@ -1971,7 +1988,12 @@ function flattenRoutine(nodes, depth = 0, prefix = '') {
 // (คืนโครงเดียวกับบอร์ดกะ nodes/received/adhoc → buildDutyPerson ใช้ซ้ำได้ทั้งดุ้น)
 async function buildDuty(date, opts = {}) {
   const audit = !!opts.audit;
-  const stateRows = audit ? [] : await dbAll('SELECT * FROM routine_state WHERE state_date = ?', [date]);
+  // ลด egress เช่นกัน: done_image อาจเป็น base64 → คืน URL ตรงๆ ถ้าเป็น URL ไม่งั้นคืนแค่ธง
+  const stateRows = audit ? [] : await dbAll(
+    `SELECT id, state_date, assignee, node_key, title, checked, bypassed, bypass_reason, handoff_to,
+       CASE WHEN done_image LIKE 'http%' THEN done_image ELSE NULL END AS done_image_url,
+       CASE WHEN done_image IS NULL OR done_image = '' THEN 0 ELSE 1 END AS has_done_image
+     FROM routine_state WHERE state_date = ?`, [date]);
   const stateMap = {};
   for (const s of stateRows) stateMap[`${s.assignee}|${s.node_key}`] = s;
   // ลด egress: ไม่ดึงคอลัมน์ base64 (images/done_images) จาก Neon — คืนแค่ธงว่ามีรูปไหม
@@ -2002,6 +2024,9 @@ async function buildDuty(date, opts = {}) {
         bypassReason: st ? st.bypass_reason || null : null,
         handoffTo: st ? st.handoff_to || null : null,
         handoffToName: st && st.handoff_to ? dutyName(st.handoff_to) : null,
+        // รูปหลังทำของวันนั้น (รูปอ้างอิงติดมากับ n จาก flattenRoutine แล้ว)
+        doneImage: st ? st.done_image_url || null : null,
+        hasDoneImage: !!(st && st.has_done_image),
       };
     });
     // งานที่คนอื่นมอบต่อมาให้คนนี้ (bypass + handoff_to = p.key)
@@ -2248,6 +2273,24 @@ app.post('/api/duty/routine/delete', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ตั้ง/เปลี่ยน "รูปอ้างอิง" ของหัวข้อหน้าที่ — ผูกกับหัวข้อ (duty_routines) ไม่ใช่รายวัน
+// ตั้งครั้งแรกได้เลย · ถ้ามีอยู่แล้วต้องส่ง replace=true (ให้ client ถามยืนยันก่อน) กันทับโดยไม่ตั้งใจ
+app.post('/api/duty/routine/ref-image', async (req, res) => {
+  const { id, image, operator, replace } = req.body;
+  if (!id || !image) return res.status(400).json({ error: 'id/image จำเป็น' });
+  if (typeof image !== 'string' || !(image.startsWith('http') || image.startsWith('data:')))
+    return res.status(400).json({ error: 'image ต้องเป็น URL หรือ data URL' });
+  try {
+    const cur = (await dbAll("SELECT CASE WHEN ref_image IS NULL OR ref_image = '' THEN 0 ELSE 1 END AS has_ref FROM duty_routines WHERE id = ? AND active = 1", [id]))[0];
+    if (!cur) return res.status(404).json({ error: 'ไม่พบหัวข้อนี้' });
+    if (cur.has_ref && !replace) return res.status(409).json({ error: 'exists' });
+    await db.exec('UPDATE duty_routines SET ref_image = ?, ref_image_by = ?, ref_image_at = ? WHERE id = ?',
+      [image, operator || null, nowBKK(), id]);
+    invalidateRoutineCache(); // สำคัญ: ต้นไม้ routine ถูก cache ไว้ ไม่ล้างแล้วรูปใหม่จะไม่ขึ้น
+    res.json({ success: true, replaced: !!cur.has_ref });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ประวัติ %ความคืบหน้าทีมต่อวัน — reuse โดย /api/duty/history และ /api/kpi/summary (KPI data layer)
 async function buildDutyRange(from, to) {
   const days = [];
@@ -2381,6 +2424,90 @@ app.post('/api/routine/toggle', async (req, res) => {
        DO UPDATE SET checked = excluded.checked, title = COALESCE(excluded.title, routine_state.title), updated_at = excluded.updated_at`,
       [d, assignee, nodeKey, title || null, checked ? 1 : 0, nowBKK()]);
     res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// โหลดรูปมาเป็น data: URI — resvg ฝัง <image> ได้เฉพาะ data URI (ดาวน์โหลด URL เองไม่ได้)
+async function fetchAsDataUri(src) {
+  if (!src || typeof src !== 'string') return null;
+  if (src.startsWith('data:')) return src;
+  if (!/^https?:\/\//.test(src)) return null;
+  const r = await axios.get(src, { responseType: 'arraybuffer', timeout: 15000 });
+  const mime = r.headers['content-type'] || 'image/jpeg';
+  return `data:${mime};base64,${Buffer.from(r.data).toString('base64')}`;
+}
+
+// ส่งการ์ด "ก่อนทำ | หลังทำ" เข้า Telegram — รูปคู่ + ข้อความรวมอยู่ในภาพเดียว
+// เพื่อให้ forward ต่อเข้ากลุ่ม Line แล้วรูปกับข้อความไม่หลุดจากกัน (album ผูก caption กับรูปแรกเท่านั้น)
+async function sendRoutineDoneCard({ date, assignee, nodeKey, title, doneImage, routineId, operator }) {
+  if (!process.env.TELEGRAM_CHAT_ID) return;
+  const who = dutyName(assignee);
+  const label = title || nodeKey;
+  const timeLabel = `${nowBKK().slice(11, 16)} น.`;
+  const caption = `✅ <b>${escapeHtml(who)}</b> ทำ "${escapeHtml(label)}" เสร็จแล้ว\n🗓 ${thaiDate(date)} · ${timeLabel}`;
+  let refImage = null;
+  if (routineId) {
+    const row = (await dbAll('SELECT ref_image FROM duty_routines WHERE id = ?', [routineId]))[0];
+    refImage = row ? row.ref_image : null;
+  }
+  try {
+    const [beforeUri, afterUri] = await Promise.all([fetchAsDataUri(refImage), fetchAsDataUri(doneImage)]);
+    let footer = '';
+    try {
+      const duty = await buildDuty(date);
+      footer = `ทีมวันนี้ ${duty.team.done}/${duty.team.total} งาน · ${duty.team.pct}%`;
+    } catch { /* ไม่มีสรุปทีมก็ยังส่งการ์ดได้ */ }
+    const png = renderBeforeAfterCardPNG({
+      title: label, personName: who, dateLabel: thaiDate(date), timeLabel,
+      beforeUri, afterUri, footer, by: operator || who,
+    });
+    if (png) return await sendPhotoBufferToTelegram(png, 'image/png', caption);
+  } catch (e) {
+    console.error('[routine card] เรนเดอร์การ์ดไม่สำเร็จ → ถอยไปส่งแบบอัลบั้ม:', e.message);
+  }
+  // fallback: ส่งรูปแบบเดิม — caption อาจหลุดตอนแชร์ต่อ แต่ดีกว่าเงียบหาย
+  await sendPhotosToTelegram([refImage, doneImage].filter(Boolean), caption);
+}
+
+// แนบ "รูปหลังทำ" ของงานประจำ — รายวัน เปลี่ยนทับได้ตลอด
+// แนบแล้ว = ทำเสร็จ → ติ๊ก checked ให้เลย (ให้สอดคล้องกับงานมอบหมายที่ doneImages → status='done')
+// แล้วส่งการ์ดรูปคู่ (ก่อน|หลัง) เข้า Telegram — ข้อความอยู่ในภาพ แชร์ต่อเข้า Line ได้ไม่หลุดจากกัน
+app.post('/api/routine/photo', async (req, res) => {
+  const { date, assignee, nodeKey, title, image, operator, routineId } = req.body;
+  if (!assignee || !nodeKey || !image) return res.status(400).json({ error: 'assignee/nodeKey/image จำเป็น' });
+  if (typeof image !== 'string' || !(image.startsWith('http') || image.startsWith('data:')))
+    return res.status(400).json({ error: 'image ต้องเป็น URL หรือ data URL' });
+  const d = date || todayBKK();
+  const ts = nowBKK();
+  try {
+    await db.exec(
+      `INSERT INTO routine_state (state_date, assignee, node_key, title, checked, done_image, done_image_at, updated_at)
+       VALUES (?, ?, ?, ?, 1, ?, ?, ?)
+       ON CONFLICT(state_date, assignee, node_key)
+       DO UPDATE SET checked = 1, done_image = excluded.done_image, done_image_at = excluded.done_image_at,
+                     title = COALESCE(excluded.title, routine_state.title), updated_at = excluded.updated_at`,
+      [d, assignee, nodeKey, title || null, image, ts, ts]);
+    res.json({ success: true });
+    // ส่งการ์ดหลังตอบ client ไปแล้ว — ผู้ใช้ไม่ต้องรอเรนเดอร์รูป/ยิง Telegram
+    sendRoutineDoneCard({ date: d, assignee, nodeKey, title, doneImage: image, routineId, operator })
+      .catch(e => console.error('[routine card] error:', e.message));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// โหลดรูปงานประจำตอนกดดู (แยกจาก list เพื่อลด egress — ใช้เฉพาะกรณี fallback base64)
+// which=ref → ต้องมี id (duty_routines) · which=done → ต้องมี date/assignee/nodeKey
+app.get('/api/routine/image', async (req, res) => {
+  const { which, id, date, assignee, nodeKey } = req.query;
+  try {
+    if (which === 'ref') {
+      if (!id) return res.status(400).json({ error: 'id จำเป็น' });
+      const row = (await dbAll('SELECT ref_image FROM duty_routines WHERE id = ?', [id]))[0];
+      return res.json({ image: (row && row.ref_image) || null });
+    }
+    if (!assignee || !nodeKey) return res.status(400).json({ error: 'assignee/nodeKey จำเป็น' });
+    const row = (await dbAll('SELECT done_image FROM routine_state WHERE state_date = ? AND assignee = ? AND node_key = ?',
+      [date || todayBKK(), assignee, nodeKey]))[0];
+    res.json({ image: (row && row.done_image) || null });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
