@@ -1898,8 +1898,10 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
     // ใช้ Pointer Events ตัวเดียวคุมทั้งเมาส์และนิ้ว:
     //   เมาส์ = กดแล้วลากเกิน 6px เริ่มลากเลย · นิ้ว = ต้องแตะค้าง 380ms ก่อน
     //   (ถ้าลากทันทีบนมือถือจะไปชนกับการเลื่อนหน้าจอ)
+    // งานมอบหมาย = ย้ายเจ้าของถาวร · งานประจำ = มอบต่อเฉพาะวันนั้น (ใช้กลไก handoff เดิม ย้อนกลับได้)
+    type DragItem = { kind: 'adhoc'; task: AdhocTask } | { kind: 'routine'; node: DutyNode };
     const [drag, setDrag] = useState<{ title: string; x: number; y: number; over: string | null; from: string } | null>(null);
-    const dragRef = useRef<{ task: AdhocTask; from: string; sx: number; sy: number; active: boolean; timer: number | null; over: string | null } | null>(null);
+    const dragRef = useRef<(DragItem & { from: string; sx: number; sy: number; active: boolean; timer: number | null; over: string | null }) | null>(null);
 
     const reassign = async (t: AdhocTask, to: string) => {
       try {
@@ -1912,30 +1914,36 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
       } catch { alert('ย้ายงานไม่สำเร็จ — เช็คเน็ต'); }
     };
 
-    const onTaskPointerDown = (e: React.PointerEvent, t: AdhocTask, from: string) => {
+    const itemTitle = (it: DragItem) => (it.kind === 'adhoc' ? it.task.title : it.node.title);
+    const onTaskPointerDown = (e: React.PointerEvent, item: DragItem, from: string) => {
       if (e.button > 0) return;                                            // เมาส์: เฉพาะปุ่มซ้าย
       if ((e.target as HTMLElement).closest('input,button,label,select,a,img')) return; // ติ๊ก/ลบ/ดูรูป ต้องกดได้ปกติ
       const touch = e.pointerType !== 'mouse';
-      dragRef.current = { task: t, from, sx: e.clientX, sy: e.clientY, active: false, timer: null, over: from };
+      dragRef.current = { ...item, from, sx: e.clientX, sy: e.clientY, active: false, timer: null, over: from };
       if (touch) {
         dragRef.current.timer = window.setTimeout(() => {
           const d = dragRef.current; if (!d) return;
           d.active = true;
-          setDrag({ title: t.title, x: d.sx, y: d.sy, over: from, from });
+          setDrag({ title: itemTitle(d), x: d.sx, y: d.sy, over: from, from });
           navigator.vibrate?.(30);                                          // บอกด้วยการสั่นว่าจับงานขึ้นมาแล้ว
         }, 380);
       }
     };
 
-    // เก็บ reassign ล่าสุดไว้ใน ref เพื่อให้ effect ข้างล่างผูก listener ครั้งเดียว ([] deps)
+    // ปล่อยงานลงการ์ดปลายทาง — งานมอบหมายย้ายเจ้าของ / งานประจำมอบต่อเฉพาะวันนั้น
+    const dropOn = (d: NonNullable<typeof dragRef.current>, to: string) => {
+      if (d.kind === 'adhoc') return reassign(d.task, to);
+      return doBypass(d.from, d.node, 'ให้คนอื่นทำแทน', to);
+    };
+    // เก็บตัวล่าสุดไว้ใน ref เพื่อให้ effect ข้างล่างผูก listener ครั้งเดียว ([] deps)
     // ไม่งั้นต้อง re-register ทุกเฟรมระหว่างลาก (setDrag ยิงทุก pointermove)
-    const reassignRef = useRef(reassign);
-    reassignRef.current = reassign;
+    const dropRef = useRef(dropOn);
+    dropRef.current = dropOn;
 
     useEffect(() => {
       const start = (d: NonNullable<typeof dragRef.current>, x: number, y: number) => {
         d.active = true;
-        setDrag({ title: d.task.title, x, y, over: d.from, from: d.from });
+        setDrag({ title: d.kind === 'adhoc' ? d.task.title : d.node.title, x, y, over: d.from, from: d.from });
       };
       const move = (e: PointerEvent) => {
         const d = dragRef.current; if (!d) return;
@@ -1956,7 +1964,7 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
         dragRef.current = null;
         if (d?.timer) clearTimeout(d.timer);
         setDrag(null);
-        if (d?.active && d.over && d.over !== d.from) reassignRef.current(d.task, d.over);
+        if (d?.active && d.over && d.over !== d.from) dropRef.current(d, d.over);
       };
       window.addEventListener('pointermove', move, { passive: false });
       window.addEventListener('pointerup', end);
@@ -2104,7 +2112,10 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
             <div style={{ padding: '8px 15px 14px' }}>
               {p.nodes.map(n => { const gk = `${p.key}|${n.key}`; return (
                 <div key={gk} style={{ marginLeft: n.depth * 22 }}>
-                <div style={row}>
+                {/* ลากไปวางที่การ์ดคนอื่น = มอบงานนี้ให้เขาทำแทนเฉพาะวันนี้ (กดคืนงานได้) */}
+                <div style={{ ...row, ...(n.bypassed ? {} : { cursor: 'grab', touchAction: 'pan-y', userSelect: 'none' }) }}
+                  onPointerDown={e => { if (!n.bypassed) onTaskPointerDown(e, { kind: 'routine', node: n }, p.key); }}
+                  title={n.bypassed ? undefined : 'ลากไปวางที่การ์ดคนอื่นเพื่อมอบงานให้เขาทำแทนวันนี้'}>
                   <input type="checkbox" disabled={n.bypassed} checked={n.checked} onChange={() => toggleNode(p.key, n)} style={cb(n.bypassed)} />
                   <span style={{ flex: 1, minWidth: 0, fontSize: '0.88rem', fontWeight: 500, fontFamily: n.mono ? 'ui-monospace, Menlo, monospace' : 'inherit', color: n.bypassed ? '#b0b8bd' : (n.checked ? '#9aa0a6' : '#37474f'), textDecoration: (n.checked || n.bypassed) ? 'line-through' : 'none' }}>{n.title}</span>
                   {n.bypassed ? (<>
@@ -2171,7 +2182,7 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
                 <div key={t.id}>
                   {/* ลากแถวนี้ไปวางบนการ์ดคนอื่น = ย้ายงานให้คนนั้นทำ */}
                   <div style={{ ...row, cursor: 'grab', touchAction: 'pan-y', userSelect: 'none' }}
-                    onPointerDown={e => onTaskPointerDown(e, t, p.key)} title="ลากไปวางที่การ์ดคนอื่นเพื่อย้ายงาน">
+                    onPointerDown={e => onTaskPointerDown(e, { kind: 'adhoc', task: t }, p.key)} title="ลากไปวางที่การ์ดคนอื่นเพื่อย้ายงาน">
                     <input type="checkbox" checked={t.status === 'done'} onChange={() => toggleAdhoc(t)} style={cb(false)} />
                     <span style={{ flex: 1, minWidth: 0, fontSize: '0.88rem', fontWeight: 500, color: t.status === 'done' ? '#9aa0a6' : '#37474f', textDecoration: t.status === 'done' ? 'line-through' : 'none' }}>{c.icon} {t.title}{t.location ? <small style={{ color: '#9aa0a6' }}> · 📍{t.location}</small> : null}</span>
                     {t.priority === 'urgent' && <span style={{ ...badge, background: '#ffebee', color: '#c62828' }}>🔴 ด่วน</span>}
