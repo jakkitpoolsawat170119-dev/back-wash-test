@@ -428,7 +428,8 @@ function buildBeforeAfterSVG(d) {
   push(`<rect x="0" y="0" width="${W}" height="${headH}" fill="${C.good}" opacity="0.07"/>`);
   push(`<rect x="0" y="0" width="4" height="${headH}" fill="${C.good}"/>`);
   push(icon('clip', PX, 14, 15, C.good));
-  push(text(PX + 22, 26, 12.5, 600, C.dim, 'บันทึกผลงานประจำ'));
+  // kicker ห้ามลงท้ายด้วยข้อความต่อท้าย — ตัวอักษรหลังสระ ำ จะโดนกลืน (ดู textRun)
+  push(text(PX + 22, 26, 12.5, 600, C.dim, d.kicker || 'บันทึกผลงานประจำ'));
   titleLines.forEach((ln, i) => push(text(PX, 52 + i * 22, 17, 700, C.ink, ln)));
   // ชื่อคน/วันที่/เวลา — แยกชิ้นเพราะชื่ออาจลงท้ายด้วย ำ (เช่น "ม้ำ") แล้วกลืนตัวคั่น
   const metaY = 52 + titleLines.length * 22 + 4;
@@ -441,30 +442,68 @@ function buildBeforeAfterSVG(d) {
   y = headH;
   push(`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
 
-  // 2) รูปคู่ ซ้าย-ขวา — กรอบเท่ากัน ครอบรูปแบบ slice (ไม่ยืดผิดสัดส่วน)
+  // 2) รูปก่อน-หลัง — ทุกอย่างต้องอยู่ในการ์ดใบเดียว (ห้ามแยกเป็นอัลบั้มตามหลัง)
+  //    ไม่มีรูปก่อนทำ → ให้ฝั่งหลังทำกินเต็มความกว้าง แทนที่จะโชว์กล่องเปล่าครึ่งใบ
   const gap = 10;
-  const pw = Math.floor((W - PX * 2 - gap) / 2);
+  const afterList = (Array.isArray(d.afterUris) ? d.afterUris : [d.afterUri]).filter(Boolean);
+  const hasBefore = !!d.beforeUri;
+  const fullW = W - PX * 2;
+  const halfW = Math.floor((fullW - gap) / 2);
   const ph = 148;
   y += 14;
-  const panel = (x, label, sub, uri, tint) => {
+  let cellSeq = 0;
+  // วาดรูป 1 ใบลงกรอบที่กำหนด (ครอบแบบ slice ไม่ยืดผิดสัดส่วน)
+  const cell = (x, top, w, h, uri) => {
+    const cid = `bac${cellSeq++}`;
+    push(`<defs><clipPath id="${cid}"><rect x="${x}" y="${top}" width="${w}" height="${h}" rx="8"/></clipPath></defs>`);
+    push(`<rect x="${x}" y="${top}" width="${w}" height="${h}" rx="8" fill="${C.surf2}"/>`);
+    if (uri) push(`<image href="${uri}" x="${x}" y="${top}" width="${w}" height="${h}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${cid})"/>`);
+    else push(text(x + w / 2, top + h / 2 + 4, 12.5, 500, C.dim, 'ไม่มีรูป', 'middle'));
+    push(`<rect x="${x}" y="${top}" width="${w}" height="${h}" rx="8" fill="none" stroke="${C.line}" stroke-width="1"/>`);
+  };
+  const label = (x, main, sub, tint) => {
     // label ลงท้ายด้วย ำ ("ก่อนทำ"/"หลังทำ") → คำต่อท้ายต้องแยกชิ้น ไม่งั้นโดนกลืน
     push(textRun(x, y + 11, [
-      { t: label, size: 11.5, weight: 700, fill: tint },
+      { t: main, size: 11.5, weight: 700, fill: tint },
       ...(sub ? [{ t: sub, size: 10.5, weight: 600, fill: C.line }] : []),
     ], 6));
-    const top = y + 20;
-    const cid = `p${x}`;
-    push(`<defs><clipPath id="${cid}"><rect x="${x}" y="${top}" width="${pw}" height="${ph}" rx="10"/></clipPath></defs>`);
-    push(`<rect x="${x}" y="${top}" width="${pw}" height="${ph}" rx="10" fill="${C.surf2}"/>`);
-    if (uri) {
-      push(`<image href="${uri}" x="${x}" y="${top}" width="${pw}" height="${ph}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${cid})"/>`);
-    } else {
-      push(text(x + pw / 2, top + ph / 2 + 4, 12.5, 500, C.dim, 'ไม่มีรูป', 'middle'));
-    }
-    push(`<rect x="${x}" y="${top}" width="${pw}" height="${ph}" rx="10" fill="none" stroke="${C.line}" stroke-width="1"/>`);
   };
-  panel(PX, 'ก่อนทำ', 'อ้างอิง', d.beforeUri, C.dim);
-  panel(PX + pw + gap, 'หลังทำ', d.timeLabel || '', d.afterUri, C.good);
+  // ฝั่งหลังทำ: 1 รูป = เต็มกรอบ · 2 = บน-ล่าง · 3-4 = ตาราง 2×2 · เกิน 4 = โชว์ 4 + ป้าย +N
+  const afterGrid = (x, top, w, h, list) => {
+    const g = 6;
+    const shown = list.slice(0, 4);
+    if (shown.length <= 1) { cell(x, top, w, h, shown[0] || null); }
+    else if (shown.length === 2) {
+      const hh = Math.floor((h - g) / 2);
+      cell(x, top, w, hh, shown[0]);
+      cell(x, top + hh + g, w, h - hh - g, shown[1]);
+    } else {
+      const hw = Math.floor((w - g) / 2), hh = Math.floor((h - g) / 2);
+      cell(x, top, hw, hh, shown[0]);
+      cell(x + hw + g, top, w - hw - g, hh, shown[1]);
+      // 3 รูป → ใบล่างกินเต็มแถว ไม่งั้นเหลือช่องโหว่มุมขวาล่าง
+      if (shown.length === 3) cell(x, top + hh + g, w, h - hh - g, shown[2]);
+      else { cell(x, top + hh + g, hw, h - hh - g, shown[2]); cell(x + hw + g, top + hh + g, w - hw - g, h - hh - g, shown[3]); }
+    }
+    // afterTotal = จำนวนรูปจริงทั้งหมด (ผู้เรียกโหลดมาแค่ 4 ใบที่จะโชว์ ป้าย +N เลยต้องอิงค่านี้)
+    const extra = Math.max(d.afterTotal || list.length, list.length) - shown.length;
+    if (extra > 0) {
+      const bw = measure(`+${extra}`, 12) + 16;
+      push(`<rect x="${x + w - bw - 6}" y="${top + h - 26}" width="${bw}" height="20" rx="10" fill="${C.bg}" opacity="0.82"/>`);
+      push(text(x + w - bw / 2 - 6, top + h - 11, 12, 800, C.ink, `+${extra}`, 'middle'));
+    }
+  };
+  const nAfter = Math.max(d.afterTotal || afterList.length, afterList.length);
+  const afterSub = nAfter > 1 ? `${nAfter} รูป` : (d.timeLabel || '');
+  if (hasBefore) {
+    label(PX, 'ก่อนทำ', d.beforeSub == null ? 'อ้างอิง' : d.beforeSub, C.dim);
+    label(PX + halfW + gap, 'หลังทำ', afterSub, C.good);
+    cell(PX, y + 20, halfW, ph, d.beforeUri);
+    afterGrid(PX + halfW + gap, y + 20, halfW, ph, afterList);
+  } else {
+    label(PX, 'หลังทำ', afterSub, C.good);
+    afterGrid(PX, y + 20, fullW, ph, afterList);
+  }
   y += 20 + ph + 14;
 
   // 3) FOOTER — ความคืบหน้าทีม (ซ้าย) + คนบันทึก (ขวา)
