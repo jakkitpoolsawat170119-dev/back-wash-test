@@ -461,6 +461,22 @@ function buildBeforeAfterSVG(d) {
     else push(text(x + w / 2, top + h / 2 + 4, 12.5, 500, C.dim, 'ไม่มีรูป', 'middle'));
     push(`<rect x="${x}" y="${top}" width="${w}" height="${h}" rx="8" fill="none" stroke="${C.line}" stroke-width="1"/>`);
   };
+  // ปิดท้ายการ์ด (footer + ประกอบ SVG) — ใช้ร่วมกันทั้งโหมดจับคู่ตามจุดและโหมดปกติ
+  const finishCard = () => {
+    const footH = 40;
+    push(`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
+    push(`<rect x="0" y="${y}" width="${W}" height="${footH}" fill="${C.surf}"/>`);
+    if (d.footer) push(text(PX, y + 25, 12, 500, C.dim, d.footer));
+    if (d.by) push(text(W - PX, y + 25, 12, 500, C.dim, `โดย ${d.by}`, 'end'));
+    y += footH;
+    const H = y;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<defs><clipPath id="rcba"><rect x="0" y="0" width="${W}" height="${H}" rx="22"/></clipPath></defs>
+<g clip-path="url(#rcba)">
+<rect x="0" y="0" width="${W}" height="${H}" fill="${C.bg}"/>
+${el.join('\n')}
+</g></svg>`;
+  };
   const label = (x, main, sub, tint) => {
     // label ลงท้ายด้วย ำ ("ก่อนทำ"/"หลังทำ") → คำต่อท้ายต้องแยกชิ้น ไม่งั้นโดนกลืน
     push(textRun(x, y + 11, [
@@ -493,6 +509,29 @@ function buildBeforeAfterSVG(d) {
       push(text(x + w - bw / 2 - 6, top + h - 11, 12, 800, C.ink, `+${extra}`, 'middle'));
     }
   };
+  // โหมด "จับคู่ตามจุด": pairs = [{label, beforeUri, afterUri}] → เรียงเป็นแถว จุดละแถว
+  // ให้เห็นชัดว่ารูปไหนคู่กับรูปไหน (พื้นที่เดียวแต่มีหลายจุด)
+  const pairs = Array.isArray(d.pairs) ? d.pairs.filter(Boolean) : null;
+  if (pairs && pairs.length) {
+    const shown = pairs.slice(0, 4);
+    const rowH = shown.length === 1 ? 148 : shown.length === 2 ? 116 : 90;
+    // หัวคอลัมน์บอกครั้งเดียว — ไม่ต้องเขียน ก่อน/หลัง ซ้ำทุกแถว
+    push(text(PX, y + 10, 11.5, 700, C.dim, 'ก่อนทำ'));
+    push(text(PX + halfW + gap, y + 10, 11.5, 700, C.good, 'หลังทำ'));
+    y += 18;
+    for (const p of shown) {
+      push(text(PX, y + 11, 11, 700, C.accent, p.label || ''));
+      const top = y + 17;
+      cell(PX, top, halfW, rowH, p.beforeUri);
+      cell(PX + halfW + gap, top, halfW, rowH, p.afterUri);
+      y += 17 + rowH + 10;
+    }
+    const extra = pairs.length - shown.length;
+    if (extra > 0) { push(text(PX, y + 6, 11.5, 600, C.dim, `+ อีก ${extra} จุด`)); y += 16; }
+    y += 4;
+    return finishCard();
+  }
+
   const nAfter = Math.max(d.afterTotal || afterList.length, afterList.length);
   const afterSub = nAfter > 1 ? `${nAfter} รูป` : (d.timeLabel || '');
   if (hasBefore) {
@@ -505,22 +544,7 @@ function buildBeforeAfterSVG(d) {
     afterGrid(PX, y + 20, fullW, ph, afterList);
   }
   y += 20 + ph + 14;
-
-  // 3) FOOTER — ความคืบหน้าทีม (ซ้าย) + คนบันทึก (ขวา)
-  const footH = 40;
-  push(`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
-  push(`<rect x="0" y="${y}" width="${W}" height="${footH}" fill="${C.surf}"/>`);
-  if (d.footer) push(text(PX, y + 25, 12, 500, C.dim, d.footer));
-  if (d.by) push(text(W - PX, y + 25, 12, 500, C.dim, `โดย ${d.by}`, 'end'));
-  y += footH;
-
-  const H = y;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-<defs><clipPath id="rcba"><rect x="0" y="0" width="${W}" height="${H}" rx="22"/></clipPath></defs>
-<g clip-path="url(#rcba)">
-<rect x="0" y="0" width="${W}" height="${H}" fill="${C.bg}"/>
-${el.join('\n')}
-</g></svg>`;
+  return finishCard();
 }
 
 function renderBeforeAfterCardPNG(data) {

@@ -1993,16 +1993,14 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
     const [title, setTitle] = useState('');
     const [loc, setLoc] = useState(LOCATIONS[0]);
     const [prio, setPrio] = useState('normal');
-    const [assignImgs, setAssignImgs] = useState<PhotoAttach[]>([]); // รูปแนบงาน (≤10)
-    // รายการรูปที่คนทำต้องถ่ายส่งกลับ — บอทจะถามทีละใบตามลำดับนี้ ครบแล้วปิดงานเอง
-    const [photoSpecs, setPhotoSpecs] = useState<string[]>(['หลังทำ']);
-    const [newSpec, setNewSpec] = useState('');
-    const toggleSpec = (s: string) => setPhotoSpecs(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
-    const addSpec = () => {
-      const s = newSpec.trim().slice(0, 24);
-      if (!s || photoSpecs.includes(s) || photoSpecs.length >= 6) return;
-      setPhotoSpecs(prev => [...prev, s]); setNewSpec('');
-    };
+    // จุดงาน — 1 จุด = 1 คู่รูป (ก่อนทำที่แนบตอนมอบ ↔ หลังทำที่คนทำถ่ายส่งกลับ)
+    // บอทจะถามทีละจุดตามลำดับนี้ และการ์ดรายงานจะจับคู่ให้ตรงจุด
+    type Spot = { label: string; photo: PhotoAttach | null };
+    const [spots, setSpots] = useState<Spot[]>([{ label: 'หลังทำ', photo: null }]);
+    const [spotPicking, setSpotPicking] = useState(-1);   // index ของจุดที่กำลังเลือกรูป
+    const patchSpot = (i: number, v: Partial<Spot>) => setSpots(prev => prev.map((s, j) => j === i ? { ...s, ...v } : s));
+    const addSpot = (label: string) => setSpots(prev => prev.length >= 6 ? prev : [...prev, { label, photo: null }]);
+    const delSpot = (i: number) => setSpots(prev => prev.length <= 1 ? prev : prev.filter((_, j) => j !== i));
     const [zoom, setZoom] = useState<string | null>(null);           // รูปที่กดขยาย (lightbox)
     // รูปงานโหลดแบบ lazy (กดดูค่อยดึง) เพื่อลด egress ของ DB — เก็บต่อ task id
     const [taskImgs, setTaskImgs] = useState<Record<number, { images: string[]; doneImages: string[] } | 'loading'>>({});
@@ -2037,11 +2035,19 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
         if (d.key) setAssignees(prev => prev.includes(d.key) ? prev : [...prev, d.key]);
       } catch { /* offline */ } finally { setAddingName(false); }
     };
+    // วางรูป (paste) หรือเลือกหลายไฟล์ → เติมให้จุดที่ยังไม่มีรูปตามลำดับ
     const addAssignImgs = async (files: FileList | File[]) => {
       const list = Array.from(files).filter(f => f.type.startsWith('image/'));
       const attaches: PhotoAttach[] = [];
       for (const f of list) { try { attaches.push(await resizePhoto(f)); } catch { /* ข้ามไฟล์เสีย */ } }
-      if (attaches.length) setAssignImgs(prev => [...prev, ...attaches].slice(0, 10));
+      if (!attaches.length) return;
+      setSpots(prev => {
+        const next = [...prev];
+        let k = 0;
+        for (let i = 0; i < next.length && k < attaches.length; i++) if (!next[i].photo) next[i] = { ...next[i], photo: attaches[k++] };
+        while (k < attaches.length && next.length < 6) next.push({ label: `จุดที่ ${next.length + 1}`, photo: attaches[k++] });
+        return next;
+      });
     };
     const [assigning, setAssigning] = useState(false);
     const assign = async () => {
@@ -2049,10 +2055,14 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
       setAssigning(true);
       try {
         // อัปโหลดรูปขึ้น Supabase Storage ก่อน → ส่งเป็น URL (ไม่เก็บ base64 ใน DB อีก)
+        // ต้องส่งเป็น array ที่ index ตรงกับ photoSpecs — จุดที่ไม่มีรูปส่ง '' ไว้กันลำดับเลื่อน
+        const valid = spots.filter(s => s.label.trim());
         const images: string[] = [];
-        for (const a of assignImgs) images.push(await uploadDutyImage(a.preview));
+        for (const s of valid) images.push(s.photo ? await uploadDutyImage(s.photo.preview) : '');
+        const photoSpecs = valid.map(s => s.label.trim());
         await post('/api/duty/assign', { date, assignees, category: cat, title: title.trim(), location: loc, priority: prio, operator: operatorName, images, workDate, dueTime, remindLead, photoSpecs });
-        setTitle(''); setAssignImgs([]); setRemindLead('none'); setDueTime(''); // คงคน+วันที่+รายการรูปไว้ เผื่อมอบงานถัดไป
+        // คงคน+วันที่+โครงจุดไว้ เผื่อมอบงานถัดไป แต่ล้างรูปของแต่ละจุด
+        setTitle(''); setSpots(prev => prev.map(s => ({ ...s, photo: null }))); setRemindLead('none'); setDueTime('');
       } finally { setAssigning(false); }
     };
 
@@ -2293,41 +2303,43 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
             </select>
           </label>
           {/* รายการรูปที่ต้องถ่ายส่งกลับ — บอทถามทีละใบตามลำดับนี้ ครบแล้วปิดงาน + ส่งการ์ดเอง */}
+          {/* จุดงาน — 1 จุด = 1 คู่รูป (ก่อนทำ ↔ หลังทำ) บอทถามทีละจุด การ์ดจับคู่ให้ตรงจุด */}
           <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a', marginBottom: 7 }}>
-            ต้องถ่ายรูปอะไรส่งกลับบ้าง <span style={{ fontWeight: 600, color: '#9aa0a6' }}>(บอทจะถามทีละรูปตามลำดับนี้)</span>
+            จุดที่ต้องทำ + รูปที่ต้องถ่ายส่งกลับ <span style={{ fontWeight: 600, color: '#9aa0a6' }}>(บอทถามทีละจุดตามลำดับนี้)</span>
           </div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+          <input ref={assignFileRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
+            onChange={e => {
+              const f = e.target.files?.[0];
+              if (spotPicking >= 0 && f) { resizePhoto(f).then(p => patchSpot(spotPicking, { photo: p })).catch(() => {}); }
+              else if (e.target.files?.length) addAssignImgs(e.target.files);
+              e.target.value = ''; setSpotPicking(-1);
+            }} />
+          {spots.map((s, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
+              <span style={{ width: 18, flexShrink: 0, fontSize: '0.72rem', fontWeight: 800, color: '#b0bec5', textAlign: 'right' }}>{i + 1}</span>
+              <input value={s.label} onChange={e => patchSpot(i, { label: e.target.value })} placeholder="ชื่อจุด เช่น ก่อนทำ / ประตูหน้า" maxLength={24}
+                style={{ flex: 1, minWidth: 0, boxSizing: 'border-box', padding: '8px 10px', border: '1px solid #e0e6ea', borderRadius: 10, fontSize: '0.82rem' }} />
+              {s.photo
+                ? <img src={s.photo.preview} alt="ก่อนทำ" title="รูปก่อนทำของจุดนี้ (แตะเพื่อขยาย)" onClick={() => setZoom(s.photo!.preview)}
+                    style={{ width: 38, height: 38, objectFit: 'cover', borderRadius: 8, border: '2px solid #b0bec5', cursor: 'zoom-in', flexShrink: 0 }} />
+                : <button onClick={() => { setSpotPicking(i); assignFileRef.current?.click(); }} title="แนบรูปก่อนทำของจุดนี้"
+                    style={{ border: '1px dashed #cbd5db', background: '#f7f9fa', color: '#78909c', borderRadius: 9, padding: '7px 9px', fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>📎 ก่อนทำ</button>}
+              {s.photo && <button onClick={() => patchSpot(i, { photo: null })} title="ลบรูป"
+                style={{ border: 'none', background: 'none', color: '#cfd8dc', fontSize: '1rem', cursor: 'pointer', padding: 0, flexShrink: 0 }}>×</button>}
+              {spots.length > 1 && <button onClick={() => delSpot(i)} title="ลบจุดนี้"
+                style={{ border: 'none', background: 'none', color: '#e57373', fontSize: '0.95rem', cursor: 'pointer', padding: '0 2px', flexShrink: 0 }}>🗑</button>}
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
             {['ก่อนทำ', 'หลังทำ', 'จุดที่แก้', 'มิเตอร์'].map(s => (
-              <button key={s} onClick={() => toggleSpec(s)} style={chip(photoSpecs.includes(s), '#00838f')}>{s}</button>
+              <button key={s} onClick={() => addSpot(s)} disabled={spots.length >= 6}
+                style={{ border: '1px solid #e0e6ea', background: '#fff', color: spots.length >= 6 ? '#cfd8dc' : '#00838f', borderRadius: 14, padding: '4px 10px', fontSize: '0.7rem', fontWeight: 700, cursor: spots.length >= 6 ? 'default' : 'pointer' }}>+ {s}</button>
             ))}
-            {photoSpecs.filter(s => !['ก่อนทำ', 'หลังทำ', 'จุดที่แก้', 'มิเตอร์'].includes(s)).map(s => (
-              <button key={s} onClick={() => toggleSpec(s)} style={chip(true, '#00838f')}>{s} ×</button>
-            ))}
+            <button onClick={() => addSpot(`จุดที่ ${spots.length + 1}`)} disabled={spots.length >= 6}
+              style={{ border: '1px dashed #cbd5db', background: '#fff', color: spots.length >= 6 ? '#cfd8dc' : '#546e7a', borderRadius: 14, padding: '4px 10px', fontSize: '0.7rem', fontWeight: 700, cursor: spots.length >= 6 ? 'default' : 'pointer' }}>+ เพิ่มจุด</button>
           </div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
-            <input value={newSpec} onChange={e => setNewSpec(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSpec()}
-              placeholder="➕ เพิ่มรูปที่ต้องถ่ายเอง…" maxLength={24}
-              style={{ flex: 1, minWidth: 0, boxSizing: 'border-box', padding: '8px 10px', border: '1px dashed #cbd5db', borderRadius: 10, fontSize: '0.82rem' }} />
-            <button onClick={addSpec} disabled={!newSpec.trim() || photoSpecs.length >= 6}
-              style={{ border: 'none', background: newSpec.trim() && photoSpecs.length < 6 ? '#37474f' : '#cfd8dc', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: '0.82rem', fontWeight: 700, cursor: newSpec.trim() ? 'pointer' : 'default', flexShrink: 0 }}>เพิ่ม</button>
-          </div>
-          <div style={{ fontSize: '0.7rem', color: photoSpecs.length ? '#9aa0a6' : '#c62828', marginBottom: 12 }}>
-            {photoSpecs.length ? `ลำดับ: ${photoSpecs.join(' → ')}` : '⚠️ ไม่เลือกเลย = ใช้ค่าเริ่มต้น "หลังทำ" 1 รูป'}
-          </div>
-
-          {/* แนบรูป (ทุกประเภท) */}
-          <input ref={assignFileRef} type="file" accept="image/*" multiple onChange={e => { if (e.target.files?.length) addAssignImgs(e.target.files); e.target.value = ''; }} style={{ display: 'none' }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-            <button onClick={() => assignFileRef.current?.click()} disabled={assignImgs.length >= 10}
-              style={{ border: '1px dashed #cbd5db', background: '#f7f9fa', color: '#546e7a', borderRadius: 11, padding: '8px 12px', fontSize: '0.82rem', fontWeight: 700, cursor: assignImgs.length >= 10 ? 'default' : 'pointer', opacity: assignImgs.length >= 10 ? 0.5 : 1 }}>📎 แนบรูป</button>
-            <span style={{ fontSize: '0.72rem', color: '#9aa0a6' }}>{assignImgs.length ? `${assignImgs.length}/10 รูป` : 'ไม่บังคับ · สูงสุด 10 รูป · วางรูป (paste) ได้'}</span>
-            {assignImgs.map((a, i) => (
-              <div key={i} style={{ position: 'relative' }}>
-                <img src={a.preview} alt="แนบ" onClick={() => setZoom(a.preview)} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 8, border: '1px solid #e0e0e0', cursor: 'zoom-in', display: 'block' }} />
-                <button onClick={() => setAssignImgs(prev => prev.filter((_, j) => j !== i))} title="ลบรูป"
-                  style={{ position: 'absolute', top: -6, right: -6, width: 18, height: 18, borderRadius: '50%', border: 'none', background: '#546e7a', color: '#fff', fontSize: '0.7rem', lineHeight: 1, cursor: 'pointer', display: 'grid', placeItems: 'center' }}>×</button>
-              </div>
-            ))}
+          <div style={{ fontSize: '0.7rem', color: '#9aa0a6', marginBottom: 12 }}>
+            คนทำจะถูกถามทีละจุด: {spots.map(s => s.label.trim() || '(ไม่มีชื่อ)').join(' → ')} · แนบรูปก่อนทำไว้ คนทำจะได้เห็นว่าต้องไปตรงไหน
           </div>
           <button onClick={assign} disabled={assigning} style={{ width: '100%', border: 'none', borderRadius: 12, padding: 13, fontWeight: 800, fontSize: '0.92rem', color: '#fff', background: assigning ? '#f0a868' : 'linear-gradient(135deg,#ff6b00,#ff8c00)', cursor: assigning ? 'default' : 'pointer' }}>{assigning ? '⏳ กำลังส่ง…' : '📨 มอบหมายงาน & แจ้งเตือน'}</button>
         </div>

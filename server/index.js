@@ -2482,17 +2482,30 @@ async function fetchAsDataUri(src) {
 // ส่งการ์ด "ก่อนทำ | หลังทำ" เข้า Telegram — รูป + ข้อความรวมอยู่ในภาพเดียว
 // เพื่อให้ forward ต่อเข้ากลุ่ม Line แล้วรูปกับข้อความไม่หลุดจากกัน (album ผูก caption กับรูปแรกเท่านั้น)
 // กติกา: 1 งาน = 1 การ์ด — ห้ามเอารูปของงานอื่น/คนอื่นมารวมใบเดียวกัน
-async function sendBeforeAfterCard({ date, personKey, title, kicker, beforeImage, beforeSub, afterImages, operator }) {
+// pairList = [{label, before, after}] → การ์ดโหมดจับคู่ตามจุด (ใช้แทน beforeImage/afterImages)
+async function sendBeforeAfterCard({ date, personKey, title, kicker, beforeImage, beforeSub, afterImages, pairList, operator }) {
   if (!process.env.TELEGRAM_CHAT_ID) return;
   const who = dutyName(personKey);
   const timeLabel = `${nowBKK().slice(11, 16)} น.`;
   const afters = (afterImages || []).filter(Boolean);
-  const countTxt = afters.length > 1 ? ` (${afters.length} รูป)` : '';
+  const usePairs = Array.isArray(pairList) && pairList.length > 1;   // จุดเดียวใช้เลย์เอาต์ปกติสวยกว่า
+  const countTxt = usePairs ? ` (${pairList.length} จุด)` : (afters.length > 1 ? ` (${afters.length} รูป)` : '');
   const caption = `✅ <b>${escapeHtml(who)}</b> ทำ "${escapeHtml(title)}" เสร็จแล้ว${countTxt}\n🗓 ${thaiDate(date)} · ${timeLabel}`;
   try {
-    // โหลดเฉพาะ 4 ใบที่จะโชว์จริง — ที่เหลือนับเป็นป้าย +N (afterTotal)
-    const uris = await Promise.all([fetchAsDataUri(beforeImage), ...afters.slice(0, 4).map(fetchAsDataUri)]);
-    const beforeUri = uris[0], afterUris = uris.slice(1).filter(Boolean);
+    let cardData;
+    if (usePairs) {
+      // โหลดเฉพาะ 4 จุดแรกที่จะโชว์ — ที่เหลือขึ้นเป็น "+ อีก N จุด"
+      const shown = pairList.slice(0, 4);
+      const loaded = await Promise.all(shown.map(async p => ({
+        label: p.label,
+        beforeUri: await fetchAsDataUri(p.before),
+        afterUri: await fetchAsDataUri(p.after),
+      })));
+      cardData = { pairs: [...loaded, ...pairList.slice(4)] };   // ตัวที่เกิน 4 ส่งไปแค่ให้นับจำนวน
+    } else {
+      const uris = await Promise.all([fetchAsDataUri(beforeImage), ...afters.slice(0, 4).map(fetchAsDataUri)]);
+      cardData = { beforeUri: uris[0], beforeSub, afterUris: uris.slice(1).filter(Boolean), afterTotal: afters.length };
+    }
     let footer = '';
     try {
       const duty = await buildDuty(date);
@@ -2500,14 +2513,15 @@ async function sendBeforeAfterCard({ date, personKey, title, kicker, beforeImage
     } catch { /* ไม่มีสรุปทีมก็ยังส่งการ์ดได้ */ }
     const png = renderBeforeAfterCardPNG({
       title, personName: who, dateLabel: thaiDate(date), timeLabel, kicker,
-      beforeUri, beforeSub, afterUris, afterTotal: afters.length, footer, by: operator || who,
+      footer, by: operator || who, ...cardData,
     });
     if (png) return await sendPhotoBufferToTelegram(png, 'image/png', caption);
   } catch (e) {
     console.error('[card] เรนเดอร์การ์ดไม่สำเร็จ → ถอยไปส่งแบบอัลบั้ม:', e.message);
   }
   // fallback: ส่งรูปแบบเดิม — caption อาจหลุดตอนแชร์ต่อ แต่ดีกว่าเงียบหาย
-  await sendPhotosToTelegram([beforeImage, ...afters].filter(Boolean), caption);
+  const flat = usePairs ? pairList.flatMap(p => [p.before, p.after]) : [beforeImage, ...afters];
+  await sendPhotosToTelegram(flat.filter(Boolean), caption);
 }
 
 // งานประจำ: รูปก่อนทำ = รูปอ้างอิงของหัวข้อนั้น (ตั้งไว้ครั้งเดียว ใช้ทุกวัน)
@@ -2523,15 +2537,20 @@ async function sendRoutineDoneCard({ date, assignee, nodeKey, title, doneImage, 
   });
 }
 
-// งานมอบหมาย: รูปก่อนทำ = รูปที่แนบตอนมอบงาน · รูปหลังทำ = done_images ทั้งหมด
+// งานมอบหมาย: จับคู่ตามจุด — photo_specs[i] คู่กับ images[i] (ก่อนทำ) และ done_images[i] (หลังทำ)
+// พื้นที่เดียวหลายจุด จะได้เห็นชัดว่ารูปไหนคู่กับรูปไหน
 async function sendAdhocDoneCard(taskId, operator) {
-  const row = (await dbAll('SELECT task_date, title, assignee, images, done_images, done_by FROM daily_tasks WHERE id = ?', [taskId]))[0];
+  const row = (await dbAll('SELECT task_date, title, assignee, images, done_images, done_by, photo_specs FROM daily_tasks WHERE id = ?', [taskId]))[0];
   if (!row) return;
-  const parse = (s) => { try { const a = JSON.parse(s || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
+  const specs = parsePhotoSpecs(row.photo_specs);
+  const befores = parseImgsAligned(row.images);
+  const afters = parseImgs(row.done_images);
+  const pairList = specs.map((label, i) => ({ label, before: befores[i] || null, after: afters[i] || null }));
   return sendBeforeAfterCard({
     date: row.task_date || todayBKK(), personKey: row.assignee, title: row.title || '',
-    kicker: 'บันทึกผลงานมอบหมาย', beforeImage: parse(row.images)[0] || null, beforeSub: 'ตอนมอบงาน',
-    afterImages: parse(row.done_images), operator: operator || row.done_by || '',
+    kicker: 'บันทึกผลงานมอบหมาย', beforeSub: 'ตอนมอบงาน',
+    beforeImage: befores[0] || null, afterImages: afters,   // ใช้ตอนมีจุดเดียว
+    pairList, operator: operator || row.done_by || '',
   });
 }
 
@@ -2639,7 +2658,10 @@ app.post('/api/duty/assign', async (req, res) => {
   const d = workDate || date || todayBKK();
   const due = (dueTime && /^\d\d:\d\d/.test(dueTime)) ? dueTime.slice(0, 5) : null;
   const remindAt = computeRemindAt(d, due, remindLead);
-  const images = filterImgs(req.body.images);
+  // รูปก่อนทำ — index ต้องตรงกับ photoSpecs (จุดที่ไม่มีรูปเก็บเป็น '' ไว้กันลำดับเลื่อน)
+  const images = (Array.isArray(req.body.images) ? req.body.images : [])
+    .map(x => (typeof x === 'string' && (x.startsWith('http') || x.startsWith('data:'))) ? x : '')
+    .slice(0, 10);
   // รูปหลังทำ (ใบตรวจ: แก้เสร็จหน้างานแล้ว) → บันทึกเป็นหลักฐาน + ปิดงานทันที
   const doneImages = filterImgs(req.body.doneImages);
   const hasDone = doneImages.length > 0;
@@ -3622,6 +3644,10 @@ const DEFAULT_PHOTO_SPECS = ['หลังทำ'];
 function parseImgs(raw) {
   try { const a = JSON.parse(raw || '[]'); return Array.isArray(a) ? a.filter(Boolean) : []; } catch { return []; }
 }
+// แบบคงลำดับ (ไม่ตัดช่องว่างออก) — ใช้กับรูปก่อนทำที่ index ต้องตรงกับ photo_specs
+function parseImgsAligned(raw) {
+  try { const a = JSON.parse(raw || '[]'); return Array.isArray(a) ? a.map(x => x || null) : []; } catch { return []; }
+}
 // ข้อความขอรูปใบถัดไป — ความคืบหน้าคำนวณจากจำนวนรูปที่ถ่ายไปแล้ว ไม่ต้องเก็บ state เพิ่ม
 // (เข้ามาใหม่กลางคันก็ทำต่อจากเดิมได้เอง)
 function askNextPhoto(trow, taskId, page) {
@@ -3634,6 +3660,16 @@ function askNextPhoto(trow, taskId, page) {
       + `<i>ถ่ายใหม่หรือเลือกจากคลังก็ได้ · ส่งทีละรูป</i>`,
     reply_markup: { inline_keyboard: [[{ text: '✖️ ยกเลิก', callback_data: `t:${page}:x:${taskId}` }]] },
   };
+}
+// ส่งรูป "ก่อนทำ" ของจุดที่กำลังจะถ่าย ให้ดูเทียบก่อน (images[i] คู่กับ photo_specs[i])
+async function sendSpotReference(chatId, trow) {
+  const specs = parsePhotoSpecs(trow?.photo_specs);
+  const have = parseImgs(trow?.done_images).length;
+  const idx = Math.min(have, specs.length - 1);
+  const ref = parseImgsAligned(trow?.images)[idx];
+  if (!ref) return;
+  await sendPhotoToChat(chatId, ref, `🖼 <b>${escapeHtml(specs[idx])}</b> — จุดที่ต้องไปทำ`
+    + `${trow?.location ? `\n📍 ${escapeHtml(trow.location)}` : ''}`);
 }
 function parsePhotoSpecs(raw) {
   try {
@@ -3739,9 +3775,8 @@ app.post('/api/telegram/duty-update', (req, res) => {
             const chatId = cq.message?.chat?.id, userId = cq.from?.id;
             const trow = (await dbAll('SELECT title, location, images, done_images, photo_specs FROM daily_tasks WHERE id = ?', [taskId]))[0];
             await setPhotoWait(chatId, userId, taskId, page);
-            // 1) โชว์รูปงานให้ดูก่อนว่าต้องไปทำตรงไหน
-            const refs = parseImgs(trow?.images);
-            if (refs.length) await sendPhotoToChat(chatId, refs[0], `🖼 <b>${escapeHtml(trow?.title || '')}</b>${trow?.location ? `\n📍 ${escapeHtml(trow.location)}` : ''}\n<i>จุดที่ต้องไปทำ</i>`);
+            // 1) โชว์รูปก่อนทำ "ของจุดที่กำลังจะถ่าย" ให้ดูเทียบ
+            await sendSpotReference(chatId, trow);
             // 2) ขอรูปใบถัดไปตามรายการ
             await tgApi('sendMessage', { chat_id: chatId, parse_mode: 'HTML', ...askNextPhoto(trow, taskId, page) });
             await tgApi('answerCallbackQuery', { callback_query_id: cq.id, text: 'ถ่ายรูปได้เลย 📸' });
@@ -3816,7 +3851,8 @@ app.post('/api/telegram/duty-update', (req, res) => {
           return;
         }
         // งานมอบหมาย: เก็บรูปตามรายการที่คนมอบงานกำหนด — ครบเมื่อไหร่ = ปิดงาน (ไม่เดาเวลาแล้ว)
-        const trow = (await dbAll('SELECT title, done_images, photo_specs FROM daily_tasks WHERE id = ?', [wait.task_id]))[0];
+        const trow = (await dbAll('SELECT title, location, images, done_images, photo_specs FROM daily_tasks WHERE id = ?', [wait.task_id]))[0];
+        const trowImages = trow?.images;   // เก็บไว้ส่งต่อให้ sendSpotReference หารูปก่อนทำของจุดถัดไป
         const specs = parsePhotoSpecs(trow?.photo_specs);
         let imgs = parseImgs(trow?.done_images);
         imgs.push(dataUrl); imgs = imgs.slice(-10);
@@ -3827,9 +3863,11 @@ app.post('/api/telegram/duty-update', (req, res) => {
             text: `✅ ครบ ${specs.length} รูปแล้ว — ปิดงาน "<b>${escapeHtml(trow?.title || '')}</b>" กำลังส่งรายงานเข้ากลุ่ม…` });
           await finishAdhocWithPhotos(chatId, userId, wait.task_id, who);
         } else {
-          // ยังไม่ครบ → ขอใบถัดไปตามรายการ
+          // ยังไม่ครบ → โชว์รูปก่อนทำของจุดถัดไป แล้วขอรูปใบถัดไป
+          const next = { ...trow, done_images: JSON.stringify(imgs), images: trowImages, location: trow?.location };
+          await sendSpotReference(chatId, next);
           await tgApi('sendMessage', { chat_id: chatId, parse_mode: 'HTML',
-            ...askNextPhoto({ ...trow, done_images: JSON.stringify(imgs) }, wait.task_id, wait.page) });
+            ...askNextPhoto(next, wait.task_id, wait.page) });
         }
         return;
       }
