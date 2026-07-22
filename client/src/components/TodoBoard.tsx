@@ -1993,7 +1993,10 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
     const [title, setTitle] = useState('');
     const [loc, setLoc] = useState(LOCATIONS[0]);
     const [prio, setPrio] = useState('normal');
-    // จุดงาน — 1 จุด = 1 คู่รูป (ก่อนทำที่แนบตอนมอบ ↔ หลังทำที่คนทำถ่ายส่งกลับ)
+    const [machine, setMachine] = useState('');    // พื้นที่/เครื่องจักร (พิมพ์เอง)
+    const [reporter, setReporter] = useState('');  // คนแจ้ง (key จากรายชื่อทีม)
+    const [moreOpen, setMoreOpen] = useState(false); // ตัวเลือกรอง (ประเภท/ด่วน/วันเวลา/เตือน) พับไว้
+    // จุดเทียบ — 1 จุด = 1 คู่รูป (ก่อนที่แนบตอนจ่ายงาน ↔ หลังที่คนทำถ่ายส่งกลับ)
     // บอทจะถามทีละจุดตามลำดับนี้ และการ์ดรายงานจะจับคู่ให้ตรงจุด
     type Spot = { label: string; photo: PhotoAttach | null };
     const [spots, setSpots] = useState<Spot[]>([{ label: 'หลังทำ', photo: null }]);
@@ -2060,9 +2063,9 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
         const images: string[] = [];
         for (const s of valid) images.push(s.photo ? await uploadDutyImage(s.photo.preview) : '');
         const photoSpecs = valid.map(s => s.label.trim());
-        await post('/api/duty/assign', { date, assignees, category: cat, title: title.trim(), location: loc, priority: prio, operator: operatorName, images, workDate, dueTime, remindLead, photoSpecs });
-        // คงคน+วันที่+โครงจุดไว้ เผื่อมอบงานถัดไป แต่ล้างรูปของแต่ละจุด
-        setTitle(''); setSpots(prev => prev.map(s => ({ ...s, photo: null }))); setRemindLead('none'); setDueTime('');
+        await post('/api/duty/assign', { date, assignees, category: cat, title: title.trim(), location: loc, priority: prio, operator: operatorName, images, workDate, dueTime, remindLead, photoSpecs, machine: machine.trim(), reporter });
+        // คงคน+วันที่+โครงจุดไว้ เผื่อจ่ายงานถัดไป แต่ล้างเนื้องานกับรูป
+        setTitle(''); setMachine(''); setSpots(prev => prev.map(s => ({ ...s, photo: null }))); setRemindLead('none'); setDueTime('');
       } finally { setAssigning(false); }
     };
 
@@ -2245,7 +2248,7 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
         {/* assign form */}
         <div style={{ ...card }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>➕ มอบหมายงานระหว่างวัน</div>
+            <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>📋 จ่ายงาน</div>
             <button onClick={() => setManageOpen(true)} style={{ border: '1px solid #e0e0e0', background: '#fff', color: '#546e7a', borderRadius: 9, padding: '5px 10px', fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer' }}>⚙️ จัดการคน/งาน</button>
           </div>
           <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a', marginBottom: 7 }}>ส่งให้ <span style={{ fontWeight: 600, color: '#9aa0a6' }}>(เลือกได้หลายคน)</span></div>
@@ -2263,49 +2266,33 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
             <button onClick={addPerson} disabled={!newName.trim() || addingName}
               style={{ border: 'none', background: newName.trim() ? '#37474f' : '#cfd8dc', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: '0.82rem', fontWeight: 700, cursor: newName.trim() ? 'pointer' : 'default', flexShrink: 0 }}>{addingName ? '…' : 'เพิ่ม'}</button>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
-            <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a' }}>ประเภทงาน</div>
-            {onGoToAudit && (
-              <button onClick={onGoToAudit} title="เปิดพื้นที่รับผิดชอบ — แบ่งงานอัตโนมัติ / ติดตามผล / แก้กฎ"
-                style={{ border: '1px solid #b2ebf2', background: '#e0f7fa', color: '#00838f', borderRadius: 20, padding: '5px 12px', fontSize: '0.74rem', fontWeight: 800, cursor: 'pointer' }}>
-                🧾 พื้นที่รับผิดชอบ →
-              </button>
-            )}
-          </div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-            {CAT_KEYS.map(k => { const cc = CAT_COLOR[k] || { c: '#ff6b00', w: '#fff3e9' }; const on = cat === k; return (
-              <button key={k} onClick={() => setCat(k)} style={{ border: '2px solid', borderColor: on ? 'transparent' : '#e0e0e0', background: on ? '#ff6b00' : cc.w, color: on ? '#fff' : cc.c, borderRadius: 22, padding: '7px 13px', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer' }}>{CAT[k].icon} {CAT[k].label}</button>
-            ); })}
-          </div>
+          {/* ── แก่นงาน: พื้นที่ · ปัญหา · สถานที่ · คนแจ้ง (เห็นครบในจอเดียว) ────── */}
+          <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a', marginBottom: 5 }}>📌 พื้นที่</div>
+          <input value={machine} onChange={e => setMachine(e.target.value)}
+            placeholder="เช่น เครื่องบรรจุ Line 3 / โซนไซรัป"
+            style={{ width: '100%', boxSizing: 'border-box', padding: '10px', border: '1px solid #ddd', borderRadius: 11, marginBottom: 10 }} />
+
+          <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a', marginBottom: 5 }}>⚠️ ปัญหาที่เจอ</div>
           <input value={title} onChange={e => setTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && assign()}
             onPaste={e => { const fs = Array.from(e.clipboardData.items).filter(i => i.type.startsWith('image/')).map(i => i.getAsFile()).filter(Boolean) as File[]; if (fs.length) addAssignImgs(fs); }}
-            placeholder="ชื่องาน เช่น เปลี่ยนกรอง Line 3 ก่อนรอบบ่าย"
+            placeholder="เช่น สายพานหลุด / น้ำหยดจากหัวฉีด"
             style={{ width: '100%', boxSizing: 'border-box', padding: '10px', border: '1px solid #ddd', borderRadius: 11, marginBottom: 10 }} />
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-            <select value={loc} onChange={e => setLoc(e.target.value)} style={{ padding: 10, border: '1px solid #ddd', borderRadius: 11 }}>{LOCATIONS.map(l => <option key={l}>{l}</option>)}</select>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => setPrio('normal')} style={{ ...chip(prio === 'normal', '#546e7a'), flex: 1, textAlign: 'center' }}>ปกติ</button>
-              <button onClick={() => setPrio('urgent')} style={{ ...chip(prio === 'urgent', '#c62828'), flex: 1, textAlign: 'center' }}>🔴 ด่วน</button>
-            </div>
-          </div>
-          {/* วันที่ทำ + เวลา + แจ้งเตือนล่วงหน้า */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
-            <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#546e7a' }}>🗓 วันที่ทำ
-              <input type="date" value={workDate} onChange={e => setWorkDate(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 9, border: '1px solid #ddd', borderRadius: 11, fontFamily: 'inherit', fontSize: '0.85rem' }} />
+            <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#546e7a' }}>📍 สถานที่
+              <select value={loc} onChange={e => setLoc(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 10, border: '1px solid #ddd', borderRadius: 11, fontFamily: 'inherit', fontSize: '0.85rem' }}>{LOCATIONS.map(l => <option key={l}>{l}</option>)}</select>
             </label>
-            <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#546e7a' }}>⏰ เวลา (ไม่บังคับ)
-              <input type="time" value={dueTime} onChange={e => setDueTime(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 9, border: '1px solid #ddd', borderRadius: 11, fontFamily: 'inherit', fontSize: '0.85rem' }} />
+            <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#546e7a' }}>🙋 คนแจ้ง
+              <select value={reporter} onChange={e => setReporter(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 10, border: '1px solid #ddd', borderRadius: 11, fontFamily: 'inherit', fontSize: '0.85rem' }}>
+                <option value="">— ไม่ระบุ —</option>
+                {duty.people.map(p => <option key={p.key} value={p.key}>{p.name}</option>)}
+              </select>
             </label>
           </div>
-          <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#546e7a', marginBottom: 12 }}>🔔 แจ้งเตือนล่วงหน้า (เข้า Telegram)
-            <select value={remindLead} onChange={e => setRemindLead(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 10, border: '1px solid #ddd', borderRadius: 11, fontFamily: 'inherit', fontSize: '0.85rem', background: remindLead !== 'none' ? '#fff8e1' : '#fff' }}>
-              {REMIND_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
-          </label>
           {/* รายการรูปที่ต้องถ่ายส่งกลับ — บอทถามทีละใบตามลำดับนี้ ครบแล้วปิดงาน + ส่งการ์ดเอง */}
-          {/* จุดงาน — 1 จุด = 1 คู่รูป (ก่อนทำ ↔ หลังทำ) บอทถามทีละจุด การ์ดจับคู่ให้ตรงจุด */}
-          <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a', marginBottom: 7 }}>
-            จุดที่ต้องทำ + รูปที่ต้องถ่ายส่งกลับ <span style={{ fontWeight: 600, color: '#9aa0a6' }}>(บอทถามทีละจุดตามลำดับนี้)</span>
+          {/* ── รูปเทียบ ก่อน–หลัง: 1 แถว = 1 จุด · ซ้าย=คุณแนบ ขวา=คนทำถ่าย ─────── */}
+          <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a', marginBottom: 6 }}>
+            📸 รูปเทียบ ก่อน–หลัง <span style={{ fontWeight: 600, color: '#9aa0a6' }}>(จับคู่ให้เห็นว่าจุดไหนก่อน จุดไหนหลัง)</span>
           </div>
           <input ref={assignFileRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
             onChange={e => {
@@ -2314,33 +2301,82 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
               else if (e.target.files?.length) addAssignImgs(e.target.files);
               e.target.value = ''; setSpotPicking(-1);
             }} />
-          {spots.map((s, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
-              <span style={{ width: 18, flexShrink: 0, fontSize: '0.72rem', fontWeight: 800, color: '#b0bec5', textAlign: 'right' }}>{i + 1}</span>
-              <input value={s.label} onChange={e => patchSpot(i, { label: e.target.value })} placeholder="ชื่อจุด เช่น ก่อนทำ / ประตูหน้า" maxLength={24}
-                style={{ flex: 1, minWidth: 0, boxSizing: 'border-box', padding: '8px 10px', border: '1px solid #e0e6ea', borderRadius: 10, fontSize: '0.82rem' }} />
-              {s.photo
-                ? <img src={s.photo.preview} alt="ก่อนทำ" title="รูปก่อนทำของจุดนี้ (แตะเพื่อขยาย)" onClick={() => setZoom(s.photo!.preview)}
-                    style={{ width: 38, height: 38, objectFit: 'cover', borderRadius: 8, border: '2px solid #b0bec5', cursor: 'zoom-in', flexShrink: 0 }} />
-                : <button onClick={() => { setSpotPicking(i); assignFileRef.current?.click(); }} title="แนบรูปก่อนทำของจุดนี้"
-                    style={{ border: '1px dashed #cbd5db', background: '#f7f9fa', color: '#78909c', borderRadius: 9, padding: '7px 9px', fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>📎 ก่อนทำ</button>}
-              {s.photo && <button onClick={() => patchSpot(i, { photo: null })} title="ลบรูป"
-                style={{ border: 'none', background: 'none', color: '#cfd8dc', fontSize: '1rem', cursor: 'pointer', padding: 0, flexShrink: 0 }}>×</button>}
-              {spots.length > 1 && <button onClick={() => delSpot(i)} title="ลบจุดนี้"
-                style={{ border: 'none', background: 'none', color: '#e57373', fontSize: '0.95rem', cursor: 'pointer', padding: '0 2px', flexShrink: 0 }}>🗑</button>}
-            </div>
-          ))}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
-            {['ก่อนทำ', 'หลังทำ', 'จุดที่แก้', 'มิเตอร์'].map(s => (
-              <button key={s} onClick={() => addSpot(s)} disabled={spots.length >= 6}
-                style={{ border: '1px solid #e0e6ea', background: '#fff', color: spots.length >= 6 ? '#cfd8dc' : '#00838f', borderRadius: 14, padding: '4px 10px', fontSize: '0.7rem', fontWeight: 700, cursor: spots.length >= 6 ? 'default' : 'pointer' }}>+ {s}</button>
+          <div style={{ border: '1px solid #e6ebee', borderRadius: 13, background: '#fbfcfd', overflow: 'hidden', marginBottom: 6 }}>
+            {spots.map((s, i) => (
+              <div key={i} style={{ padding: '11px 12px', borderTop: i ? '1px solid #eef2f4' : 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span style={{ flexShrink: 0, fontSize: '0.68rem', fontWeight: 800, color: '#00838f', background: '#e0f7fa', border: '1px solid #b2ebf2', borderRadius: 7, padding: '3px 8px', whiteSpace: 'nowrap' }}>จุดที่ {i + 1}</span>
+                  <input value={s.label} onChange={e => patchSpot(i, { label: e.target.value })} placeholder="ชื่อจุด เช่น ประตูหน้า" maxLength={24}
+                    style={{ flex: 1, minWidth: 0, boxSizing: 'border-box', padding: '7px 9px', border: '1px solid #e0e6ea', borderRadius: 9, fontSize: '0.8rem' }} />
+                  {spots.length > 1 && <button onClick={() => delSpot(i)} title="ลบจุดนี้"
+                    style={{ border: 'none', background: 'none', color: '#cfd8dc', fontSize: '0.9rem', cursor: 'pointer', padding: 0, flexShrink: 0 }}>🗑</button>}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'stretch', gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.63rem', fontWeight: 800, color: '#607d8b', marginBottom: 4 }}>📎 ก่อน · คุณแนบ</div>
+                    {s.photo
+                      ? <div style={{ position: 'relative' }}>
+                          <img src={s.photo.preview} alt="ก่อน" onClick={() => setZoom(s.photo!.preview)}
+                            style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 9, cursor: 'zoom-in', display: 'block' }} />
+                          <button onClick={() => patchSpot(i, { photo: null })} title="ลบรูป"
+                            style={{ position: 'absolute', top: -5, right: -5, width: 18, height: 18, borderRadius: '50%', border: 'none', background: '#546e7a', color: '#fff', fontSize: '0.7rem', lineHeight: 1, cursor: 'pointer', display: 'grid', placeItems: 'center' }}>×</button>
+                        </div>
+                      : <button onClick={() => { setSpotPicking(i); assignFileRef.current?.click(); }}
+                          style={{ width: '100%', height: 60, border: '1.5px dashed #c4cdd3', background: '#fff', color: '#8a949c', borderRadius: 9, fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>+ แนบรูป</button>}
+                  </div>
+                  <span style={{ alignSelf: 'center', color: '#b0bec5', fontWeight: 800, flexShrink: 0, paddingTop: 15 }}>→</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.63rem', fontWeight: 800, color: '#2e7d32', marginBottom: 4 }}>📸 หลัง</div>
+                    <div style={{ height: 60, border: '1.5px dashed #bfd8c4', background: '#fff', color: '#6aa77c', borderRadius: 9, fontSize: '0.72rem', fontWeight: 700, display: 'grid', placeItems: 'center' }}>คนทำถ่าย</div>
+                  </div>
+                </div>
+              </div>
             ))}
             <button onClick={() => addSpot(`จุดที่ ${spots.length + 1}`)} disabled={spots.length >= 6}
-              style={{ border: '1px dashed #cbd5db', background: '#fff', color: spots.length >= 6 ? '#cfd8dc' : '#546e7a', borderRadius: 14, padding: '4px 10px', fontSize: '0.7rem', fontWeight: 700, cursor: spots.length >= 6 ? 'default' : 'pointer' }}>+ เพิ่มจุด</button>
+              style={{ display: 'block', width: '100%', border: 'none', borderTop: '1px dashed #dbe3e7', background: '#f5fafb', color: spots.length >= 6 ? '#cfd8dc' : '#00838f', fontSize: '0.78rem', fontWeight: 800, padding: 11, cursor: spots.length >= 6 ? 'default' : 'pointer' }}>+ เพิ่มจุดเทียบ</button>
           </div>
           <div style={{ fontSize: '0.7rem', color: '#9aa0a6', marginBottom: 12 }}>
-            คนทำจะถูกถามทีละจุด: {spots.map(s => s.label.trim() || '(ไม่มีชื่อ)').join(' → ')} · แนบรูปก่อนทำไว้ คนทำจะได้เห็นว่าต้องไปตรงไหน
+            บอทถามคนทำ <b style={{ color: '#607d8b' }}>ทีละจุด</b> · การ์ดสรุปเรียง <b style={{ color: '#607d8b' }}>ก่อน | หลัง เป็นคู่</b> ให้อัตโนมัติ
           </div>
+
+          {/* ── ตัวเลือกเพิ่มเติม (พับไว้ — ไม่ได้ใช้ทุกวัน) ─────────────────────── */}
+          <button onClick={() => setMoreOpen(o => !o)}
+            style={{ width: '100%', textAlign: 'left', border: '1px solid #e6ebee', background: '#fff', color: '#546e7a', borderRadius: 11, padding: '9px 12px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', marginBottom: moreOpen ? 10 : 12 }}>
+            {moreOpen ? '▾' : '▸'} ตัวเลือกเพิ่มเติม <span style={{ fontWeight: 600, color: '#9aa0a6' }}>· ประเภทงาน · ด่วน · วันที่/เวลา · แจ้งเตือน</span>
+          </button>
+          {moreOpen && (<>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
+              <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#546e7a' }}>ประเภทงาน</div>
+              {onGoToAudit && (
+                <button onClick={onGoToAudit} title="เปิดพื้นที่รับผิดชอบ — แบ่งงานอัตโนมัติ / ติดตามผล / แก้กฎ"
+                  style={{ border: '1px solid #b2ebf2', background: '#e0f7fa', color: '#00838f', borderRadius: 20, padding: '5px 12px', fontSize: '0.74rem', fontWeight: 800, cursor: 'pointer' }}>
+                  🧾 พื้นที่รับผิดชอบ →
+                </button>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+              {CAT_KEYS.map(k => { const cc = CAT_COLOR[k] || { c: '#ff6b00', w: '#fff3e9' }; const on = cat === k; return (
+                <button key={k} onClick={() => setCat(k)} style={{ border: '2px solid', borderColor: on ? 'transparent' : '#e0e0e0', background: on ? '#ff6b00' : cc.w, color: on ? '#fff' : cc.c, borderRadius: 22, padding: '7px 13px', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer' }}>{CAT[k].icon} {CAT[k].label}</button>
+              ); })}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <button onClick={() => setPrio('normal')} style={{ ...chip(prio === 'normal', '#546e7a'), flex: 1, textAlign: 'center' }}>ปกติ</button>
+              <button onClick={() => setPrio('urgent')} style={{ ...chip(prio === 'urgent', '#c62828'), flex: 1, textAlign: 'center' }}>🔴 ด่วน</button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
+              <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#546e7a' }}>🗓 วันที่ทำ
+                <input type="date" value={workDate} onChange={e => setWorkDate(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 9, border: '1px solid #ddd', borderRadius: 11, fontFamily: 'inherit', fontSize: '0.85rem' }} />
+              </label>
+              <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#546e7a' }}>⏰ เวลา (ไม่บังคับ)
+                <input type="time" value={dueTime} onChange={e => setDueTime(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 9, border: '1px solid #ddd', borderRadius: 11, fontFamily: 'inherit', fontSize: '0.85rem' }} />
+              </label>
+            </div>
+            <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#546e7a', marginBottom: 12 }}>🔔 แจ้งเตือนล่วงหน้า (เข้า Telegram)
+              <select value={remindLead} onChange={e => setRemindLead(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 10, border: '1px solid #ddd', borderRadius: 11, fontFamily: 'inherit', fontSize: '0.85rem', background: remindLead !== 'none' ? '#fff8e1' : '#fff' }}>
+                {REMIND_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </label>
+          </>)}
           <button onClick={assign} disabled={assigning} style={{ width: '100%', border: 'none', borderRadius: 12, padding: 13, fontWeight: 800, fontSize: '0.92rem', color: '#fff', background: assigning ? '#f0a868' : 'linear-gradient(135deg,#ff6b00,#ff8c00)', cursor: assigning ? 'default' : 'pointer' }}>{assigning ? '⏳ กำลังส่ง…' : '📨 มอบหมายงาน & แจ้งเตือน'}</button>
         </div>
 

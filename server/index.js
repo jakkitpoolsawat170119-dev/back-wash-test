@@ -358,7 +358,8 @@ async function initDb() {
   // แยกจาก source เพราะ source='assigned' ถูกใช้โดย duty board + reminder tick — เปลี่ยนไม่ได้
   // photo_specs: JSON array ป้ายรูปที่ต้องถ่าย เช่น ["ก่อนทำ","หลังทำ"] — คนมอบงานกำหนดตอนมอบ
   // NULL/ว่าง = ["หลังทำ"] (งานเก่าทั้งหมดยังทำงานได้เหมือนเดิม)
-  for (const col of ['assignee', 'location', 'priority', 'handoff_from', 'images', 'done_images', 'done_by', 'audit_batch', 'photo_specs']) {
+  // machine = พื้นที่/เครื่องจักร (พิมพ์เอง) · reporter = คนแจ้ง (เลือกจากทีม)
+  for (const col of ['assignee', 'location', 'priority', 'handoff_from', 'images', 'done_images', 'done_by', 'audit_batch', 'photo_specs', 'machine', 'reporter']) {
     try { await db.exec(`ALTER TABLE daily_tasks ADD COLUMN ${col} TEXT`); }
     catch { /* มีคอลัมน์อยู่แล้ว — ข้าม */ }
   }
@@ -2483,7 +2484,7 @@ async function fetchAsDataUri(src) {
 // เพื่อให้ forward ต่อเข้ากลุ่ม Line แล้วรูปกับข้อความไม่หลุดจากกัน (album ผูก caption กับรูปแรกเท่านั้น)
 // กติกา: 1 งาน = 1 การ์ด — ห้ามเอารูปของงานอื่น/คนอื่นมารวมใบเดียวกัน
 // pairList = [{label, before, after}] → การ์ดโหมดจับคู่ตามจุด (ใช้แทน beforeImage/afterImages)
-async function sendBeforeAfterCard({ date, personKey, title, kicker, beforeImage, beforeSub, afterImages, pairList, operator }) {
+async function sendBeforeAfterCard({ date, personKey, title, kicker, beforeImage, beforeSub, afterImages, pairList, operator, footerExtra }) {
   if (!process.env.TELEGRAM_CHAT_ID) return;
   const who = dutyName(personKey);
   const timeLabel = `${nowBKK().slice(11, 16)} น.`;
@@ -2506,10 +2507,11 @@ async function sendBeforeAfterCard({ date, personKey, title, kicker, beforeImage
       const uris = await Promise.all([fetchAsDataUri(beforeImage), ...afters.slice(0, 4).map(fetchAsDataUri)]);
       cardData = { beforeUri: uris[0], beforeSub, afterUris: uris.slice(1).filter(Boolean), afterTotal: afters.length };
     }
-    let footer = '';
+    let footer = footerExtra || '';
     try {
       const duty = await buildDuty(date);
-      footer = `ทีมวันนี้ ${duty.team.done}/${duty.team.total} งาน · ${duty.team.pct}%`;
+      const teamTxt = `ทีมวันนี้ ${duty.team.done}/${duty.team.total} งาน · ${duty.team.pct}%`;
+      footer = footerExtra ? `${footerExtra} · ${teamTxt}` : teamTxt;
     } catch { /* ไม่มีสรุปทีมก็ยังส่งการ์ดได้ */ }
     const png = renderBeforeAfterCardPNG({
       title, personName: who, dateLabel: thaiDate(date), timeLabel, kicker,
@@ -2540,17 +2542,20 @@ async function sendRoutineDoneCard({ date, assignee, nodeKey, title, doneImage, 
 // งานมอบหมาย: จับคู่ตามจุด — photo_specs[i] คู่กับ images[i] (ก่อนทำ) และ done_images[i] (หลังทำ)
 // พื้นที่เดียวหลายจุด จะได้เห็นชัดว่ารูปไหนคู่กับรูปไหน
 async function sendAdhocDoneCard(taskId, operator) {
-  const row = (await dbAll('SELECT task_date, title, assignee, images, done_images, done_by, photo_specs FROM daily_tasks WHERE id = ?', [taskId]))[0];
+  const row = (await dbAll('SELECT task_date, title, assignee, images, done_images, done_by, photo_specs, machine, location, reporter FROM daily_tasks WHERE id = ?', [taskId]))[0];
   if (!row) return;
   const specs = parsePhotoSpecs(row.photo_specs);
   const befores = parseImgsAligned(row.images);
   const afters = parseImgs(row.done_images);
   const pairList = specs.map((label, i) => ({ label, before: befores[i] || null, after: afters[i] || null }));
+  // หัวการ์ดบอกบริบท: พื้นที่ · สถานที่ — ให้คนอ่านในกลุ่มรู้ว่างานนี้ของเครื่องไหน ตรงไหน
+  const where = [row.machine, row.location].filter(Boolean).join(' · ');
   return sendBeforeAfterCard({
     date: row.task_date || todayBKK(), personKey: row.assignee, title: row.title || '',
-    kicker: 'บันทึกผลงานมอบหมาย', beforeSub: 'ตอนมอบงาน',
+    kicker: where || 'บันทึกผลงานมอบหมาย', beforeSub: 'ตอนมอบงาน',
     beforeImage: befores[0] || null, afterImages: afters,   // ใช้ตอนมีจุดเดียว
     pairList, operator: operator || row.done_by || '',
+    footerExtra: row.reporter ? `แจ้งโดย ${dutyName(row.reporter)}` : '',
   });
 }
 
@@ -2671,6 +2676,9 @@ app.post('/api/duty/assign', async (req, res) => {
   // มาจากใบตรวจไหม — 1 ครั้งที่กด "ส่งทั้งหมด" = 1 batch (ใช้จัดกลุ่ม + กรองในหน้าติดตามผล)
   const auditBatch = typeof req.body.auditBatch === 'string' && req.body.auditBatch.trim() ? req.body.auditBatch.trim().slice(0, 40) : null;
   // รายการรูปที่ต้องถ่าย — บอทจะถามทีละใบตามลำดับนี้ · ไม่ส่งมา = null → ฝั่งบอทใช้ default ["หลังทำ"]
+  // พื้นที่ (พิมพ์เอง) + คนแจ้ง (key จากรายชื่อทีม) — ใบแจ้งงานซ่อมต้องรู้ว่า "เครื่องไหน ใครแจ้ง"
+  const machine = typeof req.body.machine === 'string' && req.body.machine.trim() ? req.body.machine.trim().slice(0, 60) : null;
+  const reporter = typeof req.body.reporter === 'string' && req.body.reporter.trim() ? req.body.reporter.trim().slice(0, 40) : null;
   const rawSpecs = Array.isArray(req.body.photoSpecs) ? req.body.photoSpecs : null;
   const specs = rawSpecs
     ? rawSpecs.map(s => String(s || '').trim().slice(0, 24)).filter(Boolean).slice(0, 6)
@@ -2681,11 +2689,11 @@ app.post('/api/duty/assign', async (req, res) => {
     // → งานชื่อเดียวกันมอบให้หลายคนได้ (แต่ละคนได้แถวของตัวเอง) แทนที่จะทับกันเหลือคนสุดท้าย
     for (const assignTo of assignees) {
       await db.exec(
-        `INSERT INTO daily_tasks (task_date, line_name, category, title, status, source, assignee, location, priority, images, done_images, due_time, remind_at, remind_lead, reminded, completed_at, done_by, audit_batch, photo_specs, created_by, created_at)
-         VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO daily_tasks (task_date, line_name, category, title, status, source, assignee, location, priority, images, done_images, due_time, remind_at, remind_lead, reminded, completed_at, done_by, audit_batch, photo_specs, machine, reporter, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(task_date, line_name, category, title)
-         DO UPDATE SET assignee = excluded.assignee, location = excluded.location, priority = excluded.priority, images = excluded.images, done_images = excluded.done_images, status = excluded.status, due_time = excluded.due_time, remind_at = excluded.remind_at, remind_lead = excluded.remind_lead, reminded = 0, completed_at = excluded.completed_at, done_by = excluded.done_by, audit_batch = COALESCE(excluded.audit_batch, daily_tasks.audit_batch), photo_specs = COALESCE(excluded.photo_specs, daily_tasks.photo_specs)`,
-        [d, assignTo, category || 'manual', title, status, assignTo, location || null, priority || 'normal', JSON.stringify(images), JSON.stringify(doneImages), due, remindAt, remindLead || null, completedAt, doneBy, auditBatch, photoSpecs, operator || null, nowBKK()]);
+         DO UPDATE SET assignee = excluded.assignee, location = excluded.location, priority = excluded.priority, images = excluded.images, done_images = excluded.done_images, status = excluded.status, due_time = excluded.due_time, remind_at = excluded.remind_at, remind_lead = excluded.remind_lead, reminded = 0, completed_at = excluded.completed_at, done_by = excluded.done_by, audit_batch = COALESCE(excluded.audit_batch, daily_tasks.audit_batch), photo_specs = COALESCE(excluded.photo_specs, daily_tasks.photo_specs), machine = COALESCE(excluded.machine, daily_tasks.machine), reporter = COALESCE(excluded.reporter, daily_tasks.reporter)`,
+        [d, assignTo, category || 'manual', title, status, assignTo, location || null, priority || 'normal', JSON.stringify(images), JSON.stringify(doneImages), due, remindAt, remindLead || null, completedAt, doneBy, auditBatch, photoSpecs, machine, reporter, operator || null, nowBKK()]);
     }
     if (process.env.TELEGRAM_CHAT_ID) {
       const who = assignees.map(a => escapeHtml(dutyName(a))).join(', ');
@@ -2695,7 +2703,9 @@ app.post('/api/duty/assign', async (req, res) => {
         ``,
         `👤 <b>ผู้รับ:</b> ${who}`,
       ];
+      if (machine) L.push(`📌 <b>พื้นที่:</b> ${escapeHtml(machine)}`);
       if (location) L.push(`📍 <b>สถานที่:</b> ${escapeHtml(location)}`);
+      if (reporter) L.push(`🙋 <b>คนแจ้ง:</b> ${escapeHtml(dutyName(reporter))}`);
       L.push(`🗓 <b>วันที่ทำ:</b> ${thaiDate(d)}${due ? ` · ${due} น.` : ''}`);
       if (hasDone) L.push(`✅ <b>สถานะ:</b> เสร็จแล้ว (แนบรูปก่อน/หลัง)`);
       if (remindAt && !hasDone) L.push(`⏰ <b>เตือน:</b> ${REMIND_LABEL[remindLead] || remindLead} (${remindAt.slice(11)} น.)`);
