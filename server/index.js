@@ -2131,6 +2131,101 @@ app.post('/api/audit/route', async (req, res) => {
     res.json({ count: suggestions.length, suggestions });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// ── อ่านเอกสารตรวจจากรูป (Claude vision) → คืนแถวพร้อมเติมในฟอร์ม ──────────
+// เจ้าหน้าที่ส่งเอกสารเป็นรูปเข้า Line → วางในแอป → ไม่ต้องพิมพ์เองทีละแถว
+// ชื่อคนในเอกสาร (ถ้ามี) ชนะกฎแบ่งงาน — แมตช์กับ roster ให้แล้วคืน key มาด้วย
+const READ_SHEET_SCHEMA = {
+  type: 'object',
+  properties: {
+    rows: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          issue: { type: 'string', description: 'ประเด็น/ปัญหาที่พบ คงคำเดิมจากเอกสาร' },
+          location: { type: 'string', description: 'สถานที่/โซน ตามที่เขียนในเอกสาร ไม่มีให้เว้นว่าง' },
+          priority: { type: 'string', enum: ['normal', 'urgent'] },
+          assignee_name: { type: 'string', description: 'ชื่อผู้รับผิดชอบตามที่เขียนในเอกสาร ไม่มีให้เว้นว่าง' },
+        },
+        required: ['issue', 'location', 'priority', 'assignee_name'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['rows'],
+  additionalProperties: false,
+};
+// จับคู่ชื่อในเอกสาร → person_key (ตรงเป๊ะก่อน แล้วค่อยชื่อย่อย/ชื่อยาว) — กำกวม = ไม่แมตช์ ปล่อยให้กฎเดา
+function matchPersonByName(raw, roster) {
+  const n = _normText(raw);
+  if (!n) return null;
+  const exact = roster.filter(p => _normText(p.name) === n);
+  if (exact.length === 1) return exact[0].person_key;
+  const loose = roster.filter(p => { const pn = _normText(p.name); return pn && (pn.includes(n) || n.includes(pn)); });
+  return loose.length === 1 ? loose[0].person_key : null;
+}
+app.post('/api/audit/read-sheet', async (req, res) => {
+  const client = getAnthropic();
+  // ไม่มีคีย์ = ปิดเฉพาะฟีเจอร์อ่านรูป (503) ฟอร์มพิมพ์มือต้องใช้ได้ตามปกติ
+  if (!client) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์ — พิมพ์แถวเองได้ตามปกติ' });
+  const imgs = (Array.isArray(req.body.images) ? req.body.images : [])
+    .filter(im => im && im.data)
+    .map(im => ({ data: String(im.data), media_type: im.media_type || 'image/jpeg' }))
+    .slice(0, 6);
+  if (!imgs.length) return res.status(400).json({ error: 'ต้องแนบรูปเอกสารอย่างน้อย 1 รูป' });
+  const roster = getPeople();
+  const names = roster.map(p => p.name).join(', ');
+  const tileNote = imgs.length > 1
+    ? `\n(รูปที่แนบมา ${imgs.length} รูป — เป็นส่วนย่อยของเอกสารใบเดียวกันที่ครอปแยกเพื่อความชัด ให้ประกอบกันแล้วอ่านเรียงจากบนลงล่าง ห้ามนับแถวซ้ำ)`
+    : '';
+  const prompt = 'นี่คือรูปเอกสารตรวจพื้นที่ของโรงงานอาหาร ช่วยอ่านทุกแถวในตารางออกมาเป็นข้อมูล\n\n'
+    + 'กฎการอ่านที่ต้องทำตามเคร่งครัด:\n'
+    + '• อ่านเฉพาะที่เห็นในรูปเท่านั้น ห้ามแต่งเพิ่ม ห้ามสรุปใหม่ ห้ามแก้คำผิด — คงคำเดิมจากเอกสารทุกตัวอักษร\n'
+    + '• ช่องไหนอ่านไม่ชัดหรือไม่มีข้อมูล ให้เว้นเป็นข้อความว่าง อย่าเดา\n'
+    + '• priority = "urgent" เฉพาะแถวที่เอกสารระบุว่าด่วน/เร่งด่วน/ทำเครื่องหมายสีแดง นอกนั้น "normal"\n'
+    + '• ถ้ามีคอลัมน์ผู้รับผิดชอบ/ผู้ตรวจ/ผู้แก้ไข ให้ใส่ชื่อใน assignee_name ตามที่เขียน (ชื่อเล่นก็ได้) ไม่มีคอลัมน์นี้ให้เว้นว่าง\n'
+    + `• ชื่อคนที่เป็นไปได้ในโรงงานนี้: ${names}\n`
+    + '• ข้ามหัวตาราง เลขลำดับ และแถวว่าง — เอาเฉพาะแถวที่มีประเด็นจริง'
+    + tileNote;
+  try {
+    const resp = await client.messages.create({
+      model: 'claude-opus-4-8', max_tokens: 8000,
+      thinking: { type: 'adaptive' },
+      // structured output → JSON ตรงสเปกแน่นอน · effort medium พอสำหรับอ่านตาราง (ปรับลงได้ถ้าช้า)
+      output_config: { effort: 'medium', format: { type: 'json_schema', schema: READ_SHEET_SCHEMA } },
+      messages: [{
+        role: 'user',
+        content: [
+          ...imgs.map(im => ({ type: 'image', source: { type: 'base64', media_type: im.media_type, data: im.data } })),
+          { type: 'text', text: prompt },
+        ],
+      }],
+    });
+    const txt = resp.content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
+    let parsed;
+    try { parsed = JSON.parse(txt); }
+    catch { const m = txt.match(/\{[\s\S]*\}/); parsed = m ? JSON.parse(m[0]) : null; }
+    const rows = (parsed && Array.isArray(parsed.rows) ? parsed.rows : [])
+      .map(r => {
+        const issue = String(r.issue || '').trim();
+        const assigneeName = String(r.assignee_name || '').trim();
+        return {
+          issue, location: String(r.location || '').trim(),
+          priority: r.priority === 'urgent' ? 'urgent' : 'normal',
+          assigneeName, assigneeKey: matchPersonByName(assigneeName, roster),
+        };
+      })
+      .filter(r => r.issue);
+    const u = resp.usage || {};
+    console.log(`[read-sheet] imgs=${imgs.length} rows=${rows.length} in=${u.input_tokens || 0} out=${u.output_tokens || 0}`);
+    res.json({ count: rows.length, rows });
+  } catch (err) {
+    console.error('[read-sheet] error', err.message);
+    res.status(500).json({ error: `อ่านเอกสารไม่สำเร็จ: ${err.message}` });
+  }
+});
+
 // รายชื่อผู้รับได้ทั้งหมด (dropdown ในตารางรีวิว)
 app.get('/api/audit/people', (req, res) => {
   res.json({ people: getPeople().map(p => ({ key: p.person_key, name: p.name, role: p.role, color: p.color, dot: p.dot, kind: p.kind || 'shift' })) });

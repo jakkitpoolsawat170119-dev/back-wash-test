@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { uploadDutyImage } from '../lib/dutyImages';
 
 // ใช้ Render เป็นค่าเริ่มต้น; override ด้วย VITE_API_BASE เวลาทดสอบ local (เหมือน TodoBoard)
 const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
@@ -13,6 +14,7 @@ const catMeta = (k: string) => CAT_META[k] || CAT_META.cleaning;
 
 // ที่มาของการเดา
 const SRC_META: Record<string, { label: string; c: string; bg: string }> = {
+  sheet:  { label: '📄 จากเอกสาร', c: '#00695c', bg: '#e0f2f1' },
   rule:   { label: '🔒 กฎ',        c: '#2e7d32', bg: '#e8f5e9' },
   ai:     { label: '🤖 AI',        c: '#6a1b9a', bg: '#f3e5f5' },
   review: { label: '⚠️ เลือกเอง',  c: '#b26a00', bg: '#fff4e0' },
@@ -25,26 +27,30 @@ const ZONE_HINTS = [
   'ชั้น 3 หน้าไลน์ Icing', 'Icing', 'ห้องแต่งตัวผู้ชาย',
 ];
 
-// ── ย่อรูปก่อนแนบ (ขอบยาว ≤1568 → JPEG q0.85) — คืน data URL + base64 (เหมือน TodoBoard) ──
+// ── ย่อรูปก่อนแนบ — คืน data URL + base64 (เหมือน TodoBoard) ────────────────
 type PhotoAttach = { preview: string; data: string; mediaType: string };
-const resizePhoto = (file: File): Promise<PhotoAttach> => new Promise((resolve, reject) => {
+const resizeTo = (file: File, maxEdge: number, quality: number): Promise<PhotoAttach> => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => {
     const el = new Image();
     el.onload = () => {
-      const scale = Math.min(1, 1568 / Math.max(el.width, el.height));
+      const scale = Math.min(1, maxEdge / Math.max(el.width, el.height));
       const w = Math.max(1, Math.round(el.width * scale)), h = Math.max(1, Math.round(el.height * scale));
       const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
       const cx = cv.getContext('2d')!;
       cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h);
       cx.drawImage(el, 0, 0, w, h);
-      const dataUrl = cv.toDataURL('image/jpeg', 0.85);
+      const dataUrl = cv.toDataURL('image/jpeg', quality);
       resolve({ preview: dataUrl, data: dataUrl.split(',')[1] || '', mediaType: 'image/jpeg' });
     };
     el.onerror = reject; el.src = String(reader.result);
   };
   reader.onerror = reject; reader.readAsDataURL(file);
 });
+// รูปหน้างาน (ก่อน/หลังทำ) — พอแค่ 1568px
+const resizePhoto = (file: File) => resizeTo(file, 1568, 0.85);
+// รูปเอกสาร — ส่งคมกว่า (2576px = ขนาดสูงสุดที่โมเดลรับ) เพราะตัวหนังสือในตารางเล็ก
+const resizeSheet = (file: File) => resizeTo(file, 2576, 0.9);
 
 type Person = { key: string; name: string; role?: string; color?: string; dot?: string; kind?: string };
 type Row = {
@@ -110,8 +116,9 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain, embedded }) =
   };
 
   // ── แบ่งงานอัตโนมัติ: ส่งทุกแถวที่กรอกครบ → รับ suggestion กลับมาเติม ─────────
-  const routeAll = useCallback(async () => {
-    const filled = rows.filter(r => r.issue.trim() && r.location.trim());
+  // รับ target มาตรงๆ เพื่อให้เรียกต่อจาก "อ่านเอกสาร" ได้ทันที (ไม่ต้องรอ state รอบถัดไป)
+  const routeInto = useCallback(async (target: Row[]) => {
+    const filled = target.filter(r => r.issue.trim() && r.location.trim());
     if (!filled.length) { setSentMsg('กรอกประเด็น + สถานที่ก่อนอย่างน้อย 1 แถว'); return; }
     setRouting(true); setSentMsg(null);
     try {
@@ -125,18 +132,62 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain, embedded }) =
       setRows(rs => rs.map(row => {
         if (!(row.issue.trim() && row.location.trim())) return row;
         const s = byIdx[i++]; if (!s) return row;
+        // ชื่อคนที่อ่านมาจากเอกสารชนะกฎ — คงผู้รับ + ป้าย 📄 ไว้ แต่ยังรับหมวด/ความด่วนจากกฎได้
+        const fromSheet = row.source === 'sheet' && row.assignees.length > 0;
         return {
           ...row,
-          assignees: s.assignees && s.assignees.length ? s.assignees : row.assignees,
+          assignees: fromSheet ? row.assignees : (s.assignees && s.assignees.length ? s.assignees : row.assignees),
           category: s.category || row.category,
           priority: s.priority === 'urgent' ? 'urgent' : row.priority,
-          source: s.source, confidence: s.confidence || 0,
-          lowConfidence: !!s.lowConfidence, matchedRule: s.matchedRule || null,
+          source: fromSheet ? 'sheet' : s.source,
+          confidence: fromSheet ? 1 : (s.confidence || 0),
+          lowConfidence: fromSheet ? false : !!s.lowConfidence,
+          matchedRule: fromSheet ? 'ชื่อในเอกสาร' : (s.matchedRule || null),
         };
       }));
     } catch { setSentMsg('แบ่งงานไม่สำเร็จ — เช็คว่าเซิร์ฟเวอร์ทำงานอยู่'); }
     finally { setRouting(false); }
-  }, [rows]);
+  }, []);
+  const routeAll = useCallback(() => routeInto(rows), [routeInto, rows]);
+
+  // ── อ่านเอกสารจากรูป (AI) → เติมแถวต่อท้าย แล้วแบ่งคนให้ต่อทันที ────────────
+  const [reading, setReading] = useState(false);
+  const [sheetMsg, setSheetMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const sheetFileRef = useRef<HTMLInputElement>(null);
+
+  const readSheet = useCallback(async (files: File[]) => {
+    const pics = files.filter(f => f.type.startsWith('image/')).slice(0, 6);
+    if (!pics.length || reading) return;
+    setReading(true); setSheetMsg(null); setSentMsg(null);
+    try {
+      const shots: PhotoAttach[] = [];
+      for (const f of pics) { try { shots.push(await resizeSheet(f)); } catch { /* ข้ามไฟล์เสีย */ } }
+      if (!shots.length) { setSheetMsg({ kind: 'err', text: 'อ่านไฟล์รูปไม่ได้ ลองใหม่อีกครั้ง' }); return; }
+      const resp = await fetch(`${apiUrl}/api/audit/read-sheet`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ images: shots.map(s => ({ data: s.data, media_type: s.mediaType })) }),
+      });
+      const d = await resp.json();
+      if (!resp.ok) { setSheetMsg({ kind: 'err', text: d.error || 'อ่านเอกสารไม่สำเร็จ' }); return; }
+      const got: { issue: string; location: string; priority: string; assigneeKey: string | null }[] = d.rows || [];
+      if (!got.length) { setSheetMsg({ kind: 'err', text: 'อ่านไม่เจอแถวไหนเลย — ลองครอปเฉพาะตาราง หรือถ่ายให้ชัดขึ้น' }); return; }
+      // เติมต่อท้ายของเดิม (แถวว่างที่ยังไม่ได้พิมพ์อะไรใช้เป็นที่ว่างก่อน) — ไม่ทับที่พิมพ์ไว้
+      const keep = rows.filter(r => r.issue.trim() || r.location.trim() || r.photo || r.donePhoto);
+      const added: Row[] = got.map(g => ({
+        ...blankRow(),
+        issue: g.issue, location: g.location,
+        priority: g.priority === 'urgent' ? 'urgent' : 'normal',
+        assignees: g.assigneeKey ? [g.assigneeKey] : [],
+        source: g.assigneeKey ? 'sheet' : null,
+      }));
+      const next = [...keep, ...added];
+      setRows(next);
+      setSheetMsg({ kind: 'ok', text: `อ่านได้ ${got.length} ข้อ — เติมให้แล้ว` });
+      await routeInto(next);
+    } catch {
+      setSheetMsg({ kind: 'err', text: 'ติดต่อเซิร์ฟเวอร์ไม่ได้ — เช็คเน็ตแล้วลองใหม่' });
+    } finally { setReading(false); }
+  }, [reading, routeInto, rows]);
 
   const addAssignee = (id: number, key: string) => {
     if (!key) return;
@@ -157,13 +208,18 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain, embedded }) =
     let ok = 0;
     try {
       for (const r of ready) {
+        // อัปโหลดขึ้น Supabase Storage ก่อน → เก็บแค่ URL ใน DB (ลด egress ของ Neon)
+        // ไม่มี Supabase → helper คืน base64 เดิมให้ ใช้งานได้เหมือนเดิม
+        const images = r.photo ? [await uploadDutyImage(r.photo.preview)] : [];
+        const doneImages = r.donePhoto ? [await uploadDutyImage(r.donePhoto.preview)] : [];
         const resp = await fetch(`${apiUrl}/api/duty/assign`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             workDate: date, title: r.issue.trim(), location: r.location.trim() || null,
             category: r.category, priority: r.priority, assignees: r.assignees,
-            images: r.photo ? [r.photo.preview] : [],
-            doneImages: r.donePhoto ? [r.donePhoto.preview] : [], // แนบรูปหลังทำ = ปิดงานทันที
+            images,
+            doneImages, // แนบรูปหลังทำ = ปิดงานทันที
+            photoSpecs: ['หลังทำ'], // 1 จุด: images[0]=ก่อน คู่กับ done_images[0]=หลัง (บอทถามใบเดียว)
             auditBatch: batch, // ทำเครื่องหมายว่ามาจากใบตรวจ → โผล่ในหน้าติดตามผล
             operator: operatorName || 'จักรกฤษ',
           }),
@@ -196,6 +252,8 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain, embedded }) =
         .ab-btn:focus-visible{outline:2px solid #ff6b00;outline-offset:2px;}
         .ab-chip{transition:transform .1s ease;}
         .ab-chip:hover{transform:translateY(-1px);}
+        .ab-bar{animation:abSlide 1.1s ease-in-out infinite;}
+        @keyframes abSlide{from{transform:translateX(-110%)}to{transform:translateX(240%)}}
       `}</style>
 
       {/* header — ซ่อนตอนฝังเป็นแท็บ (หน้าแม่มีหัวข้อ/ปุ่มกลับอยู่แล้ว) */}
@@ -220,6 +278,68 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain, embedded }) =
       {tab === 'rules' && <RulesPanel people={people} card={card} inp={inp} />}
 
       {tab === 'form' && (<>
+      {/* ── อ่านจากรูปเอกสาร: วาง/เลือกรูป → AI เติมแถวให้ → ตรวจแล้วค่อยส่ง ──── */}
+      <div style={card}
+        onPaste={e => {
+          const fs = Array.from(e.clipboardData.items).filter(i => i.type.startsWith('image/')).map(i => i.getAsFile()).filter(Boolean) as File[];
+          if (fs.length) { e.preventDefault(); readSheet(fs); }
+        }}>
+        <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#00838f', marginBottom: 8 }}>📷 อ่านจากรูปเอกสาร</div>
+        <input ref={sheetFileRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
+          onChange={e => { const fs = Array.from(e.target.files || []); e.target.value = ''; if (fs.length) readSheet(fs); }} />
+
+        {reading ? (
+          /* กำลังอ่าน */
+          <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+            <div style={{ width: 46, height: 58, borderRadius: 6, flexShrink: 0, background: '#eef3f5', border: '1px solid #dde3e7', padding: 7, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              {[0, 1, 2, 3, 4, 5].map(i => <div key={i} style={{ height: 2, borderRadius: 2, background: '#b0bec5', width: i === 5 ? '55%' : '100%' }} />)}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#37474f' }}>⏳ กำลังอ่านเอกสาร…</div>
+              <div style={{ height: 5, borderRadius: 99, background: '#eef3f5', overflow: 'hidden', marginTop: 7 }}>
+                <div className="ab-bar" style={{ height: '100%', width: '45%', background: '#00838f', borderRadius: 99 }} />
+              </div>
+              <div style={{ fontSize: '0.68rem', color: '#90a4ae', marginTop: 6 }}>เอกสารยาวอาจใช้เวลาถึงครึ่งนาที</div>
+            </div>
+          </div>
+        ) : sheetMsg?.kind === 'ok' ? (
+          /* อ่านเสร็จ */
+          <>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: '#eaf5eb', border: '1px solid #c3e2c6', borderRadius: 11, padding: '11px 12px' }}>
+              <span style={{ fontSize: '0.95rem', lineHeight: 1.3 }}>✅</span>
+              <div>
+                <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#2e7d32' }}>{sheetMsg.text}</div>
+                <div style={{ fontSize: '0.72rem', color: '#546e7a' }}>ตรวจสอบก่อนกดส่ง แล้วแนบรูปก่อนทำของแต่ละข้อ</div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 9 }}>
+              <button className="ab-btn" onClick={() => { setSheetMsg(null); sheetFileRef.current?.click(); }}
+                style={{ border: '1px solid #dde3e7', background: '#fff', color: '#546e7a', borderRadius: 9, padding: '7px 13px', fontSize: '0.76rem', fontWeight: 700, cursor: 'pointer' }}>📎 อ่านรูปเพิ่ม</button>
+              <button className="ab-btn" onClick={addRow}
+                style={{ border: '1px solid #dde3e7', background: '#fff', color: '#546e7a', borderRadius: 9, padding: '7px 13px', fontSize: '0.76rem', fontWeight: 700, cursor: 'pointer' }}>+ เพิ่มแถวเอง</button>
+            </div>
+            <div style={{ fontSize: '0.68rem', color: '#90a4ae', marginTop: 8 }}>แบ่งคนรับผิดชอบให้อัตโนมัติแล้วด้วย (กฎ + AI) · ชื่อที่เขียนมาในเอกสารขึ้นก่อนกฎเสมอ</div>
+          </>
+        ) : (
+          /* ก่อนวางรูป */
+          <>
+            <div style={{ border: '1.5px dashed #b2ebf2', background: '#e0f7fa', borderRadius: 12, padding: '20px 14px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 9, alignItems: 'center' }}>
+              <span style={{ fontSize: '0.84rem', fontWeight: 800, color: '#00838f' }}>วางรูปเอกสารจาก Line ที่นี่</span>
+              <span style={{ fontSize: '0.72rem', color: '#546e7a' }}>คัดลอกรูปมาแล้วกด Ctrl+V ได้เลย</span>
+              <button className="ab-btn" onClick={() => sheetFileRef.current?.click()}
+                style={{ border: '1px solid #b2ebf2', background: '#fff', color: '#00838f', borderRadius: 9, padding: '7px 14px', fontSize: '0.78rem', fontWeight: 800, cursor: 'pointer' }}>📎 เลือกรูป</button>
+            </div>
+            <div style={{ fontSize: '0.68rem', color: '#90a4ae', marginTop: 8 }}>ใบยาว/ตัวหนังสือเล็ก → ครอปส่งหลายรูปได้ (สูงสุด 6 รูป)</div>
+          </>
+        )}
+
+        {sheetMsg?.kind === 'err' && (
+          <div style={{ marginTop: 9, background: '#fff3e9', border: '1px solid #ffcfa3', borderRadius: 10, padding: '9px 11px', fontSize: '0.76rem', color: '#b26a00' }}>
+            ⚠️ {sheetMsg.text} — พิมพ์แถวเองได้ตามปกติ
+          </div>
+        )}
+      </div>
+
       {/* วันที่ + สรุป */}
       <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <label style={{ fontSize: '0.8rem', color: '#546e7a', fontWeight: 700 }}>วันที่ตรวจ</label>
@@ -253,29 +373,15 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain, embedded }) =
             {/* สถานที่ + ความด่วน */}
             <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
               <input value={r.location} onChange={e => patchRow(r.id, { location: e.target.value })}
-                list="ab-zones" placeholder="สถานที่ / โซน" style={{ ...inp, flex: 1, minWidth: 160 }} />
+                list="ab-zones" placeholder="📍 สถานที่ / โซน" style={{ ...inp, flex: 1, minWidth: 160 }} />
               <button className="ab-btn" onClick={() => patchRow(r.id, { priority: r.priority === 'urgent' ? 'normal' : 'urgent' })}
                 style={{ border: `1px solid ${r.priority === 'urgent' ? '#e53935' : '#dde3e7'}`, background: r.priority === 'urgent' ? '#ffebee' : '#fff', color: r.priority === 'urgent' ? '#c62828' : '#78909c', borderRadius: 9, padding: '8px 12px', fontSize: '0.76rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                 {r.priority === 'urgent' ? '🔴 ด่วน' : 'ปกติ'}
               </button>
-              <label className="ab-btn" style={{ border: '1px solid #dde3e7', background: r.photo ? '#e8f5e9' : '#fff', borderRadius: 9, padding: '8px 12px', fontSize: '0.76rem', fontWeight: 700, color: r.photo ? '#2e7d32' : '#78909c', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                {r.photo ? '📷 ก่อนทำ ✓' : '📷 รูปก่อนทำ'}
-                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => onPhoto(r.id, e.target.files?.[0])} />
-              </label>
-              <label className="ab-btn" style={{ border: '1px solid #dde3e7', background: r.donePhoto ? '#e3f2fd' : '#fff', borderRadius: 9, padding: '8px 12px', fontSize: '0.76rem', fontWeight: 700, color: r.donePhoto ? '#1565c0' : '#78909c', cursor: 'pointer', whiteSpace: 'nowrap' }} title="ถ้าแก้เสร็จหน้างานแล้ว แนบรูปหลังทำ → ระบบจะปิดงานให้เลย">
-                {r.donePhoto ? '✅ หลังทำ ✓' : '📷 รูปหลังทำ'}
-                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => onDonePhoto(r.id, e.target.files?.[0])} />
-              </label>
             </div>
-            {(r.photo || r.donePhoto) && (
-              <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                {r.photo && <div><div style={{ fontSize: '0.64rem', color: '#78909c', marginBottom: 2 }}>ก่อนทำ</div><img src={r.photo.preview} alt="ก่อนทำ" style={{ maxHeight: 90, borderRadius: 8, border: '1px solid #eceff1' }} /></div>}
-                {r.donePhoto && <div><div style={{ fontSize: '0.64rem', color: '#1565c0', marginBottom: 2 }}>หลังทำ ✅</div><img src={r.donePhoto.preview} alt="หลังทำ" style={{ maxHeight: 90, borderRadius: 8, border: '1px solid #cfe4fb' }} /></div>}
-              </div>
-            )}
 
             {/* ผู้รับผิดชอบ (ชิป + เพิ่มคน) */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', background: '#fafbfc', border: '1px solid #eef1f3', borderRadius: 10, padding: '8px 10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', background: '#fafbfc', border: '1px solid #eef1f3', borderRadius: 10, padding: '8px 10px', marginBottom: 9 }}>
               <span style={{ fontSize: '0.74rem', color: '#90a4ae', fontWeight: 700 }}>ผู้รับ:</span>
               {r.assignees.length === 0 && <span style={{ fontSize: '0.76rem', color: '#b0bec5' }}>— ยังไม่ได้เลือก —</span>}
               {r.assignees.map(k => (
@@ -292,6 +398,43 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain, embedded }) =
                 ))}
               </select>
             </div>
+
+            {/* รูปเทียบ ก่อน–หลัง: ซ้าย = คุณแนบตอนนี้ · ขวา = คนทำถ่ายส่งกลับผ่านบอท */}
+            <div style={{ display: 'flex', alignItems: 'stretch', gap: 8 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: '0.63rem', fontWeight: 800, color: '#607d8b', marginBottom: 4 }}>📎 ก่อน · คุณแนบ</div>
+                {r.photo ? (
+                  <div style={{ position: 'relative' }}>
+                    <img src={r.photo.preview} alt="ก่อนทำ" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 9, display: 'block' }} />
+                    <button className="ab-btn" onClick={() => patchRow(r.id, { photo: null })} title="ลบรูป"
+                      style={{ position: 'absolute', top: -5, right: -5, width: 18, height: 18, borderRadius: '50%', border: 'none', background: '#546e7a', color: '#fff', fontSize: '0.7rem', lineHeight: 1, cursor: 'pointer', display: 'grid', placeItems: 'center' }}>×</button>
+                  </div>
+                ) : (
+                  <label className="ab-btn" style={{ display: 'grid', placeItems: 'center', width: '100%', height: 60, border: '1.5px dashed #c4cdd3', background: '#fff', color: '#8a949c', borderRadius: 9, fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', boxSizing: 'border-box' }}>
+                    + แนบรูป
+                    <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => onPhoto(r.id, e.target.files?.[0])} />
+                  </label>
+                )}
+              </div>
+              <span style={{ alignSelf: 'center', color: '#b0bec5', fontWeight: 800, flexShrink: 0, paddingTop: 15 }}>→</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: '0.63rem', fontWeight: 800, color: '#2e7d32', marginBottom: 4 }}>📸 หลัง · คนทำถ่าย</div>
+                {r.donePhoto ? (
+                  <div style={{ position: 'relative' }}>
+                    <img src={r.donePhoto.preview} alt="หลังทำ" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 9, display: 'block' }} />
+                    <button className="ab-btn" onClick={() => patchRow(r.id, { donePhoto: null })} title="ลบรูป"
+                      style={{ position: 'absolute', top: -5, right: -5, width: 18, height: 18, borderRadius: '50%', border: 'none', background: '#546e7a', color: '#fff', fontSize: '0.7rem', lineHeight: 1, cursor: 'pointer', display: 'grid', placeItems: 'center' }}>×</button>
+                  </div>
+                ) : (
+                  <label className="ab-btn" title="ถ้าแก้เสร็จหน้างานแล้ว แตะเพื่อแนบรูปหลังทำเอง → ระบบปิดงานให้เลย"
+                    style={{ display: 'grid', placeItems: 'center', width: '100%', height: 60, border: '1.5px dashed #bfd8c4', background: '#fff', color: '#6aa77c', borderRadius: 9, fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', boxSizing: 'border-box' }}>
+                    คนทำถ่าย
+                    <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => onDonePhoto(r.id, e.target.files?.[0])} />
+                  </label>
+                )}
+              </div>
+            </div>
+            {r.donePhoto && <div style={{ fontSize: '0.66rem', color: '#2e7d32', marginTop: 5 }}>✅ แนบรูปหลังทำแล้ว — ส่งแล้วระบบจะปิดงานให้ทันที</div>}
           </div>
         );
       })}
