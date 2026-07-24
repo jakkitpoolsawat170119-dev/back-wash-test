@@ -28,29 +28,121 @@ const ZONE_HINTS = [
 ];
 
 // ── ย่อรูปก่อนแนบ — คืน data URL + base64 (เหมือน TodoBoard) ────────────────
-type PhotoAttach = { preview: string; data: string; mediaType: string };
-const resizeTo = (file: File, maxEdge: number, quality: number): Promise<PhotoAttach> => new Promise((resolve, reject) => {
+type PhotoAttach = { preview: string; data: string; mediaType: string; width: number; height: number };
+// โหลดไฟล์เป็น <img> (ใช้ทั้งย่อและครอป)
+const loadImage = (file: File): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => {
     const el = new Image();
-    el.onload = () => {
-      const scale = Math.min(1, maxEdge / Math.max(el.width, el.height));
-      const w = Math.max(1, Math.round(el.width * scale)), h = Math.max(1, Math.round(el.height * scale));
-      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-      const cx = cv.getContext('2d')!;
-      cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h);
-      cx.drawImage(el, 0, 0, w, h);
-      const dataUrl = cv.toDataURL('image/jpeg', quality);
-      resolve({ preview: dataUrl, data: dataUrl.split(',')[1] || '', mediaType: 'image/jpeg' });
-    };
+    el.onload = () => resolve(el);
     el.onerror = reject; el.src = String(reader.result);
   };
   reader.onerror = reject; reader.readAsDataURL(file);
 });
+const toAttach = (cv: HTMLCanvasElement, quality: number): PhotoAttach => {
+  const dataUrl = cv.toDataURL('image/jpeg', quality);
+  return { preview: dataUrl, data: dataUrl.split(',')[1] || '', mediaType: 'image/jpeg', width: cv.width, height: cv.height };
+};
+const resizeTo = async (file: File, maxEdge: number, quality: number): Promise<PhotoAttach> => {
+  const el = await loadImage(file);
+  const scale = Math.min(1, maxEdge / Math.max(el.width, el.height));
+  const w = Math.max(1, Math.round(el.width * scale)), h = Math.max(1, Math.round(el.height * scale));
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const cx = cv.getContext('2d')!;
+  cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h);
+  cx.drawImage(el, 0, 0, w, h);
+  return toAttach(cv, quality);
+};
 // รูปหน้างาน (ก่อน/หลังทำ) — พอแค่ 1568px
 const resizePhoto = (file: File) => resizeTo(file, 1568, 0.85);
 // รูปเอกสาร — ส่งคมกว่า (2576px = ขนาดสูงสุดที่โมเดลรับ) เพราะตัวหนังสือในตารางเล็ก
 const resizeSheet = (file: File) => resizeTo(file, 2576, 0.9);
+
+// ── ครอปรูปถ่ายที่อยู่ในเอกสารออกมาเป็นรูป "ก่อนทำ" ─────────────────────────
+type Box = { x: number; y: number; w: number; h: number };
+// ตรวจกรอบที่ AI ชี้มา — ไม่ผ่าน = คืน null (ปล่อยช่องว่างดีกว่าแนบรูปมั่ว)
+// sentW/sentH = ขนาดรูปที่ส่งให้โมเดลดู (พิกัดที่ตอบกลับอยู่ในสเกลนี้)
+const sanitizeBox = (box: Box, sentW: number, sentH: number): Box | null => {
+  if (!box || ![box.x, box.y, box.w, box.h].every(Number.isFinite)) return null;
+  // หนีบเข้าขอบรูป (AI ชี้ล้นนิดหน่อยเป็นเรื่องปกติ)
+  const x = Math.max(0, Math.min(box.x, sentW));
+  const y = Math.max(0, Math.min(box.y, sentH));
+  const w = Math.min(box.w, sentW - x);
+  const h = Math.min(box.h, sentH - y);
+  if (w <= 0 || h <= 0) return null;
+  if (w < 40 || h < 40) return null;                       // เล็กเกินกว่าจะเป็นรูปถ่าย
+  if (w < sentW * 0.04) return null;                       // แคบเกินเมื่อเทียบกับใบ
+  if (w * h > sentW * sentH * 0.6) return null;            // ใหญ่เกิน = น่าจะชี้ทั้งตาราง
+  const ratio = w / h;
+  if (ratio < 0.2 || ratio > 5) return null;               // ผอม/แบนผิดวิสัยรูปถ่าย
+  return { x, y, w, h };
+};
+// สัดส่วนพื้นที่ทับกันเทียบกับกรอบที่เล็กกว่า — ใช้กันกรณี AI ชี้กรอบเดียวให้หลายแถว
+const overlapRatio = (a: Box, b: Box): number => {
+  const iw = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+  const ih = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+  if (iw <= 0 || ih <= 0) return 0;
+  return (iw * ih) / Math.min(a.w * a.h, b.w * b.h);
+};
+// ครอปจาก "ไฟล์ต้นฉบับ" (คมกว่ารูปที่ย่อส่งไป) — เผื่อขอบ 2% กันตัดรูปขาด
+const cropFromImage = (el: HTMLImageElement, box: Box, sentW: number, sentH: number): PhotoAttach | null => {
+  const sx = el.naturalWidth / sentW, sy = el.naturalHeight / sentH;
+  const padX = box.w * 0.02 * sx, padY = box.h * 0.02 * sy;
+  const x = Math.max(0, box.x * sx - padX), y = Math.max(0, box.y * sy - padY);
+  const w = Math.min(el.naturalWidth - x, box.w * sx + padX * 2);
+  const h = Math.min(el.naturalHeight - y, box.h * sy + padY * 2);
+  if (w < 1 || h < 1) return null;
+  // ย่อให้เท่ารูปหน้างานปกติ (ขอบยาว ≤1568)
+  const shrink = Math.min(1, 1568 / Math.max(w, h));
+  const cw = Math.max(1, Math.round(w * shrink)), ch = Math.max(1, Math.round(h * shrink));
+  const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+  const cx = cv.getContext('2d')!;
+  cx.fillStyle = '#fff'; cx.fillRect(0, 0, cw, ch);
+  cx.drawImage(el, x, y, w, h, 0, 0, cw, ch);
+  return toAttach(cv, 0.85);
+};
+
+// แถวที่ server อ่านมาได้จากเอกสาร
+type SheetRow = {
+  issue: string; location: string; priority: string;
+  assigneeName: string; assigneeKey: string | null;
+  photoIndex?: number; photoBox?: Box | null;
+};
+// ครอปรูปในเอกสารใส่ให้แถวที่ตรงกัน (แก้ rows ที่เพิ่งสร้าง ยังไม่เข้า state) → คืนจำนวนที่ใส่ได้
+const attachSheetPhotos = async (
+  sheets: { file: File; shot: PhotoAttach }[],
+  got: SheetRow[],
+  rows: Row[],
+): Promise<number> => {
+  // คัดเฉพาะแถวที่กรอบผ่านเกณฑ์ก่อน แล้วค่อยโหลดรูปต้นฉบับเท่าที่ใช้จริง
+  const jobs: { row: Row; idx: number; box: Box }[] = [];
+  got.forEach((g, i) => {
+    const idx = g.photoIndex || 0;
+    const sheet = sheets[idx];
+    if (!g.photoBox || !sheet || !rows[i]) return;
+    const box = sanitizeBox(g.photoBox, sheet.shot.width, sheet.shot.height);
+    if (!box) return;
+    // กรอบซ้ำกับแถวก่อนหน้าในใบเดียวกัน = AI ชี้รูปเดียวให้หลายแถว → เก็บแถวแรกพอ
+    if (jobs.some(j => j.idx === idx && overlapRatio(j.box, box) > 0.8)) return;
+    jobs.push({ row: rows[i], idx, box });
+  });
+  if (!jobs.length) return 0;
+  const loaded: Record<number, HTMLImageElement | null> = {};
+  let n = 0;
+  for (const j of jobs) {
+    try {
+      if (!(j.idx in loaded)) {
+        try { loaded[j.idx] = await loadImage(sheets[j.idx].file); } catch { loaded[j.idx] = null; }
+      }
+      const el = loaded[j.idx];
+      if (!el) continue;
+      const shot = sheets[j.idx].shot;
+      const crop = cropFromImage(el, j.box, shot.width, shot.height);
+      if (crop) { j.row.photo = crop; j.row.photoFromSheet = true; n++; }
+    } catch { /* แถวไหนครอปไม่ได้ก็ข้าม ไม่ให้ล้มทั้งชุด */ }
+  }
+  return n;
+};
 
 type Person = { key: string; name: string; role?: string; color?: string; dot?: string; kind?: string };
 type Row = {
@@ -59,6 +151,7 @@ type Row = {
   location: string;
   priority: 'normal' | 'urgent';
   photo: PhotoAttach | null;      // ภาพก่อนทำ (ตอนพบ)
+  photoFromSheet: boolean;        // ภาพก่อนทำนี้ครอปมาจากเอกสาร ไม่ใช่ user ถ่ายเอง
   donePhoto: PhotoAttach | null;  // ภาพหลังทำ (ถ้าแก้เสร็จหน้างานเลย → ปิดงานทันที)
   category: string;
   assignees: string[];      // person keys
@@ -70,7 +163,7 @@ type Row = {
 
 let _seq = 1;
 const blankRow = (): Row => ({
-  id: _seq++, issue: '', location: '', priority: 'normal', photo: null, donePhoto: null,
+  id: _seq++, issue: '', location: '', priority: 'normal', photo: null, photoFromSheet: false, donePhoto: null,
   category: 'cleaning', assignees: [], source: null, confidence: 0, lowConfidence: false, matchedRule: null,
 });
 
@@ -108,7 +201,8 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain, embedded }) =
 
   const onPhoto = async (id: number, file?: File) => {
     if (!file) return;
-    try { patchRow(id, { photo: await resizePhoto(file) }); } catch { /* ข้ามถ้าอ่านรูปไม่ได้ */ }
+    // user ถ่ายเอง → ลบป้าย "จากเอกสาร" ออก
+    try { patchRow(id, { photo: await resizePhoto(file), photoFromSheet: false }); } catch { /* ข้ามถ้าอ่านรูปไม่ได้ */ }
   };
   const onDonePhoto = async (id: number, file?: File) => {
     if (!file) return;
@@ -153,6 +247,7 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain, embedded }) =
   // ── อ่านเอกสารจากรูป (AI) → เติมแถวต่อท้าย แล้วแบ่งคนให้ต่อทันที ────────────
   const [reading, setReading] = useState(false);
   const [sheetMsg, setSheetMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [zoom, setZoom] = useState<string | null>(null);   // รูปที่กดขยายเต็มจอ (ตรวจรูปที่ AI ครอปมา)
   const sheetFileRef = useRef<HTMLInputElement>(null);
 
   const readSheet = useCallback(async (files: File[]) => {
@@ -160,16 +255,17 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain, embedded }) =
     if (!pics.length || reading) return;
     setReading(true); setSheetMsg(null); setSentMsg(null);
     try {
-      const shots: PhotoAttach[] = [];
-      for (const f of pics) { try { shots.push(await resizeSheet(f)); } catch { /* ข้ามไฟล์เสีย */ } }
-      if (!shots.length) { setSheetMsg({ kind: 'err', text: 'อ่านไฟล์รูปไม่ได้ ลองใหม่อีกครั้ง' }); return; }
+      // เก็บไฟล์ต้นฉบับคู่กับรูปที่ย่อส่งไป — ต้องใช้คู่กันตอนครอป (index ต้องตรงกับที่โมเดลเห็น)
+      const sheets: { file: File; shot: PhotoAttach }[] = [];
+      for (const f of pics) { try { sheets.push({ file: f, shot: await resizeSheet(f) }); } catch { /* ข้ามไฟล์เสีย */ } }
+      if (!sheets.length) { setSheetMsg({ kind: 'err', text: 'อ่านไฟล์รูปไม่ได้ ลองใหม่อีกครั้ง' }); return; }
       const resp = await fetch(`${apiUrl}/api/audit/read-sheet`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ images: shots.map(s => ({ data: s.data, media_type: s.mediaType })) }),
+        body: JSON.stringify({ images: sheets.map(s => ({ data: s.shot.data, media_type: s.shot.mediaType, width: s.shot.width, height: s.shot.height })) }),
       });
       const d = await resp.json();
       if (!resp.ok) { setSheetMsg({ kind: 'err', text: d.error || 'อ่านเอกสารไม่สำเร็จ' }); return; }
-      const got: { issue: string; location: string; priority: string; assigneeKey: string | null }[] = d.rows || [];
+      const got: SheetRow[] = d.rows || [];
       if (!got.length) { setSheetMsg({ kind: 'err', text: 'อ่านไม่เจอแถวไหนเลย — ลองครอปเฉพาะตาราง หรือถ่ายให้ชัดขึ้น' }); return; }
       // เติมต่อท้ายของเดิม (แถวว่างที่ยังไม่ได้พิมพ์อะไรใช้เป็นที่ว่างก่อน) — ไม่ทับที่พิมพ์ไว้
       const keep = rows.filter(r => r.issue.trim() || r.location.trim() || r.photo || r.donePhoto);
@@ -180,9 +276,11 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain, embedded }) =
         assignees: g.assigneeKey ? [g.assigneeKey] : [],
         source: g.assigneeKey ? 'sheet' : null,
       }));
+      // ครอปรูปที่อยู่ในเอกสารมาใส่ช่อง "ก่อน" ให้เลย (แถวไหนกรอบไม่ผ่านก็เว้นว่าง ถ่ายเองได้)
+      const cropped = await attachSheetPhotos(sheets, got, added);
       const next = [...keep, ...added];
       setRows(next);
-      setSheetMsg({ kind: 'ok', text: `อ่านได้ ${got.length} ข้อ — เติมให้แล้ว` });
+      setSheetMsg({ kind: 'ok', text: `อ่านได้ ${got.length} ข้อ${cropped ? ` · ดึงรูปจากเอกสารให้ ${cropped} ข้อ` : ''}` });
       await routeInto(next);
     } catch {
       setSheetMsg({ kind: 'err', text: 'ติดต่อเซิร์ฟเวอร์ไม่ได้ — เช็คเน็ตแล้วลองใหม่' });
@@ -405,8 +503,12 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain, embedded }) =
                 <div style={{ fontSize: '0.63rem', fontWeight: 800, color: '#607d8b', marginBottom: 4 }}>📎 ก่อน · คุณแนบ</div>
                 {r.photo ? (
                   <div style={{ position: 'relative' }}>
-                    <img src={r.photo.preview} alt="ก่อนทำ" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 9, display: 'block' }} />
-                    <button className="ab-btn" onClick={() => patchRow(r.id, { photo: null })} title="ลบรูป"
+                    <img src={r.photo.preview} alt="ก่อนทำ" onClick={() => setZoom(r.photo!.preview)} title="กดเพื่อดูเต็มจอ"
+                      style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 9, display: 'block', cursor: 'zoom-in' }} />
+                    {r.photoFromSheet && (
+                      <span style={{ position: 'absolute', left: 4, bottom: 4, background: 'rgba(0,0,0,.62)', color: '#fff', fontSize: '0.58rem', fontWeight: 700, borderRadius: 5, padding: '1px 5px', pointerEvents: 'none' }}>📄 จากเอกสาร</span>
+                    )}
+                    <button className="ab-btn" onClick={() => patchRow(r.id, { photo: null, photoFromSheet: false })} title="ลบรูป"
                       style={{ position: 'absolute', top: -5, right: -5, width: 18, height: 18, borderRadius: '50%', border: 'none', background: '#546e7a', color: '#fff', fontSize: '0.7rem', lineHeight: 1, cursor: 'pointer', display: 'grid', placeItems: 'center' }}>×</button>
                   </div>
                 ) : (
@@ -421,7 +523,8 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain, embedded }) =
                 <div style={{ fontSize: '0.63rem', fontWeight: 800, color: '#2e7d32', marginBottom: 4 }}>📸 หลัง · คนทำถ่าย</div>
                 {r.donePhoto ? (
                   <div style={{ position: 'relative' }}>
-                    <img src={r.donePhoto.preview} alt="หลังทำ" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 9, display: 'block' }} />
+                    <img src={r.donePhoto.preview} alt="หลังทำ" onClick={() => setZoom(r.donePhoto!.preview)} title="กดเพื่อดูเต็มจอ"
+                      style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 9, display: 'block', cursor: 'zoom-in' }} />
                     <button className="ab-btn" onClick={() => patchRow(r.id, { donePhoto: null })} title="ลบรูป"
                       style={{ position: 'absolute', top: -5, right: -5, width: 18, height: 18, borderRadius: '50%', border: 'none', background: '#546e7a', color: '#fff', fontSize: '0.7rem', lineHeight: 1, cursor: 'pointer', display: 'grid', placeItems: 'center' }}>×</button>
                   </div>
@@ -456,6 +559,14 @@ const AuditBoard: React.FC<Props> = ({ operatorName, onBackToMain, embedded }) =
 
       {sentMsg && <div style={{ marginTop: 12, background: '#f1f8f2', border: '1px solid #cde9d2', borderRadius: 10, padding: '10px 12px', fontSize: '0.8rem', color: '#2e7d32' }}>{sentMsg}</div>}
       </>)}
+
+      {/* ดูรูปเต็มจอ — จำเป็นกับการตรวจรูปที่ AI ครอปมาจากเอกสาร (ในแถวสูงแค่ 60px) */}
+      {zoom && (
+        <div onClick={() => setZoom(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.82)', display: 'grid', placeItems: 'center', zIndex: 9999, padding: 16, cursor: 'zoom-out' }}>
+          <img src={zoom} alt="ดูเต็มจอ" style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 10, display: 'block' }} />
+        </div>
+      )}
     </div>
   );
 };

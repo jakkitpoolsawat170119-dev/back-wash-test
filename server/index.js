@@ -2147,8 +2147,22 @@ const READ_SHEET_SCHEMA = {
           location: { type: 'string', description: 'สถานที่/โซน ตามที่เขียนในเอกสาร ไม่มีให้เว้นว่าง' },
           priority: { type: 'string', enum: ['normal', 'urgent'] },
           assignee_name: { type: 'string', description: 'ชื่อผู้รับผิดชอบตามที่เขียนในเอกสาร ไม่มีให้เว้นว่าง' },
+          has_photo: { type: 'boolean', description: 'แถวนี้มีรูปถ่ายประกอบอยู่ในเอกสารหรือไม่' },
+          photo_index: { type: 'integer', description: 'รูปเอกสารใบที่เท่าไรที่รูปนี้อยู่ (0 = ใบแรกที่แนบมา)' },
+          photo_box: {
+            type: 'object',
+            description: 'กรอบสี่เหลี่ยมของรูปถ่ายบนใบนั้น หน่วยเป็นพิกเซล — has_photo=false ให้ใส่ 0 ทั้งหมด',
+            properties: {
+              x: { type: 'number', description: 'ขอบซ้ายของกรอบ' },
+              y: { type: 'number', description: 'ขอบบนของกรอบ' },
+              w: { type: 'number', description: 'ความกว้างของกรอบ' },
+              h: { type: 'number', description: 'ความสูงของกรอบ' },
+            },
+            required: ['x', 'y', 'w', 'h'],
+            additionalProperties: false,
+          },
         },
-        required: ['issue', 'location', 'priority', 'assignee_name'],
+        required: ['issue', 'location', 'priority', 'assignee_name', 'has_photo', 'photo_index', 'photo_box'],
         additionalProperties: false,
       },
     },
@@ -2171,13 +2185,21 @@ app.post('/api/audit/read-sheet', async (req, res) => {
   if (!client) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์ — พิมพ์แถวเองได้ตามปกติ' });
   const imgs = (Array.isArray(req.body.images) ? req.body.images : [])
     .filter(im => im && im.data)
-    .map(im => ({ data: String(im.data), media_type: im.media_type || 'image/jpeg' }))
+    .map(im => ({
+      data: String(im.data), media_type: im.media_type || 'image/jpeg',
+      width: Number(im.width) > 0 ? Math.round(Number(im.width)) : null,
+      height: Number(im.height) > 0 ? Math.round(Number(im.height)) : null,
+    }))
     .slice(0, 6);
   if (!imgs.length) return res.status(400).json({ error: 'ต้องแนบรูปเอกสารอย่างน้อย 1 รูป' });
   const roster = getPeople();
   const names = roster.map(p => p.name).join(', ');
   const tileNote = imgs.length > 1
     ? `\n(รูปที่แนบมา ${imgs.length} รูป — เป็นส่วนย่อยของเอกสารใบเดียวกันที่ครอปแยกเพื่อความชัด ให้ประกอบกันแล้วอ่านเรียงจากบนลงล่าง ห้ามนับแถวซ้ำ)`
+    : '';
+  // ขนาดพิกเซลของแต่ละใบ — โมเดลใช้อ้างอิงตอนชี้กรอบรูป (พิกัดที่ตอบกลับ map 1:1 กับรูปที่ส่งไป)
+  const dims = imgs.every(im => im.width && im.height)
+    ? '\n\nขนาดรูปที่แนบมา: ' + imgs.map((im, i) => `ใบที่ ${i} กว้าง ${im.width} สูง ${im.height} พิกเซล`).join(' · ')
     : '';
   const prompt = 'นี่คือรูปเอกสารตรวจพื้นที่ของโรงงานอาหาร ช่วยอ่านทุกแถวในตารางออกมาเป็นข้อมูล\n\n'
     + 'กฎการอ่านที่ต้องทำตามเคร่งครัด:\n'
@@ -2187,8 +2209,13 @@ app.post('/api/audit/read-sheet', async (req, res) => {
     + '• priority = "urgent" เฉพาะแถวที่เอกสารระบุว่าด่วน/เร่งด่วน/ทำเครื่องหมายสีแดง นอกนั้น "normal"\n'
     + '• ถ้ามีคอลัมน์ผู้รับผิดชอบ/ผู้ตรวจ/ผู้แก้ไข ให้ใส่ชื่อใน assignee_name ตามที่เขียน (ชื่อเล่นก็ได้) ไม่มีคอลัมน์นี้ให้เว้นว่าง\n'
     + `• ชื่อคนที่เป็นไปได้ในโรงงานนี้: ${names}\n`
-    + '• ข้ามหัวตาราง เลขลำดับ และแถวว่าง — เอาเฉพาะแถวที่มีประเด็นจริง'
-    + tileNote;
+    + '• ข้ามหัวตาราง เลขลำดับ และแถวว่าง — เอาเฉพาะแถวที่มีประเด็นจริง\n\n'
+    + 'รูปถ่ายประกอบในเอกสาร:\n'
+    + '• แถวไหนมี "รูปถ่ายจริง" ของจุดที่พบปัญหาอยู่ในเอกสาร ให้ตอบ has_photo = true แล้วชี้กรอบสี่เหลี่ยมที่ล้อมเฉพาะตัวรูป (ไม่เอาเส้นขอบตาราง ไม่เอาคำบรรยายใต้รูป)\n'
+    + '• photo_index = ใบที่รูปนั้นอยู่ (0 = ใบแรก) · photo_box = พิกัดพิกเซลบนใบนั้น x,y คือมุมซ้ายบน w,h คือกว้าง/สูง\n'
+    + '• แถวไหนไม่มีรูป ให้ has_photo = false แล้วใส่ photo_box เป็น 0 ทั้งหมด — ห้ามเดาพิกัด ห้ามชี้ไปที่ข้อความหรือโลโก้\n'
+    + '• รูปหนึ่งรูปใช้กับแถวเดียวเท่านั้น ห้ามชี้กรอบเดียวกันให้หลายแถว'
+    + tileNote + dims;
   try {
     const resp = await client.messages.create({
       model: 'claude-opus-4-8', max_tokens: 8000,
@@ -2211,15 +2238,22 @@ app.post('/api/audit/read-sheet', async (req, res) => {
       .map(r => {
         const issue = String(r.issue || '').trim();
         const assigneeName = String(r.assignee_name || '').trim();
+        // กรอบรูป: เอาเฉพาะที่เป็นตัวเลขจริงและมีขนาด — ที่เหลือตรวจละเอียด (ขนาด/ทับซ้อน) ฝั่ง client ที่รู้ขนาดรูป
+        const b = r.photo_box || {};
+        const nums = [b.x, b.y, b.w, b.h].map(Number);
+        const boxOk = r.has_photo === true && nums.every(Number.isFinite) && nums[2] > 0 && nums[3] > 0;
+        const idx = Number(r.photo_index);
         return {
           issue, location: String(r.location || '').trim(),
           priority: r.priority === 'urgent' ? 'urgent' : 'normal',
           assigneeName, assigneeKey: matchPersonByName(assigneeName, roster),
+          photoIndex: boxOk && Number.isInteger(idx) && idx >= 0 && idx < imgs.length ? idx : 0,
+          photoBox: boxOk ? { x: nums[0], y: nums[1], w: nums[2], h: nums[3] } : null,
         };
       })
       .filter(r => r.issue);
     const u = resp.usage || {};
-    console.log(`[read-sheet] imgs=${imgs.length} rows=${rows.length} in=${u.input_tokens || 0} out=${u.output_tokens || 0}`);
+    console.log(`[read-sheet] imgs=${imgs.length} rows=${rows.length} boxes=${rows.filter(r => r.photoBox).length} in=${u.input_tokens || 0} out=${u.output_tokens || 0}`);
     res.json({ count: rows.length, rows });
   } catch (err) {
     console.error('[read-sheet] error', err.message);
