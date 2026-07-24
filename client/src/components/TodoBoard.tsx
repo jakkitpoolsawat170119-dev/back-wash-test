@@ -2069,7 +2069,6 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
     // แถบรูปใต้ชื่องาน — เล็กไว้ ไม่ให้แถวสูงจนไล่อ่านยาก
     const photoChip: React.CSSProperties = { border: '1px solid #e0e6ea', background: '#fff', color: '#78909c', fontSize: '0.66rem', fontWeight: 700, borderRadius: 14, padding: '3px 9px', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap', lineHeight: 1.6 };
     const thumb = (border: string): React.CSSProperties => ({ width: 34, height: 34, objectFit: 'cover', borderRadius: 7, border: `2px solid ${border}`, cursor: 'zoom-in', display: 'block', flexShrink: 0 });
-    const subLbl: React.CSSProperties = { fontSize: '0.68rem', fontWeight: 800, letterSpacing: '.04em', color: '#9aa0a6', textTransform: 'uppercase', margin: '10px 0 2px' };
     const chip = (on: boolean, color = '#ff6b00'): React.CSSProperties => ({ border: '2px solid', borderColor: on ? 'transparent' : '#e0e0e0', background: on ? color : '#fff', color: on ? '#fff' : '#666', borderRadius: 22, padding: '7px 13px', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer' });
     // สี/ตัวย่อของคน: ใช้ค่าจาก API ก่อน (เก็บใน DB) แล้วค่อย fallback DUTY_COLOR เดิม
     const colOf = (p: DutyPerson) => ({ c: p.color || (DUTY_COLOR[p.key] || {}).c || '#607d8b', wash: p.wash || (DUTY_COLOR[p.key] || {}).wash || '#eceff1', initial: p.initial || (DUTY_COLOR[p.key] || {}).initial || (p.name || '?')[0] });
@@ -2087,10 +2086,28 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
     return (
       <div>
         {/* team overview */}
-        <div style={{ ...card, background: 'linear-gradient(135deg,#fff,#fff8f2)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-            <div><div style={subLbl}>ความคืบหน้าทีมวันนี้</div><div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#ff6b00' }}>{duty.team.pct}%<small style={{ fontSize: '0.8rem', color: '#9aa0a6', fontWeight: 600 }}> เสร็จ</small></div></div>
-            <div style={{ textAlign: 'right' }}><div style={subLbl}>งานคงค้าง</div><div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#e65100' }}>{duty.team.left}<small style={{ fontSize: '0.8rem', color: '#9aa0a6', fontWeight: 600 }}> งาน</small></div></div>
+        <div style={{ ...card, background: 'linear-gradient(135deg,#ffffff,#fff4e8)', border: '1px solid #ffe2c6', padding: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+            <span style={{ fontSize: '1.15rem' }}>📊</span>
+            <span style={{ fontWeight: 800, fontSize: '1.02rem', color: '#37474f', letterSpacing: '-.01em' }}>ความคืบหน้าทีมวันนี้</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 18, marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: '2.3rem', fontWeight: 800, color: '#ff6b00', lineHeight: 0.9 }}>{duty.team.pct}<small style={{ fontSize: '1.05rem', fontWeight: 800 }}>%</small></div>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#c96a1e', marginTop: 3 }}>เสร็จแล้ว</div>
+            </div>
+            <div style={{ width: 1, alignSelf: 'stretch', background: '#ffdcb8', margin: '2px 0' }} />
+            <div>
+              <div style={{ fontSize: '2.3rem', fontWeight: 800, color: '#e65100', lineHeight: 0.9 }}>{duty.team.left}<small style={{ fontSize: '1rem', fontWeight: 700, color: '#9aa0a6' }}> งาน</small></div>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#c96a1e', marginTop: 3 }}>คงค้าง</div>
+            </div>
+            <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+              <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#a8937f', fontVariantNumeric: 'tabular-nums' }}>{duty.team.done}/{duty.team.total}</div>
+              <div style={{ fontSize: '0.64rem', fontWeight: 600, color: '#c3b4a3' }}>งานทั้งหมด</div>
+            </div>
+          </div>
+          <div style={{ height: 9, borderRadius: 99, background: '#ffe6d1', overflow: 'hidden', marginBottom: 15 }}>
+            <div style={{ height: '100%', width: `${duty.team.pct}%`, background: 'linear-gradient(90deg,#ffa84d,#ff6b00)', borderRadius: 99, transition: 'width .3s ease' }} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: 10 }}>
             {duty.people.map(p => { const col = colOf(p); return (
@@ -2104,7 +2121,12 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
           </div>
         </div>
 
-        <div style={{ ...subLbl, margin: '2px 2px 8px' }}>หน้าที่บุคคล</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, margin: '6px 2px 12px' }}>
+          <span style={{ fontSize: '1.2rem' }}>👥</span>
+          <span style={{ fontSize: '1.12rem', fontWeight: 800, color: '#37474f', letterSpacing: '-.02em' }}>หน้าที่บุคคล</span>
+          <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#78909c', background: '#eceff1', borderRadius: 20, padding: '2px 9px' }}>{duty.people.length} คน</span>
+          <div style={{ flex: 1, height: 2, background: 'linear-gradient(90deg,#dfe4e7,transparent)', borderRadius: 2 }} />
+        </div>
 
         {orderedPeople.map(p => { const col = colOf(p);
           const mine = !!myName && p.name.trim() === myName;
