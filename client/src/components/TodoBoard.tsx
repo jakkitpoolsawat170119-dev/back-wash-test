@@ -1805,6 +1805,12 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
     const [pick, setPick] = useState('');       // "personKey|nodeKey" ที่กำลังเลือกเหตุผลข้าม
     const [handoffKey, setHandoffKey] = useState(''); // key เดียวกันเมื่อเลือก "ให้คนอื่นทำแทน"
     const [tgMsg, setTgMsg] = useState('');
+    // มุมมองงานวันนี้: ⚡ แยกเลนความเร่งด่วน (default) | 👤 การ์ดรายคน (ของเดิม)
+    const [view, setView] = useState<'urgent' | 'person'>(() =>
+      (typeof localStorage !== 'undefined' && localStorage.getItem('dutyView') === 'person') ? 'person' : 'urgent');
+    const setDutyView = (v: 'urgent' | 'person') => { setView(v); try { localStorage.setItem('dutyView', v); } catch { /* โหมดส่วนตัว */ } };
+    const [doneOpen, setDoneOpen] = useState(false);   // เลน "เสร็จแล้ว" พับ/กาง
+    const [openRow, setOpenRow] = useState('');          // แถวที่กางดูรูป/ปุ่มข้าม (uid ของ FlatItem)
 
     const load = useCallback(async () => {
       setLoading(true);
@@ -2072,6 +2078,46 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
     if (!duty) return <div style={{ textAlign: 'center', color: '#bbb', padding: 24 }}>{loading ? 'กำลังโหลด…' : 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้'}</div>;
     if (duty.holiday) return <div style={{ ...card, textAlign: 'center', padding: 40 }}><div style={{ fontSize: '2rem' }}>🚫</div><div style={{ fontWeight: 800, marginTop: 8 }}>วันเสาร์ — วันหยุด</div><div style={{ fontSize: '0.8rem', color: '#90a4ae', marginTop: 4 }}>ไม่มีกะทำงาน</div></div>;
 
+    // ── รวมงานทุกคนเป็นรายการเดียว → แยกเลนตามความเร่งด่วน (มุมมอง ⚡) ──────────
+    // แต่ละ item ถือ ref กลับไปหาเจ้าของ+ตัวจริง เพื่อเรียก handler เดิมได้ (ไม่สร้างใหม่)
+    type FlatItem = {
+      uid: string; ownerKey: string; ownerName: string; col: { c: string; wash: string; initial: string };
+      kind: 'routine' | 'adhoc' | 'received'; title: string; icon: string;
+      done: boolean; urgent: boolean; mine: boolean; sub: string | null;
+      node?: DutyNode; task?: AdhocTask; recv?: Received;
+    };
+    const myName = (operatorName || '').trim();
+    const flat: FlatItem[] = [];
+    for (const p of duty.people) {
+      const col = colOf(p);
+      const mine = !!myName && p.name.trim() === myName;
+      for (const n of p.nodes) {
+        if (n.bypassed) continue;   // งานที่ข้าม/มอบต่อ ไม่เข้าเลนหลัก (ยังเห็นในมุมมองตามคน)
+        flat.push({ uid: `r:${p.key}:${n.key}`, ownerKey: p.key, ownerName: p.name, col, kind: 'routine',
+          title: n.title, icon: '🔁', done: n.checked, urgent: false, mine, sub: null, node: n });
+      }
+      for (const r of p.received) {
+        flat.push({ uid: `v:${p.key}:${r.nodeKey}`, ownerKey: p.key, ownerName: p.name, col, kind: 'received',
+          title: r.title, icon: '🔁', done: r.checked, urgent: false, mine, sub: `รับจาก ${r.fromName}`, recv: r });
+      }
+      for (const t of p.adhoc) {
+        flat.push({ uid: `a:${t.id}`, ownerKey: p.key, ownerName: p.name, col, kind: 'adhoc',
+          title: t.title, icon: (CAT[t.category] || CAT.manual).icon, done: t.status === 'done',
+          urgent: t.priority === 'urgent', mine, sub: t.location ? `📍${t.location}` : null, task: t });
+      }
+    }
+    // เรียงในเลน: งานของเรา(operator)ขึ้นก่อน แล้วจัดกลุ่มตามชื่อคน
+    const laneSort = (a: FlatItem, b: FlatItem) =>
+      (a.mine === b.mine ? 0 : a.mine ? -1 : 1) || a.ownerName.localeCompare(b.ownerName, 'th');
+    const urgentLane = flat.filter(i => i.urgent && !i.done).sort(laneSort);
+    const todoLane = flat.filter(i => !i.urgent && !i.done).sort(laneSort);
+    const doneLane = flat.filter(i => i.done).sort(laneSort);
+    const toggleFlat = (i: FlatItem) => {
+      if (i.kind === 'routine' && i.node) toggleNode(i.ownerKey, i.node);
+      else if (i.kind === 'received' && i.recv) toggleReceived(i.recv);
+      else if (i.kind === 'adhoc' && i.task) toggleAdhoc(i.task);
+    };
+
     return (
       <div>
         {/* team overview */}
@@ -2092,7 +2138,119 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
           </div>
         </div>
 
-        {/* person cards */}
+        {/* สลับมุมมอง: ⚡ แยกเลนความเร่งด่วน | 👤 ตามคน */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 12, background: '#eceff1', borderRadius: 12, padding: 4 }}>
+          {([['urgent', '⚡ ความเร่งด่วน'], ['person', '👤 ตามคน']] as const).map(([k, label]) => (
+            <button key={k} onClick={() => setDutyView(k)}
+              style={{ flex: 1, border: 'none', background: view === k ? '#fff' : 'transparent', color: view === k ? '#e65100' : '#607d8b', borderRadius: 9, padding: '9px 4px', fontSize: '0.82rem', fontWeight: 800, cursor: 'pointer', boxShadow: view === k ? '0 2px 6px -2px rgba(38,50,56,.25)' : 'none' }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* ── มุมมอง ⚡ แยกเลนความเร่งด่วน ─────────────────────────────────── */}
+        {view === 'urgent' && (() => {
+          const laneRow = (i: FlatItem) => {
+            const gk = i.node ? `${i.ownerKey}|${i.node.key}` : '';
+            const busy = busyPhoto === gk;
+            const open = openRow === i.uid;
+            // แนบรูปหลังทำ = ปิดงาน — มีเฉพาะงานประจำ (งานมอบหมายปิดด้วยติ๊ก/ผ่านบอทเหมือนเดิม)
+            const canPhoto = i.kind === 'routine' && !i.done;
+            return (
+              <div key={i.uid} style={{ borderTop: '1px solid #f2f4f5', paddingTop: 8, marginTop: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                  <input type="checkbox" checked={i.done} onChange={() => toggleFlat(i)} style={cb(false)} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.88rem', fontWeight: 500, color: i.done ? '#9aa0a6' : '#37474f', textDecoration: i.done ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {i.icon} {i.title}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.66rem', fontWeight: 800, color: i.col.c, background: i.col.wash, borderRadius: 20, padding: '1px 8px' }}>{i.col.initial} {i.ownerName}</span>
+                      {i.mine && <span style={{ fontSize: '0.64rem', fontWeight: 800, color: '#e65100', background: '#fff3e0', borderRadius: 20, padding: '1px 7px' }}>⭐ ของคุณ</span>}
+                      {i.urgent && <span style={{ ...badge, background: '#ffebee', color: '#c62828' }}>🔴 ด่วน</span>}
+                      {i.sub && <span style={{ fontSize: '0.68rem', color: '#9aa0a6' }}>{i.sub}</span>}
+                    </div>
+                  </div>
+                  {canPhoto && (
+                    <label style={{ ...photoChip, borderColor: '#c8e6c9', color: '#2e7d32', background: '#f1f8f2', flexShrink: 0 }}
+                      title="แนบรูปหลังทำ → ติ๊กเสร็จ + ส่งการ์ดเข้า Telegram">
+                      {busy ? '⏳' : '📷 หลังทำ'}
+                      <input type="file" accept="image/*" style={{ display: 'none' }}
+                        onChange={e => { const f = e.target.files?.[0]; e.currentTarget.value = ''; if (f && i.node) setDonePhoto(gk, i.ownerKey, i.node, f); }} />
+                    </label>
+                  )}
+                  {(i.kind === 'routine' || (i.task && (i.task.hasImages || i.task.hasDoneImages))) && (
+                    <button onClick={() => setOpenRow(open ? '' : i.uid)} title="ดูรูป/ตัวเลือกเพิ่ม"
+                      style={{ border: 'none', background: 'none', color: '#b0bec5', cursor: 'pointer', fontSize: '1rem', flexShrink: 0, padding: '0 2px' }}>{open ? '▲' : '⋯'}</button>
+                  )}
+                </div>
+                {open && (
+                  <div style={{ margin: '8px 0 4px 29px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    {/* งานประจำ: รูปอ้างอิง/หลังทำ + ปุ่มข้าม/มอบต่อ */}
+                    {i.kind === 'routine' && i.node && (<>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        {i.node.refImage ? <img src={i.node.refImage} alt="อ้างอิง" onClick={() => setZoom(i.node!.refImage!)} style={thumb('#cfd8dc')} />
+                          : i.node.hasRefImage ? <button onClick={() => zoomLazy('ref', i.node!, i.ownerKey)} style={photoChip}>🖼 อ้างอิง</button> : null}
+                        {(i.node.refImage || i.node.hasRefImage) && <span style={{ color: '#cfd8dc', fontSize: '0.7rem' }}>→</span>}
+                        {i.node.doneImage ? <img src={i.node.doneImage} alt="หลังทำ" onClick={() => setZoom(i.node!.doneImage!)} style={thumb('#a5d6a7')} />
+                          : i.node.hasDoneImage ? <button onClick={() => zoomLazy('done', i.node!, i.ownerKey)} style={photoChip}>🖼 หลังทำ</button> : null}
+                      </div>
+                      <div>
+                        <select value="" onChange={e => { onReason(i.ownerKey, i.node!, e.target.value); setOpenRow(''); }} style={sel}>
+                          <option value="">ข้ามงานนี้…</option>
+                          {BYPASS_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                      </div>
+                    </>)}
+                    {/* งานมอบหมาย: รูปแนบ/หลังทำ (lazy) */}
+                    {i.task && (i.task.hasImages || i.task.hasDoneImages) && (
+                      taskImgs[i.task.id] === 'loading' ? <span style={{ fontSize: '0.72rem', color: '#9aa0a6' }}>กำลังโหลดรูป…</span>
+                        : typeof taskImgs[i.task.id] === 'object'
+                          ? (() => { const im = taskImgs[i.task!.id] as { images: string[]; doneImages: string[] }; return (
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                              {[...im.images, ...im.doneImages].map((src, ii) => (
+                                <img key={ii} src={src} alt="รูปงาน" onClick={() => setZoom(src)}
+                                  style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 8, border: `1px solid ${ii < im.images.length ? '#e0e0e0' : '#a5d6a7'}`, cursor: 'zoom-in' }} />
+                              ))}
+                            </div>); })()
+                          : <button onClick={() => loadTaskImgs(i.task!.id)} style={photoChip}>📷 ดูรูป</button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          };
+          const lane = (title: string, items: FlatItem[], accent: string, wash: string) => items.length === 0 ? null : (
+            <div style={card}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                <span style={{ fontWeight: 800, fontSize: '0.9rem', color: accent }}>{title}</span>
+                <span style={{ fontSize: '0.72rem', fontWeight: 800, color: accent, background: wash, borderRadius: 20, padding: '1px 9px' }}>{items.length}</span>
+              </div>
+              {items.map(laneRow)}
+            </div>
+          );
+          const allDone = urgentLane.length === 0 && todoLane.length === 0;
+          return (<>
+            {lane('🔴 ต้องทำก่อน', urgentLane, '#c62828', '#ffebee')}
+            {lane('⏳ ยังไม่เสร็จ', todoLane, '#e65100', '#fff3e9')}
+            {allDone && doneLane.length > 0 && (
+              <div style={{ ...card, textAlign: 'center', color: '#2e7d32', fontWeight: 800, fontSize: '0.9rem' }}>🎉 เคลียร์ครบทุกงานแล้ว</div>
+            )}
+            {doneLane.length > 0 && (
+              <div style={card}>
+                <button onClick={() => setDoneOpen(o => !o)}
+                  style={{ width: '100%', border: 'none', background: 'none', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>
+                  <span style={{ fontWeight: 800, fontSize: '0.9rem', color: '#2e7d32' }}>✅ เสร็จแล้ว {doneLane.length}</span>
+                  <span style={{ marginLeft: 'auto', color: '#90a4ae', fontSize: '0.78rem' }}>{doneOpen ? 'ซ่อน ▲' : 'ดู ▼'}</span>
+                </button>
+                {doneOpen && doneLane.map(laneRow)}
+              </div>
+            )}
+          </>);
+        })()}
+
+        {/* ── มุมมอง 👤 ตามคน (การ์ดรายคนเดิม) ────────────────────────────── */}
+        {view === 'person' && (<>
         {duty.people.map(p => { const col = colOf(p); return (
           <div key={p.key} data-person-key={p.key}
             style={{
@@ -2221,6 +2379,7 @@ const DutyBoard: React.FC<{ date: string; operatorName: string | null; card: Rea
             </div>
           </div>
         ); })}
+        </>)}
 
         {/* assign form */}
         <div style={{ ...card }}>
