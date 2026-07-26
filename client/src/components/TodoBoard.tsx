@@ -109,10 +109,26 @@ const parseHM = (s?: string): { h: number; hm: string } | null => {
   if (h > 23) return null;
   return { h, hm: `${String(h).padStart(2, '0')}:${m[2]}` };
 };
-interface Props { operatorName: string | null; onBackToMain: () => void; onGoToProduction?: () => void; }
+type TodoTab = 'today' | 'audit' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs';
+interface Props {
+  operatorName: string | null;
+  onBackToMain: () => void;
+  onGoToProduction?: () => void;
+  /** When set, the tab is driven externally (e.g. from the Admin sidebar). */
+  externalTab?: TodoTab;
+  /** Fired whenever the internal tab changes, so an external nav can stay in sync. */
+  onTabChange?: (t: TodoTab) => void;
+  /** Hide TodoBoard's own header + tab bar (the Admin shell provides its own chrome). */
+  hideChrome?: boolean;
+}
 
-const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProduction }) => {
-  const [tab, setTab] = useState<'today' | 'audit' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs'>('today');
+const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProduction, externalTab, onTabChange, hideChrome }) => {
+  const [tab, setTab] = useState<TodoTab>(externalTab ?? 'today');
+
+  // sync external → internal (Admin sidebar click changes the tab)
+  useEffect(() => { if (externalTab && externalTab !== tab) setTab(externalTab); }, [externalTab]); // eslint-disable-line react-hooks/exhaustive-deps
+  // sync internal → external (in-page navigation like "พื้นที่รับผิดชอบ" keeps sidebar highlighted)
+  useEffect(() => { onTabChange?.(tab); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
   const [date, setDate] = useState(currentWorkDay());
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
@@ -158,13 +174,16 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProducti
     <div style={{ maxWidth: '640px', margin: '0 auto', padding: '12px 12px 60px', fontFamily: 'Inter, sans-serif' }}>
       {/* header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-        <button onClick={onBackToMain} style={{ border: '1px solid #eee', background: '#fff', borderRadius: '10px', padding: '6px 10px', cursor: 'pointer' }}>← กลับ</button>
-        <h2 style={{ margin: 0, fontSize: '1.1rem', color: '#37474f', flex: 1 }}>✅ To-do วันนี้</h2>
+        {!hideChrome && <button onClick={onBackToMain} style={{ border: '1px solid #eee', background: '#fff', borderRadius: '10px', padding: '6px 10px', cursor: 'pointer' }}>← กลับ</button>}
+        {!hideChrome
+          ? <h2 style={{ margin: 0, fontSize: '1.1rem', color: '#37474f', flex: 1 }}>✅ To-do วันนี้</h2>
+          : <span style={{ flex: 1 }} />}
         <input type="date" value={date} onChange={e => setDate(e.target.value)}
           style={{ border: '1px solid #ddd', borderRadius: '10px', padding: '6px 8px', fontSize: '0.85rem' }} />
       </div>
 
       {/* tabs */}
+      {!hideChrome && (
       <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', marginBottom: '14px' }}>
         {([
           ['today', '✅ งานวันนี้'], ['recurring', '🔁 งานประจำ'], ['timeline', '🕐 ไทม์ไลน์'], ['calendar', '📊 สรุป & KPI'], ['report', '📤 ส่งรายงาน'], ['ai', '🤖 ผู้ช่วย AI'], ['specs', '🧪 สเปกคุณภาพ'],
@@ -176,6 +195,7 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProducti
           }}>{label}</button>
         ))}
       </div>
+      )}
 
       {/* ── TAB: duty (หน้าที่รับผิดชอบ) ───────────────────────── */}
       {tab === 'today' && <DutyBoard date={date} operatorName={operatorName} card={card} onGoToAudit={() => setTab('audit')} />}
