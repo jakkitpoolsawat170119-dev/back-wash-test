@@ -171,7 +171,7 @@ const TodoBoard: React.FC<Props> = ({ operatorName, onBackToMain, onGoToProducti
   };
 
   return (
-    <div style={{ maxWidth: '640px', margin: '0 auto', padding: '12px 12px 60px', fontFamily: 'Inter, sans-serif' }}>
+    <div style={{ maxWidth: hideChrome ? '100%' : '640px', margin: '0 auto', padding: hideChrome ? '0 0 40px' : '12px 12px 60px', fontFamily: 'Inter, sans-serif' }}>
       {/* header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
         {!hideChrome && <button onClick={onBackToMain} style={{ border: '1px solid #eee', background: '#fff', borderRadius: '10px', padding: '6px 10px', cursor: 'pointer' }}>← กลับ</button>}

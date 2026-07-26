@@ -54,7 +54,7 @@ const App: React.FC = () => {
           <Login onLogin={handleLogin} />
         </div>
       ) : view === 'admin' ? (
-        <AdminShell operator={operator} onExit={goHome} onNavOut={(v) => setView(v)} />
+        <AdminShell operator={operator} onExit={goHome} onNavOut={(v) => setView(v)} darkMode={darkMode} onToggleDark={toggleDark} />
       ) : (
         <div className={`rd-shell${view === 'home' ? ' rd-home' : ''}`}>
           <TopBar active={view} onNav={setView} operator={operator} darkMode={darkMode} onToggleDark={toggleDark} />

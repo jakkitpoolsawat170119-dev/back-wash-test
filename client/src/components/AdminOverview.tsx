@@ -54,14 +54,14 @@ const AdminOverview: React.FC<Props> = ({ onOpen }) => {
         <div className="stat">
           <div className="glow" style={{ background: 'radial-gradient(circle,rgba(255,107,0,.25),transparent 70%)' }} />
           <div className="lb">งานวันนี้</div>
-          <div className="v">{tasks ? done : '…'}<span style={{ fontSize: 15, color: 'var(--a-ink-soft)' }}>/{total}</span></div>
+          <div className="v">{tasks ? done : '…'}<span style={{ fontSize: 15, color: 'var(--ink-soft)' }}>/{total}</span></div>
           <div className="d">เสร็จแล้ว {pct}%</div>
           <div className="prg"><i style={{ width: `${pct}%` }} /></div>
         </div>
         <div className="stat">
           <div className="glow" style={{ background: 'radial-gradient(circle,rgba(198,40,40,.28),transparent 70%)' }} />
           <div className="lb">งานค้าง</div>
-          <div className="v" style={{ color: pending ? '#ff9d80' : 'var(--a-ink)' }}>{tasks ? pending : '…'}</div>
+          <div className="v" style={{ color: pending ? 'var(--danger)' : 'var(--ink)' }}>{tasks ? pending : '…'}</div>
           <div className="d">{urgentPending > 0 ? <>ด่วนที่ยังค้าง <b className="down">{urgentPending}</b></> : 'ไม่มีงานด่วนค้าง'}</div>
         </div>
         <button className="stat" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onOpen('cip')}>
@@ -82,9 +82,9 @@ const AdminOverview: React.FC<Props> = ({ onOpen }) => {
         <div className="panel">
           <h3>งานล่าสุด <button className="more" onClick={() => onOpen('today')}>ดูทั้งหมด →</button></h3>
           {tasks === null ? (
-            <p style={{ color: 'var(--a-ink-soft)', fontSize: 13 }}>กำลังโหลด…</p>
+            <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>กำลังโหลด…</p>
           ) : recent.length === 0 ? (
-            <p style={{ color: 'var(--a-ink-soft)', fontSize: 13 }}>ยังไม่มีงานของวันนี้</p>
+            <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>ยังไม่มีงานของวันนี้</p>
           ) : (
             <ul className="feed">
               {recent.map(t => (
