@@ -30,11 +30,9 @@ interface Props {
   operator: string;
   onExit: () => void;                                    // ออกจาก Admin → หน้าหลัก
   onNavOut: (v: 'production' | 'cip') => void;            // ทางลัดออกไปหน้าผลิต/CIP
-  darkMode: boolean;
-  onToggleDark: () => void;
 }
 
-const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut, darkMode, onToggleDark }) => {
+const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
   const [authed, setAuthed] = useState(isAdminAuthed);
   const [pane, setPane] = useState<Pane>('overview');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -87,7 +85,6 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut, darkMode, onT
         <button className="logo" onClick={onExit} aria-label="SPP-MP">
           <BrandLogo size={26} />
         </button>
-        <span className="atop-tag">แผงควบคุมผู้ดูแล</span>
 
         <div className="menuwrap" ref={menuWrapRef}>
           <button className="abtn" onClick={toggleMenu}><span className="ic">☰</span><span className="tx">เมนู</span></button>
@@ -99,7 +96,6 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut, darkMode, onT
         <div className="search">🔎 ค้นหางาน, batch, คู่มือ…</div>
         <span className="sys"><span className="dot" />ระบบปกติ</span>
         <span className="achip"><span className="av">{(operator || 'A').slice(0, 1)}</span>{operator || 'ผู้ดูแล'}</span>
-        <button className="abtn" onClick={onToggleDark} aria-label="สลับโหมดมืด" style={{ padding: '7px 10px' }}>{darkMode ? '☀️' : '🌙'}</button>
         <button className="abtn ghost" onClick={onExit}><span className="ic">↩</span><span className="tx">ออกจาก Admin</span></button>
       </div>
 

@@ -37,7 +37,7 @@ const App: React.FC = () => {
   const goHome = () => setView('home');
 
   return (
-    <div className={darkMode ? 'app-dark-mode' : undefined}>
+    <div className={darkMode && view !== 'admin' ? 'app-dark-mode' : undefined}>
       <style>{`
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .app-dark-mode { filter: invert(1) hue-rotate(180deg); background: #ffffff; }
@@ -54,7 +54,7 @@ const App: React.FC = () => {
           <Login onLogin={handleLogin} />
         </div>
       ) : view === 'admin' ? (
-        <AdminShell operator={operator} onExit={goHome} onNavOut={(v) => setView(v)} darkMode={darkMode} onToggleDark={toggleDark} />
+        <AdminShell operator={operator} onExit={goHome} onNavOut={(v) => setView(v)} />
       ) : (
         <div className={`rd-shell${view === 'home' ? ' rd-home' : ''}`}>
           <TopBar active={view} onNav={setView} operator={operator} darkMode={darkMode} onToggleDark={toggleDark} />
