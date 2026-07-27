@@ -220,14 +220,14 @@
 }
 .rsbtn{
   display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:none;background:transparent;
-  color:var(--ink);font-size:13.5px;font-weight:600;padding:9px 10px;border-radius:10px;font-family:var(--font-head);
+  color:var(--ink);font-size:17.5px;font-weight:600;padding:9px 10px;border-radius:10px;font-family:var(--font-head);
   transition:background-color .15s ease,color .15s ease;
 }
 .rsbtn:hover{background:var(--brand-soft);color:var(--brand-deep)}
 .rsbtn.on{background:var(--brand-soft);color:var(--brand-deep)}
-.rsbtn .ic{width:20px;text-align:center;font-size:15px}
+.rsbtn .ic{width:20px;text-align:left;font-size:15px}
 .rsbtn .tag{margin-left:auto;font-size:10px;background:var(--brand-soft);color:var(--brand-deep);border-radius:999px;padding:1px 7px;font-weight:700}
-.rsbtn.sub{padding-left:30px;font-size:12.5px;color:var(--ink-soft)}
+.rsbtn.sub{padding-left:40px;font-size:12.5px;color:var(--ink-soft)}
 .rsbtn.sub.on{color:var(--brand-deep)}
 .rsbtn.sub .ic{width:16px;font-size:13px}
 @media(min-width:821px){.menuwrap{display:none}}

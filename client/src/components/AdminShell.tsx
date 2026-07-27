@@ -14,11 +14,11 @@ const TODO_TABS: string[] = ['today', 'audit', 'calendar', 'report', 'timeline',
 
 const MENU: { pane: Pane; ic: string; label: string; sub?: boolean }[] = [
   { pane: 'overview', ic: '📊', label: 'ภาพรวม' },
+  { pane: 'timeline', ic: '🕒', label: 'Timeline รับ-ส่งกะ' },
   { pane: 'today', ic: '✅', label: 'งานวันนี้' },
   { pane: 'audit', ic: '🧭', label: 'พื้นที่รับผิดชอบ' },
   { pane: 'calendar', ic: '📅', label: 'ปฏิทิน' },
   { pane: 'report', ic: '📈', label: 'รายงาน' },
-  { pane: 'timeline', ic: '🕒', label: 'Timeline รับ-ส่งกะ' },
   { pane: 'recurring', ic: '🔁', label: 'งานประจำ' },
   { pane: 'ai', ic: '🤖', label: 'AI ผู้ช่วย' },
   { pane: 'line4', ic: '📋', label: 'คู่มือ Line 4' },
