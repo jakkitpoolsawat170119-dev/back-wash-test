@@ -5,16 +5,18 @@ import AdminOverview from './AdminOverview';
 import TodoBoard from './TodoBoard';
 import Line4Manual from './Line4Manual';
 import StickerGuideAdmin from './StickerGuideAdmin';
+import SppReportForm from './SppReportForm';
 import ErrorBoundary from './ErrorBoundary';
 
 type TodoTab = 'today' | 'audit' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs';
-type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin';
+type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport';
 
 const TODO_TABS: string[] = ['today', 'audit', 'calendar', 'report', 'timeline', 'recurring', 'ai', 'specs'];
 
 const MENU: { pane: Pane; ic: string; label: string; sub?: boolean }[] = [
   { pane: 'overview', ic: '📊', label: 'ภาพรวม' },
   { pane: 'timeline', ic: '🕒', label: 'Timeline รับ-ส่งกะ' },
+  { pane: 'sppreport', ic: '🏭', label: 'ลงยอดผลิต' },
   { pane: 'today', ic: '✅', label: 'งานวันนี้' },
   { pane: 'audit', ic: '🧭', label: 'พื้นที่รับผิดชอบ' },
   { pane: 'calendar', ic: '📅', label: 'ปฏิทิน' },
@@ -135,6 +137,12 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
           {pane === 'stickeradmin' && (
             <div className="rd-legacy">
               <ErrorBoundary label="admin-qc"><StickerGuideAdmin onBackToMain={onExit} /></ErrorBoundary>
+            </div>
+          )}
+
+          {pane === 'sppreport' && (
+            <div className="rd-legacy">
+              <ErrorBoundary label="admin-sppreport"><SppReportForm operatorName={operator} /></ErrorBoundary>
             </div>
           )}
         </div>

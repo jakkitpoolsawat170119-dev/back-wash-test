@@ -1421,6 +1421,33 @@ app.post('/api/production/plan', (req, res) => {
   })();
 });
 
+// ── ลงยอดผลิต SPP (ฟอร์มหน้า Admin) ─────────────────────────────
+// forward payload ทั้งก้อนไป webhook branch ของ workflow "SPP Production Auto-Submit"
+// n8n จะ resolve SKU จาก SKU Sheet → append ลง Pending → แจ้งกลุ่ม Telegram พร้อมปุ่มอนุมัติ/ปฏิเสธ
+const SPP_N8N_WEBHOOK_URL = process.env.SPP_N8N_WEBHOOK_URL || 'https://n8n.srv1267366.hstgr.cloud/webhook/spp-web-report';
+
+app.post('/api/production/spp-report', async (req, res) => {
+  const p = req.body || {};
+  if (!p.sku || !String(p['ชื่อ'] || '').trim()) {
+    return res.status(400).json({ error: 'ต้องมี sku และชื่อผู้รายงาน' });
+  }
+  if (p.actual_box === undefined || p.actual_box === null) {
+    return res.status(400).json({ error: 'ต้องมีจำนวนผลิตจริง (actual_box)' });
+  }
+  try {
+    const r = await axios.post(SPP_N8N_WEBHOOK_URL, p, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 25000,
+    });
+    const reportId = r.data?.report_id || '';
+    console.log(`[SPP] report forwarded OK report_id=${reportId} sku=${p.sku}`);
+    res.json({ success: true, report_id: reportId });
+  } catch (error) {
+    console.error('[SPP] forward error:', error.response?.data || error.message);
+    res.status(502).json({ error: 'ส่งรายงานไป n8n ไม่สำเร็จ กรุณาลองใหม่ (ตรวจสอบว่า workflow SPP เปิดใช้งานอยู่)' });
+  }
+});
+
 // ดึงแผนผลิตของวัน (default = วันนี้)
 app.get('/api/production/plan', (req, res) => {
   const date = req.query.date || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
