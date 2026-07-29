@@ -1920,7 +1920,9 @@ app.post('/api/production/report', async (req, res) => {
          prod_status, miss_reason, status, verify_token, verify_expires_at, payload, created_at, updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending_warehouse',?,?,?,?,?)`,
       [reportId, workDay, workDay, shift, keyword, sku.sku_code || '', sku.product_name || keyword,
-       sku.group_name || '', sku.machine || '', sku.count_unit || 'กล่อง', packFactor,
+       // เครื่องเลือกได้หน้างาน (สินค้าเดียวกันวิ่งได้หลายเครื่อง เช่น Syrup → Linear#1-#4)
+       // ไม่ได้เลือกมา = ใช้ค่าตั้งต้นของ SKU
+       sku.group_name || '', String(b.machine || sku.machine || '').trim(), sku.count_unit || 'กล่อง', packFactor,
        plan.plan_qty, plan.plan_source, prodQty, prodPcs, reporter, crew.length, now,
        prodStatus, missReason, token, expires, JSON.stringify(payload), now, now]
     );

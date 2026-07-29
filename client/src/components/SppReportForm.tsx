@@ -22,6 +22,18 @@ const FALLBACK_SKUS: Sku[] = [
   { keyword: 'ต้มหัวเชื้อ', group_name: 'ถังน้ำเชื่อม ทำความสะอาด อื่นๆ', machine: 'ต้มหัวเชื้อ', count_unit: 'หม้อ', pack_factor: 0 },
 ];
 
+// เครื่องบรรจุตามตัวเลือกในฟอร์ม Google หมวด 5 — สินค้าเดียวกันวิ่งได้หลายเครื่อง จึงต้องเลือกเองทุกครั้ง
+// (ฟอร์มจริงมี 19 ตัว · 2 ตัวชื่ออ่านไม่ออกจากไฟล์ต้นทาง ดู GOOGLE_FORM_STRUCTURE.md)
+const MACHINES = [
+  'NGS',
+  'Rotary (Hondok)',
+  'Linear#1 (Lina Pack)', 'Linear#2 (Lina Pack)', 'Linear#3 (Lina Pack)', 'Linear#4 (Lina Pack)',
+  '300 ml (Delmax)', 'Hygiene (Delmax)', 'Freshy (Delmax)',
+  'Sachet (Thai M Pack)', 'Stick (Sanko)',
+  'Paste 1-5 kg 454 g', 'ICING 10-25 Kg', 'Low Cal 105-500 g',
+  'ต้มหัวเชื้อ', 'ถังน้ำเชื่อม ทำความสะอาด อื่นๆ', 'Manual', 'เครื่องบรรจุ#A3',
+];
+
 // ประเภทของเสียตามฟอร์ม Google หมวด 9 (แต่ละประเภทมี จำนวน + สาเหตุการชำรุด)
 const WASTE_TYPES = ['ถุง', 'ถุง Pack', 'ขวด/กระปุก', 'ฝา', 'กริ๊ป', 'กล่อง'];
 
@@ -76,6 +88,7 @@ const SppReportForm: React.FC<Props> = ({ operatorName }) => {
 
   // สินค้า
   const [skuKey, setSkuKey] = useState('');
+  const [machine, setMachine] = useState('');   // ตั้งต้นจาก SKU แต่เลือกเองได้ (Syrup วิ่งได้หลาย Linear)
   const [lotDate, setLotDate] = useState(bkkDate());
 
   // ยอดผลิต
@@ -144,9 +157,12 @@ const SppReportForm: React.FC<Props> = ({ operatorName }) => {
   }, []);
 
   const sku = useMemo(() => skus.find(s => s.keyword === skuKey), [skus, skuKey]);
+  // เปลี่ยนสินค้า → เติมเครื่องตั้งต้นให้ (แก้ทับได้)
+  useEffect(() => { setMachine(sku?.machine || ''); }, [sku]);
   const unit = sku?.count_unit || 'กล่อง';
   const packFactor = sku?.pack_factor ?? 0;
-  const isManual = !!sku && (sku.machine === 'Manual' || sku.machine === 'ต้มหัวเชื้อ');
+  // งาน Manual ไม่มี Counter/รอบเครื่อง — ดูจากเครื่องที่เลือกจริง ไม่ใช่ค่าตั้งต้นของ SKU
+  const isManual = machine === 'Manual' || machine === 'ต้มหัวเชื้อ' || machine === '';
 
   // ทีมงานของกะที่เลือก — เปลี่ยนกะแล้วติ๊กทุกคนให้ใหม่
   const teamList = crewByShift[shift] || [];
@@ -205,7 +221,7 @@ const SppReportForm: React.FC<Props> = ({ operatorName }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          reporter: reporter.trim(), sku_keyword: skuKey, date, shift, crew,
+          reporter: reporter.trim(), sku_keyword: skuKey, date, shift, crew, machine,
           prod_qty: num(prodQty),
           plan_qty_override: planEdit || planSource === 'none' || planSource === 'unit_mismatch' ? num(planQty) : undefined,
           miss_reason: missReason.trim(), lot_date: lotDate,
@@ -346,7 +362,12 @@ const SppReportForm: React.FC<Props> = ({ operatorName }) => {
           </div>
           {sku && <>
             <div><label style={lb}>กลุ่ม Product<span style={autoChip}>อัตโนมัติ</span></label><input style={inpRO} value={sku.group_name || ''} readOnly /></div>
-            <div><label style={lb}>เครื่องบรรจุ<span style={autoChip}>อัตโนมัติ</span></label><input style={inpRO} value={sku.machine || ''} readOnly /></div>
+            <div><label style={lb}>เครื่องบรรจุ<span style={autoChip}>ตั้งต้นจากสินค้า · เลือกได้</span></label>
+              <select style={inp} value={machine} onChange={e => setMachine(e.target.value)}>
+                {machine && !MACHINES.includes(machine) && <option value={machine}>{machine}</option>}
+                <option value="">-- ยังไม่ระบุเครื่อง --</option>
+                {MACHINES.map(m => <option key={m} value={m}>{m}</option>)}
+              </select></div>
             <div><label style={lb}>หน่วยนับ<span style={autoChip}>อัตโนมัติ</span></label><input style={inpRO} value={unit} readOnly /></div>
             <div><label style={lb}>จำนวนชิ้น/{unit}<span style={autoChip}>อัตโนมัติ</span></label><input style={inpRO} value={packFactor} readOnly /></div>
           </>}
