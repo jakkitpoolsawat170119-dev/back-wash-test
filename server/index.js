@@ -5,6 +5,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const crypto = require('crypto');
 const axios = require('axios');
 const FormData = require('form-data');
 const Anthropic = require('@anthropic-ai/sdk');
@@ -96,6 +97,100 @@ const SCHEMA = [
       spec TEXT,
       created_at TEXT,
       UNIQUE(work_day, shift, flavor)
+    )`,
+  // ── ระบบลงยอดผลิต (เฟส 0) ────────────────────────────────────────────────
+  // sku_master = บ้านเดียวของข้อมูลสินค้า (ย้ายจาก SKU_PRESETS ที่ hardcode ใน client
+  //   + ชีต SKU ที่ n8n อ่าน) · keyword ยังเป็น join key เดิมกับโหนด Resolve SKU
+  // count_unit = หน่วยที่ "นับของจริง" ต่อ SKU: กล่อง | หม้อ | กระสอบ
+  //   (ฟอร์ม Google เขียน "กล่อง/หม้อ" · Icing บางตัวนับเป็นกระสอบ — แก้ผ่าน /api/sku ได้)
+  // plan_flavor = สตริงรสที่ใช้ join กับ shift_plans/production_plans เพื่อเติมแผนอัตโนมัติ
+  `CREATE TABLE IF NOT EXISTS sku_master (
+      id ${db.pk},
+      keyword TEXT UNIQUE,
+      sku_code TEXT,
+      product_name TEXT,
+      group_name TEXT,
+      machine TEXT,
+      count_unit TEXT DEFAULT 'กล่อง',
+      pack_factor INTEGER DEFAULT 0,
+      plan_flavor TEXT,
+      active INTEGER DEFAULT 1,
+      sort_order INTEGER DEFAULT 0,
+      updated_at TEXT
+    )`,
+  // ทีมงานประจำกะ (ตามฟอร์ม Google หมวด 2) — ติ๊กเลือกตอนลงยอด แล้วนับเป็น "จำนวนคนผลิต"
+  `CREATE TABLE IF NOT EXISTS shift_crew (
+      id ${db.pk},
+      shift TEXT,
+      name TEXT,
+      active INTEGER DEFAULT 1,
+      sort_order INTEGER DEFAULT 0,
+      UNIQUE(shift, name)
+    )`,
+  // รายงานยอดผลิต = source of truth (DB นำ · Google Sheet ตามทีหลัง)
+  // สถานะ: pending_warehouse → pending_approval → approved | rejected
+  // prod_qty / wh_qty อยู่ในหน่วยเดียวกันเสมอ (= count_unit) · *_pcs คำนวณฝั่ง server เท่านั้น
+  // payload = JSON ของช่องที่ไม่ต้อง query (เวลา 6 ช่อง, ของเสียรายประเภท, ทีมงาน, Lot)
+  `CREATE TABLE IF NOT EXISTS production_reports (
+      id ${db.pk},
+      report_id TEXT UNIQUE,
+      work_day TEXT,
+      report_date TEXT,
+      shift TEXT,
+      sku_keyword TEXT,
+      sku_code TEXT,
+      product_name TEXT,
+      group_name TEXT,
+      machine TEXT,
+      count_unit TEXT,
+      pack_factor INTEGER DEFAULT 0,
+      plan_qty REAL,
+      plan_source TEXT DEFAULT 'none',
+      prod_qty REAL,
+      prod_pcs REAL,
+      reporter_name TEXT,
+      crew_count INTEGER DEFAULT 0,
+      reported_at TEXT,
+      wh_qty REAL,
+      wh_pcs REAL,
+      wh_name TEXT,
+      wh_note TEXT,
+      wh_submitted_at TEXT,
+      variance_qty REAL,
+      variance_pct REAL,
+      variance_flag TEXT,
+      variance_reason TEXT,
+      status TEXT DEFAULT 'pending_warehouse',
+      prod_status TEXT,
+      miss_reason TEXT,
+      approver_name TEXT,
+      approved_qty REAL,
+      approved_source TEXT,
+      decision_note TEXT,
+      decided_at TEXT,
+      verify_token TEXT UNIQUE,
+      verify_expires_at TEXT,
+      verify_used_at TEXT,
+      verify_sent_via TEXT,
+      verify_sent_at TEXT,
+      sheet_status TEXT DEFAULT 'pending',
+      sheet_sent_at TEXT,
+      sheet_attempts INTEGER DEFAULT 0,
+      sheet_error TEXT,
+      payload TEXT,
+      created_at TEXT,
+      updated_at TEXT
+    )`,
+  // audit trail แบบ append-only — ห้ามมี UNIQUE/NOT NULL ที่ทำให้เขียนไม่ผ่าน
+  `CREATE TABLE IF NOT EXISTS production_report_events (
+      id ${db.pk},
+      report_id TEXT,
+      event TEXT,
+      actor TEXT,
+      actor_role TEXT,
+      detail TEXT,
+      channel TEXT,
+      created_at TEXT
     )`,
   `CREATE TABLE IF NOT EXISTS cip_line2_sessions (
       id ${db.pk},
@@ -346,6 +441,36 @@ const DEFAULT_OPERATORS = [
   ["อนุวัตร สุวรรณวงค์", "1234"],
 ];
 
+// ทีมงานประจำกะ ตามฟอร์ม Google หมวด 2 (ดู GOOGLE_FORM_STRUCTURE.md)
+const DEFAULT_SHIFT_CREW = [
+  ['กะ1', 'อนุวัตร สุวรรณวงศ์'], ['กะ1', 'ดำรงค์ มีแก้ว'], ['กะ1', 'รัตนะ ธงเพ็ง'], ['กะ1', 'นพพร พิมพ์ทอง'],
+  ['กะ2', 'จักรกฤษ พูลสวัสดิ์'], ['กะ2', 'สุรศักดิ์ สรหงษ์'], ['กะ2', 'ศราวุธ เกษประทุม'], ['กะ2', 'เกรียงไกร ศรีนิล'],
+  ['กะ3', 'พัฒน์พริศร์ อ่ำอยู่'], ['กะ3', 'ไพรวรรณ ย้อนเพชร'], ['กะ3', 'รัชพล รัตนานนท์'], ['กะ3', 'สมเจตน์ การภักดี'],
+];
+
+// seed SKU เริ่มต้น — ย้ายมาจาก SKU_PRESETS ใน client/src/components/SppReportForm.tsx
+// [keyword, group_name, machine, pack_factor, count_unit, plan_flavor]
+// group_name ต้องตรงกับ option ในฟอร์ม Google เป๊ะ (ระวัง 'Coconut -Paste' เว้นวรรคหน้า '-' และ 'Coffee & Sachet')
+// count_unit: seed เป็น 'กล่อง' ทั้งหมด ยกเว้นต้มหัวเชื้อ = 'หม้อ' — ตัวไหนนับเป็น "กระสอบ" ให้แก้ผ่าน POST /api/sku
+const DEFAULT_SKUS = [
+  ['Amazon850', 'Amazon-NGS', 'NGS', 12, 'กล่อง', 'Amazon'],
+  ['Coffee 500g×4×10', 'Amazon-NGS', 'NGS', 40, 'กล่อง', 'Coffee'],
+  ['กาแฟ 8g×30×4×10', 'Coffee & Sachet', 'Sachet (Thai M Pack)', 1200, 'กล่อง', 'กาแฟ'],
+  ['Syrup800', 'Syrup', 'Linear#1 (Lina Pack)', 12, 'กล่อง', 'Syrup'],
+  ['Syrup 1.8', 'Syrup', 'Linear#1 (Lina Pack)', 8, 'กล่อง', 'Syrup'],
+  ['Syrup300', 'Syrup', 'Linear#1 (Lina Pack)', 24, 'กล่อง', 'Syrup'],
+  ['Easy Dissolving800', 'Syrup', 'Linear#1 (Lina Pack)', 12, 'กล่อง', 'Easy Dissolving'],
+  ['Blue Hawaii 710×3×4', 'Freshy', 'Freshy (Delmax)', 12, 'กล่อง', 'Blue Hawaii'],
+  ['Sala Freshy 710×3×4', 'Freshy', 'Freshy (Delmax)', 12, 'กล่อง', 'Sala'],
+  ['Pineapple Freshy', 'Freshy', 'Freshy (Delmax)', 12, 'กล่อง', 'Pineapple'],
+  ['Kiwi Freshy', 'Freshy', 'Freshy (Delmax)', 12, 'กล่อง', 'Kiwi'],
+  ['Icing900', 'Icing', 'ICING 10-25 Kg', 12, 'กล่อง', 'Icing'],
+  ['Caramel Senorita 1.9×4', 'Senorita', 'Freshy (Delmax)', 4, 'กล่อง', 'Senorita'],
+  ['Caramel Senorita 750×6', 'Senorita', 'Freshy (Delmax)', 6, 'กล่อง', 'Senorita'],
+  ['ชีส 1×20', 'Coconut -Paste', 'Manual', 20, 'กล่อง', 'ชีส'],
+  ['ต้มหัวเชื้อ', 'ถังน้ำเชื่อม ทำความสะอาด อื่นๆ', 'ต้มหัวเชื้อ', 0, 'หม้อ', ''],
+];
+
 async function initDb() {
   for (const ddl of SCHEMA) await db.exec(ddl);
   // migration: เพิ่มคอลัมน์ brix/ph ให้ production_logs (สำหรับ DB เดิมที่สร้างก่อนมีคอลัมน์นี้)
@@ -408,6 +533,23 @@ async function initDb() {
   await seedDutyBoard();
   // seed ผู้รับผิดชอบใบตรวจ + กฎแบ่งงานอัตโนมัติ (idempotent)
   await seedAuditBoard();
+  // migration (ระบบลงยอดผลิต): เตรียมคอลัมน์สิทธิ์ไว้ก่อน — ยังไม่บังคับใช้จนถึงเฟส 3
+  try { await db.exec("ALTER TABLE operators ADD COLUMN role TEXT DEFAULT 'operator'"); } catch { /* มีแล้ว */ }
+  // seed SKU + ทีมงานกะ (idempotent · DO NOTHING เพื่อไม่ทับค่าที่ผู้ใช้แก้เอง เช่น count_unit)
+  for (const [kw, grp, mc, pf, unit, flavor] of DEFAULT_SKUS) {
+    await db.exec(
+      `INSERT INTO sku_master (keyword, group_name, machine, pack_factor, count_unit, plan_flavor, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (keyword) DO NOTHING`,
+      [kw, grp, mc, pf, unit, flavor, nowBKK()]
+    );
+  }
+  for (let i = 0; i < DEFAULT_SHIFT_CREW.length; i++) {
+    const [sh, nm] = DEFAULT_SHIFT_CREW[i];
+    await db.exec(
+      "INSERT INTO shift_crew (shift, name, sort_order) VALUES (?, ?, ?) ON CONFLICT (shift, name) DO NOTHING",
+      [sh, nm, i]
+    );
+  }
   console.log('[db] schema ready');
 }
 
@@ -1447,6 +1589,421 @@ app.post('/api/production/spp-report', async (req, res) => {
     res.status(502).json({ error: 'ส่งรายงานไป n8n ไม่สำเร็จ กรุณาลองใหม่ (ตรวจสอบว่า workflow SPP เปิดใช้งานอยู่)' });
   }
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ระบบลงยอดผลิต (เฟส 1) — "เลขตัวหนึ่งพิมพ์ครั้งเดียวโดยเจ้าของตัวเลข"
+//   ฝ่ายผลิตลงยอด → ระบบส่งลิงก์ให้คลังนับ → คลังกรอกเลขของคลัง → หัวหน้าอนุมัติ → ลง Sheet
+//   DB เขียนก่อนเสมอ · ไม่มีใครพิมพ์เลขซ้ำ · ทุกก้าวบันทึกลง production_report_events
+// ═══════════════════════════════════════════════════════════════════════════
+const SPP_N8N_APPROVED_URL = process.env.SPP_N8N_APPROVED_URL || 'https://n8n.srv1267366.hstgr.cloud/webhook/spp-approved-report';
+const APP_PUBLIC_URL = (process.env.APP_PUBLIC_URL || 'https://back-wash-test.vercel.app').replace(/\/+$/, '');
+const VERIFY_TTL_HOURS = Number(process.env.SPP_VERIFY_TTL_HOURS || 24);
+
+// เวลาไทยแบบเดียวกับ nowBKK() แต่บวกชั่วโมงได้ — เก็บเป็น string รูปเดียวกันเพื่อเทียบแบบ lexicographic
+const bkkPlusHours = (h) =>
+  new Date(Date.now() + h * 3600 * 1000).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
+
+// ฟอร์มส่ง 'กะ1/กะ2/กะ3' แต่ shift_plans + ตารางกะภายในใช้ 'กะเช้า/กะบ่าย/กะดึก'
+// ถ้าไม่แปลง จะ query แผนไม่เจอแบบเงียบ ๆ
+const SHIFT_ALIAS = { 'กะ1': 'กะเช้า', 'กะ2': 'กะบ่าย', 'กะ3': 'กะดึก' };
+const normalizeShift = (s) => SHIFT_ALIAS[String(s || '').trim()] || String(s || '').trim();
+
+const logReportEvent = async (reportId, event, actor, detail, channel, role) => {
+  // audit ต้องไม่ทำให้ business write ล้ม — กลืน error เสมอ
+  try {
+    await db.exec(
+      `INSERT INTO production_report_events (report_id, event, actor, actor_role, detail, channel, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [reportId, event, actor || '', role || '', detail || '', channel || '', nowBKK()]
+    );
+  } catch (e) { console.error('[SPP] event log failed', e.message); }
+};
+
+// หาแผนของ SKU นี้ในวัน+กะที่ระบุ · แผนเก็บเป็น "กล่อง" เท่านั้น จึงห้ามเติมข้ามหน่วย
+async function resolvePlanQty(workDay, shift, sku) {
+  if (!sku) return { plan_qty: null, plan_source: 'none' };
+  if (sku.count_unit && sku.count_unit !== 'กล่อง') return { plan_qty: null, plan_source: 'unit_mismatch' };
+  const flavor = (sku.plan_flavor || '').trim();
+  if (!flavor) return { plan_qty: null, plan_source: 'none' };
+  const shiftN = normalizeShift(shift);
+  try {
+    const rows = await dbAll('SELECT shift, target_boxes FROM shift_plans WHERE work_day = ? AND flavor = ?', [workDay, flavor]);
+    if (rows.length) {
+      const hit = rows.find(r => normalizeShift(r.shift) === shiftN) || rows[0];
+      const exact = normalizeShift(hit.shift) === shiftN;
+      return { plan_qty: Number(hit.target_boxes) || 0, plan_source: exact ? 'shift_plans' : 'shift_plans_other_shift' };
+    }
+    const pp = await dbAll('SELECT planned_batches FROM production_plans WHERE plan_date = ? AND flavor = ?', [workDay, flavor]);
+    if (pp.length) {
+      const batches = pp.reduce((s, r) => s + (Number(r.planned_batches) || 0), 0);
+      return { plan_qty: batches * 100, plan_source: 'production_plans' }; // 1 batch = 100 boxes
+    }
+  } catch (e) { console.error('[SPP] plan lookup failed', e.message); }
+  return { plan_qty: null, plan_source: 'none' };
+}
+
+const verifyUrlOf = (token) => `${APP_PUBLIC_URL}/?verify=${token}`;
+
+// แจ้งลิงก์ให้คลัง — เฟส 1 ใช้ Telegram (ทำงานอยู่แล้ว) · LINE push มาเฟส 4
+async function notifyVerifyLink(rep) {
+  const url = verifyUrlOf(rep.verify_token);
+  const text = [
+    '📦 <b>รอคลังตรวจนับ</b>',
+    `สินค้า: <b>${escapeHtml(rep.product_name || rep.sku_keyword)}</b>`,
+    `วันที่/กะ: ${escapeHtml(rep.report_date)} · ${escapeHtml(rep.shift)}`,
+    `ผู้รายงาน: ${escapeHtml(rep.reporter_name || '-')}`,
+    `ฝ่ายผลิตแจ้ง: <b>${rep.prod_qty} ${escapeHtml(rep.count_unit)}</b>`,
+    '',
+    `กรอกยอดที่นับได้: ${url}`,
+    `(ลิงก์ใช้ได้ครั้งเดียว หมดอายุ ${escapeHtml(rep.verify_expires_at)})`,
+  ].join('\n');
+  // sendToTelegram กลืน error เอง → ต้องเช็ค env ก่อน ไม่งั้นจะรายงานว่า "ส่งแล้ว" ทั้งที่ไม่ได้ส่ง
+  if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) return 'none';
+  try { await sendToTelegram(text); return 'telegram'; }
+  catch { return 'none'; }
+}
+
+// ส่งรายการที่อนุมัติแล้วเข้า n8n → เขียนชีต1 · ไม่ throw (ให้ sheetSyncTick ตามเก็บ)
+async function syncReportToSheet(reportId) {
+  const rows = await dbAll('SELECT * FROM production_reports WHERE report_id = ?', [reportId]);
+  const r = rows[0];
+  if (!r || r.status !== 'approved') return;
+  let payload = {};
+  try { payload = JSON.parse(r.payload || '{}'); } catch { /* payload เสีย — ส่งเท่าที่มี */ }
+  const body = {
+    report_id: r.report_id,
+    date: r.report_date, shift: r.shift,
+    ชื่อ: r.reporter_name,
+    sku_code: r.sku_code || '', product_name: r.product_name || r.sku_keyword, group: r.group_name || '',
+    machine: r.machine || '',
+    count_unit: r.count_unit,
+    plan_box: r.plan_qty ?? 0,
+    actual_box: r.prod_qty ?? 0,
+    pack_factor: r.pack_factor ?? 0,
+    actual_pcs: r.prod_pcs ?? 0,
+    workers: r.crew_count ?? 0,
+    warehouse_qty: r.wh_qty ?? 0,
+    warehouse_pcs: r.approved_qty != null ? Math.round(r.approved_qty * (r.pack_factor || 0)) : (r.wh_pcs ?? 0),
+    variance_qty: r.variance_qty ?? 0,
+    wh_name: r.wh_name || '', approver: r.approver_name || '', approved_at: r.decided_at || '',
+    status: r.prod_status || '', miss_reason: r.miss_reason || '-',
+    ...payload,
+  };
+  try {
+    await axios.post(SPP_N8N_APPROVED_URL, body, { headers: { 'Content-Type': 'application/json' }, timeout: 20000 });
+    await db.exec("UPDATE production_reports SET sheet_status='sent', sheet_sent_at=?, sheet_error=NULL WHERE report_id=?", [nowBKK(), reportId]);
+    await logReportEvent(reportId, 'sheet_synced', 'system', 'เขียนลงชีต1 แล้ว', 'n8n');
+  } catch (e) {
+    const msg = String(e.response?.data?.message || e.message).slice(0, 300);
+    await db.exec("UPDATE production_reports SET sheet_status='error', sheet_attempts=sheet_attempts+1, sheet_error=? WHERE report_id=?", [msg, reportId]);
+    await logReportEvent(reportId, 'sheet_failed', 'system', msg, 'n8n');
+    console.error('[SPP] sheet sync failed', msg);
+  }
+}
+
+// ตัดสินรายการ (ใช้ร่วมกันระหว่าง HTTP endpoint กับปุ่มใน Telegram ในอนาคต)
+async function decideReport(reportId, approve, actor, opts = {}) {
+  const rows = await dbAll('SELECT * FROM production_reports WHERE report_id = ?', [reportId]);
+  const r = rows[0];
+  if (!r) return { ok: false, message: 'ไม่พบรายงานนี้' };
+  if (r.status !== 'pending_approval') return { ok: false, message: `รายการนี้ถูกตัดสินไปแล้ว (${r.status})`, status: r.status };
+  const source = opts.approved_source === 'production' ? 'production' : 'warehouse';
+  const qty = approve ? (source === 'production' ? r.prod_qty : r.wh_qty) : null;
+  await db.exec(
+    `UPDATE production_reports SET status=?, approver_name=?, approved_qty=?, approved_source=?, decision_note=?, decided_at=?, updated_at=?
+     WHERE report_id=? AND status='pending_approval'`,
+    [approve ? 'approved' : 'rejected', actor || '', qty, approve ? source : null, opts.note || '', nowBKK(), nowBKK(), reportId]
+  );
+  await logReportEvent(reportId, approve ? 'approved' : 'rejected', actor, approve ? `ยึดยอด${source === 'production' ? 'ฝ่ายผลิต' : 'คลัง'} ${qty}` : (opts.note || ''), opts.channel || 'web');
+  if (approve) syncReportToSheet(reportId);
+  return { ok: true, status: approve ? 'approved' : 'rejected' };
+}
+
+// rate limit แบบง่ายสำหรับหน้าสาธารณะของคลัง (ไม่เพิ่ม dependency)
+const verifyHits = new Map();
+function rateLimited(ip, max = 30, windowMs = 60000) {
+  const now = Date.now();
+  const rec = verifyHits.get(ip);
+  if (!rec || now - rec.t > windowMs) { verifyHits.set(ip, { t: now, n: 1 }); return false; }
+  rec.n++;
+  if (verifyHits.size > 500) for (const [k, v] of verifyHits) if (now - v.t > windowMs) verifyHits.delete(k);
+  return rec.n > max;
+}
+
+// ── SKU master ────────────────────────────────────────────────────────────
+app.get('/api/sku', async (req, res) => {
+  try {
+    const rows = await dbAll('SELECT * FROM sku_master WHERE active = 1 ORDER BY sort_order, group_name, keyword', []);
+    res.json({ items: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// แก้ข้อมูล SKU (โดยเฉพาะ count_unit ที่ต้องให้หน้างานยืนยัน) — upsert ด้วย keyword
+app.post('/api/sku', async (req, res) => {
+  const items = Array.isArray(req.body?.items) ? req.body.items : [];
+  if (!items.length) return res.status(400).json({ error: 'items ต้องเป็น array และไม่ว่าง' });
+  try {
+    for (const it of items) {
+      if (!it.keyword) continue;
+      await db.exec(
+        `INSERT INTO sku_master (keyword, sku_code, product_name, group_name, machine, count_unit, pack_factor, plan_flavor, active, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (keyword) DO UPDATE SET
+           sku_code=excluded.sku_code, product_name=excluded.product_name, group_name=excluded.group_name,
+           machine=excluded.machine, count_unit=excluded.count_unit, pack_factor=excluded.pack_factor,
+           plan_flavor=excluded.plan_flavor, active=excluded.active, updated_at=excluded.updated_at`,
+        [it.keyword, it.sku_code || '', it.product_name || '', it.group_name || '', it.machine || '',
+         it.count_unit || 'กล่อง', Number(it.pack_factor) || 0, it.plan_flavor || '',
+         it.active === 0 ? 0 : 1, nowBKK()]
+      );
+    }
+    res.json({ ok: true, saved: items.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ทีมงานประจำกะ (ให้ฟอร์มติ๊กเลือก แล้วนับเป็นจำนวนคนผลิต)
+app.get('/api/shift-crew', async (req, res) => {
+  try {
+    const rows = await dbAll('SELECT shift, name FROM shift_crew WHERE active = 1 ORDER BY sort_order', []);
+    const byShift = {};
+    for (const r of rows) (byShift[r.shift] = byShift[r.shift] || []).push(r.name);
+    res.json({ shifts: byShift });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// แผนของ SKU นี้ในวัน+กะที่ระบุ (ให้ฟอร์มเติมช่อง "จำนวนแผนผลิต" เอง)
+app.get('/api/production/plan-hint', async (req, res) => {
+  const workDay = req.query.date || workDayBKK();
+  const skuRows = await dbAll('SELECT * FROM sku_master WHERE keyword = ?', [req.query.sku || '']);
+  const hint = await resolvePlanQty(workDay, req.query.shift, skuRows[0]);
+  res.json({ ...hint, count_unit: skuRows[0]?.count_unit || 'กล่อง' });
+});
+
+// ── ① ฝ่ายผลิตลงยอด ────────────────────────────────────────────────────────
+app.post('/api/production/report', async (req, res) => {
+  const b = req.body || {};
+  const reporter = String(b.reporter || '').trim();
+  const keyword = String(b.sku_keyword || '').trim();
+  const prodQty = Number(b.prod_qty);
+  if (!reporter) return res.status(400).json({ error: 'ต้องระบุชื่อผู้รายงาน' });
+  if (!keyword) return res.status(400).json({ error: 'ต้องเลือกสินค้า (SKU)' });
+  if (!Number.isFinite(prodQty) || prodQty < 0) return res.status(400).json({ error: 'จำนวนผลิตจริงไม่ถูกต้อง' });
+
+  try {
+    // SKU ต้องรู้จัก — SKU มั่วคือข้อมูลเสียแบบเงียบ
+    const skuRows = await dbAll('SELECT * FROM sku_master WHERE keyword = ? AND active = 1', [keyword]);
+    const sku = skuRows[0];
+    if (!sku) return res.status(400).json({ error: `ไม่รู้จักสินค้า "${keyword}" — เพิ่มใน SKU master ก่อน` });
+
+    const workDay = b.date || workDayBKK();
+    const shift = String(b.shift || '').trim();
+
+    // กันกดส่งซ้ำ (เน็ตช้าแล้วกดสองที) — รายการเดียวกันภายใน 2 นาที
+    const dupSince = bkkPlusHours(-2 / 60);
+    const dup = await dbAll(
+      `SELECT report_id FROM production_reports
+       WHERE work_day = ? AND shift = ? AND sku_keyword = ? AND prod_qty = ? AND created_at >= ?`,
+      [workDay, shift, keyword, prodQty, dupSince]
+    );
+    if (dup.length) return res.status(409).json({ error: 'รายการนี้เพิ่งถูกส่งไปแล้ว', existing_report_id: dup[0].report_id });
+
+    const reportId = 'RPT-' + Date.now();
+    const token = crypto.randomBytes(24).toString('base64url');
+    const expires = bkkPlusHours(VERIFY_TTL_HOURS);
+    const packFactor = Number(sku.pack_factor) || 0;
+    const prodPcs = prodQty * packFactor;                       // คำนวณฝั่ง server เท่านั้น
+    const crew = Array.isArray(b.crew) ? b.crew.filter(Boolean) : [];
+    const plan = b.plan_qty_override != null && b.plan_qty_override !== ''
+      ? { plan_qty: Number(b.plan_qty_override), plan_source: 'manual' }
+      : await resolvePlanQty(workDay, shift, sku);
+    const prodStatus = plan.plan_qty > 0 && prodQty < plan.plan_qty ? 'ไม่ได้ยอดผลิต' : 'ได้ยอดผลิต';
+    const missReason = prodStatus === 'ไม่ได้ยอดผลิต' ? String(b.miss_reason || '').trim() : '-';
+    if (prodStatus === 'ไม่ได้ยอดผลิต' && !missReason) {
+      return res.status(400).json({ error: 'ผลิตไม่ถึงแผน — ต้องระบุสาเหตุที่ไม่ได้ยอดผลิต' });
+    }
+
+    const payload = {
+      crew,
+      lot_date: b.lot_date || '',
+      counter: Number(b.counter) || 0,
+      machine_cycle: Number(b.machine_cycle) || 0,
+      run_time: Number(b.run_time) || 0,
+      setup_time: Number(b.setup_time) || 0,
+      break_time: Number(b.break_time) || 0,
+      clean_time: Number(b.clean_time) || 0,
+      stop_after_target: Number(b.stop_after_target) || 0,
+      bdown_time: Number(b.bdown_time) || 0,
+      machine_run_time: (Number(b.run_time) || 0) - (Number(b.setup_time) || 0) - (Number(b.break_time) || 0)
+                        - (Number(b.clean_time) || 0) - (Number(b.stop_after_target) || 0) - (Number(b.bdown_time) || 0),
+      wastes: Array.isArray(b.wastes) ? b.wastes : [],
+      extra_note: b.extra_note || '',
+    };
+
+    const now = nowBKK();
+    await db.exec(
+      `INSERT INTO production_reports
+        (report_id, work_day, report_date, shift, sku_keyword, sku_code, product_name, group_name, machine,
+         count_unit, pack_factor, plan_qty, plan_source, prod_qty, prod_pcs, reporter_name, crew_count, reported_at,
+         prod_status, miss_reason, status, verify_token, verify_expires_at, payload, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending_warehouse',?,?,?,?,?)`,
+      [reportId, workDay, workDay, shift, keyword, sku.sku_code || '', sku.product_name || keyword,
+       sku.group_name || '', sku.machine || '', sku.count_unit || 'กล่อง', packFactor,
+       plan.plan_qty, plan.plan_source, prodQty, prodPcs, reporter, crew.length, now,
+       prodStatus, missReason, token, expires, JSON.stringify(payload), now, now]
+    );
+    await logReportEvent(reportId, 'created', reporter, `ลงยอด ${prodQty} ${sku.count_unit}`, 'web', 'production');
+
+    const sentVia = await notifyVerifyLink({
+      verify_token: token, verify_expires_at: expires, product_name: sku.product_name || keyword,
+      report_date: workDay, shift, reporter_name: reporter, prod_qty: prodQty, count_unit: sku.count_unit,
+      sku_keyword: keyword,
+    });
+    await db.exec('UPDATE production_reports SET verify_sent_via=?, verify_sent_at=? WHERE report_id=?', [sentVia, now, reportId]);
+    await logReportEvent(reportId, 'link_sent', 'system', `ช่องทาง: ${sentVia}`, sentVia);
+
+    res.json({
+      ok: true, report_id: reportId, verify_url: verifyUrlOf(token), verify_expires_at: expires,
+      sent_via: sentVia, plan_qty: plan.plan_qty, plan_source: plan.plan_source,
+      prod_pcs: prodPcs, prod_status: prodStatus,
+    });
+  } catch (e) {
+    console.error('[SPP] create report failed', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── รายการรายงาน (หน้าอนุมัติของหัวหน้า) ────────────────────────────────────
+app.get('/api/production/reports', async (req, res) => {
+  const date = req.query.date || workDayBKK();
+  const status = req.query.status;
+  try {
+    const rows = status
+      ? await dbAll('SELECT * FROM production_reports WHERE work_day = ? AND status = ? ORDER BY id DESC', [date, status])
+      : await dbAll('SELECT * FROM production_reports WHERE work_day = ? ORDER BY id DESC', [date]);
+    // ไม่ส่ง token ออกไปกับรายการ — ป้องกันหลุดผ่านหน้าจอที่ไม่เกี่ยว
+    res.json({ date, items: rows.map(({ verify_token, ...r }) => ({ ...r, has_link: !!verify_token })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/production/report/:reportId', async (req, res) => {
+  try {
+    const rows = await dbAll('SELECT * FROM production_reports WHERE report_id = ?', [req.params.reportId]);
+    if (!rows.length) return res.status(404).json({ error: 'ไม่พบรายงานนี้' });
+    const events = await dbAll('SELECT * FROM production_report_events WHERE report_id = ? ORDER BY id', [req.params.reportId]);
+    const { verify_token, ...rep } = rows[0];
+    res.json({ report: { ...rep, verify_url: verify_token ? verifyUrlOf(verify_token) : null }, events });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── ③ หัวหน้าอนุมัติ (ทุกรายการ ไม่มี auto-approve แม้เลขตรงกัน) ─────────────
+app.post('/api/production/report/:reportId/decide', async (req, res) => {
+  const { approve, approver, approved_source, note } = req.body || {};
+  if (!String(approver || '').trim()) return res.status(400).json({ error: 'ต้องระบุชื่อผู้อนุมัติ' });
+  if (approve === false && !String(note || '').trim()) return res.status(400).json({ error: 'ปฏิเสธต้องระบุเหตุผล' });
+  try {
+    const out = await decideReport(req.params.reportId, approve !== false, String(approver).trim(), { approved_source, note, channel: 'web' });
+    res.status(out.ok ? 200 : 409).json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ออกลิงก์ใหม่ให้คลัง (ของเดิมหมดอายุ/ส่งผิดกลุ่ม) — token เก่าใช้ไม่ได้ทันที
+app.post('/api/production/report/:reportId/resend-link', async (req, res) => {
+  try {
+    const rows = await dbAll('SELECT * FROM production_reports WHERE report_id = ?', [req.params.reportId]);
+    const r = rows[0];
+    if (!r) return res.status(404).json({ error: 'ไม่พบรายงานนี้' });
+    if (r.status !== 'pending_warehouse') return res.status(409).json({ error: 'รายการนี้ไม่ได้รอคลังตรวจนับแล้ว' });
+    const token = crypto.randomBytes(24).toString('base64url');
+    const expires = bkkPlusHours(VERIFY_TTL_HOURS);
+    await db.exec('UPDATE production_reports SET verify_token=?, verify_expires_at=?, updated_at=? WHERE report_id=?',
+      [token, expires, nowBKK(), req.params.reportId]);
+    const sentVia = await notifyVerifyLink({ ...r, verify_token: token, verify_expires_at: expires });
+    await logReportEvent(req.params.reportId, 'link_issued', req.body?.actor || '', `ออกลิงก์ใหม่ (${sentVia})`, sentVia);
+    res.json({ ok: true, verify_url: verifyUrlOf(token), verify_expires_at: expires, sent_via: sentVia });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── ② หน้าคลังตรวจนับ (สาธารณะ ไม่ต้อง login · token ใช้ครั้งเดียว) ──────────
+app.get('/api/production/verify/:token', async (req, res) => {
+  if (rateLimited(req.ip)) return res.status(429).json({ error: 'เรียกถี่เกินไป รอสักครู่' });
+  try {
+    const rows = await dbAll('SELECT * FROM production_reports WHERE verify_token = ?', [req.params.token]);
+    const r = rows[0];
+    if (!r) return res.status(404).json({ error: 'ไม่พบลิงก์นี้ (อาจถูกออกใหม่ไปแล้ว)' });
+    if (r.status !== 'pending_warehouse') {
+      return res.status(409).json({ error: 'รายการนี้ยืนยันไปแล้ว', wh_qty: r.wh_qty, wh_name: r.wh_name, submitted_at: r.wh_submitted_at });
+    }
+    if (r.verify_expires_at && r.verify_expires_at < nowBKK()) {
+      return res.status(410).json({ error: 'ลิงก์หมดอายุแล้ว — ขอลิงก์ใหม่จากฝ่ายผลิต' });
+    }
+    // คืนเฉพาะที่จำเป็น ไม่คืน row เต็ม ไม่คืน id/token
+    res.json({
+      report_id: r.report_id, date: r.report_date, shift: r.shift,
+      product_name: r.product_name || r.sku_keyword, group_name: r.group_name,
+      count_unit: r.count_unit, prod_qty: r.prod_qty, reporter_name: r.reporter_name,
+      expires_at: r.verify_expires_at,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/production/verify/:token', async (req, res) => {
+  if (rateLimited(req.ip)) return res.status(429).json({ error: 'เรียกถี่เกินไป รอสักครู่' });
+  const whQty = Number(req.body?.wh_qty);
+  const whName = String(req.body?.wh_name || '').trim();
+  if (!Number.isFinite(whQty) || whQty < 0) return res.status(400).json({ error: 'จำนวนที่นับได้ไม่ถูกต้อง' });
+  if (!whName) return res.status(400).json({ error: 'กรุณาระบุชื่อผู้ตรวจนับ' });
+  try {
+    const rows = await dbAll('SELECT * FROM production_reports WHERE verify_token = ?', [req.params.token]);
+    const r = rows[0];
+    if (!r) return res.status(404).json({ error: 'ไม่พบลิงก์นี้' });
+    if (r.status !== 'pending_warehouse') return res.status(409).json({ error: 'รายการนี้ยืนยันไปแล้ว' });
+    if (r.verify_expires_at && r.verify_expires_at < nowBKK()) return res.status(410).json({ error: 'ลิงก์หมดอายุแล้ว' });
+
+    const diff = whQty - (Number(r.prod_qty) || 0);
+    // ต่างจากที่ผลิตแจ้ง → ถามยืนยันรอบเดียวก่อน (ไม่บล็อก ไม่แก้เลขให้)
+    if (diff !== 0 && !req.body?.confirm_variance) {
+      return res.json({ needs_confirm: true, variance_qty: diff, prod_qty: r.prod_qty, count_unit: r.count_unit });
+    }
+    const now = nowBKK();
+    const pct = r.prod_qty ? Math.round((diff / r.prod_qty) * 1000) / 10 : 0;
+    // single-use แบบ race-free: เงื่อนไขอยู่ใน WHERE แล้วเช็ค rowCount (ไม่ต้องใช้ transaction)
+    const upd = await db.exec(
+      `UPDATE production_reports
+         SET wh_qty=?, wh_pcs=?, wh_name=?, wh_note=?, wh_submitted_at=?,
+             variance_qty=?, variance_pct=?, variance_flag=?, variance_reason=?,
+             status='pending_approval', verify_used_at=?, updated_at=?
+       WHERE verify_token=? AND status='pending_warehouse'`,
+      [whQty, whQty * (Number(r.pack_factor) || 0), whName, String(req.body?.wh_note || ''), now,
+       diff, pct, diff === 0 ? 'match' : 'diff', String(req.body?.variance_reason || ''), now, now, req.params.token]
+    );
+    if (!upd.rowCount) return res.status(409).json({ error: 'ลิงก์นี้ถูกใช้ไปแล้วหรือหมดอายุ' });
+
+    await logReportEvent(r.report_id, 'warehouse_submitted', whName,
+      `คลังนับได้ ${whQty} ${r.count_unit}${diff !== 0 ? ` (ต่าง ${diff > 0 ? '+' : ''}${diff})` : ' (ตรงกัน)'}`, 'web', 'warehouse');
+    sendToTelegram([
+      diff === 0 ? '✅ <b>คลังยืนยันแล้ว — ตัวเลขตรงกัน</b>' : '⚠️ <b>คลังยืนยันแล้ว — ตัวเลขไม่ตรง</b>',
+      `${escapeHtml(r.product_name || r.sku_keyword)} · ${escapeHtml(r.shift)}`,
+      `ฝ่ายผลิตแจ้ง ${r.prod_qty} ${escapeHtml(r.count_unit)} · คลังนับได้ <b>${whQty} ${escapeHtml(r.count_unit)}</b>`,
+      diff !== 0 ? `ผลต่าง: <b>${diff > 0 ? '+' : ''}${diff}</b>${req.body?.variance_reason ? ` — ${escapeHtml(String(req.body.variance_reason))}` : ''}` : null,
+      `ผู้ตรวจนับ: ${escapeHtml(whName)} · รอหัวหน้างานอนุมัติ`,
+    ].filter(Boolean).join('\n')).catch(() => {});
+
+    res.json({ ok: true, variance_qty: diff, count_unit: r.count_unit, product_name: r.product_name || r.sku_keyword });
+  } catch (e) {
+    console.error('[SPP] verify submit failed', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ตามเก็บรายการที่อนุมัติแล้วแต่เขียนชีตไม่สำเร็จ (n8n ล่ม/เน็ตหลุด) — เกาะจังหวะ scheduler 60 วิ
+async function sheetSyncTick() {
+  try {
+    const rows = await dbAll(
+      "SELECT report_id FROM production_reports WHERE status='approved' AND sheet_status='error' AND sheet_attempts < 10 ORDER BY id LIMIT 5", []
+    );
+    for (const r of rows) await syncReportToSheet(r.report_id);
+  } catch (e) { console.error('[SPP] sheetSyncTick', e.message); }
+}
 
 // ดึงแผนผลิตของวัน (default = วันนี้)
 app.get('/api/production/plan', (req, res) => {
@@ -5046,7 +5603,7 @@ if (require.main === module) {
         // เปิดอีกครั้งได้เมื่อ n8n ฝั่งนั้น deactivate ไปแล้วจริงๆ หรือออกแบบให้ทำงานร่วมกันแล้ว
         // registerTelegramWebhook();
         // ตัวจับเวลาส่งรายงานอัตโนมัติ + วิเคราะห์สิ้นกะ (เฟส 1) — เช็กทุกนาที (ต้องให้เซิร์ฟเวอร์ตื่นอยู่; มี Keep-Warm ping ช่วย)
-        setInterval(() => { reportTick(); reminderTick(); shiftAnalysisTick(); kpiReportTick(); kpiAlertTick(); }, 60 * 1000);
+        setInterval(() => { reportTick(); reminderTick(); shiftAnalysisTick(); kpiReportTick(); kpiAlertTick(); sheetSyncTick(); }, 60 * 1000);
         console.log('[report] scheduler started (every 60s) + shift-analysis');
       });
     })

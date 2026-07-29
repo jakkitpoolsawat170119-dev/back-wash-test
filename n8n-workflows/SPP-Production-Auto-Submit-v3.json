@@ -1,0 +1,3516 @@
+{
+  "name": "SPP Production Auto-Submit v3",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message",
+          "callback_query"
+        ],
+        "additionalFields": {}
+      },
+      "id": "d235879a-cf5f-4173-b85f-fd79bad15519",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -2112,
+        -144
+      ],
+      "webhookId": "spp-telegram-webhook",
+      "credentials": {
+        "telegramApi": {
+          "id": "KtZi8ocro4ePKu3U",
+          "name": "Telegram account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.message.text }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f1071711-c9e1-4270-840b-6353922bb234",
+      "name": "Has Text?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [
+        -1216,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "GPT-4O"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "คุณคือระบบจัดการข้อมูลการผลิตโรงงาน SPP\nตอบ JSON เท่านั้น ไม่มี markdown\n=== ตาราง Mapping สินค้า → กลุ่ม + เครื่อง ===\nปี๊บ, ปั๊บ, ปี๊บเหลว, Coconut → group=\"Coconut-Paste\", machine=\"Manual\"\nSyrup800, Syrup 1.8, Syrup300, Easy Dissolving → group=\"Syrup\", machine=\"Linear#X (Lina Pack)\"\nFreshy, Sala, Blue Hawaii → group=\"Freshy\", machine=\"Freshy (Delmax)\"\nIcing → group=\"Icing\", machine=\"ICING 10-25 Kg\"\nSenorita, Caramel Senorita → group=\"Senorita\", machine=\"Freshy (Delmax)\"\nซาเช่, Sachet → group=\"Coffee & Sachet\", machine=\"NGS\"\nPineapple Freshy, Kiwi Freshy → group=\"Freshy\", machine=\"Freshy (Delmax)\"\nAmazon, Coffee → group=\"Amazon-NGS\", machine=\"NGS\"\nต้มหัวเชื้อ → group=\"คัดน้ำเชื่อม ทำความสะอาด อื่นๆ\", machine=\"ต้มหัวเชื้อ\"\n=== งานสนับสนุน (plan=0, counter=0, machine_cycle=0) ===\nช่วยต้ม, บดน้ำตาล → group=\"ทำความสะอาด\", machine=\"\"\nดู Check Weight, จัด Packaging, ช่วยงาน Fos → group=\"คัดน้ำเชื่อม\", machine=\"\"\nงานที่ไม่มีตัวเลขผลิต มีแค่จำนวนคน → plan=0\n=== เครื่องจากโค้ดไลน์ ===\n[L1]=Linear#1, [L2]=Linear#2, [L3]=Linear#3, [L4]=Linear#4\nL3+L4 = ผลิต 2 เครื่อง → ใช้ Linear#3 (Lina Pack)\n=== Pack Factor (ลัง × factor = ชิ้น) ===\nปี๊บ 1×20 → factor=20\nSyrup 300×4×6 → factor=24\nSyrup800 ×12 → factor=12\nSyrup 1.8 ×8 → factor=8\nEasy Dissolving800 ×12 → factor=12\nBlue Hawaii 710×3×4 → factor=12\nSala Freshy 710×3×4 → factor=12\nAmazon850 ×12 → factor=12\nCoffee 500g×4×10 → factor=40\nIcing900 ×12 → factor=12\nCaramel Senorita 1.9×4 → factor=4\nCaramel Senorita 750×6 → factor=6\nซาเช่ 8g×30×4×10 → factor=1200\n=== เวลามาตรฐาน (วันธรรมดา 480 นาที) ===\nsetup=30, break=60, clean=30, stop_after_target=30\nmachine_run_time = run_time - setup_time - break_time - clean_time - stop_after_target - bdown_time\n=== Manual Line (ปี๊บ, ต้มหัวเชื้อ, งานสนับสนุน) ===\ncounter=0, machine_cycle=0\nถ้าข้อความมีคำว่า \"แผนบรรจุ\" หรือ \"แผนประจำวัน\" หรือมี 🔴 หลายบรรทัด:\nตอบแบบนี้:\n{\n  \"type\": \"plan\",\n  \"date\": \"YYYY-MM-DD\",\n  \"shift\": \"กะ1/กะ2/กะ3\",\n  \"lines\": [\n    {\"product\": \"ชื่อสินค้า\", \"group\": \"กลุ่มสินค้า\", \"machine\": \"ชื่อเครื่อง หรือ ''\", \"plan\": 0, \"workers\": 0}\n  ]\n}\nวิธีอ่าน 🔴:\n- รูปแบบปกติ: \"สินค้า [เครื่อง]=แผน/คน\"\n- รูปแบบงานสนับสนุน: \"งาน =คน\" (ไม่มีแผน → plan=0)\nถ้าข้อความเป็นรายงานยอดผลิต ตอบแบบนี้:\n{\n  \"type\": \"production\",\n  \"date\": \"\",\n  \"shift\": \"\",\n  \"group\": \"\",\n  \"sku\": \"\",\n  \"machine\": \"\",\n  \"plan_box\": 0,\n  \"actual_box\": 0,\n  \"pack_factor\": 0,\n  \"workers\": 0,\n  \"actual_pcs\": 0,\n  \"run_time\": 480,\n  \"counter\": 0,\n  \"machine_cycle\": 0,\n  \"setup_time\": 30,\n  \"break_time\": 60,\n  \"clean_time\": 30,\n  \"stop_after_target\": 30,\n  \"bdown_time\": 0,\n  \"machine_run_time\": 0,\n  \"status\": \"\",\n  \"miss_reason\": \"-\",\n  \"warehouse_pcs\": 0,\n  \"waste_type\": \"\",\n\"waste_pcs\": 0,\n\"waste_detail\": \"\",\n\"damage_reason\": \"\"\n}\nกฎการคำนวณ:\n- pack_factor = จำนวนชิ้นต่อกล่อง (เช่น Amazon 850×12 → pack_factor=12)\n- actual_pcs = actual_box × pack_factor\n- ถ้าข้อความมี \"ยอดส่งคลัง(ชิ้น): X\" → warehouse_pcs = X (ใช้ค่าจากข้อความโดยตรง)\n- ถ้าไม่มี → warehouse_pcs = actual_pcs\n- warehouse_pcs ต้องเป็นหน่วยชิ้นเสมอ ห้ามใส่เป็นกล่อง\n- machine_run_time = run_time - setup_time - break_time - clean_time - stop_after_target - bdown_time\n- ถ้าทำได้ >= แผน → status=\"ได้ยอดผลิต\"\n- ถ้าทำได้ < แผน → status=\"ไม่ได้ยอดผลิต\"\n- \"ยอด X ลัง\" = plan_box, \"ทำได้ X ลัง\" = actual_box\n- \"ถุง X ใบ\" = waste_type=\"ถุง\", waste_pcs=X\n- Manual line: counter=0, machine_cycle=0\n- รูปแบบ C:XX D:XX E:XX... คือยอดผลิตรายชั่วโมง ไม่ใช่จำนวนคน ให้ ignore\n- workers ดึงจากแผน หรือถ้าไม่มีให้ใส่ 0\n- machine_cycle ถ้าไม่มีในข้อความให้ใส่ 0\n- \"เลขหน้าเครื่อง: X\" หรือ \"Counter: X\" = counter = X\n- ถ้าไม่มีในข้อความ และเป็น Manual line → counter = 0\n- ถ้าไม่มีในข้อความ และเป็น Linear line → counter = 0\n- waste_detail = รวมของเสียทุกประเภทเป็น string คั่นด้วย | เช่น\n  \"ลังเสีย: 2 ใบ | ถุงเสียทั้งหมด: 100ใบ | ถุงเปล่า: 50ใบ | ถุงกรีด: 50ใบ\"\n  ถ้าไม่มีของเสีย ให้ waste_detail = \"-\"\n- waste_type = ประเภทหลัก เช่น \"ถุง\" หรือ \"ลัง\"\n- waste_pcs = จำนวนรวมของเสียหลัก",
+              "role": "system"
+            },
+            {
+              "content": "={{ $json.message.text }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {}
+      },
+      "id": "a6a37df0-0149-4093-9965-f82530ff883c",
+      "name": "OpenAI - Parse Production Data",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.4,
+      "position": [
+        -992,
+        240
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "fSQaYoRQ3WO4a3GJ",
+          "name": "OpenAi account 6"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const parsed = $input.first().json?.message?.content\n            || $input.first().json?.content\n            || $input.first().json;\n\nif (!parsed || parsed.error) {\n  return [{ json: { error: parsed?.error || 'No data' } }];\n}\n\nconst ENTRY = {\n  date:              'entry.1576360786',\n  shift:             'entry.1608537871',\n  group:             'entry.951079054',\n  sku:               'entry.1863257644',\n  machine:           'entry.1046294258',\n  plan_box:          'entry.1956754644',\n  actual_box:        'entry.859506834',\n  workers:           'entry.657321124',\n  actual_pcs:        'entry.803627682',\n  run_time:          'entry.659163745',\n  counter:           'entry.614687862',\n  machine_cycle:     'entry.1629897819',\n  setup_time:        'entry.1396861733',\n  break_time:        'entry.2050207975',\n  clean_time:        'entry.368506841',\n  stop_after_target: 'entry.1695251493',\n  bdown_time:        'entry.347177147',\n  machine_run_time:  'entry.161318891',\n  status:            'entry.1662957128',\n  miss_reason:       'entry.1473766728',\n  warehouse_pcs:     'entry.313587582',\n  waste_type:        'entry.898355120',\n  waste_pcs:         'entry.56072060',\n  damage_reason:     'entry.232574576'\n};\n\nconst fbzx = String(Math.floor(Math.random() * 9e18));\nconst now = Date.now();\nconst parts = [];\n\nparts.push('fvv=1');\nparts.push('pageHistory=0');\nparts.push('dlut=' + now);\nparts.push('fbzx=' + fbzx);\nparts.push('submissionTimestamp=' + now);\nparts.push('partialResponse=' + encodeURIComponent('[null,null,\"' + fbzx + '\"]'));\n\nconst rawDate = parsed.date;\nconst d = (rawDate && rawDate !== 'YYYY-MM-DD' && !isNaN(new Date(rawDate)))\n          ? new Date(rawDate)\n          : new Date();\n\nparts.push(ENTRY.date + '_year=' + d.getFullYear());\nparts.push(ENTRY.date + '_month=' + (d.getMonth() + 1));\nparts.push(ENTRY.date + '_day=' + d.getDate());\n\nconst fields = [\n  ['shift',             parsed.shift],\n  ['group',             parsed.group],\n  ['sku',               parsed.sku || ''],\n  ['machine',           parsed.machine],\n  ['plan_box',          parsed.plan_box],\n  ['actual_box',        parsed.actual_box],\n  ['workers',           parsed.workers ?? 0],\n  ['actual_pcs',        parsed.actual_pcs],\n  ['run_time',          parsed.run_time],\n  ['counter',           parsed.counter ?? 0],\n  ['machine_cycle',     parsed.machine_cycle ?? 0],\n  ['setup_time',        parsed.setup_time],\n  ['break_time',        parsed.break_time],\n  ['clean_time',        parsed.clean_time],\n  ['stop_after_target', parsed.stop_after_target ?? 30],\n  ['bdown_time',        parsed.bdown_time ?? 0],\n  ['machine_run_time',  parsed.machine_run_time],\n  ['status',            parsed.status],\n  ['miss_reason',       parsed.miss_reason || '-'],\n  ['warehouse_pcs',     parsed.warehouse_pcs],\n  ['waste_pcs',         parsed.waste_pcs ?? 0],\n  ['damage_reason',     parsed.damage_reason || '']\n];\n\nfor (const [key, val] of fields) {\n  if (val !== undefined && val !== null) {\n    parts.push(ENTRY[key] + '=' + encodeURIComponent(String(val)));\n  }\n}\n\n// waste_type: ส่งเฉพาะตอนมีค่า (checkbox จะไม่ส่งถ้าไม่ได้เลือก)\nif (parsed.waste_type) {\n  parts.push(ENTRY.waste_type + '=' + encodeURIComponent(parsed.waste_type));\n}\nparts.push(ENTRY.waste_type + '_sentinel=');\nparts.push('submit=Submit');\n\nreturn [{\n  json: {\n    formBody: parts.join('&'),\n    parsed,\n    chatId: $('Telegram Trigger').first().json.message.chat.id\n  }\n}];"
+      },
+      "id": "f367954d-c08e-473c-b659-34d908d3393f",
+      "name": "Build Form Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -416,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-2",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notExists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "77d6a334-1a55-495b-ac6f-87322c3fdb8d",
+      "name": "Is Valid Data?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Build Form Body').first().json.chatId }}",
+        "text": "=รายงานของคุณถูกบันทึกแล้ว\nรหัสรายงาน: {{ $('Append row in sheet').first().json.report_id }}\nกรุณารอการอนุมัติจากผู้ตรวจสอบ",
+        "additionalFields": {}
+      },
+      "id": "6ed6eb3b-73a8-4dc9-ab6b-54d9d05ae6e3",
+      "name": "Telegram - Success Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2272,
+        432
+      ],
+      "webhookId": "7387fb4d-ea9a-4cf7-ae81-6580da7e0804",
+      "credentials": {
+        "telegramApi": {
+          "id": "MDPMnf26GG1PjXuU",
+          "name": "Telegram account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M",
+          "mode": "list",
+          "cachedResultName": "Form-Data-Production_SPP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1038948073,
+          "mode": "list",
+          "cachedResultName": "Pending",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit#gid=1038948073"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "กะ": "={{ $json.parsed.กะ }}",
+            "เครื่อง": "={{ $json.parsed.machine }}",
+            "ประเภทของเสีย": "={{ $json.parsed.waste_type }}",
+            "จำนวนของเสีย": "={{ $json.parsed.waste_pcs }}",
+            "สาเหตุชำรุด": "={{ $json.parsed.damage_reason }}",
+            "ชื่อ": "={{ $json.parsed.ชื่อ }}",
+            "report_id": "={{ $json.report_id }}",
+            "chatId": "={{ $json.chatId }}",
+            "กลุ่มSKU": "={{ $json.parsed.group }}",
+            "แผนผลิต": "={{ $json.parsed.plan_box }}",
+            "ผลิตจริง": "={{ $json.parsed.actual_box }}",
+            "คนผลิต": "={{ $json.parsed.workers }}",
+            "ชิ้น/กล่อง": "={{ $json.parsed.pack_factor }}",
+            "เวลารวม": "={{ $json.parsed.run_time }}",
+            "Counter": "={{ $json.parsed.counter }}",
+            "เดินรอบ": "={{ $json.parsed.machine_cycle }}",
+            "Setup": "={{ $json.parsed.setup_time }}",
+            "พัก": "={{ $json.parsed.break_time }}",
+            "Clean": "={{ $json.parsed.clean_time }}",
+            "หยุดหลังได้ยอด": "={{ $json.parsed.stop_after_target }}",
+            "B-down": "={{ $json.parsed.bdown_time }}",
+            "เวลาเดินเครื่อง": "={{ $json.parsed.machine_run_time }}",
+            "สถานะ": "={{ $json.parsed.status }}",
+            "สาเหตุ": "={{ $json.parsed.miss_reason }}",
+            "ส่งคลัง": "={{ $json.parsed.warehouse_pcs }}",
+            "ของเสียรายละเอียด": "={{ $json.parsed.waste_detail }}",
+            "วันที่": "={{ $json.parsed.date || new Date().toISOString().split('T')[0] }}",
+            "ชื่อSKU": "={{ $json.parsed.product_name }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "report_id",
+              "displayName": "report_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "chatId",
+              "displayName": "chatId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "วันที่",
+              "displayName": "วันที่",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "กะ",
+              "displayName": "กะ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ชื่อ",
+              "displayName": "ชื่อ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "กลุ่มSKU",
+              "displayName": "กลุ่มSKU",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ชื่อSKU",
+              "displayName": "ชื่อSKU",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "เครื่อง",
+              "displayName": "เครื่อง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "แผนผลิต",
+              "displayName": "แผนผลิต",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ผลิตจริง",
+              "displayName": "ผลิตจริง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "คนผลิต",
+              "displayName": "คนผลิต",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ชิ้น",
+              "displayName": "ชิ้น",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "ชิ้น/กล่อง",
+              "displayName": "ชิ้น/กล่อง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "เวลารวม",
+              "displayName": "เวลารวม",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Counter",
+              "displayName": "Counter",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "เดินรอบ",
+              "displayName": "เดินรอบ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Setup",
+              "displayName": "Setup",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "พัก",
+              "displayName": "พัก",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Clean",
+              "displayName": "Clean",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "หยุดหลังได้ยอด",
+              "displayName": "หยุดหลังได้ยอด",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "B-down",
+              "displayName": "B-down",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "เวลาเดินเครื่อง",
+              "displayName": "เวลาเดินเครื่อง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "สถานะ",
+              "displayName": "สถานะ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "สาเหตุ",
+              "displayName": "สาเหตุ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ส่งคลัง",
+              "displayName": "ส่งคลัง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ประเภทของเสีย",
+              "displayName": "ประเภทของเสีย",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "จำนวนของเสีย",
+              "displayName": "จำนวนของเสีย",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "สาเหตุชำรุด",
+              "displayName": "สาเหตุชำรุด",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ของเสียรายละเอียด",
+              "displayName": "ของเสียรายละเอียด",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1824,
+        432
+      ],
+      "id": "213b6c12-4f62-458e-bb2e-f388f328b2af",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "37cb3e54-5d8e-4707-832f-3247865c881b",
+              "leftValue": "={{ $json.message.content.type }}",
+              "rightValue": "plan",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -640,
+        240
+      ],
+      "id": "9977d6e7-f312-4983-9307-d36e23287aec",
+      "name": "if"
+    },
+    {
+      "parameters": {
+        "jsCode": "const parsed = $input.first().json?.message?.content\n            || $input.first().json?.content\n            || $input.first().json;\n\nconst lines = parsed.lines || [];\nconst date = parsed.date || new Date().toISOString().split('T')[0];\nconst shift = parsed.shift || '';\n\nreturn lines.map(line => ({\n  json: {\n    วันที่: date,\n    กะ: shift,\n    กลุ่ม: line.group || '',\n    สินค้า: line.product || '',\n    เครื่อง: line.machine || '',\n    แผน: line.plan || 0,\n    คน: line.workers || 0,\n    chatId: $('Telegram Trigger').first().json.message.chat.id\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -416,
+        144
+      ],
+      "id": "cb75d9f6-14c5-4ec4-96db-e7d40270b300",
+      "name": "Parse Plan"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M",
+          "mode": "list",
+          "cachedResultName": "Form-Data-Production_SPP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1637591738,
+          "mode": "list",
+          "cachedResultName": "Plan",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit#gid=1637591738"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "วันที่": "={{ $json.วันที่ }}",
+            "กะ": "={{ $json.กะ }}",
+            "สินค้า": "={{ $json.สินค้า }}",
+            "เครื่อง": "={{ $json.เครื่อง }}",
+            "แผน": "={{ $json.แผน }}",
+            "คน": "={{ $json.คน }}",
+            "กลุ่ม": "={{ $json.กลุ่ม }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "วันที่",
+              "displayName": "วันที่",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "กะ",
+              "displayName": "กะ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "สินค้า",
+              "displayName": "สินค้า",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "กลุ่ม",
+              "displayName": "กลุ่ม",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "เครื่อง",
+              "displayName": "เครื่อง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "แผน",
+              "displayName": "แผน",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "คน",
+              "displayName": "คน",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -192,
+        144
+      ],
+      "id": "cd339044-aec1-4d5c-8c46-69cc17ce316a",
+      "name": "Append row in sheet1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Parse Plan').first().json.chatId }}",
+        "text": "=✅ บันทึกแผนสำเร็จ!  📅 วันที่: {{ $('Parse Plan').first().json.วันที่ }} ⏰ กะ: {{ $('Parse Plan').first().json.กะ }} 📋 บันทึกแล้ว {{ $('Parse Plan').all().length }} รายการ",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        32,
+        144
+      ],
+      "id": "0b389bdc-0390-4081-9745-e2a030262edd",
+      "name": "Send a text message",
+      "webhookId": "790ea025-a41e-4e7c-8160-03c63c97f3b7",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "fcVSYGZyYXRQqpXe",
+          "name": "Telegram account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M",
+          "mode": "list",
+          "cachedResultName": "Form-Data-Production_SPP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1637591738,
+          "mode": "list",
+          "cachedResultName": "Plan",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit#gid=1637591738"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -192,
+        336
+      ],
+      "id": "326be198-26ea-4f3f-a090-a3f3e63af3b1",
+      "name": "Read Plan",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const production = $('Build Form Body').first().json.parsed;\nconst planRows = $input.all().map(item => item.json);\n\n// ค้นหาแผนที่ตรงกับสินค้า/เครื่อง\nconst productKey = (production.sku || production.machine || '').toLowerCase();\n\nconst planRow = planRows.find(row => {\n  const planProduct = (row['สินค้า'] || '').toLowerCase();\n  const planMachine = (row['เครื่อง'] || '').toLowerCase();\n  return planProduct.includes(productKey) || \n         productKey.includes(planProduct) ||\n         (planMachine && productKey.includes(planMachine));\n});\n\n// Merge ข้อมูลแผนเข้ากับยอดผลิต\nconst merged = { ...production };\nif (planRow) {\n  if (!merged.plan_box || merged.plan_box === 0) merged.plan_box = planRow['แผน'] || 0;\n  if (!merged.workers || merged.workers === 0) merged.workers = planRow['คน'] || 0;\n  if (!merged.machine || merged.machine === '') merged.machine = planRow['เครื่อง'] || '';\n  if (!merged.shift || merged.shift === '') merged.shift = planRow['กะ'] || '';\n  if (!merged.date || merged.date === '') merged.date = planRow['วันที่'] || '';\n}\n\nreturn [{\n  json: {\n    parsed: merged,\n    chatId: $('Telegram Trigger').first().json.message.chat.id\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        32,
+        336
+      ],
+      "id": "a4834727-d26c-4bc6-90c1-82cf0430bd5e",
+      "name": "Merge with Plan"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "6b3f8b35-394c-4f86-8b7f-13f2ed585a48",
+              "leftValue": "={{ $json.message.text }}",
+              "rightValue": "/register",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1888,
+        -144
+      ],
+      "id": "00f5127a-3769-4931-bf9c-01aa1068223a",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M",
+          "mode": "list",
+          "cachedResultName": "Form-Data-Production_SPP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 513735900,
+          "mode": "list",
+          "cachedResultName": "Members",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit#gid=513735900"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -1440,
+        -432
+      ],
+      "id": "f87db902-8d4f-4c4f-ad88-73523d74530d",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $json.message.text || '';\nconst telegramId = String($json.message.from.id);\nconst chatId = $json.message.chat.id;\n\n// ดึงชื่อออกจาก \"/register จักรกฤษ\"\nconst nameQuery = text.replace('/register', '').trim();\n\nif (!nameQuery) {\n  return [{ json: { \n    found: false, \n    chatId, \n    replyText: '❌ กรุณาส่งชื่อด้วย\\n\\nตัวอย่าง:\\n/register จักรกฤษ'\n  }}];\n}\n\nreturn [{ json: { telegramId, chatId, nameQuery, found: null } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1664,
+        -432
+      ],
+      "id": "4e13848e-bad2-4bb9-b9ae-9848869aef5c",
+      "name": "Parse Register"
+    },
+    {
+      "parameters": {
+        "jsCode": "const { telegramId, chatId, nameQuery } = $('Parse Register').first().json;\nconst members = $input.all().map(i => i.json);\n\n// ค้นหาชื่อที่ตรงกัน\nconst match = members.find(m => {\n  const fullName = (m['ชื่อ'] || '').toLowerCase();\n  const firstName = fullName.split(' ')[0];\n  const query = nameQuery.toLowerCase();\n  return fullName.includes(query) || query.includes(firstName);\n});\n\nif (!match) {\n  return [{ json: {\n    found: false,\n    chatId,\n    replyText: `❌ ไม่พบชื่อ \"${nameQuery}\" ในระบบ\\n\\nลองใหม่อีกครั้ง เช่น:\\n/register จักรกฤษ`\n  }}];\n}\n\nreturn [{ json: {\n  found: true,\n  chatId,\n  telegramId,\n  memberName: match['ชื่อ'],\n  memberShift: match['กะ'],\n  rowNumber: match['row_number'],\n  replyText: `✅ ลงทะเบียนสำเร็จ!\\nชื่อ: ${match['ชื่อ']}\\nกะ: ${match['กะ']}`\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1216,
+        -432
+      ],
+      "id": "25195ae9-5d1d-4f57-9922-da5223f041ad",
+      "name": "Find Member"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2c3342a2-1972-4a70-baf9-754338b5c17c",
+              "leftValue": "={{ $json.found }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -928,
+        -432
+      ],
+      "id": "4ca495b7-44a8-4296-bf29-993a6bc3a3d8",
+      "name": "Found Member?"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "{{ $json.replyText }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -640,
+        -336
+      ],
+      "id": "af5a7893-7cfd-4b98-9333-3559d51c0f53",
+      "name": "Register Error Reply",
+      "webhookId": "482efc33-1ec3-48b6-89da-9176e65c3112",
+      "credentials": {
+        "telegramApi": {
+          "id": "fcVSYGZyYXRQqpXe",
+          "name": "Telegram account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M",
+          "mode": "list",
+          "cachedResultName": "Form-Data-Production_SPP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 513735900,
+          "mode": "list",
+          "cachedResultName": "Members",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit#gid=513735900"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ชื่อ": "={{ $json.memberName }}",
+            "telegram_id": "={{ $json.telegramId }}"
+          },
+          "matchingColumns": [
+            "ชื่อ"
+          ],
+          "schema": [
+            {
+              "id": "telegram_id",
+              "displayName": "telegram_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ชื่อ",
+              "displayName": "ชื่อ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "กะ",
+              "displayName": "กะ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -640,
+        -528
+      ],
+      "id": "fef51ca4-1456-4286-a576-7ccfe58cbf23",
+      "name": "Update Member ID",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Find Member').first().json.chatId }}",
+        "text": "={{ $('Find Member').first().json.replyText }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -416,
+        -528
+      ],
+      "id": "8fd86d1e-b4f2-44c9-9706-07a7f9dfc3e9",
+      "name": "Register Success Reply",
+      "webhookId": "76de7a6e-cdde-4483-bf96-b29754361b3c",
+      "credentials": {
+        "telegramApi": {
+          "id": "fcVSYGZyYXRQqpXe",
+          "name": "Telegram account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M",
+          "mode": "list",
+          "cachedResultName": "Form-Data-Production_SPP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 513735900,
+          "mode": "list",
+          "cachedResultName": "Members",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit#gid=513735900"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "telegram_id",
+              "lookupValue": "={{ $('Telegram Trigger').first().json.message.from.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        256,
+        336
+      ],
+      "id": "a6068f65-2cdf-4e50-8bf7-75bbfca08e4d",
+      "name": "Lookup Sender",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const production = $('Merge with Plan').first().json.parsed;\nconst chatId = $('Merge with Plan').first().json.chatId;\nconst members = $input.all().map(i => i.json);\n\n// สร้าง Report ID ตรงนี้เลย\nconst reportId = 'RPT-' + Date.now();\n\nconst member = members.length > 0 ? members[0] : null;\n\nif (!member) {\n  return [{ json: {\n    notRegistered: true,\n    chatId,\n    replyText: '❌ คุณยังไม่ได้ลงทะเบียน\\nกรุณาส่ง /register ชื่อ-นามสกุล\\nเช่น /register จักรกฤษ พูลสวัสดิ์'\n  }}];\n}\n\nconst enriched = {\n  ...production,\n  ชื่อ: member['ชื่อ'],\n  กะ: production.shift || member['กะ'],\n  role: member['role'] || 'พนักงาน'\n};\n\nreturn [{ json: {\n  notRegistered: false,\n  parsed: enriched,\n  chatId,\n  report_id: reportId,\n  role: member['role'] || 'พนักงาน'\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        336
+      ],
+      "id": "9746a72d-1c08-4ab4-abc5-e24e45188545",
+      "name": "Add Sender Info"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "1ffc4d0d-7a3e-44ff-a6f4-69b06543198f",
+              "leftValue": "={{ $json.notRegistered }}",
+              "rightValue": "Boolean",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1376,
+        336
+      ],
+      "id": "06528022-0abb-4d45-bf1f-235516ca9b30",
+      "name": "Is Registered?"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.replyText }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1600,
+        240
+      ],
+      "id": "61115b7b-8828-41d6-b251-6a7d2974a0f9",
+      "name": "Not Registered Reply",
+      "webhookId": "5cfa33de-e2c4-48c1-b814-cc3c99587d7b",
+      "credentials": {
+        "telegramApi": {
+          "id": "fcVSYGZyYXRQqpXe",
+          "name": "Telegram account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M",
+          "mode": "list",
+          "cachedResultName": "Form-Data-Production_SPP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1863834226,
+          "mode": "list",
+          "cachedResultName": "SKU",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit#gid=1863834226"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        704,
+        336
+      ],
+      "id": "f6062ddf-337f-4528-871e-48de033c0ba1",
+      "name": "Lookup SKU",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const senderData = $('Add Sender Info').first().json;\nconst parsed = senderData.parsed;\nconst skuKeyword = (parsed.sku || '').toLowerCase().trim();\n\nconst skuRows = $input.all().map(i => i.json);\n\nlet match = skuRows.find(r =>\n  r.keyword && r.keyword.toLowerCase().trim() === skuKeyword\n);\n\nif (!match) {\n  match = skuRows.find(r =>\n    r.keyword && (\n      skuKeyword.includes(r.keyword.toLowerCase().trim()) ||\n      r.keyword.toLowerCase().trim().includes(skuKeyword)\n    )\n  );\n}\n\nlet skuCode = '';\nlet productName = '';\nlet group = parsed.group || '';\n\nif (match) {\n  const fullProduct = match.full_product || '';\n  const parts = fullProduct.split(' ');\n  skuCode = parts[0];\n  productName = parts.slice(1).join(' ').replace(/\\*/g, '×');\n  group = match.group || parsed.group || '';\n} else {\n  productName = (parsed.sku || '').replace(/\\*/g, '×');\n  group = parsed.group || '';\n}\n\nreturn [{\n  json: {\n    ...senderData,\n    parsed: {\n      ...parsed,\n      sku_code: skuCode,\n      product_name: productName,\n      group: group\n    }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        928,
+        336
+      ],
+      "id": "42b980a4-3996-405e-aa56-5f68ab5c806a",
+      "name": "Resolve SKU"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e7948b5f-5078-4036-824b-c4e1854ac136",
+              "leftValue": "={{ $json.message.text }}",
+              "rightValue": "/template",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1664,
+        -48
+      ],
+      "id": "e32a93c1-e1ca-4ac4-b933-111fdcd6bd5f",
+      "name": "/template?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $('Telegram Trigger').first().json.message.text || '';\nconst chatId = $('Telegram Trigger').first().json.message.chat.id;\nconst keyword = text.replace('/template', '').trim().toLowerCase();\n\nconst templates = {\n  amazon: 'SKU: Amazon 850×12\\nเครื่อง: NGS\\nจำนวนคนผลิต: ...\\nรอบเดินเครื่อง: ...\\nเลขหน้าเครื่อง: ...\\nแผนผลิต: ... ลัง\\nผลิตได้: ... ลัง\\nยอดส่งคลัง(ชิ้น): ...\\nของเสีย\\nลังเสีย: ... ใบ\\nถุงเสียทั้งหมด: ... ใบ\\nถุงเปล่า: ... ใบ\\nถุงกรีด: ... ใบ',\n  coffee: 'SKU: Coffee 500g×4×10\\nเครื่อง: NGS\\nจำนวนคนผลิต: ...\\nรอบเดินเครื่อง: ...\\nเลขหน้าเครื่อง: ...\\nแผนผลิต: ... ลัง\\nผลิตได้: ... ลัง\\nยอดส่งคลัง(ชิ้น): ...\\nของเสีย\\nลังเสีย: ... ใบ\\nถุงเสียทั้งหมด: ... ใบ\\nถุงเปล่า: ... ใบ\\nถุงกรีด: ... ใบ',\n  sachet: 'SKU: ซาเช่ 8g×30×4×10\\nเครื่อง: NGS\\nจำนวนคนผลิต: ...\\nรอบเดินเครื่อง: ...\\nเลขหน้าเครื่อง: ...\\nแผนผลิต: ... ลัง\\nผลิตได้: ... ลัง\\nยอดส่งคลัง(ชิ้น): ...\\nของเสีย\\nลังเสีย: ... ใบ\\nถุงเสียทั้งหมด: ... ใบ\\nถุงเปล่า: ... ใบ\\nถุงกรีด: ... ใบ',\n  syrup: 'SKU: Syrup800×12 / Syrup1.8×8 / Syrup300×24 / EasyDiss800×12\\nเครื่อง: Linear#...\\nจำนวนคนผลิต: ...\\nรอบเดินเครื่อง: ...\\nเลขหน้าเครื่อง: ...\\nแผนผลิต: ... ลัง\\nผลิตได้: ... ลัง\\nยอดส่งคลัง(ชิ้น): ...\\nของเสีย\\nลังเสีย: ... ใบ\\nถุงเสียทั้งหมด: ... ใบ\\nถุงเปล่า: ... ใบ\\nถุงกรีด: ... ใบ',\n  icing: 'SKU: Icing900×12\\nเครื่อง: ICING 10-25 Kg\\nจำนวนคนผลิต: ...\\nรอบเดินเครื่อง: ...\\nเลขหน้าเครื่อง: ...\\nแผนผลิต: ... ลัง\\nผลิตได้: ... ลัง\\nยอดส่งคลัง(ชิ้น): ...\\nของเสีย\\nลังเสีย: ... ใบ\\nถุงเสียทั้งหมด: ... ใบ\\nถุงเปล่า: ... ใบ\\nถุงกรีด: ... ใบ',\n  senorita: 'SKU: Senorita / Caramel Senorita 1.9×4 / Caramel Senorita 750×6\\nเครื่อง: Freshy (Delmax)\\nจำนวนคนผลิต: ...\\nรอบเดินเครื่อง: ...\\nเลขหน้าเครื่อง: ...\\nแผนผลิต: ... ลัง\\nผลิตได้: ... ลัง\\nยอดส่งคลัง(ชิ้น): ...\\nของเสีย\\nลังเสีย: ... ใบ\\nถุงเสียทั้งหมด: ... ใบ\\nถุงเปล่า: ... ใบ\\nถุงกรีด: ... ใบ',\n  freshy: 'SKU: Freshy / Sala Freshy 710×3×4 / Blue Hawaii 710×3×4 / Pineapple Freshy / Kiwi Freshy\\nเครื่อง: Freshy (Delmax)\\nจำนวนคนผลิต: ...\\nรอบเดินเครื่อง: ...\\nเลขหน้าเครื่อง: ...\\nแผนผลิต: ... ลัง\\nผลิตได้: ... ลัง\\nยอดส่งคลัง(ชิ้น): ...\\nของเสีย\\nลังเสีย: ... ใบ\\nถุงเสียทั้งหมด: ... ใบ\\nถุงเปล่า: ... ใบ\\nถุงกรีด: ... ใบ',\n  coconut: 'SKU: ปี๊บ 1×20 / ปี๊บเหลว / ปั๊บ / Coconut Paste\\nเครื่อง: Manual\\nจำนวนคนผลิต: ...\\nแผนผลิต: ... ลัง\\nผลิตได้: ... ลัง\\nยอดส่งคลัง(ชิ้น): ...\\nของเสีย\\nลังเสีย: ... ใบ\\nถุงเสียทั้งหมด: ... ใบ',\n  clean: 'งาน: ทำความสะอาด / บดน้ำตาล / ช่วยต้ม\\nจำนวนคน: ...',\n  kad: 'งาน: คัดน้ำเชื่อม / ดู Check Weight / จัด Packaging / ช่วยงาน Fos\\nจำนวนคน: ...'\n};\n\nconst keywordMap = {\n  amazon: 'amazon',\n  coffee: 'coffee',\n  sachet: 'sachet',\n  syrup: 'syrup',\n  icing: 'icing',\n  senorita: 'senorita',\n  caramel: 'senorita',\n  freshy: 'freshy',\n  sala: 'freshy',\n  hawaii: 'freshy',\n  pineapple: 'freshy',\n  kiwi: 'freshy',\n  coconut: 'coconut',\n  clean: 'clean',\n  kad: 'kad'\n};\n\nlet replyText = '';\nlet matched = false;\n\nfor (const [k, v] of Object.entries(keywordMap)) {\n  if (keyword.includes(k)) {\n    replyText = 'Template ' + v.toUpperCase() + '\\n\\n' + templates[v];\n    matched = true;\n    break;\n  }\n}\n\nif (!matched) {\n  replyText = 'Templates ที่มี:\\n\\n/template amazon\\n/template coffee\\n/template sachet\\n/template syrup\\n/template icing\\n/template senorita\\n/template freshy\\n/template coconut\\n/template clean\\n/template kad';\n}\n\nreturn [{ json: { chatId, replyText } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1440,
+        -240
+      ],
+      "id": "11fc6f30-5d76-4d0e-a67b-a52562388af0",
+      "name": "Get Template"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.replyText }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1216,
+        -240
+      ],
+      "id": "2d619318-c7c3-4127-9930-5bc6b123290e",
+      "name": "Send Template",
+      "webhookId": "12a6a7ec-bb97-4c72-b606-dcc43672c67d",
+      "credentials": {
+        "telegramApi": {
+          "id": "fcVSYGZyYXRQqpXe",
+          "name": "Telegram account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "-5191225692",
+        "text": "=รายงานใหม่รอตรวจสอบ\nรหัส: {{ $json['report_id'] }}\nชื่อ: {{ $json['ชื่อ'] }} | กะ: {{ $json['กะ'] }}\n\nSKU: {{ $json['กลุ่มSKU'] }}\nเครื่อง: {{ $json['เครื่อง'] }}\nจำนวนคนผลิต: {{ $json['คนผลิต'] }}\nรอบเดินเครื่อง: {{ $json['เดินรอบ'] }}\nเลขหน้าเครื่อง: {{ $json['Counter'] }}\nแผนผลิต: {{ $json['แผนผลิต'] }} ลัง\nผลิตได้: {{ $json['ผลิตจริง'] }} ลัง\nยอดส่งคลัง(ชิ้น): {{ $json['ส่งคลัง'] }}\nของเสีย: {{ $json['ของเสียรายละเอียด'] }}\n\nอนุมัติ: /approve {{ $json['report_id'] }}\nปฏิเสธ: /reject {{ $json['report_id'] }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "✅ อนุมัติ",
+                    "additionalFields": {
+                      "callback_data": "={{ '/approve ' + $json['report_id'] }}"
+                    }
+                  },
+                  {
+                    "text": "❌ ปฏิเสธ",
+                    "additionalFields": {
+                      "callback_data": "={{ '/reject ' + $json['report_id'] }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2048,
+        432
+      ],
+      "id": "65bb1781-292d-41a7-a2ec-bf36e677d912",
+      "name": "Notify Group",
+      "webhookId": "4c6fcbb6-0238-4387-9ad7-e40d868997b4",
+      "credentials": {
+        "telegramApi": {
+          "id": "fcVSYGZyYXRQqpXe",
+          "name": "Telegram account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Resolve SKU').first().json;\nconst chatId = data.chatId;\nconst parsed = data.parsed;\n\nconst timestamp = Date.now();\nconst reportId = 'RPT-' + timestamp;\n\nreturn [{\n  json: {\n    report_id: reportId,\n    chatId: chatId,\n    parsed: parsed\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1152,
+        336
+      ],
+      "id": "51ac14ea-4aae-42b7-9bf5-b0318d6e3264",
+      "name": "Generate Report ID"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f726a660-2bf5-47fa-9cc7-fb83836523f5",
+              "leftValue": "={{ $json.message?.text }}",
+              "rightValue": "=/approve",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "cd4dc4d6-ad96-4f68-8e6a-f2e4afac3ab8",
+              "leftValue": "={{ $json.message?.text }}",
+              "rightValue": "/reject",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "498b759d-c972-43d5-b649-97c83bbb224e",
+              "leftValue": "={{ $json.callback_query?.data }}",
+              "rightValue": "/approve",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "f509c453-3c4a-4979-b188-4031ed70f3de",
+              "leftValue": "={{ $json.callback_query?.data }}",
+              "rightValue": "/reject",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1440,
+        48
+      ],
+      "id": "5207f11c-1cc6-4fba-8470-ac01836adeb5",
+      "name": "IF (/approve or /reject?)"
+    },
+    {
+      "parameters": {
+        "jsCode": "const trigger = $('Telegram Trigger').first().json;\nconst callbackQuery = trigger.callback_query;\nconst message = trigger.message;\n\nlet text, chatId;\n\nif (callbackQuery) {\n  text = callbackQuery.data || '';\n  chatId = callbackQuery.message.chat.id;\n} else {\n  text = (message && message.text) || '';\n  chatId = message && message.chat.id;\n}\n\nconst parts = text.trim().split(/\\s+/);\nconst rawCommand = parts[0].toLowerCase();\nconst command = rawCommand.split('@')[0];\nconst reportId = parts[1] || '';\nconst action = command.includes('approve') ? 'approve' : 'reject';\n\nif (!reportId || !reportId.startsWith('RPT-')) {\n  return [{ json: {\n    error: true,\n    chatId,\n    replyText: '❌ รูปแบบไม่ถูกต้อง\\nใช้: /approve RPT-xxxxx หรือ /reject RPT-xxxxx'\n  }}];\n}\n\nreturn [{ json: {\n  error: false,\n  action,\n  reportId,\n  chatId\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1216,
+        -48
+      ],
+      "id": "89e78e43-17ed-4686-9c05-4c3302d66196",
+      "name": "Parse Approve/Rejectpt"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M",
+          "mode": "list",
+          "cachedResultName": "Form-Data-Production_SPP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1038948073,
+          "mode": "list",
+          "cachedResultName": "Pending",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit#gid=1038948073"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -640,
+        -144
+      ],
+      "id": "3a2952cc-af07-40d0-94d7-0da6d62d21d1",
+      "name": "Read Pending Sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const action = $('Parse Approve/Rejectpt').first().json.action;\nconst reportId = $('Parse Approve/Rejectpt').first().json.reportId;\nconst reviewerChatId = $('Parse Approve/Rejectpt').first().json.chatId;\n\nconst rows = $input.all().map(i => i.json);\nconst match = rows.find(r => r['report_id'] === reportId);\n\nif (!match) {\n  return [{ json: {\n    found: false,\n    action,\n    reportId,\n    reviewerChatId,\n    replyText: `ไม่พบรายงาน ${reportId}\\nอาจถูกอนุมัติหรือปฏิเสธไปแล้ว`\n  }}];\n}\n\nreturn [{ json: {\n  found: true,\n  action,\n  reportId,\n  reviewerChatId,\n  workerChatId: match['chatId'],\n rowNumber: match['row_number'],\n  rowData: match\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -416,
+        -144
+      ],
+      "id": "b3e1fe5d-9b09-456c-bf19-4374dfff3a27",
+      "name": "Find Matching Row"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a64a30d3-f80a-4abb-911e-555bc54e6130",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "approve",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        32,
+        -240
+      ],
+      "id": "af2f632f-a95d-4bc9-9271-c3807c3921fe",
+      "name": "IF (Approve or Reject?)"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M",
+          "mode": "list",
+          "cachedResultName": "Form-Data-Production_SPP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "ชีต1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "วันที่": "={{ $json.rowData['วันที่'] }}",
+            "กะ": "={{ $json.rowData['กะ'] }}",
+            "ชื่อ": "={{ $json.rowData['ชื่อ'] }}",
+            "กลุ่ม Product": "={{ $json.rowData['กลุ่มSKU'] }}",
+            "เครื่อง": "={{ $json.rowData['เครื่อง'] }}",
+            "จำนวนแผนผลิต (กล่อง/หม้อ)": "={{ $json.rowData['แผนผลิต'] }}",
+            "ผลิตเกิดจริง (กล่องหม้อ)": "={{ $json.rowData['ผลิตจริง'] }}",
+            "จำนวนคนผลิต": "={{ $json.rowData['คนผลิต'] }}",
+            "จำนวนชิ้น/กล่อง": "={{ $json.rowData['ชิ้น/กล่อง'] }}",
+            "เวลารวมผลิต 480/720 (นาที)": "={{ $json.rowData['เวลารวม'] }}",
+            "ยอดเลขหน้าเครื่อง (ชิ้น)": "={{ $json.rowData['Counter'] }}",
+            "เดินรอบเครื่อง": "={{ $json.rowData['เดินรอบ'] }}",
+            "เวลา setup 0:30": "={{ $json.rowData['Setup'] }}",
+            "เวลาพัก 0:40/0:90": "={{ $json.rowData['พัก'] }}",
+            "เวลา Clean 0:30": "={{ $json.rowData['Clean'] }}",
+            "เวลาหยุดเครื่องหลังจากได้ยอดแล้วหลังล้างเครื่อง": "={{ $json.rowData['หยุดหลังได้ยอด'] }}",
+            "เวลา B-down (ใส่เฉพาะตัวเลข ไม่มีใส่ 0)": "={{ $json.rowData['B-down'] }}",
+            "รวมเวลาเดินเครื่อง": "={{ $json.rowData['เวลาเดินเครื่อง'] }}",
+            "สถานะการผลิต": "={{ $json.rowData['สถานะ'] }}",
+            "สาเหตุที่ไม่ได้ยอดผลิต": "={{ $json.rowData['สาเหตุ'] }}",
+            "ยอดส่งคลัง(ชิ้น)": "={{ $json.rowData['ส่งคลัง'] }}",
+            "ประเภทของเสีย": "={{ $json.rowData['ประเภทของเสีย'] }}",
+            "จำนวนของเสีย": "={{ $json.rowData['จำนวนของเสีย'] }}",
+            "สาเหตุชำรุด": "={{ $json.rowData['สาเหตุชำรุด'] }}",
+            "ชื่อ Product": "={{ $json.rowData['ชื่อSKU'] }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "วันที่",
+              "displayName": "วันที่",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "กะ",
+              "displayName": "กะ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ชื่อ",
+              "displayName": "ชื่อ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "กลุ่ม Product",
+              "displayName": "กลุ่ม Product",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ชื่อ Product",
+              "displayName": "ชื่อ Product",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "เครื่อง",
+              "displayName": "เครื่อง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "จำนวนแผนผลิต (กล่อง/หม้อ)",
+              "displayName": "จำนวนแผนผลิต (กล่อง/หม้อ)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ผลิตเกิดจริง (กล่องหม้อ)",
+              "displayName": "ผลิตเกิดจริง (กล่องหม้อ)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "จำนวนคนผลิต",
+              "displayName": "จำนวนคนผลิต",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "จำนวนชิ้น/กล่อง",
+              "displayName": "จำนวนชิ้น/กล่อง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "เวลารวมผลิต 480/720 (นาที)",
+              "displayName": "เวลารวมผลิต 480/720 (นาที)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ยอดเลขหน้าเครื่อง (ชิ้น)",
+              "displayName": "ยอดเลขหน้าเครื่อง (ชิ้น)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "เดินรอบเครื่อง",
+              "displayName": "เดินรอบเครื่อง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "เวลา setup 0:30",
+              "displayName": "เวลา setup 0:30",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "เวลาพัก 0:40/0:90",
+              "displayName": "เวลาพัก 0:40/0:90",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "เวลา Clean 0:30",
+              "displayName": "เวลา Clean 0:30",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "เวลาหยุดเครื่องหลังจากได้ยอดแล้วหลังล้างเครื่อง",
+              "displayName": "เวลาหยุดเครื่องหลังจากได้ยอดแล้วหลังล้างเครื่อง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "เวลา B-down (ใส่เฉพาะตัวเลข ไม่มีใส่ 0)",
+              "displayName": "เวลา B-down (ใส่เฉพาะตัวเลข ไม่มีใส่ 0)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "รวมเวลาเดินเครื่อง",
+              "displayName": "รวมเวลาเดินเครื่อง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "สถานะการผลิต",
+              "displayName": "สถานะการผลิต",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "สาเหตุที่ไม่ได้ยอดผลิต",
+              "displayName": "สาเหตุที่ไม่ได้ยอดผลิต",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ยอดส่งคลัง(ชิ้น)",
+              "displayName": "ยอดส่งคลัง(ชิ้น)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ประเภทของเสีย",
+              "displayName": "ประเภทของเสีย",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "จำนวนของเสีย",
+              "displayName": "จำนวนของเสีย",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "สาเหตุชำรุด",
+              "displayName": "สาเหตุชำรุด",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        256,
+        -336
+      ],
+      "id": "0104f783-4ab9-4afb-9ad9-3f65b97af3ec",
+      "name": "Append to Production Sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "documentId": {
+          "__rl": true,
+          "value": "121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M",
+          "mode": "list",
+          "cachedResultName": "Form-Data-Production_SPP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1038948073,
+          "mode": "list",
+          "cachedResultName": "Pending",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit#gid=1038948073"
+        },
+        "startIndex": "={{ $('Find Matching Row').first().json.rowNumber }}"
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        480,
+        -336
+      ],
+      "id": "a8650fd6-b40f-4685-b979-5f9dcc2acc02",
+      "name": "Delete from Pending (Approve)",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "-5191225692",
+        "text": "=✅ อนุมัติแล้ว รหัส: {{ $('Find Matching Row').first().json.reportId }} ชื่อ: {{ $('Find Matching Row').first().json.rowData['ชื่อ'] }} SKU: {{ $('Find Matching Row').first().json.rowData['กลุ่มSKU'] }} ผลิตได้: {{ $('Find Matching Row').first().json.rowData['ผลิตจริง'] }} ลัง บันทึกลง Production Sheet แล้ว",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        704,
+        -336
+      ],
+      "id": "f01fe3f7-05d5-46b9-875a-6f6821b4d352",
+      "name": "Notify Group - Approved",
+      "webhookId": "68c1b500-444c-4bf9-92ca-3947c1a08a16",
+      "credentials": {
+        "telegramApi": {
+          "id": "fcVSYGZyYXRQqpXe",
+          "name": "Telegram account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Find Matching Row').first().json.workerChatId }}",
+        "text": "=✅ รายงานของคุณได้รับการอนุมัติแล้ว รหัส: {{ $('Find Matching Row').first().json.reportId }} ข้อมูลถูกบันทึกลงระบบเรียบร้อยครับ",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        928,
+        -336
+      ],
+      "id": "8c721b23-8798-4209-98d3-0bce6fffc682",
+      "name": "Notify Worker - Approved",
+      "webhookId": "db647b75-f40e-4422-b5ea-652a8f7f2325",
+      "credentials": {
+        "telegramApi": {
+          "id": "fcVSYGZyYXRQqpXe",
+          "name": "Telegram account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "documentId": {
+          "__rl": true,
+          "value": "121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M",
+          "mode": "list",
+          "cachedResultName": "Form-Data-Production_SPP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1038948073,
+          "mode": "list",
+          "cachedResultName": "Pending",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit#gid=1038948073"
+        },
+        "startIndex": "={{ $('Find Matching Row').first().json.rowNumber }}"
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        256,
+        -48
+      ],
+      "id": "175e9539-7b27-4f88-9759-cc71f655e699",
+      "name": "Delete rows or columns from sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "-5191225692",
+        "text": "=❌ ปฏิเสธรายงาน รหัส: {{ $('Find Matching Row').first().json.reportId }} ชื่อ: {{ $('Find Matching Row').first().json.rowData['ชื่อ'] }} SKU: {{ $('Find Matching Row').first().json.rowData['กลุ่มSKU'] }} รายงานถูกลบออกจากระบบแล้ว",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        -48
+      ],
+      "id": "4da49fb4-5eab-4c3e-a93e-d676f5fe1754",
+      "name": "Notify Group - Rejected",
+      "webhookId": "8b1e57ab-59e0-4419-a7ff-dbdc139a70c9",
+      "credentials": {
+        "telegramApi": {
+          "id": "fcVSYGZyYXRQqpXe",
+          "name": "Telegram account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Find Matching Row').first().json.workerChatId }}",
+        "text": "=❌ รายงานของคุณถูกปฏิเสธ รหัส: {{ $('Find Matching Row').first().json.reportId }} กรุณาส่งรายงานใหม่อีกครั้งครับ",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        704,
+        -48
+      ],
+      "id": "d29d47b7-a708-458c-99a4-584a93248d1e",
+      "name": "Notify Worker - Rejected",
+      "webhookId": "7d826824-8d0a-4977-9739-41f766bc915b",
+      "credentials": {
+        "telegramApi": {
+          "id": "fcVSYGZyYXRQqpXe",
+          "name": "Telegram account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "29473f34-7855-4c86-938a-88b9f5b7d4cb",
+              "leftValue": "={{ $json.found }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -192,
+        -144
+      ],
+      "id": "7ceb5566-afa0-4f5b-b4d0-0a7ba49b47c5",
+      "name": "Is Found?"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.reviewerChatId }}",
+        "text": "={{ $json.replyText }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        32,
+        -48
+      ],
+      "id": "b7392490-e7af-480f-8164-e11d8c23fa57",
+      "name": "Send a text message1",
+      "webhookId": "e7dbb2d3-2381-4b82-a0b7-548b101786bb",
+      "credentials": {
+        "telegramApi": {
+          "id": "fcVSYGZyYXRQqpXe",
+          "name": "Telegram account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ffca2dc5-d684-435b-bcaa-f603fed90a76",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "false",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -928,
+        -48
+      ],
+      "id": "4b7a7aba-6404-4d4d-9122-ed9101a1d21e",
+      "name": "Is Valid Command?"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.replyText }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -640,
+        48
+      ],
+      "id": "caefb514-6395-48fd-966f-16c61f216fce",
+      "name": "Invalid Command Reply",
+      "webhookId": "b7633a8e-407c-4df6-b73a-108e13613483",
+      "credentials": {
+        "telegramApi": {
+          "id": "fcVSYGZyYXRQqpXe",
+          "name": "Telegram account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "spp-web-report",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "web-spp-0001-webhook",
+      "name": "Webhook (Web Report)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -2112,
+        704
+      ],
+      "webhookId": "spp-web-report"
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $json.body || $json;\nconst num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };\n\nconst parsed = {\n  date: b.date || new Date().toISOString().split('T')[0],\n  shift: b.shift || '',\n  ชื่อ: b['ชื่อ'] || '',\n  กะ: b.shift || '',\n  group: b.group || '',\n  sku: b.sku || '',\n  machine: b.machine || '',\n  plan_box: num(b.plan_box),\n  actual_box: num(b.actual_box),\n  pack_factor: num(b.pack_factor),\n  workers: num(b.workers),\n  actual_pcs: num(b.actual_pcs),\n  run_time: num(b.run_time),\n  counter: num(b.counter),\n  machine_cycle: num(b.machine_cycle),\n  setup_time: num(b.setup_time),\n  break_time: num(b.break_time),\n  clean_time: num(b.clean_time),\n  stop_after_target: num(b.stop_after_target),\n  bdown_time: num(b.bdown_time),\n  machine_run_time: num(b.machine_run_time),\n  status: b.status || '',\n  miss_reason: b.miss_reason || '-',\n  warehouse_pcs: num(b.warehouse_pcs),\n  waste_type: b.waste_type || '',\n  waste_pcs: num(b.waste_pcs),\n  waste_detail: b.waste_detail || '-',\n  damage_reason: b.damage_reason || ''\n};\n\n// รายงานจากเว็บไม่มี Telegram chat ส่วนตัว → ใส่ group id เพื่อให้ Notify Worker ตอนอนุมัติไม่ error (ข้อความลงกลุ่มแทน)\nreturn [{ json: {\n  report_id: 'RPT-' + Date.now(),\n  chatId: '-5191225692',\n  parsed\n}}];"
+      },
+      "id": "web-spp-0002-normalize",
+      "name": "Normalize Web Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1856,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M",
+          "mode": "list",
+          "cachedResultName": "Form-Data-Production_SPP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1863834226,
+          "mode": "list",
+          "cachedResultName": "SKU",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit#gid=1863834226"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -1600,
+        704
+      ],
+      "id": "web-spp-0003-lookupsku",
+      "name": "Lookup SKU (Web)",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const senderData = $('Normalize Web Report').first().json;\nconst parsed = senderData.parsed;\nconst skuKeyword = (parsed.sku || '').toLowerCase().trim();\n\nconst skuRows = $input.all().map(i => i.json);\n\nlet match = skuRows.find(r =>\n  r.keyword && r.keyword.toLowerCase().trim() === skuKeyword\n);\n\nif (!match) {\n  match = skuRows.find(r =>\n    r.keyword && (\n      skuKeyword.includes(r.keyword.toLowerCase().trim()) ||\n      r.keyword.toLowerCase().trim().includes(skuKeyword)\n    )\n  );\n}\n\nlet skuCode = '';\nlet productName = '';\nlet group = parsed.group || '';\n\nif (match) {\n  const fullProduct = match.full_product || '';\n  const parts = fullProduct.split(' ');\n  skuCode = parts[0];\n  productName = parts.slice(1).join(' ').replace(/\\*/g, '×');\n  group = match.group || parsed.group || '';\n} else {\n  productName = (parsed.sku || '').replace(/\\*/g, '×');\n  group = parsed.group || '';\n}\n\nreturn [{\n  json: {\n    ...senderData,\n    parsed: {\n      ...parsed,\n      sku_code: skuCode,\n      product_name: productName,\n      group: group\n    }\n  }\n}];"
+      },
+      "id": "web-spp-0004-resolvesku",
+      "name": "Resolve SKU (Web)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1344,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M",
+          "mode": "list",
+          "cachedResultName": "Form-Data-Production_SPP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1038948073,
+          "mode": "list",
+          "cachedResultName": "Pending",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit#gid=1038948073"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "กะ": "={{ $json.parsed.กะ }}",
+            "เครื่อง": "={{ $json.parsed.machine }}",
+            "ประเภทของเสีย": "={{ $json.parsed.waste_type }}",
+            "จำนวนของเสีย": "={{ $json.parsed.waste_pcs }}",
+            "สาเหตุชำรุด": "={{ $json.parsed.damage_reason }}",
+            "ชื่อ": "={{ $json.parsed.ชื่อ }}",
+            "report_id": "={{ $json.report_id }}",
+            "chatId": "={{ $json.chatId }}",
+            "กลุ่มSKU": "={{ $json.parsed.group }}",
+            "แผนผลิต": "={{ $json.parsed.plan_box }}",
+            "ผลิตจริง": "={{ $json.parsed.actual_box }}",
+            "คนผลิต": "={{ $json.parsed.workers }}",
+            "ชิ้น/กล่อง": "={{ $json.parsed.pack_factor }}",
+            "เวลารวม": "={{ $json.parsed.run_time }}",
+            "Counter": "={{ $json.parsed.counter }}",
+            "เดินรอบ": "={{ $json.parsed.machine_cycle }}",
+            "Setup": "={{ $json.parsed.setup_time }}",
+            "พัก": "={{ $json.parsed.break_time }}",
+            "Clean": "={{ $json.parsed.clean_time }}",
+            "หยุดหลังได้ยอด": "={{ $json.parsed.stop_after_target }}",
+            "B-down": "={{ $json.parsed.bdown_time }}",
+            "เวลาเดินเครื่อง": "={{ $json.parsed.machine_run_time }}",
+            "สถานะ": "={{ $json.parsed.status }}",
+            "สาเหตุ": "={{ $json.parsed.miss_reason }}",
+            "ส่งคลัง": "={{ $json.parsed.warehouse_pcs }}",
+            "ของเสียรายละเอียด": "={{ $json.parsed.waste_detail }}",
+            "วันที่": "={{ $json.parsed.date || new Date().toISOString().split('T')[0] }}",
+            "ชื่อSKU": "={{ $json.parsed.product_name }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "report_id",
+              "displayName": "report_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "chatId",
+              "displayName": "chatId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "วันที่",
+              "displayName": "วันที่",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "กะ",
+              "displayName": "กะ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ชื่อ",
+              "displayName": "ชื่อ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "กลุ่มSKU",
+              "displayName": "กลุ่มSKU",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ชื่อSKU",
+              "displayName": "ชื่อSKU",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "เครื่อง",
+              "displayName": "เครื่อง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "แผนผลิต",
+              "displayName": "แผนผลิต",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ผลิตจริง",
+              "displayName": "ผลิตจริง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "คนผลิต",
+              "displayName": "คนผลิต",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ชิ้น",
+              "displayName": "ชิ้น",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "ชิ้น/กล่อง",
+              "displayName": "ชิ้น/กล่อง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "เวลารวม",
+              "displayName": "เวลารวม",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Counter",
+              "displayName": "Counter",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "เดินรอบ",
+              "displayName": "เดินรอบ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Setup",
+              "displayName": "Setup",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "พัก",
+              "displayName": "พัก",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Clean",
+              "displayName": "Clean",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "หยุดหลังได้ยอด",
+              "displayName": "หยุดหลังได้ยอด",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "B-down",
+              "displayName": "B-down",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "เวลาเดินเครื่อง",
+              "displayName": "เวลาเดินเครื่อง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "สถานะ",
+              "displayName": "สถานะ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "สาเหตุ",
+              "displayName": "สาเหตุ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ส่งคลัง",
+              "displayName": "ส่งคลัง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ประเภทของเสีย",
+              "displayName": "ประเภทของเสีย",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "จำนวนของเสีย",
+              "displayName": "จำนวนของเสีย",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "สาเหตุชำรุด",
+              "displayName": "สาเหตุชำรุด",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ของเสียรายละเอียด",
+              "displayName": "ของเสียรายละเอียด",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -1088,
+        704
+      ],
+      "id": "web-spp-0005-appendpending",
+      "name": "Append Pending (Web)",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "-5191225692",
+        "text": "=รายงานใหม่รอตรวจสอบ\nรหัส: {{ $json['report_id'] }}\nชื่อ: {{ $json['ชื่อ'] }} | กะ: {{ $json['กะ'] }}\n\nSKU: {{ $json['กลุ่มSKU'] }}\nเครื่อง: {{ $json['เครื่อง'] }}\nจำนวนคนผลิต: {{ $json['คนผลิต'] }}\nรอบเดินเครื่อง: {{ $json['เดินรอบ'] }}\nเลขหน้าเครื่อง: {{ $json['Counter'] }}\nแผนผลิต: {{ $json['แผนผลิต'] }} ลัง\nผลิตได้: {{ $json['ผลิตจริง'] }} ลัง\nยอดส่งคลัง(ชิ้น): {{ $json['ส่งคลัง'] }}\nของเสีย: {{ $json['ของเสียรายละเอียด'] }}\n\nอนุมัติ: /approve {{ $json['report_id'] }}\nปฏิเสธ: /reject {{ $json['report_id'] }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "✅ อนุมัติ",
+                    "additionalFields": {
+                      "callback_data": "={{ '/approve ' + $json['report_id'] }}"
+                    }
+                  },
+                  {
+                    "text": "❌ ปฏิเสธ",
+                    "additionalFields": {
+                      "callback_data": "={{ '/reject ' + $json['report_id'] }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -832,
+        704
+      ],
+      "id": "web-spp-0006-notifygroup",
+      "name": "Notify Group (Web)",
+      "credentials": {
+        "telegramApi": {
+          "id": "fcVSYGZyYXRQqpXe",
+          "name": "Telegram account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, report_id: $('Normalize Web Report').first().json.report_id } }}",
+        "options": {}
+      },
+      "id": "web-spp-0007-respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -576,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "spp-approved-report",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "appr-0001-webhook",
+      "name": "Webhook (Approved Report)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -2112,
+        1120
+      ],
+      "webhookId": "spp-approved-report"
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $json.body || $json;\nconst num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };\n\nconst wastes = Array.isArray(b.wastes) ? b.wastes.filter(w => num(w.qty) > 0) : [];\nconst wasteDetail = wastes.map(w => `${w.type}: ${num(w.qty)}`).join(' | ') || '-';\nconst damageReason = wastes.filter(w => w.reason).map(w => `${w.type}: ${w.reason}`).join(' | ') || '-';\n\nreturn [{ json: {\n  report_id: b.report_id || '',\n  วันที่: b.date || '',\n  กะ: b.shift || '',\n  ชื่อ: b['ชื่อ'] || '',\n  กลุ่ม: b.group || '',\n  ชื่อสินค้า: b.product_name || '',\n  เครื่อง: b.machine || '',\n  หน่วยนับ: b.count_unit || '',\n  แผนผลิต: num(b.plan_box),\n  ผลิตจริง: num(b.actual_box),\n  คนผลิต: num(b.workers),\n  ชิ้นต่อกล่อง: num(b.pack_factor),\n  เวลารวม: num(b.run_time),\n  Counter: num(b.counter),\n  เดินรอบ: num(b.machine_cycle),\n  Setup: num(b.setup_time),\n  พัก: num(b.break_time),\n  Clean: num(b.clean_time),\n  หยุดหลังได้ยอด: num(b.stop_after_target),\n  Bdown: num(b.bdown_time),\n  เวลาเดินเครื่อง: num(b.machine_run_time),\n  สถานะ: b.status || '',\n  สาเหตุ: b.miss_reason || '-',\n  // ยอดส่งคลัง = เลขที่ \"คลังนับได้จริง\" คูณชิ้นต่อกล่อง (เดิมรับเลขของฝ่ายผลิต)\n  ส่งคลังชิ้น: num(b.warehouse_pcs),\n  คลังนับหน่วย: num(b.warehouse_qty),\n  ผลต่าง: num(b.variance_qty),\n  ผู้ยืนยันคลัง: b.wh_name || '',\n  ผู้อนุมัติ: b.approver || '',\n  เวลาอนุมัติ: b.approved_at || '',\n  ประเภทของเสีย: wastes.map(w => w.type).join(', ') || '',\n  จำนวนของเสีย: wastes.reduce((s, w) => s + num(w.qty), 0),\n  รายละเอียดของเสีย: wasteDetail,\n  สาเหตุชำรุด: damageReason,\n}}];"
+      },
+      "id": "appr-0002-map",
+      "name": "Map Approved Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1856,
+        1120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M",
+          "mode": "list",
+          "cachedResultName": "Form-Data-Production_SPP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "ชีต1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/121XchSynX5-McgMT7fthP3bsiYHfg4BSEHViR3Fat6M/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "วันที่": "={{ $json[\"วันที่\"] }}",
+            "กะ": "={{ $json[\"กะ\"] }}",
+            "ชื่อ": "={{ $json[\"ชื่อ\"] }}",
+            "กลุ่ม Product": "={{ $json[\"กลุ่ม\"] }}",
+            "ชื่อ Product": "={{ $json[\"ชื่อสินค้า\"] }}",
+            "เครื่อง": "={{ $json[\"เครื่อง\"] }}",
+            "จำนวนแผนผลิต (กล่อง/หม้อ)": "={{ $json[\"แผนผลิต\"] }}",
+            "ผลิตเกิดจริง (กล่องหม้อ)": "={{ $json[\"ผลิตจริง\"] }}",
+            "จำนวนคนผลิต": "={{ $json[\"คนผลิต\"] }}",
+            "จำนวนชิ้น/กล่อง": "={{ $json[\"ชิ้นต่อกล่อง\"] }}",
+            "เวลารวมผลิต 480/720 (นาที)": "={{ $json[\"เวลารวม\"] }}",
+            "ยอดเลขหน้าเครื่อง (ชิ้น)": "={{ $json[\"Counter\"] }}",
+            "เดินรอบเครื่อง": "={{ $json[\"เดินรอบ\"] }}",
+            "เวลา setup 0:30": "={{ $json[\"Setup\"] }}",
+            "เวลาพัก 0:40/0:90": "={{ $json[\"พัก\"] }}",
+            "เวลา Clean 0:30": "={{ $json[\"Clean\"] }}",
+            "เวลาหยุดเครื่องหลังจากได้ยอดแล้วหลังล้างเครื่อง": "={{ $json[\"หยุดหลังได้ยอด\"] }}",
+            "เวลา B-down (ใส่เฉพาะตัวเลข ไม่มีใส่ 0)": "={{ $json[\"Bdown\"] }}",
+            "รวมเวลาเดินเครื่อง": "={{ $json[\"เวลาเดินเครื่อง\"] }}",
+            "สถานะการผลิต": "={{ $json[\"สถานะ\"] }}",
+            "สาเหตุที่ไม่ได้ยอดผลิต": "={{ $json[\"สาเหตุ\"] }}",
+            "ยอดส่งคลัง(ชิ้น)": "={{ $json[\"ส่งคลังชิ้น\"] }}",
+            "ประเภทของเสีย": "={{ $json[\"ประเภทของเสีย\"] }}",
+            "จำนวนของเสีย": "={{ $json[\"จำนวนของเสีย\"] }}",
+            "สาเหตุชำรุด": "={{ $json[\"สาเหตุชำรุด\"] }}",
+            "report_id": "={{ $json[\"report_id\"] }}",
+            "หน่วยนับ": "={{ $json[\"หน่วยนับ\"] }}",
+            "ยอดคลังนับ(หน่วย)": "={{ $json[\"คลังนับหน่วย\"] }}",
+            "ผลต่าง": "={{ $json[\"ผลต่าง\"] }}",
+            "ผู้ยืนยันคลัง": "={{ $json[\"ผู้ยืนยันคลัง\"] }}",
+            "ผู้อนุมัติ": "={{ $json[\"ผู้อนุมัติ\"] }}",
+            "เวลาอนุมัติ": "={{ $json[\"เวลาอนุมัติ\"] }}",
+            "ของเสียรายละเอียด": "={{ $json[\"รายละเอียดของเสีย\"] }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "วันที่",
+              "displayName": "วันที่",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "กะ",
+              "displayName": "กะ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ชื่อ",
+              "displayName": "ชื่อ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "กลุ่ม Product",
+              "displayName": "กลุ่ม Product",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ชื่อ Product",
+              "displayName": "ชื่อ Product",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "เครื่อง",
+              "displayName": "เครื่อง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "จำนวนแผนผลิต (กล่อง/หม้อ)",
+              "displayName": "จำนวนแผนผลิต (กล่อง/หม้อ)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ผลิตเกิดจริง (กล่องหม้อ)",
+              "displayName": "ผลิตเกิดจริง (กล่องหม้อ)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "จำนวนคนผลิต",
+              "displayName": "จำนวนคนผลิต",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "จำนวนชิ้น/กล่อง",
+              "displayName": "จำนวนชิ้น/กล่อง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "เวลารวมผลิต 480/720 (นาที)",
+              "displayName": "เวลารวมผลิต 480/720 (นาที)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ยอดเลขหน้าเครื่อง (ชิ้น)",
+              "displayName": "ยอดเลขหน้าเครื่อง (ชิ้น)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "เดินรอบเครื่อง",
+              "displayName": "เดินรอบเครื่อง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "เวลา setup 0:30",
+              "displayName": "เวลา setup 0:30",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "เวลาพัก 0:40/0:90",
+              "displayName": "เวลาพัก 0:40/0:90",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "เวลา Clean 0:30",
+              "displayName": "เวลา Clean 0:30",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "เวลาหยุดเครื่องหลังจากได้ยอดแล้วหลังล้างเครื่อง",
+              "displayName": "เวลาหยุดเครื่องหลังจากได้ยอดแล้วหลังล้างเครื่อง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "เวลา B-down (ใส่เฉพาะตัวเลข ไม่มีใส่ 0)",
+              "displayName": "เวลา B-down (ใส่เฉพาะตัวเลข ไม่มีใส่ 0)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "รวมเวลาเดินเครื่อง",
+              "displayName": "รวมเวลาเดินเครื่อง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "สถานะการผลิต",
+              "displayName": "สถานะการผลิต",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "สาเหตุที่ไม่ได้ยอดผลิต",
+              "displayName": "สาเหตุที่ไม่ได้ยอดผลิต",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ยอดส่งคลัง(ชิ้น)",
+              "displayName": "ยอดส่งคลัง(ชิ้น)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ประเภทของเสีย",
+              "displayName": "ประเภทของเสีย",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "จำนวนของเสีย",
+              "displayName": "จำนวนของเสีย",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "สาเหตุชำรุด",
+              "displayName": "สาเหตุชำรุด",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "report_id",
+              "displayName": "report_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "หน่วยนับ",
+              "displayName": "หน่วยนับ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ยอดคลังนับ(หน่วย)",
+              "displayName": "ยอดคลังนับ(หน่วย)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ผลต่าง",
+              "displayName": "ผลต่าง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ผู้ยืนยันคลัง",
+              "displayName": "ผู้ยืนยันคลัง",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ผู้อนุมัติ",
+              "displayName": "ผู้อนุมัติ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "เวลาอนุมัติ",
+              "displayName": "เวลาอนุมัติ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ของเสียรายละเอียด",
+              "displayName": "ของเสียรายละเอียด",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -1600,
+        1120
+      ],
+      "id": "appr-0003-append",
+      "name": "Append Approved to ชีต1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gKmYysQsNmcYuB9E",
+          "name": "GoogleAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, report_id: $('Map Approved Report').first().json.report_id } }}",
+        "options": {}
+      },
+      "id": "appr-0004-respond",
+      "name": "Respond Approved",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -1344,
+        1120
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Text?": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Parse Production Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Parse Production Data": {
+      "main": [
+        [
+          {
+            "node": "if",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Form Body": {
+      "main": [
+        [
+          {
+            "node": "Read Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Valid Data?": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet": {
+      "main": [
+        [
+          {
+            "node": "Notify Group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "if": {
+      "main": [
+        [
+          {
+            "node": "Parse Plan",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Form Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Plan": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet1": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Plan": {
+      "main": [
+        [
+          {
+            "node": "Merge with Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge with Plan": {
+      "main": [
+        [
+          {
+            "node": "Lookup Sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Parse Register",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "/template?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Register": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Find Member",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Member": {
+      "main": [
+        [
+          {
+            "node": "Found Member?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Found Member?": {
+      "main": [
+        [
+          {
+            "node": "Update Member ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Register Error Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Member ID": {
+      "main": [
+        [
+          {
+            "node": "Register Success Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Sender": {
+      "main": [
+        [
+          {
+            "node": "Add Sender Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Sender Info": {
+      "main": [
+        [
+          {
+            "node": "Lookup SKU",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Registered?": {
+      "main": [
+        [
+          {
+            "node": "Not Registered Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Valid Data?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup SKU": {
+      "main": [
+        [
+          {
+            "node": "Resolve SKU",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve SKU": {
+      "main": [
+        [
+          {
+            "node": "Generate Report ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "/template?": {
+      "main": [
+        [
+          {
+            "node": "Get Template",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF (/approve or /reject?)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Template": {
+      "main": [
+        [
+          {
+            "node": "Send Template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Group": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Success Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Report ID": {
+      "main": [
+        [
+          {
+            "node": "Is Registered?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF (/approve or /reject?)": {
+      "main": [
+        [
+          {
+            "node": "Parse Approve/Rejectpt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Has Text?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Approve/Rejectpt": {
+      "main": [
+        [
+          {
+            "node": "Is Valid Command?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Pending Sheet": {
+      "main": [
+        [
+          {
+            "node": "Find Matching Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Matching Row": {
+      "main": [
+        [
+          {
+            "node": "Is Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF (Approve or Reject?)": {
+      "main": [
+        [
+          {
+            "node": "Append to Production Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Delete rows or columns from sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append to Production Sheet": {
+      "main": [
+        [
+          {
+            "node": "Delete from Pending (Approve)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete from Pending (Approve)": {
+      "main": [
+        [
+          {
+            "node": "Notify Group - Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Group - Approved": {
+      "main": [
+        [
+          {
+            "node": "Notify Worker - Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete rows or columns from sheet": {
+      "main": [
+        [
+          {
+            "node": "Notify Group - Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Group - Rejected": {
+      "main": [
+        [
+          {
+            "node": "Notify Worker - Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Found?": {
+      "main": [
+        [
+          {
+            "node": "IF (Approve or Reject?)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send a text message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Valid Command?": {
+      "main": [
+        [
+          {
+            "node": "Read Pending Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Invalid Command Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (Web Report)": {
+      "main": [
+        [
+          {
+            "node": "Normalize Web Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Web Report": {
+      "main": [
+        [
+          {
+            "node": "Lookup SKU (Web)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup SKU (Web)": {
+      "main": [
+        [
+          {
+            "node": "Resolve SKU (Web)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve SKU (Web)": {
+      "main": [
+        [
+          {
+            "node": "Append Pending (Web)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Pending (Web)": {
+      "main": [
+        [
+          {
+            "node": "Notify Group (Web)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Group (Web)": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (Approved Report)": {
+      "main": [
+        [
+          {
+            "node": "Map Approved Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Approved Report": {
+      "main": [
+        [
+          {
+            "node": "Append Approved to ชีต1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Approved to ชีต1": {
+      "main": [
+        [
+          {
+            "node": "Respond Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "21a28d363b1282ab9c0b35e07c5213c656bd9175ba2b796797fa7b0daedadf08"
+  },
+  "tags": []
+}

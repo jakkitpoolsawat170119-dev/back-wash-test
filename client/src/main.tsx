@@ -4,11 +4,22 @@ import './index.css'
 import './redesign.css'
 import App from './App.tsx'
 import ErrorBoundary from './components/ErrorBoundary.tsx'
+import WarehouseVerifyPage from './components/WarehouseVerifyPage.tsx'
+
+// หน้าคลังตรวจนับเปิดจากลิงก์ ?verify=<token> — สาธารณะ ไม่ต้อง login
+// เช็คตรงนี้แทนใน App เพื่อข้าม Splash/Login และไม่ให้ติด filter:invert ของโหมดมืด
+const verifyToken = new URLSearchParams(window.location.search).get('verify')
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ErrorBoundary label="root">
-      <App />
-    </ErrorBoundary>
+    {verifyToken ? (
+      <ErrorBoundary label="warehouse-verify">
+        <WarehouseVerifyPage token={verifyToken} />
+      </ErrorBoundary>
+    ) : (
+      <ErrorBoundary label="root">
+        <App />
+      </ErrorBoundary>
+    )}
   </StrictMode>,
 )
