@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
 
 interface Report {
-  report_id: string; work_day: string; shift: string;
+  report_id: string; batch_id: string | null; work_day: string; shift: string;
   product_name: string; sku_keyword: string; group_name?: string; machine?: string;
   count_unit: string; pack_factor: number;
   plan_qty: number | null; plan_source: string;
@@ -80,6 +80,33 @@ const ProductionApprovalBoard: React.FC<{ operator?: string }> = ({ operator }) 
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { alert(`❌ ${d.error || d.message || 'ไม่สำเร็จ'}`); return; }
       setEvents(e => { const n = { ...e }; delete n[r.report_id]; return n; });
+      load();
+    } catch { alert('❌ เชื่อมต่อไม่ได้'); }
+    finally { setBusy(null); }
+  };
+
+  // อนุมัติ/ปฏิเสธทั้งชุด — ปกติกะหนึ่งมี 8+ รายการ กดทีละใบไม่ไหว
+  const decideBatch = async (batchId: string, list: Report[], approve: boolean) => {
+    if (!approver.trim()) { alert('กรุณากรอกชื่อผู้อนุมัติก่อน'); return; }
+    let note = '';
+    if (!approve) {
+      note = window.prompt(`เหตุผลที่ปฏิเสธทั้งชุด ${list.length} รายการ (บังคับ)`) || '';
+      if (!note.trim()) return;
+    } else {
+      const nDiff = list.filter(r => r.variance_flag === 'diff').length;
+      const warn = nDiff ? `\n\n⚠️ มี ${nDiff} รายการที่ตัวเลขไม่ตรงกัน` : '';
+      if (!window.confirm(`อนุมัติทั้งชุด ${list.length} รายการ?${warn}`)) return;
+    }
+    setBusy(batchId);
+    try {
+      const res = await fetch(`${apiUrl}/api/production/batch/${batchId}/decide`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approve, approver: approver.trim(), approved_source: 'warehouse', note }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { alert(`❌ ${d.error || 'ไม่สำเร็จ'}`); return; }
+      if (d.failed) alert(`สำเร็จ ${d.decided} · ไม่สำเร็จ ${d.failed} รายการ`);
+      setEvents({});
       load();
     } catch { alert('❌ เชื่อมต่อไม่ได้'); }
     finally { setBusy(null); }
@@ -229,10 +256,65 @@ const ProductionApprovalBoard: React.FC<{ operator?: string }> = ({ operator }) 
       {items && groups.map(([key, title]) => {
         const list = items.filter(r => r.status === key);
         if (!list.length) return null;
+
+        // จัดกลุ่มตามชุดของกะ — รายการที่ไม่มี batch_id (ของเก่า) แสดงเดี่ยวตามเดิม
+        const order: string[] = [];
+        const byBatch: Record<string, Report[]> = {};
+        for (const r of list) {
+          const k = r.batch_id || `__solo_${r.report_id}`;
+          if (!byBatch[k]) { byBatch[k] = []; order.push(k); }
+          byBatch[k].push(r);
+        }
+
         return (
           <div key={key}>
             <h3 style={{ fontSize: '1rem', margin: '20px 0 10px', color: '#3d2c1e' }}>{title} <span style={{ color: '#8a7f72', fontWeight: 'normal' }}>({list.length})</span></h3>
-            {list.map(renderCard)}
+            {order.map(bk => {
+              const group = byBatch[bk];
+              const isBatch = !bk.startsWith('__solo_');
+              if (!isBatch) return group.map(renderCard);
+              const first = group[0];
+              const nDiff = group.filter(r => r.variance_flag === 'diff').length;
+              const selfApprove = approver.trim() !== '' && approver.trim() === first.reporter_name?.trim();
+              return (
+                <div key={bk} style={{ border: '1px solid #e5e0d8', borderRadius: 16, padding: 12, marginBottom: 16, background: '#faf7f4' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                    <b style={{ fontSize: '0.95rem', flex: '1 1 200px' }}>
+                      📋 ชุด {first.shift} · {first.work_day}
+                      <span style={{ fontWeight: 'normal', fontSize: '0.8rem', color: '#8a7f72' }}> · ลงยอดโดย {first.reporter_name}</span>
+                    </b>
+                    <span style={pill('#f0ebe5', '#6d6259')}>{group.length} รายการ</span>
+                    {nDiff > 0
+                      ? <span style={pill('#fdeaea', '#c62828')}>ไม่ตรง {nDiff}</span>
+                      : <span style={pill('#e6f4ec', '#1c8a4c')}>ตรงกันทั้งหมด</span>}
+                    <code style={{ fontSize: '0.68rem', color: '#8a7f72' }}>{bk}</code>
+                  </div>
+
+                  {key === 'pending_approval' && (
+                    <>
+                      {selfApprove && (
+                        <div style={{ fontSize: '0.8rem', background: '#fdf1de', border: '1px solid #f0d9b0', color: '#8a6d3b', borderRadius: 9, padding: '8px 11px', marginBottom: 10 }}>
+                          ⚠️ ชื่อผู้อนุมัติเป็นคนเดียวกับผู้ลงยอด — ควรให้หัวหน้ากะเป็นคนอนุมัติ เพื่อให้ขั้นตรวจสอบมีความหมาย
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                        <button disabled={busy === bk} onClick={() => decideBatch(bk, group, true)}
+                          style={{ ...btn, background: busy === bk ? '#bdbdbd' : 'linear-gradient(135deg,#3cb371,#1c8a4c)' }}>
+                          ✅ อนุมัติทั้งชุด ({group.length})
+                        </button>
+                        <button disabled={busy === bk} onClick={() => decideBatch(bk, group, false)}
+                          style={{ ...btn, background: '#fff', color: '#c62828', border: '1px solid #f2c9c9' }}>
+                          ❌ ปฏิเสธทั้งชุด
+                        </button>
+                        <span style={{ fontSize: '0.76rem', color: '#8a7f72', alignSelf: 'center' }}>หรือกดทีละรายการด้านล่าง</span>
+                      </div>
+                    </>
+                  )}
+
+                  {group.map(renderCard)}
+                </div>
+              );
+            })}
           </div>
         );
       })}

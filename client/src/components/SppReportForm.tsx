@@ -59,6 +59,20 @@ const num = (v: string) => { const n = Number(v); return Number.isFinite(n) ? n 
 interface WasteRow { type: string; qty: string; reason: string }
 interface Props { operatorName?: string }
 
+// 1 รายการในชุดของกะ (เก็บค่าที่คำนวณไว้ด้วยเพื่อโชว์ในตารางสรุปโดยไม่ต้องหา SKU ซ้ำ)
+interface BatchItem {
+  key: string;
+  sku_keyword: string; product_name: string; machine: string;
+  count_unit: string; pack_factor: number;
+  prod_qty: number; plan_qty: number; plan_override: boolean; plan_source: string;
+  counter: number; machine_cycle: number; bdown_time: number;
+  lot_date: string; miss_reason: string; extra_note: string;
+  wastes: { type: string; qty: number; reason: string }[];
+  prod_status: string;
+}
+
+const draftKey = (d: string, s: string) => `spp_batch_draft_${d}_${s}`;
+
 const card: React.CSSProperties = { background: '#ffffff', border: '1px solid #e5e0d8', borderRadius: '14px', padding: '16px', marginBottom: '14px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' };
 const secTitle: React.CSSProperties = { fontWeight: 'bold', fontSize: '0.95rem', color: '#7a4510', marginBottom: '10px' };
 const lb: React.CSSProperties = { display: 'block', fontSize: '0.78rem', color: '#666', marginBottom: '4px', fontWeight: 'bold' };
@@ -113,8 +127,12 @@ const SppReportForm: React.FC<Props> = ({ operatorName }) => {
   const [wastes, setWastes] = useState<WasteRow[]>([]);
   const [extraNote, setExtraNote] = useState('');
 
+  // รายการที่สะสมไว้ในชุดของกะนี้ — กะหนึ่งลง 8+ รายการ ส่งทีเดียวได้ลิงก์เดียว
+  const [items, setItems] = useState<BatchItem[]>([]);
+  const [editKey, setEditKey] = useState<string | null>(null);   // กำลังแก้รายการไหนอยู่
+
   const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState<{ report_id: string; verify_url: string; sent_via: string; expires: string } | null>(null);
+  const [sent, setSent] = useState<{ batch_id: string; item_count: number; verify_url: string; sent_via: string; expires: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
   // ดึงรายการ SKU ล่าสุดจากชีต (keyword ในชีตคือตัวที่ n8n ใช้ resolve — ต้องตรงกัน)
@@ -202,40 +220,105 @@ const SppReportForm: React.FC<Props> = ({ operatorName }) => {
   const updWaste = (t: string, k: 'qty' | 'reason', v: string) =>
     setWastes(w => w.map(x => (x.type === t ? { ...x, [k]: v } : x)));
 
-  const reset = () => {
-    setSkuKey(''); setPlanQty(''); setPlanSource('none'); setPlanEdit(false);
-    setProdQty(''); setCounter(''); setMachineCycle('');
-    setRunTime('480'); setSetupTime('30'); setBreakTime('60'); setCleanTime('30'); setStopAfter('30'); setBdown('0');
-    setMissReason(''); setWastes([]); setExtraNote(''); setSent(null); setCopied(false);
+  // เคลียร์เฉพาะช่องของ "รายการ" — ส่วนหัวของกะ (วันที่/กะ/ผู้ลงยอด/ทีม/เวลา) คงไว้
+  const clearItemFields = () => {
+    setSkuKey(''); setMachine(''); setPlanQty(''); setPlanSource('none'); setPlanEdit(false);
+    setProdQty(''); setCounter(''); setMachineCycle(''); setBdown('0');
+    setMissReason(''); setWastes([]); setExtraNote(''); setEditKey(null);
   };
 
-  const submit = async () => {
-    if (!reporter.trim()) { alert('กรุณากรอกชื่อผู้รายงาน'); return; }
+  const resetAll = () => {
+    clearItemFields();
+    setItems([]); setSent(null); setCopied(false);
+    setRunTime('480'); setSetupTime('30'); setBreakTime('60'); setCleanTime('30'); setStopAfter('30');
+  };
+
+  // ── กู้ draft ของกะนี้ (กรอก 8 รายการแล้วหน้า refresh ต้องไม่หาย) ──
+  useEffect(() => {
+    if (sent) return;
+    try {
+      const raw = localStorage.getItem(draftKey(date, shift));
+      setItems(raw ? (JSON.parse(raw).items || []) : []);
+    } catch { setItems([]); }
+    clearItemFields();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date, shift]);
+
+  useEffect(() => {
+    if (sent) return;
+    try {
+      if (items.length) localStorage.setItem(draftKey(date, shift), JSON.stringify({ items, savedAt: Date.now() }));
+      else localStorage.removeItem(draftKey(date, shift));
+    } catch { /* โควตาเต็ม — ข้าม ไม่ให้ล้มทั้งหน้า */ }
+  }, [items, date, shift, sent]);
+
+  // ตรวจช่องของรายการปัจจุบัน แล้วเก็บเข้าชุด (หรือบันทึกทับตัวที่กำลังแก้)
+  const addItem = () => {
     if (!skuKey) { alert('กรุณาเลือกสินค้า'); return; }
     if (prodQty.trim() === '') { alert(`กรุณากรอกจำนวนที่ผลิตได้ (${unit})`); return; }
     if (missTarget && !missReason.trim()) { alert('ผลิตไม่ถึงแผน — กรุณาระบุสาเหตุ'); return; }
+    const dup = items.find(i => i.sku_keyword === skuKey && i.machine === machine && i.key !== editKey);
+    if (dup && !window.confirm(`มี "${skuKey}" เครื่องเดียวกันในชุดอยู่แล้ว — เพิ่มอีกรายการไหม?`)) return;
+
+    const rec: BatchItem = {
+      key: editKey || `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      sku_keyword: skuKey, product_name: sku?.product_name || skuKey, machine,
+      count_unit: unit, pack_factor: packFactor,
+      prod_qty: num(prodQty), plan_qty: planNum,
+      plan_override: planEdit || planSource === 'none' || planSource === 'unit_mismatch',
+      plan_source: planSource,
+      counter: isManual ? 0 : num(counter),
+      machine_cycle: isManual ? 0 : num(machineCycle),
+      bdown_time: num(bdown),
+      lot_date: lotDate, miss_reason: missReason.trim(), extra_note: extraNote.trim(),
+      wastes: wastes.filter(w => num(w.qty) > 0).map(w => ({ type: w.type, qty: num(w.qty), reason: w.reason })),
+      prod_status: status,
+    };
+    setItems(list => (editKey ? list.map(i => (i.key === editKey ? rec : i)) : [...list, rec]));
+    clearItemFields();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // ดึงรายการกลับขึ้นมาแก้ (ถอดออกจากชุดชั่วคราว แล้วกด "บันทึกรายการ" ใส่กลับ)
+  const editItem = (it: BatchItem) => {
+    setEditKey(it.key);
+    setSkuKey(it.sku_keyword); setMachine(it.machine);
+    setPlanQty(String(it.plan_qty)); setPlanSource(it.plan_source); setPlanEdit(it.plan_override);
+    setProdQty(String(it.prod_qty)); setCounter(String(it.counter)); setMachineCycle(String(it.machine_cycle));
+    setBdown(String(it.bdown_time)); setLotDate(it.lot_date); setMissReason(it.miss_reason); setExtraNote(it.extra_note);
+    setWastes(it.wastes.map(w => ({ type: w.type, qty: String(w.qty), reason: w.reason })));
+    window.scrollTo({ top: 9999, behavior: 'smooth' });
+  };
+
+  const submitBatch = async () => {
+    if (!reporter.trim()) { alert('กรุณากรอกชื่อผู้ลงยอด'); return; }
+    if (!items.length) { alert('ยังไม่มีรายการในชุด — กรอกแล้วกด "เพิ่มเข้าชุด" ก่อน'); return; }
+    if (skuKey && prodQty.trim() !== '' &&
+        !window.confirm('มีรายการที่กรอกค้างไว้แต่ยังไม่ได้กด "เพิ่มเข้าชุด" — ส่งโดยไม่รวมรายการนี้ไหม?')) return;
 
     setSending(true);
     try {
-      const r = await fetch(`${apiUrl}/api/production/report`, {
+      const r = await fetch(`${apiUrl}/api/production/batch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          reporter: reporter.trim(), sku_keyword: skuKey, date, shift, crew, machine,
-          prod_qty: num(prodQty),
-          plan_qty_override: planEdit || planSource === 'none' || planSource === 'unit_mismatch' ? num(planQty) : undefined,
-          miss_reason: missReason.trim(), lot_date: lotDate,
-          counter: isManual ? 0 : num(counter),
-          machine_cycle: isManual ? 0 : num(machineCycle),
-          run_time: num(runTime), setup_time: num(setupTime), break_time: num(breakTime),
-          clean_time: num(cleanTime), stop_after_target: num(stopAfter), bdown_time: num(bdown),
-          wastes: wastes.filter(w => num(w.qty) > 0).map(w => ({ type: w.type, qty: num(w.qty), reason: w.reason })),
-          extra_note: extraNote.trim(),
+          header: {
+            date, shift, reporter: reporter.trim(), crew,
+            run_time: num(runTime), setup_time: num(setupTime), break_time: num(breakTime),
+            clean_time: num(cleanTime), stop_after_target: num(stopAfter),
+          },
+          items: items.map(i => ({
+            sku_keyword: i.sku_keyword, machine: i.machine, prod_qty: i.prod_qty,
+            plan_qty_override: i.plan_override ? i.plan_qty : undefined,
+            counter: i.counter, machine_cycle: i.machine_cycle, bdown_time: i.bdown_time,
+            lot_date: i.lot_date, miss_reason: i.miss_reason, extra_note: i.extra_note, wastes: i.wastes,
+          })),
         }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `ส่งไม่สำเร็จ (${r.status})`);
-      setSent({ report_id: d.report_id, verify_url: d.verify_url, sent_via: d.sent_via, expires: d.verify_expires_at });
+      try { localStorage.removeItem(draftKey(date, shift)); } catch { /* ไม่เป็นไร */ }
+      setSent({ batch_id: d.batch_id, item_count: d.item_count, verify_url: d.verify_url, sent_via: d.sent_via, expires: d.verify_expires_at });
       window.scrollTo({ top: 0 });
     } catch (e) {
       alert(`❌ ${e instanceof Error ? e.message : 'ส่งรายงานไม่สำเร็จ'}`);
@@ -254,9 +337,11 @@ const SppReportForm: React.FC<Props> = ({ operatorName }) => {
       <div style={{ maxWidth: 620, margin: '20px auto' }}>
         <div style={{ ...card, textAlign: 'center', border: '2px solid #a5d6a7', background: '#f8fdfa' }}>
           <div style={{ fontSize: '2.4rem' }}>✅</div>
-          <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color: '#2e7d32' }}>บันทึกแล้ว — รอคลังตรวจนับ</div>
+          <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color: '#2e7d32' }}>
+            ส่งแล้ว {sent.item_count} รายการ — รอคลังตรวจนับ
+          </div>
           <div style={{ fontSize: '0.9rem', color: '#444', marginTop: 4 }}>
-            รหัส <b style={{ fontFamily: 'monospace' }}>{sent.report_id}</b>
+            ชุด <b style={{ fontFamily: 'monospace' }}>{sent.batch_id}</b> · {date} · {shift}
           </div>
           <div style={{ fontSize: '0.8rem', color: '#2e7d32', marginTop: 6, fontWeight: 'bold' }}>
             ข้อมูลถูกบันทึกลงฐานข้อมูลแล้ว — ต่อให้ส่งข้อความไม่สำเร็จ ตัวเลขก็ไม่หาย
@@ -281,12 +366,14 @@ const SppReportForm: React.FC<Props> = ({ operatorName }) => {
                 ? <><span style={{ ...autoChip, marginLeft: 0 }}>✓ ส่งแล้ว</span> เข้ากลุ่ม Telegram อัตโนมัติ</>
                 : <><span style={{ ...autoChip, marginLeft: 0, background: '#fdf1de', color: '#c77700' }}>รอวาง</span> ยังไม่ได้ส่งอัตโนมัติ — กดคัดลอกแล้ววางในกลุ่ม</>}
             </div>
-            <div style={{ color: '#8a7f72' }}>📱 วางลิงก์นี้ในกลุ่ม LINE ของคลัง — คลังกดเปิดแล้วกรอกยอดที่นับได้</div>
+            <div style={{ color: '#8a7f72' }}>
+              📱 วางลิงก์เดียวนี้ในกลุ่ม LINE ของคลัง — คลังเปิดครั้งเดียวเห็นครบทั้ง {sent.item_count} รายการ
+            </div>
           </div>
         </div>
 
-        <button onClick={reset} style={{ width: '100%', background: 'linear-gradient(135deg,#ff8a3c,#e65100)', color: '#fff', border: 'none', borderRadius: 12, padding: 13, fontWeight: 'bold', fontSize: '0.95rem', cursor: 'pointer' }}>
-          ➕ ลงยอดรายการถัดไป
+        <button onClick={resetAll} style={{ width: '100%', background: 'linear-gradient(135deg,#ff8a3c,#e65100)', color: '#fff', border: 'none', borderRadius: 12, padding: 13, fontWeight: 'bold', fontSize: '0.95rem', cursor: 'pointer' }}>
+          ➕ ลงยอดชุดถัดไป
         </button>
       </div>
     );
@@ -298,7 +385,7 @@ const SppReportForm: React.FC<Props> = ({ operatorName }) => {
     <div style={{ maxWidth: 780, margin: '0 auto', paddingBottom: 80 }}>
       <h2 style={{ fontSize: '1.2rem', color: '#3d2c1e', margin: '4px 0 2px' }}>🏭 ลงยอดผลิต</h2>
       <p style={{ fontSize: '0.83rem', color: '#8a7f72', margin: '0 0 14px' }}>
-        กรอกเฉพาะตัวเลขที่ฝ่ายผลิตรู้ — แผนผลิต ทีมงาน และค่าคำนวณ ระบบเติมให้ · ยอดคลังมาจากคลังเท่านั้น
+        กรอกส่วนหัวของกะครั้งเดียว แล้วเพิ่มรายการทีละตัว — ส่งทั้งชุดทีเดียวได้ลิงก์เดียวให้คลัง
       </p>
       {offline && (
         <div style={{ ...card, background: '#fff8e1', border: '1px solid #ffe0a3', fontSize: '0.83rem', color: '#8a6d3b' }}>
@@ -332,9 +419,64 @@ const SppReportForm: React.FC<Props> = ({ operatorName }) => {
         )}
       </div>
 
+      {/* รายการในชุด */}
+      {items.length > 0 && (
+        <div style={{ ...card, borderColor: '#cfe8d8', background: '#f8fdfa' }}>
+          <div style={{ ...secTitle, color: '#1c8a4c', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>📋 รายการในชุดนี้ ({items.length})</span>
+            <span style={{ fontWeight: 'normal', fontSize: '0.72rem', color: '#8a7f72' }}>เก็บอัตโนมัติ — refresh แล้วไม่หาย</span>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+              <thead>
+                <tr style={{ color: '#6d6259', textAlign: 'left' }}>
+                  <th style={{ padding: '4px 6px', fontWeight: 600 }}>สินค้า</th>
+                  <th style={{ padding: '4px 6px', fontWeight: 600 }}>เครื่อง</th>
+                  <th style={{ padding: '4px 6px', fontWeight: 600, textAlign: 'right' }}>แผน</th>
+                  <th style={{ padding: '4px 6px', fontWeight: 600, textAlign: 'right' }}>ผลิตได้</th>
+                  <th style={{ padding: '4px 6px', fontWeight: 600 }}>สถานะ</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {items.map(it => (
+                  <tr key={it.key} style={{ borderTop: '1px solid #e5e0d8', background: it.key === editKey ? '#fff3ea' : undefined }}>
+                    <td style={{ padding: '6px', maxWidth: 190 }}>
+                      <div style={{ fontWeight: 'bold' }}>{it.sku_keyword}</div>
+                      <div style={{ fontSize: '0.72rem', color: '#8a7f72', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.product_name}</div>
+                    </td>
+                    <td style={{ padding: '6px', fontSize: '0.76rem', color: '#6d6259' }}>{it.machine || '—'}</td>
+                    <td style={{ padding: '6px', textAlign: 'right', color: '#8a7f72' }}>{it.plan_qty || '—'}</td>
+                    <td style={{ padding: '6px', textAlign: 'right', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                      {it.prod_qty} <span style={{ fontWeight: 'normal', fontSize: '0.72rem', color: '#8a7f72' }}>{it.count_unit}</span>
+                    </td>
+                    <td style={{ padding: '6px' }}>
+                      <span style={{ fontSize: '0.7rem', fontWeight: 'bold', padding: '2px 7px', borderRadius: 999,
+                        background: it.prod_status === 'ได้ยอดผลิต' ? '#e6f4ec' : '#fdeaea',
+                        color: it.prod_status === 'ได้ยอดผลิต' ? '#1c8a4c' : '#c62828' }}>
+                        {it.prod_status === 'ได้ยอดผลิต' ? 'ได้ยอด' : 'ไม่ได้ยอด'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '6px', whiteSpace: 'nowrap', textAlign: 'right' }}>
+                      <button onClick={() => editItem(it)} title="แก้ไข"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.95rem', padding: '2px 4px' }}>✏️</button>
+                      <button onClick={() => { if (window.confirm(`ลบ "${it.sku_keyword}" ออกจากชุด?`)) setItems(l => l.filter(x => x.key !== it.key)); }} title="ลบ"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.95rem', padding: '2px 4px' }}>🗑</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* สินค้า */}
       <div style={card}>
-        <div style={secTitle}>📦 สินค้า</div>
+        <div style={secTitle}>
+          📦 สินค้า {editKey ? <span style={{ ...autoChip, background: '#fff3ea', color: '#c24f00' }}>กำลังแก้รายการ</span>
+                             : <span style={{ fontWeight: 'normal', fontSize: '0.75rem', color: '#8a7f72' }}>— รายการที่ {items.length + 1}</span>}
+        </div>
         <div style={grid(200)}>
           <div style={{ gridColumn: '1 / -1' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -460,10 +602,23 @@ const SppReportForm: React.FC<Props> = ({ operatorName }) => {
         <input style={inp} value={extraNote} onChange={e => setExtraNote(e.target.value)} placeholder="กรอกเฉพาะกรณีมีงานสนับสนุน — ไม่มีเว้นว่างได้" />
       </div>
 
-      <button onClick={submit} disabled={sending}
-        style={{ width: '100%', background: sending ? '#bdbdbd' : 'linear-gradient(135deg,#ff8a3c,#e65100)', color: '#fff', border: 'none', borderRadius: 12, padding: 14, fontWeight: 'bold', fontSize: '1rem', cursor: sending ? 'wait' : 'pointer', boxShadow: '0 6px 15px rgba(230,81,0,0.25)' }}>
-        {sending ? '⏳ กำลังส่ง…' : '📤 ส่งให้คลังตรวจนับ'}
+      {/* เก็บรายการเข้าชุด */}
+      <button onClick={addItem}
+        style={{ width: '100%', background: '#fff', color: '#c24f00', border: '2px dashed #f6b98a', borderRadius: 12, padding: 13, fontWeight: 'bold', fontSize: '0.95rem', cursor: 'pointer', marginBottom: 12 }}>
+        {editKey ? '💾 บันทึกรายการที่แก้' : '➕ เพิ่มเข้าชุด แล้วกรอกรายการถัดไป'}
       </button>
+
+      <button onClick={submitBatch} disabled={sending || !items.length}
+        style={{ width: '100%', background: sending || !items.length ? '#d6d0c8' : 'linear-gradient(135deg,#ff8a3c,#e65100)', color: '#fff', border: 'none', borderRadius: 12, padding: 14, fontWeight: 'bold', fontSize: '1rem', cursor: sending ? 'wait' : items.length ? 'pointer' : 'not-allowed', boxShadow: items.length ? '0 6px 15px rgba(230,81,0,0.25)' : 'none' }}>
+        {sending ? '⏳ กำลังส่ง…'
+          : items.length ? `📤 ส่งทั้งชุดให้คลัง (${items.length} รายการ)`
+          : '📤 ยังไม่มีรายการในชุด'}
+      </button>
+      {!!items.length && (
+        <div style={{ fontSize: '0.78rem', color: '#8a7f72', textAlign: 'center', marginTop: 8 }}>
+          ส่งครั้งเดียวได้ลิงก์เดียว — คลังเปิดหน้าเดียวกรอกครบทั้ง {items.length} รายการ
+        </div>
+      )}
     </div>
   );
 };
