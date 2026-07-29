@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockup — ระบบลงยอดผลิตอัตโนมัติ (SPP-MP)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@500;600;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --brand:#ff6b00;
+    --brand-deep:#c24f00;
+    --brand-soft:#fff3ea;
+    --ink:#2b2119;
+    --ink-soft:#6d6259;
+    --paper:#faf7f4;
+    --card:#ffffff;
+    --line:#eee3d9;
+    --ok:#1c8a4c;
+    --warn:#c77700;
+    --danger:#c62828;
+    --cip1:#1565c0;
+    --line-green:#06c755;
+    --radius:16px;
+    --shadow-card:0 1px 2px rgba(63,37,10,.06),0 6px 18px -6px rgba(63,37,10,.12);
+    --shadow-float:0 2px 4px rgba(63,37,10,.08),0 16px 40px -12px rgba(63,37,10,.22);
+    --font-head:'Kanit',sans-serif;
+    --font-body:'Sarabun',sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    font-family:var(--font-body);color:var(--ink);background:var(--paper);
+    line-height:1.7;min-height:100vh;
+    background-image:
+      radial-gradient(1200px 500px at 85% -10%, rgba(255,107,0,.07), transparent 60%),
+      radial-gradient(900px 420px at -10% 20%, rgba(21,101,192,.05), transparent 55%);
+  }
+  h1,h2,h3,h4{font-family:var(--font-head);letter-spacing:-.02em;line-height:1.3;color:var(--ink)}
+  button{font-family:inherit;cursor:pointer}
+  input,select,textarea{font-family:inherit}
+  button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid rgba(255,107,0,.5);outline-offset:2px}
+  .view{display:none}
+  .view.active{display:block}
+
+  /* ===== mock ribbon + nav ===== */
+  .ribbon{text-align:center;background:#2b2119;color:#ffd9bd;font-size:12px;padding:4px 10px;letter-spacing:.02em}
+  .navbar{
+    position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:8px;
+    padding:9px 14px;background:rgba(250,247,244,.9);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .navbar .logo{display:flex;align-items:center;gap:8px;flex:none}
+  .lg-word{font-family:var(--font-head);font-weight:700;font-size:16px;letter-spacing:-.02em;color:var(--ink)}
+  .lg-word em{font-style:normal;color:var(--brand)}
+  .steps{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;flex:1}
+  .steps::-webkit-scrollbar{display:none}
+  .stepbtn{
+    border:1px solid transparent;background:transparent;color:var(--ink-soft);
+    padding:6px 13px;border-radius:999px;font-size:13.5px;font-weight:600;white-space:nowrap;
+    transition:background-color .15s ease,color .15s ease,transform .12s cubic-bezier(.2,.9,.3,1.4);
+  }
+  .stepbtn:hover{background:#f1e8df;color:var(--ink)}
+  .stepbtn:active{transform:scale(.95)}
+  .stepbtn.on{background:var(--ink);color:#fff}
+  .stepbtn .n{opacity:.55;margin-right:4px;font-weight:700}
+  .stepbtn.on .n{opacity:.8}
+  @media(max-width:760px){.navbar .logo .lg-word{display:none}.stepbtn{padding:6px 10px;font-size:12.5px}}
+
+  .wrap{max-width:1060px;margin:0 auto;padding:24px 16px 90px}
+  .htitle{font-size:24px;font-weight:600}
+  .hsub{font-size:13.5px;color:var(--ink-soft);margin:2px 0 18px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow-card)}
+  .pill{display:inline-block;font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;background:var(--brand-soft);color:var(--brand-deep)}
+  .pill.ok{background:#e6f4ec;color:var(--ok)}
+  .pill.warn{background:#fdf1de;color:var(--warn)}
+  .pill.bad{background:#fdeaea;color:var(--danger)}
+  .pill.blue{background:#e8f1fb;color:var(--cip1)}
+  .pill.grey{background:#f0ebe5;color:var(--ink-soft)}
+  .btn{
+    border:none;background:linear-gradient(135deg,#ff8a3c,var(--brand-deep));color:#fff;
+    padding:12px 20px;border-radius:12px;font-weight:700;font-size:15px;
+    box-shadow:0 2px 8px -2px rgba(255,107,0,.5);
+    transition:box-shadow .18s ease,transform .12s cubic-bezier(.2,.9,.3,1.4);
+  }
+  .btn:hover{box-shadow:0 4px 14px -3px rgba(255,107,0,.6)}
+  .btn:active{transform:scale(.97)}
+  .btn.ghost{background:var(--card);color:var(--ink);border:1px solid var(--line);box-shadow:none}
+  .btn.ghost:hover{background:#f6f0ea;box-shadow:none}
+  .btn.ok{background:linear-gradient(135deg,#3cb371,#1c8a4c);box-shadow:0 2px 8px -2px rgba(28,138,76,.5)}
+  .btn.bad{background:var(--card);color:var(--danger);border:1px solid #f2c9c9;box-shadow:none}
+  .btn.sm{padding:8px 14px;font-size:13.5px;border-radius:10px}
+  .note{font-size:13px;color:var(--ink-soft)}
+
+  /* ===== flow diagram ===== */
+  .flow{display:grid;gap:12px;margin:8px 0 22px}
+  @media(min-width:900px){.flow{grid-template-columns:repeat(5,1fr)}}
+  .fstep{
+    position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:16px 15px;box-shadow:var(--shadow-card);display:flex;flex-direction:column;gap:6px;
+  }
+  .fstep .no{
+    width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
+    background:var(--brand);color:#fff;font-family:var(--font-head);font-weight:700;font-size:14px;
+  }
+  .fstep h4{font-size:15.5px;font-weight:600}
+  .fstep p{font-size:12.5px;color:var(--ink-soft);line-height:1.55}
+  .fstep .who{font-size:11.5px;font-weight:700;color:var(--brand-deep);letter-spacing:.02em}
+  .fstep.auto{background:#f6fbf7;border-color:#cfe8d8}
+  .fstep.auto .no{background:var(--ok)}
+  .fstep.auto .who{color:var(--ok)}
+  @media(min-width:900px){
+    .fstep::after{
+      content:"▸";position:absolute;right:-11px;top:50%;transform:translateY(-50%);
+      color:#d8cabc;font-size:17px;z-index:2;
+    }
+    .fstep:last-child::after{content:none}
+  }
+
+  .stats{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:22px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow-card)}
+  .stat .lb{font-size:12.5px;color:var(--ink-soft);font-weight:600}
+  .stat .v{font-family:var(--font-head);font-size:30px;font-weight:700;line-height:1.15}
+  .stat .d{font-size:12px;color:var(--ink-soft)}
+  .stat.w .v{color:var(--warn)}
+  .stat.a .v{color:var(--cip1)}
+  .stat.g .v{color:var(--ok)}
+  .stat.r .v{color:var(--danger)}
+
+  /* ===== before/after ===== */
+  .ba{display:grid;gap:14px;margin-bottom:8px}
+  @media(min-width:760px){.ba{grid-template-columns:1fr 1fr}}
+  .ba .card h4{font-size:15px;margin-bottom:8px}
+  .ba ol{margin:0 0 0 18px;font-size:13.5px;line-height:1.85}
+  .ba .old{border-color:#f0d9d9;background:#fffafa}
+  .ba .new{border-color:#cfe8d8;background:#f8fdfa}
+  .tag-bad{color:var(--danger);font-weight:700}
+  .tag-good{color:var(--ok);font-weight:700}
+
+  /* ===== forms ===== */
+  .sect{margin-bottom:14px}
+  .sect h4{font-size:14.5px;color:var(--brand-deep);margin-bottom:10px;font-weight:600}
+  .grid{display:grid;gap:10px}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
+  label.lb{display:block;font-size:12.5px;color:var(--ink-soft);font-weight:600;margin-bottom:4px}
+  .inp{
+    width:100%;padding:9px 11px;border-radius:10px;border:1px solid #ddd4c9;
+    font-size:14.5px;background:#fffdfa;color:var(--ink);
+  }
+  .inp:disabled,.inp[readonly]{background:#f4efe9;color:var(--ink-soft);cursor:not-allowed}
+  .calc{
+    margin-top:10px;font-size:13.5px;color:#5b5148;background:#fdf6ec;
+    border:1px solid #f0e3cd;border-radius:10px;padding:9px 12px;
+  }
+  .calc b{color:var(--ink)}
+  .auto-chip{
+    display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;
+    background:#e6f4ec;color:var(--ok);padding:2px 9px;border-radius:999px;margin-left:6px;
+  }
+  .gone{
+    border:1px dashed #e2b9b9;background:#fffafa;border-radius:12px;padding:12px 14px;
+    font-size:13px;color:#8a5b5b;
+  }
+  .gone b{color:var(--danger)}
+  .chk{
+    display:inline-flex;align-items:center;gap:6px;font-size:13.5px;font-weight:600;
+    border:1px solid var(--line);background:#fffdfa;color:var(--ink-soft);
+    padding:6px 12px;border-radius:999px;cursor:pointer;
+  }
+  .chk.on{background:var(--brand-soft);border-color:#f6dcc4;color:var(--brand-deep)}
+  .chk input{accent-color:var(--brand)}
+  .wrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 0;border-bottom:1px dashed var(--line)}
+  .wrow:last-child{border-bottom:none}
+  .wrow .wname{flex:0 0 108px;font-size:13.5px;font-weight:600}
+
+  /* ===== success + link ===== */
+  .linkbox{
+    display:flex;gap:10px;align-items:center;background:#f7f2ec;border:1px solid var(--line);
+    border-radius:12px;padding:10px 12px;font-size:13px;word-break:break-all;
+  }
+  .linkbox code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:var(--brand-deep);flex:1}
+  .qr{width:150px;height:150px;display:grid;grid-template-columns:repeat(21,1fr);background:#fff;padding:8px;border:1px solid var(--line);border-radius:12px}
+  .qr i{background:transparent}
+  .qr i.on{background:#2b2119}
+  .deliv{display:flex;flex-direction:column;gap:8px;font-size:13.5px}
+  .deliv .row{display:flex;align-items:center;gap:8px}
+
+  /* ===== LINE mock ===== */
+  .linechat{max-width:430px;margin:0 auto;background:#8fa9bd;border-radius:18px;padding:14px;box-shadow:var(--shadow-float)}
+  .linehead{display:flex;align-items:center;gap:8px;color:#fff;font-weight:600;font-size:14px;margin-bottom:12px}
+  .linehead .ava{width:28px;height:28px;border-radius:50%;background:var(--line-green);display:grid;place-items:center;font-size:14px}
+  .bub{
+    background:#fff;border-radius:4px 16px 16px 16px;padding:12px 14px;font-size:13.5px;line-height:1.65;
+    box-shadow:0 1px 2px rgba(0,0,0,.15);max-width:92%;
+  }
+  .bub .ttl{font-family:var(--font-head);font-weight:600;font-size:14.5px;color:var(--ink);margin-bottom:6px}
+  .bub .kv{display:flex;justify-content:space-between;gap:12px;border-bottom:1px dashed #eee;padding:2px 0}
+  .bub .kv span:first-child{color:var(--ink-soft)}
+  .bub .kv b{font-variant-numeric:tabular-nums}
+  .bub a{color:#1565c0;word-break:break-all;font-size:12.5px}
+  .bub .cta{display:block;text-align:center;margin-top:10px;background:var(--line-green);color:#fff;
+    text-decoration:none;font-weight:700;padding:9px;border-radius:10px;font-size:14px}
+  .linetime{font-size:11px;color:#e8eef3;margin-top:4px}
+
+  /* ===== phone frame (warehouse) ===== */
+  .phone{
+    max-width:390px;margin:0 auto;background:var(--card);border:1px solid var(--line);
+    border-radius:26px;box-shadow:var(--shadow-float);overflow:hidden;
+  }
+  .phone .bar{background:var(--ink);color:#fff;font-size:11.5px;padding:5px 16px;display:flex;justify-content:space-between}
+  .phone .body{padding:18px 16px 24px}
+  .whhead{text-align:center;margin-bottom:14px}
+  .whhead .badge{font-size:26px}
+  .whhead h3{font-size:19px;margin-top:4px}
+  .whhead p{font-size:12.5px;color:var(--ink-soft)}
+  .declared{
+    background:var(--brand-soft);border:1px solid #f6dcc4;border-radius:14px;padding:14px;text-align:center;margin-bottom:14px;
+  }
+  .declared .lb{font-size:12.5px;color:var(--brand-deep);font-weight:600}
+  .declared .big{font-family:var(--font-head);font-size:38px;font-weight:700;color:var(--brand-deep);line-height:1.1}
+  .declared .u{font-size:15px;font-weight:600}
+  .declared .meta{font-size:12px;color:var(--ink-soft);margin-top:4px}
+  .bigin{
+    width:100%;text-align:center;font-family:var(--font-head);font-size:34px;font-weight:700;
+    padding:10px;border-radius:14px;border:2px solid var(--brand);background:#fff;color:var(--ink);
+  }
+  .kvline{display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px dashed var(--line)}
+  .kvline b{font-variant-numeric:tabular-nums}
+
+  .sheet{
+    background:#fff7f7;border:1px solid #f2c9c9;border-radius:14px;padding:14px;margin-top:12px;
+  }
+  .sheet h4{font-size:15px;color:var(--danger);margin-bottom:6px}
+  .diffbig{font-family:var(--font-head);font-size:30px;font-weight:700;color:var(--danger);text-align:center;line-height:1.2}
+
+  /* ===== approval board ===== */
+  .rcard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow-card);margin-bottom:14px}
+  .rcard.flag{border-color:#f2c9c9;background:#fffafa}
+  .rhead{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px}
+  .rhead h4{font-size:16px;flex:1;min-width:180px}
+  .rhead .rid{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--ink-soft)}
+  .nums{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));margin-bottom:12px}
+  .num{border:1px solid var(--line);border-radius:12px;padding:9px 10px;text-align:center;background:#fdfbf9}
+  .num .lb{font-size:11.5px;color:var(--ink-soft);font-weight:600}
+  .num .v{font-family:var(--font-head);font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.25}
+  .num .u{font-size:11px;color:var(--ink-soft)}
+  .num.prod{background:var(--brand-soft);border-color:#f6dcc4}
+  .num.prod .v{color:var(--brand-deep)}
+  .num.wh{background:#e8f1fb;border-color:#cfe0f5}
+  .num.wh .v{color:var(--cip1)}
+  .num.diff.bad{background:#fdeaea;border-color:#f2c9c9}
+  .num.diff.bad .v{color:var(--danger)}
+  .num.diff.good{background:#e6f4ec;border-color:#cfe8d8}
+  .num.diff.good .v{color:var(--ok)}
+  .tl{border-left:2px solid var(--line);margin:4px 0 14px 6px;padding-left:14px;display:flex;flex-direction:column;gap:7px}
+  .tl .ev{position:relative;font-size:12.5px;color:var(--ink-soft)}
+  .tl .ev::before{content:"";position:absolute;left:-19px;top:8px;width:8px;height:8px;border-radius:50%;background:#d8cabc}
+  .tl .ev.done::before{background:var(--ok)}
+  .tl .ev.now::before{background:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+  .tl .ev b{color:var(--ink)}
+  .tl .ev .t{font-variant-numeric:tabular-nums;opacity:.8}
+  .pickrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:#f7f2ec;border-radius:12px;padding:10px 12px;margin-bottom:12px;font-size:13.5px}
+  .acts{display:flex;flex-wrap:wrap;gap:8px}
+
+  /* ===== toast ===== */
+  #toast{
+    position:fixed;left:50%;bottom:26px;transform:translate(-50%,20px);opacity:0;pointer-events:none;
+    background:var(--ink);color:#fff;padding:10px 18px;border-radius:999px;font-size:13.5px;font-weight:600;
+    box-shadow:var(--shadow-float);transition:opacity .2s ease,transform .2s cubic-bezier(.2,.9,.3,1.3);z-index:99;
+  }
+  #toast.show{opacity:1;transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+
+<div class="ribbon">MOCKUP — ข้อมูลสมมติทั้งหมด · ระบบลงยอดผลิตอัตโนมัติ SPP-MP · กดปุ่มด้านบนเพื่อไล่ดูทีละจอ</div>
+
+<div class="navbar">
+  <div class="logo">
+    <svg width="26" height="26" viewBox="0 0 34 34" aria-hidden="true">
+      <defs><linearGradient id="lg-pf" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#ff6b00"/><stop offset="1" stop-color="#ff8c00"/></linearGradient></defs>
+      <rect x="1" y="1" width="32" height="32" rx="9.5" fill="url(#lg-pf)" stroke="rgba(255,255,255,.35)" stroke-width="1.2"/>
+      <g transform="translate(5.5,5.5) scale(0.96)">
+        <path d="M12 2.5C8.5 7 5.5 10.8 5.5 14.2C5.5 18.1 8.4 21 12 21C15.6 21 18.5 18.1 18.5 14.2C18.5 10.8 15.5 7 12 2.5Z" fill="#fff"/>
+        <path d="M9 15.2C9 12.9 10.2 11.2 11.4 9.6" stroke="#ff8c00" stroke-width="1.6" stroke-linecap="round" fill="none" opacity=".55"/>
+      </g>
+    </svg>
+    <span class="lg-word">SPP<em>-MP</em></span>
+  </div>
+  <div class="steps">
+    <button class="stepbtn on" data-go="flow"><span class="n">1</span>ภาพรวม</button>
+    <button class="stepbtn" data-go="report"><span class="n">2</span>ลงยอดผลิต</button>
+    <button class="stepbtn" data-go="sent"><span class="n">3</span>ส่งสำเร็จ + ลิงก์</button>
+    <button class="stepbtn" data-go="line"><span class="n">4</span>ข้อความใน LINE</button>
+    <button class="stepbtn" data-go="verify"><span class="n">5</span>คลังยืนยัน</button>
+    <button class="stepbtn" data-go="variance"><span class="n">6</span>เลขไม่ตรง</button>
+    <button class="stepbtn" data-go="approve"><span class="n">7</span>หัวหน้าอนุมัติ</button>
+  </div>
+</div>
+
+<!-- ══════════════ 1. ภาพรวม ══════════════ -->
+<section class="view active" id="view-flow">
+  <div class="wrap">
+    <h2 class="htitle">ระบบลงยอดผลิตอัตโนมัติ</h2>
+    <p class="hsub">เป้าหมาย — ตัวเลขแต่ละตัวพิมพ์ครั้งเดียวโดยเจ้าของตัวเลข · ที่เหลือระบบทำเอง</p>
+
+    <div class="flow">
+      <div class="fstep">
+        <div class="no">1</div>
+        <div class="who">ระบบ / หัวหน้ากะ</div>
+        <h4>แผนผลิตประจำวัน</h4>
+        <p>มีอยู่แล้วในแอป — ระบบรู้เป้าหมายต่อสินค้าและกะ ใช้เติมช่อง "แผนผลิต" ให้เอง</p>
+      </div>
+      <div class="fstep">
+        <div class="no">2</div>
+        <div class="who">ฝ่ายผลิต</div>
+        <h4>ลงยอดที่ผลิตได้</h4>
+        <p>กรอกเฉพาะเลขที่ตัวเองรู้ — จำนวนที่ผลิตได้ ของเสีย เวลา · <b>ไม่มีช่องยอดคลัง</b></p>
+      </div>
+      <div class="fstep auto">
+        <div class="no">3</div>
+        <div class="who">อัตโนมัติ</div>
+        <h4>ส่งลิงก์ให้คลัง</h4>
+        <p>ระบบสร้างลิงก์เฉพาะรายการ ส่งเข้ากลุ่ม LINE / Telegram ทันที</p>
+      </div>
+      <div class="fstep">
+        <div class="no">4</div>
+        <div class="who">คลังสินค้า</div>
+        <h4>ตรวจนับ &amp; ยืนยัน</h4>
+        <p>เปิดลิงก์ในมือถือ ไม่ต้อง login กรอกเลขที่นับได้จริง ระบบเทียบส่วนต่างให้</p>
+      </div>
+      <div class="fstep">
+        <div class="no">5</div>
+        <div class="who">หัวหน้างาน</div>
+        <h4>กดอนุมัติ</h4>
+        <p>เห็นเลขทั้งสองฝ่ายเทียบกัน กดอนุมัติ → ระบบเขียนลง Google Sheet เอง</p>
+      </div>
+    </div>
+
+    <h3 style="font-size:17px;margin:26px 0 10px">สถานะวันนี้ · 29 ก.ค. 2569</h3>
+    <div class="stats">
+      <div class="stat w"><div class="lb">รอคลังตรวจนับ</div><div class="v">3</div><div class="d">ส่งลิงก์แล้ว รอคลังกรอก</div></div>
+      <div class="stat a"><div class="lb">รอหัวหน้าอนุมัติ</div><div class="v">2</div><div class="d">คลังยืนยันแล้ว</div></div>
+      <div class="stat g"><div class="lb">อนุมัติ + ลง Sheet</div><div class="v">8</div><div class="d">เสร็จสมบูรณ์</div></div>
+      <div class="stat r"><div class="lb">มีส่วนต่าง</div><div class="v">1</div><div class="d">ต้องดูก่อนอนุมัติ</div></div>
+    </div>
+
+    <div class="ba">
+      <div class="card old">
+        <h4>❌ แบบเดิม</h4>
+        <ol>
+          <li>ส่งแผนผลิตประจำวัน</li>
+          <li>ผลิตแจ้งยอด → ทวนสอบกับคลังใน LINE</li>
+          <li>คลังยืนยันกลับใน LINE</li>
+          <li><span class="tag-bad">หัวหน้างานพิมพ์ยอดลง Google Form อีกรอบ — 75 ช่อง บังคับกรอกทุกช่อง</span></li>
+        </ol>
+        <p class="note" style="margin-top:10px">
+          เลขชุดเดียวถูกพิมพ์ 2–3 รอบ · ไม่มีบันทึกว่าใครยืนยันเลขอะไรตอนไหน · แผนกับผลจริงไม่ถูกเทียบอัตโนมัติ ·
+          ของเสีย 12 ช่องต้องกรอกแม้ไม่มีของเสีย
+        </p>
+      </div>
+      <div class="card new">
+        <h4>✅ แบบใหม่</h4>
+        <ol>
+          <li>แผนผลิต → ระบบเติมให้เอง <span class="tag-good">ไม่พิมพ์</span></li>
+          <li>ผลิตกรอกเลขของผลิต <span class="tag-good">พิมพ์ 8 ช่อง ครั้งเดียว</span></li>
+          <li>คลังกรอกเลขของคลัง <span class="tag-good">พิมพ์ 1 ครั้ง</span></li>
+          <li>หัวหน้ากดอนุมัติ <span class="tag-good">ไม่พิมพ์เลข</span></li>
+          <li>ระบบเขียน Sheet เอง <span class="tag-good">ไม่พิมพ์</span></li>
+        </ol>
+        <p class="note" style="margin-top:10px">
+          เก็บทั้งเลขผลิตและเลขคลังถาวร · ส่วนต่างต้องมีเหตุผล · มีบันทึกทุกก้าวว่าใครทำอะไรเมื่อไหร่
+        </p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h4 style="font-size:15px;margin-bottom:8px">🔒 กลไกที่ทำให้ตัวเลขถูกต้อง</h4>
+      <div class="grid g2">
+        <div class="note">• <b>พิมพ์ครั้งเดียว</b> — เจ้าของตัวเลขเป็นคนพิมพ์เท่านั้น</div>
+        <div class="note">• <b>ค่าคำนวณ ระบบคิดให้</b> — ชิ้น เวลาเดินเครื่อง ส่วนต่าง สถานะ</div>
+        <div class="note">• <b>สองฝ่ายนับแยกกัน</b> — เก็บทั้งสองเลข ไม่ทับกัน</div>
+        <div class="note">• <b>หน่วยผูกกับสินค้า</b> — กล่อง/กระสอบ ไม่แปลงข้ามหน่วยเอง</div>
+        <div class="note">• <b>DB เขียนก่อนเสมอ</b> — Sheet ล่มก็ไม่หาย มี retry</div>
+        <div class="note">• <b>Audit trail</b> — ใครทำอะไร เวลาไหน ย้อนดูได้ทุกรายการ</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 2. ลงยอดผลิต ══════════════ -->
+<section class="view" id="view-report">
+  <div class="wrap">
+    <h2 class="htitle">🏭 ลงยอดผลิต <span class="pill grey">ฝ่ายผลิต</span></h2>
+    <p class="hsub">Admin → ลงยอดผลิต · เทียบกับ Google Form เดิมที่มี <b>75 ช่อง บังคับกรอกทุกช่อง</b></p>
+
+    <div class="card sect" style="border-color:#cfe8d8;background:#f8fdfa">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:16px">
+        <div style="text-align:center;flex:0 0 auto">
+          <div style="font-family:var(--font-head);font-size:15px;color:var(--ink-soft);text-decoration:line-through">75 ช่อง</div>
+          <div style="font-size:20px;line-height:1">↓</div>
+          <div style="font-family:var(--font-head);font-size:34px;font-weight:700;color:var(--ok);line-height:1.1">8 ช่อง</div>
+          <div class="note" style="font-size:11.5px">ที่ต้องพิมพ์เอง</div>
+        </div>
+        <div style="flex:1 1 260px">
+          <h4 style="font-size:15px;margin-bottom:6px">ช่องที่เหลือมาจากไหน</h4>
+          <div class="note" style="line-height:1.9">
+            <b>เติมจากระบบ</b> — วันที่ · กะ · ทีมงานในกะ · แผนผลิต · จำนวนคน<br>
+            <b>เลือก SKU ครั้งเดียวได้</b> — กลุ่ม Product · ชื่อ Product · เครื่องบรรจุ · ชิ้น/กล่อง · หน่วยนับ<br>
+            <b>ค่ามาตรฐาน</b> — เวลารวม · setup · พัก · clean · หยุดหลังได้ยอด<br>
+            <b>ระบบคำนวณ</b> — รวมเวลาเดินเครื่อง · สถานะการผลิต<br>
+            <b>มาจากคลัง</b> — ยอดส่งคลัง
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card sect">
+      <h4>📌 ข้อมูลรายงาน</h4>
+      <div class="grid g2">
+        <div><label class="lb">วันที่การผลิต <span class="auto-chip">วันนี้</span></label><input class="inp" type="date" value="2026-07-29"></div>
+        <div>
+          <label class="lb">กะ <span class="auto-chip">จากเวลาปัจจุบัน</span></label>
+          <select class="inp" id="shiftPick">
+            <option value="1">กะ1</option><option value="2">กะ2</option><option value="3">กะ3</option>
+          </select>
+        </div>
+      </div>
+      <label class="lb" style="margin-top:12px">รายชื่อพนักงานในกะ <span class="auto-chip">สลับตามกะ · ติ๊กแก้ได้</span></label>
+      <div style="display:flex;flex-wrap:wrap;gap:8px" id="teamBox"></div>
+      <div class="calc" style="margin-top:10px">👥 จำนวนคนผลิต = <b id="crewN">4</b> คน <span class="auto-chip">นับจากที่ติ๊ก</span> — ไม่ต้องพิมพ์ซ้ำ</div>
+    </div>
+
+    <div class="card sect">
+      <h4>📦 สินค้า — เลือกครั้งเดียว ได้ 5 ช่อง</h4>
+      <div class="grid g2">
+        <div style="grid-column:1/-1">
+          <label class="lb">ค้นหา / เลือก SKU</label>
+          <select class="inp" id="skuPick">
+            <option value="icing">Icing900 ×12 — Icing · ICING 10-25 Kg · กระสอบ</option>
+            <option value="amazon">S77S743200 น้ำเชื่อมมิตรผลคาราเมล อเมซอน 850 ml *12 — Amazon-NGS</option>
+            <option value="syrup">S76S9Z0000 Mitr Phol Syrup (800ml*12) Stand pouch — Syrup</option>
+            <option value="paste">ต้มหัวเชื้อ / Coconut-Paste — ต้มหัวเชื้อ · หม้อ</option>
+          </select>
+          <div class="note" style="font-size:11.5px;margin-top:3px">
+            แทนฟอร์มเดิมที่ต้องติ๊ก "กลุ่ม Product" ก่อน แล้วค่อยเลื่อนหา SKU ในลิสต์ยาวของกลุ่มนั้น (10 ช่องแยกตามกลุ่ม)
+          </div>
+        </div>
+        <div><label class="lb">กลุ่ม Product <span class="auto-chip">อัตโนมัติ</span></label><input class="inp" value="Icing" readonly></div>
+        <div><label class="lb">เครื่องบรรจุ <span class="auto-chip">อัตโนมัติ</span></label><input class="inp" value="ICING 10-25 Kg" readonly></div>
+        <div><label class="lb">หน่วยนับ <span class="auto-chip">อัตโนมัติ</span></label><input class="inp" id="unitBox" value="กระสอบ" readonly></div>
+        <div><label class="lb">จำนวนชิ้น/กล่อง <span class="auto-chip">อัตโนมัติ</span></label><input class="inp" value="12" readonly></div>
+        <div style="grid-column:1/-1"><label class="lb">ระบุ Lot น้ำเชื่อมที่บรรจุ *</label><input class="inp" type="date" value="2026-07-28"></div>
+      </div>
+    </div>
+
+    <div class="card sect">
+      <h4>📊 ยอดผลิต</h4>
+      <div class="grid g3">
+        <div>
+          <label class="lb">จำนวนแผนผลิต <span class="auto-chip">จากแผนกะ</span></label>
+          <input class="inp" value="500" readonly>
+          <div class="note" style="font-size:11.5px;margin-top:3px">แผนกะ1 · 29 ก.ค. · แก้ได้ถ้าจำเป็น</div>
+        </div>
+        <div><label class="lb">ผลิตเกิดจริง (<span class="u-lb">กระสอบ</span>) ✏️</label><input class="inp" value="480"></div>
+        <div><label class="lb">จำนวนคนผลิต <span class="auto-chip">จากทีมงาน</span></label><input class="inp" value="3" readonly></div>
+        <div><label class="lb">ยอดเลขหน้าเครื่อง (ชิ้น) ✏️</label><input class="inp" value="5800"></div>
+        <div><label class="lb">เดินรอบเครื่อง ✏️</label><input class="inp" value="40"></div>
+      </div>
+      <div class="calc">🧮 ชิ้นที่ผลิตได้ = 480 <span class="u-lb">กระสอบ</span> × 12 ชิ้น/กล่อง = <b>5,760 ชิ้น</b> <span class="auto-chip">ระบบคำนวณ</span></div>
+    </div>
+
+    <div class="gone sect">
+      🚫 <b>ช่อง "ยอดส่งคลัง(ชิ้น)" ถูกเอาออกจากหน้านี้</b><br>
+      ในฟอร์มเดิมหัวหน้างานเป็นคนพิมพ์ช่องนี้เอง — ต่อไปคลังกรอกเป็น<b>กระสอบ/กล่อง</b> ที่นับจริง
+      แล้วระบบ × 12 แปลงเป็นชิ้นให้ตอนลง Sheet
+    </div>
+
+    <div class="card sect">
+      <h4>⏱ เวลา (นาที) — ค่ามาตรฐานเติมให้ แก้เฉพาะที่ผิดปกติ</h4>
+      <div class="grid g3">
+        <div><label class="lb">เวลารวมผลิต 480/720 <span class="auto-chip">มาตรฐาน</span></label><input class="inp" value="480" readonly></div>
+        <div><label class="lb">เวลา setup 0:30 <span class="auto-chip">มาตรฐาน</span></label><input class="inp" value="30" readonly></div>
+        <div><label class="lb">เวลาพัก 0:60/0:90 <span class="auto-chip">มาตรฐาน</span></label><input class="inp" value="60" readonly></div>
+        <div><label class="lb">เวลา Clean 0:30 <span class="auto-chip">มาตรฐาน</span></label><input class="inp" value="30" readonly></div>
+        <div><label class="lb">หยุดเครื่องหลังได้ยอด <span class="auto-chip">มาตรฐาน</span></label><input class="inp" value="30" readonly></div>
+        <div><label class="lb">เวลา B-down ✏️</label><input class="inp" value="0"></div>
+      </div>
+      <div class="calc">⚙️ รวมเวลาเดินเครื่อง = 480 − 30 − 60 − 30 − 30 − 0 = <b>330 นาที</b> <span class="auto-chip">ระบบคำนวณ</span></div>
+    </div>
+
+    <div class="card sect">
+      <h4>🎯 สถานะการผลิต</h4>
+      <div class="grid g2">
+        <div><label class="lb">สถานะการผลิต <span class="auto-chip">เทียบแผนอัตโนมัติ</span></label><input class="inp" value="ไม่ได้ยอดผลิต (480 &lt; 500)" readonly></div>
+        <div><label class="lb">สาเหตุที่ไม่ได้ยอดผลิต ✏️</label><input class="inp" value="เครื่องขัดข้อง 40 นาที"></div>
+      </div>
+    </div>
+
+    <div class="card sect">
+      <h4>🗑 ภาชนะบรรจุชำรุด — ติ๊กเฉพาะประเภทที่มีของเสีย</h4>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <label class="chk"><input type="checkbox"> ถุง</label>
+        <label class="chk"><input type="checkbox"> ถุง Pack</label>
+        <label class="chk"><input type="checkbox"> ขวด/กระปุก</label>
+        <label class="chk"><input type="checkbox"> ฝา</label>
+        <label class="chk"><input type="checkbox"> กริ๊ป</label>
+        <label class="chk on"><input type="checkbox" checked> กล่อง</label>
+      </div>
+      <div class="wrow">
+        <span class="wname">กล่อง</span>
+        <input class="inp" style="flex:0 0 110px" placeholder="จำนวน" value="2">
+        <input class="inp" style="flex:1 1 180px" placeholder="สาเหตุการชำรุด" value="กล่องยุบตอนเรียงพาเลท">
+      </div>
+      <p class="note" style="margin-top:8px">
+        ฟอร์มเดิมมี 12 ช่อง (6 ประเภท × จำนวน + สาเหตุ) <b>บังคับกรอกทั้งหมด</b> แม้ไม่มีของเสีย —
+        ที่นี่ติ๊กประเภทไหน ค่อยขึ้นช่องของประเภทนั้น
+      </p>
+    </div>
+
+    <div class="card sect">
+      <h4>🧪 ข้อมูลถังน้ำเชื่อม / ทำความสะอาด / อื่น ๆ</h4>
+      <input class="inp" placeholder="กรอกเฉพาะกรณีมีงานสนับสนุน — ไม่มีเว้นว่างได้" value="">
+      <p class="note" style="margin-top:6px">ฟอร์มเดิมช่องนี้บังคับกรอก ต้องพิมพ์ "-" ทุกครั้งที่ไม่มี</p>
+    </div>
+
+    <button class="btn" style="width:100%" data-go="sent">📤 ส่งให้คลังตรวจนับ</button>
+  </div>
+</section>
+
+<!-- ══════════════ 3. ส่งสำเร็จ + ลิงก์ ══════════════ -->
+<section class="view" id="view-sent">
+  <div class="wrap" style="max-width:720px">
+    <div class="card" style="text-align:center;border-color:#cfe8d8;background:#f8fdfa">
+      <div style="font-size:40px;line-height:1">✅</div>
+      <h3 style="font-size:19px;color:var(--ok);margin-top:4px">บันทึกแล้ว — รอคลังตรวจนับ</h3>
+      <p class="note">รหัสรายงาน <b style="font-family:ui-monospace,Menlo,monospace">RPT-1785261243211</b> · Icing900 · กะ1 · 480 กระสอบ</p>
+      <p class="note" style="color:var(--ok);font-weight:600;margin-top:6px">ข้อมูลถูกบันทึกลงฐานข้อมูลแล้ว — ต่อให้ส่งข้อความไม่สำเร็จ ตัวเลขก็ไม่หาย</p>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h4 style="font-size:15px;margin-bottom:10px">🔗 ลิงก์สำหรับคลังตรวจนับ</h4>
+      <div class="linkbox">
+        <code>https://spp-mp.app/?verify=8Kd2xQ…rT9mZ</code>
+        <button class="btn ghost sm" onclick="toast('คัดลอกลิงก์แล้ว — วางในกลุ่ม LINE ได้เลย')">📋 คัดลอก</button>
+      </div>
+      <p class="note" style="margin-top:8px">ลิงก์นี้ใช้ได้ครั้งเดียว · หมดอายุใน 24 ชม. · เปิดแล้วเห็นเฉพาะรายการนี้รายการเดียว</p>
+
+      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin-top:14px">
+        <div class="qr" id="qrbox" aria-label="QR code (จำลอง)"></div>
+        <div class="deliv">
+          <div class="row"><span class="pill ok">✓ ส่งแล้ว</span> Telegram กลุ่ม "Production report" — อัตโนมัติ</div>
+          <div class="row"><span class="pill warn">รอวาง</span> LINE กลุ่มคลังสินค้า — กดคัดลอกแล้ววางในกลุ่ม</div>
+          <div class="row"><span class="pill blue">หรือ</span> ให้คลังสแกน QR จากหน้าจอนี้ได้เลย</div>
+          <p class="note" style="max-width:330px">
+            เฟสถัดไปจะ push เข้ากลุ่ม LINE อัตโนมัติ (ต้องตั้ง LINE Official Account + Messaging API ก่อน)
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <button class="btn" data-go="report">➕ ลงยอดรายการถัดไป</button>
+      <button class="btn ghost" data-go="line">ดูข้อความที่คลังจะเห็น →</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 4. ข้อความใน LINE ══════════════ -->
+<section class="view" id="view-line">
+  <div class="wrap" style="max-width:720px">
+    <h2 class="htitle">💬 ข้อความที่คลังเห็นในกลุ่ม</h2>
+    <p class="hsub">รูปแบบเดียวกันทั้ง LINE และ Telegram — คลังกดปุ่มเดียวเข้าหน้ากรอก</p>
+
+    <div class="linechat">
+      <div class="linehead"><div class="ava">🏭</div> กลุ่ม ผลิต–คลังสินค้า</div>
+      <div class="bub">
+        <div class="ttl">📦 รอคลังตรวจนับ</div>
+        <div class="kv"><span>สินค้า</span><b>Icing900 ×12</b></div>
+        <div class="kv"><span>วันที่ / กะ</span><b>29 ก.ค. 69 · กะ1</b></div>
+        <div class="kv"><span>ผู้รายงาน</span><b>สมชาย ใจดี</b></div>
+        <div class="kv" style="border-bottom:none"><span>ฝ่ายผลิตแจ้ง</span><b style="color:var(--brand-deep);font-size:16px">480 กระสอบ</b></div>
+        <a class="cta" href="#" onclick="go('verify');return false">📋 กดเพื่อกรอกยอดที่นับได้</a>
+        <p style="font-size:11.5px;color:#999;margin-top:8px">ลิงก์ใช้ได้ครั้งเดียว · หมดอายุ 30 ก.ค. 08:12 น.</p>
+      </div>
+      <div class="linetime">08:12 น.</div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <h4 style="font-size:15px;margin-bottom:6px">ทำไมส่งเป็นลิงก์ ไม่ให้พิมพ์ตอบในแชท</h4>
+      <p class="note">
+        พิมพ์ตอบในแชทได้ตัวเลขที่ระบบอ่านไม่ได้ ต้องมีคนมาอ่านแล้วคีย์ต่อ = กลับไปที่ปัญหาเดิม<br>
+        กรอกผ่านลิงก์ได้ข้อมูลมีโครงสร้างทันที ระบบเทียบส่วนต่างให้เอง และรู้ว่าใครเป็นคนกรอก
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 5. คลังยืนยัน ══════════════ -->
+<section class="view" id="view-verify">
+  <div class="wrap">
+    <h2 class="htitle" style="text-align:center">📱 หน้าคลังตรวจนับ</h2>
+    <p class="hsub" style="text-align:center">เปิดจากลิงก์ในกลุ่ม · ไม่ต้อง login · ใช้ได้ครั้งเดียว</p>
+
+    <div class="phone">
+      <div class="bar"><span>08:14</span><span>SPP-MP</span><span>🔋 82%</span></div>
+      <div class="body">
+        <div class="whhead">
+          <div class="badge">📦</div>
+          <h3>ยืนยันยอดรับเข้าคลัง</h3>
+          <p>RPT-1785261243211 · 29 ก.ค. 69 · กะ1</p>
+        </div>
+
+        <div class="declared">
+          <div class="lb">ฝ่ายผลิตแจ้งว่าส่งมา</div>
+          <div class="big">480 <span class="u">กระสอบ</span></div>
+          <div class="meta">Icing900 ×12 · โดย สมชาย ใจดี</div>
+        </div>
+
+        <label class="lb" style="text-align:center;font-size:14px;color:var(--ink)">คลังนับได้กี่กระสอบ?</label>
+        <input class="bigin" inputmode="numeric" value="475">
+        <p class="note" style="text-align:center;font-size:12px;margin:6px 0 14px">กรอกจำนวนที่นับได้จริง ไม่ต้องกรอกให้ตรงกับที่ผลิตแจ้ง</p>
+
+        <label class="lb">ผู้ตรวจนับ</label>
+        <input class="inp" value="วิภา คลังสินค้า" style="margin-bottom:10px">
+        <label class="lb">หมายเหตุ (ถ้ามี)</label>
+        <input class="inp" placeholder="เช่น รับเข้า 2 รอบ" style="margin-bottom:14px">
+
+        <button class="btn" style="width:100%" data-go="variance">✅ ยืนยันยอดของคลัง</button>
+        <p class="note" style="text-align:center;font-size:11.5px;margin-top:10px">
+          กดแล้วเลขจะถูกบันทึกทันที · ฝ่ายผลิตแก้เลขนี้ไม่ได้
+        </p>
+      </div>
+    </div>
+
+    <div class="card" style="max-width:390px;margin:16px auto 0">
+      <h4 style="font-size:14.5px;margin-bottom:6px">รายละเอียดหน้าจอนี้</h4>
+      <p class="note">
+        • ตัวเลขใหญ่ แป้นตัวเลข กดง่ายในโกดัง<br>
+        • เก็บเลขที่พิมพ์ไว้ในเครื่องก่อนส่ง — wifi หลุดไม่ต้องพิมพ์ใหม่<br>
+        • เปิดลิงก์ซ้ำ → ขึ้นจอ "ยืนยันไปแล้ว" ไม่ใช่ error<br>
+        • ถ้าระบบหลับอยู่ ขึ้น "กำลังปลุกระบบ…" รอได้ ~40 วิ
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 6. เลขไม่ตรง ══════════════ -->
+<section class="view" id="view-variance">
+  <div class="wrap">
+    <h2 class="htitle" style="text-align:center">⚠️ เมื่อเลขไม่ตรงกัน</h2>
+    <p class="hsub" style="text-align:center">ระบบไม่บล็อกและไม่แก้เลขให้ — แค่ขอให้ยืนยันและบันทึกเหตุผล</p>
+
+    <div class="phone">
+      <div class="bar"><span>08:15</span><span>SPP-MP</span><span>🔋 82%</span></div>
+      <div class="body">
+        <div class="whhead">
+          <div class="badge">📦</div>
+          <h3>ยืนยันยอดรับเข้าคลัง</h3>
+          <p>RPT-1785261243211 · Icing900</p>
+        </div>
+
+        <div class="kvline"><span>ฝ่ายผลิตแจ้ง</span><b>480 กระสอบ</b></div>
+        <div class="kvline"><span>คลังนับได้</span><b style="color:var(--cip1)">475 กระสอบ</b></div>
+
+        <div class="sheet">
+          <h4>ตัวเลขไม่ตรงกัน</h4>
+          <div class="diffbig">−5 กระสอบ</div>
+          <p class="note" style="text-align:center;margin-bottom:10px">น้อยกว่าที่ฝ่ายผลิตแจ้ง 1.0%</p>
+          <label class="lb">สาเหตุส่วนต่าง *</label>
+          <select class="inp" style="margin-bottom:8px">
+            <option>ยังส่งไม่ครบ / ค้างที่ไลน์</option>
+            <option>สินค้าชำรุดระหว่างขนย้าย</option>
+            <option>นับรวมรอบถัดไป</option>
+            <option>อื่น ๆ (ระบุ)</option>
+          </select>
+          <input class="inp" placeholder="รายละเอียดเพิ่มเติม" style="margin-bottom:12px">
+          <button class="btn" style="width:100%;background:linear-gradient(135deg,#e57373,#c62828);box-shadow:none" data-go="approve">
+            ยืนยันยอดของคลัง 475 กระสอบ
+          </button>
+          <button class="btn ghost sm" style="width:100%;margin-top:8px" data-go="verify">← กลับไปแก้ตัวเลข</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="max-width:520px;margin:16px auto 0">
+      <h4 style="font-size:14.5px;margin-bottom:6px">หลักการ</h4>
+      <p class="note">
+        <b>เลขของคลังเป็นของคลัง</b> — ระบบจะไม่ทับ ไม่บล็อก และไม่บังคับให้ตรงกับฝ่ายผลิต<br>
+        ทั้งสองเลขถูกเก็บถาวรคู่กัน พร้อมเหตุผล → หัวหน้างานเห็นครบก่อนตัดสิน และย้อนดูได้ทีหลังว่าส่วนต่างมาจากไหน
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 7. หัวหน้าอนุมัติ ══════════════ -->
+<section class="view" id="view-approve">
+  <div class="wrap">
+    <h2 class="htitle">✔️ อนุมัติยอดผลิต <span class="pill grey">หัวหน้างาน</span></h2>
+    <p class="hsub">Admin → อนุมัติยอดผลิต · 29 ก.ค. 2569 · รออนุมัติ 2 รายการ</p>
+
+    <!-- รายการมีส่วนต่าง -->
+    <div class="rcard flag">
+      <div class="rhead">
+        <h4>Icing900 ×12 <span class="note">· กะ1 · ICING 10-25 Kg</span></h4>
+        <span class="pill bad">มีส่วนต่าง −5</span>
+        <span class="rid">RPT-1785261243211</span>
+      </div>
+
+      <div class="nums">
+        <div class="num"><div class="lb">แผน</div><div class="v">500</div><div class="u">กระสอบ</div></div>
+        <div class="num prod"><div class="lb">ผลิตแจ้ง</div><div class="v">480</div><div class="u">กระสอบ</div></div>
+        <div class="num wh"><div class="lb">คลังนับได้</div><div class="v">475</div><div class="u">กระสอบ</div></div>
+        <div class="num diff bad"><div class="lb">ส่วนต่าง</div><div class="v">−5</div><div class="u">1.0%</div></div>
+        <div class="num"><div class="lb">คิดเป็นชิ้น</div><div class="v">5,700</div><div class="u">ชิ้น</div></div>
+      </div>
+
+      <div class="note" style="background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:12px">
+        📝 <b>เหตุผลจากคลัง:</b> ยังส่งไม่ครบ / ค้างที่ไลน์ — "อีก 5 กระสอบอยู่ที่ไลน์ จะส่งรอบบ่าย"
+      </div>
+
+      <div class="tl">
+        <div class="ev done"><b>สมชาย ใจดี</b> ลงยอดผลิต 480 กระสอบ <span class="t">· 08:12</span></div>
+        <div class="ev done">ระบบส่งลิงก์เข้ากลุ่ม Telegram + LINE <span class="t">· 08:12</span></div>
+        <div class="ev done"><b>วิภา คลังสินค้า</b> เปิดลิงก์ <span class="t">· 08:14</span></div>
+        <div class="ev done"><b>วิภา คลังสินค้า</b> ยืนยัน 475 กระสอบ (ต่าง −5) <span class="t">· 08:15</span></div>
+        <div class="ev now">รอหัวหน้างานอนุมัติ</div>
+      </div>
+
+      <div class="pickrow">
+        <span style="font-weight:600">ยึดตัวเลขไหนลง Sheet?</span>
+        <label><input type="radio" name="pick1" checked> คลังนับได้ <b>475</b></label>
+        <label><input type="radio" name="pick1"> ผลิตแจ้ง <b>480</b></label>
+      </div>
+
+      <div class="acts">
+        <button class="btn ok" onclick="toast('อนุมัติแล้ว — กำลังเขียนลง Google Sheet')">✅ อนุมัติ</button>
+        <button class="btn bad" onclick="toast('ต้องระบุเหตุผลก่อนปฏิเสธ')">❌ ปฏิเสธ</button>
+        <button class="btn ghost sm" onclick="toast('ส่งลิงก์ใหม่ให้คลังแล้ว')">🔄 ให้คลังนับใหม่</button>
+      </div>
+    </div>
+
+    <!-- รายการตรงกัน -->
+    <div class="rcard">
+      <div class="rhead">
+        <h4>Amazon850 ×12 <span class="note">· กะ1 · NGS</span></h4>
+        <span class="pill ok">ตัวเลขตรงกัน</span>
+        <span class="rid">RPT-1785261240098</span>
+      </div>
+      <div class="nums">
+        <div class="num"><div class="lb">แผน</div><div class="v">300</div><div class="u">กล่อง</div></div>
+        <div class="num prod"><div class="lb">ผลิตแจ้ง</div><div class="v">312</div><div class="u">กล่อง</div></div>
+        <div class="num wh"><div class="lb">คลังนับได้</div><div class="v">312</div><div class="u">กล่อง</div></div>
+        <div class="num diff good"><div class="lb">ส่วนต่าง</div><div class="v">0</div><div class="u">ตรงกัน</div></div>
+        <div class="num"><div class="lb">คิดเป็นชิ้น</div><div class="v">3,744</div><div class="u">ชิ้น</div></div>
+      </div>
+      <div class="tl">
+        <div class="ev done"><b>ประยุทธ์ ก.</b> ลงยอดผลิต 312 กล่อง <span class="t">· 07:58</span></div>
+        <div class="ev done"><b>วิภา คลังสินค้า</b> ยืนยัน 312 กล่อง <span class="t">· 08:06</span></div>
+        <div class="ev now">รอหัวหน้างานอนุมัติ</div>
+      </div>
+      <div class="acts">
+        <button class="btn ok" onclick="toast('อนุมัติแล้ว — กำลังเขียนลง Google Sheet')">✅ อนุมัติ</button>
+        <button class="btn bad" onclick="toast('ต้องระบุเหตุผลก่อนปฏิเสธ')">❌ ปฏิเสธ</button>
+      </div>
+      <p class="note" style="margin-top:8px">ถึงเลขจะตรงกัน ระบบก็ยังให้หัวหน้ากดอนุมัติทุกรายการตามที่ตกลงไว้</p>
+    </div>
+
+    <!-- อนุมัติแล้ว -->
+    <h3 style="font-size:16px;margin:22px 0 10px">อนุมัติแล้ววันนี้</h3>
+    <div class="rcard" style="opacity:.85">
+      <div class="rhead">
+        <h4>Syrup800 ×12 <span class="note">· กะ3 · Linear#1</span></h4>
+        <span class="pill ok">✓ ลง Sheet แล้ว</span>
+        <span class="rid">RPT-1785231118447</span>
+      </div>
+      <div class="nums">
+        <div class="num prod"><div class="lb">ผลิตแจ้ง</div><div class="v">240</div><div class="u">กล่อง</div></div>
+        <div class="num wh"><div class="lb">คลังนับได้</div><div class="v">240</div><div class="u">กล่อง</div></div>
+        <div class="num diff good"><div class="lb">ส่วนต่าง</div><div class="v">0</div><div class="u">ตรงกัน</div></div>
+        <div class="num"><div class="lb">อนุมัติโดย</div><div class="v" style="font-size:14px;padding-top:5px">หน.สมศักดิ์</div><div class="u">06:40</div></div>
+      </div>
+      <p class="note">เขียนลงชีต1 เรียบร้อย — คอลัมน์ "ยอดส่งคลัง" ได้เลขของคลังจริง พร้อมชื่อผู้ยืนยันและผู้อนุมัติ</p>
+    </div>
+  </div>
+</section>
+
+<div id="toast" role="status"></div>
+
+<script>
+  function go(v){
+    document.querySelectorAll('.view').forEach(function(s){ s.classList.remove('active'); });
+    var el = document.getElementById('view-' + v);
+    if (el) el.classList.add('active');
+    document.querySelectorAll('.stepbtn').forEach(function(b){
+      b.classList.toggle('on', b.dataset.go === v);
+    });
+    window.scrollTo({ top: 0 });
+  }
+  document.querySelectorAll('[data-go]').forEach(function(b){
+    b.addEventListener('click', function(){ go(b.dataset.go); });
+  });
+
+  // ทีมงานตามกะ (ของจริง) — ระบบเติมให้ ไม่ต้องพิมพ์ชื่อ
+  var TEAM = {
+    '1': ['อนุวัตร สุวรรณวงศ์', 'ดำรงค์ มีแก้ว', 'รัตนะ ธงเพ็ง', 'นพพร พิมพ์ทอง'],
+    '2': ['จักรกฤษ พูลสวัสดิ์', 'สุรศักดิ์ สรหงษ์', 'ศราวุธ เกษประทุม', 'เกรียงไกร ศรีนิล'],
+    '3': ['พัฒน์พริศร์ อ่ำอยู่', 'ไพรวรรณ ย้อนเพชร', 'รัชพล รัตนานนท์', 'สมเจตน์ การภักดี']
+  };
+  var teamBox = document.getElementById('teamBox');
+  var shiftPick = document.getElementById('shiftPick');
+  function countCrew(){
+    var n = teamBox.querySelectorAll('input:checked').length;
+    document.getElementById('crewN').textContent = n;
+  }
+  function drawTeam(s){
+    teamBox.innerHTML = '';
+    TEAM[s].forEach(function(name){
+      var l = document.createElement('label');
+      l.className = 'chk on';
+      l.innerHTML = '<input type="checkbox" checked> ' + name;
+      l.querySelector('input').addEventListener('change', function(e){
+        l.classList.toggle('on', e.target.checked); countCrew();
+      });
+      teamBox.appendChild(l);
+    });
+    countCrew();
+  }
+  if (teamBox){
+    drawTeam('1');
+    shiftPick.addEventListener('change', function(){
+      drawTeam(shiftPick.value);
+      toast('สลับทีมงานเป็น ' + shiftPick.options[shiftPick.selectedIndex].text + ' อัตโนมัติ');
+    });
+  }
+
+  // หน่วยนับเปลี่ยนตาม SKU ที่เลือก
+  var UNITS = { icing: 'กระสอบ', amazon: 'กล่อง', syrup: 'กล่อง', paste: 'หม้อ' };
+  var pick = document.getElementById('skuPick');
+  if (pick) pick.addEventListener('change', function(){
+    var u = UNITS[pick.value] || 'กล่อง';
+    document.getElementById('unitBox').value = u;
+    document.querySelectorAll('.u-lb').forEach(function(s){ s.textContent = u; });
+    toast('เปลี่ยนหน่วยนับเป็น "' + u + '" อัตโนมัติ');
+  });
+
+  // QR จำลอง (ลายคงที่ + finder pattern 3 มุม) — ของจริงจะ generate จาก token
+  (function(){
+    var box = document.getElementById('qrbox');
+    if (!box) return;
+    var N = 21, seed = 7;
+    function rnd(){ seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; }
+    function finder(r, c){
+      var pts = [[0,0],[0,14],[14,0]];
+      for (var i = 0; i < pts.length; i++){
+        var dr = r - pts[i][0], dc = c - pts[i][1];
+        if (dr >= 0 && dr < 7 && dc >= 0 && dc < 7){
+          var ring = Math.max(Math.abs(dr - 3), Math.abs(dc - 3));
+          return ring !== 2;
+        }
+      }
+      return null;
+    }
+    for (var r = 0; r < N; r++){
+      for (var c = 0; c < N; c++){
+        var cell = document.createElement('i');
+        var f = finder(r, c);
+        if (f === null ? rnd() > 0.52 : f) cell.className = 'on';
+        box.appendChild(cell);
+      }
+    }
+  })();
+
+  var tId;
+  function toast(msg){
+    var t = document.getElementById('toast');
+    t.textContent = msg; t.classList.add('show');
+    clearTimeout(tId); tId = setTimeout(function(){ t.classList.remove('show'); }, 2600);
+  }
+</script>
+</body>
+</html>

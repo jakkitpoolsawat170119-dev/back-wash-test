@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockup — จัดหน้า UI ใหม่ (Back-Wash App)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@500;600;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --brand:#ff6b00;
+    --brand-deep:#c24f00;
+    --brand-soft:#fff3ea;
+    --ink:#2b2119;
+    --ink-soft:#6d6259;
+    --paper:#faf7f4;
+    --card:#ffffff;
+    --line:#eee3d9;
+    --ok:#1c8a4c;
+    --warn:#c77700;
+    --danger:#c62828;
+    --cip1:#1565c0;
+    --cip2:#01579b;
+    --cip3:#006064;
+    --cipx:#6a1b9a;
+    --chat:#0f7a6c;
+    /* admin dark tokens */
+    --a-bg:#12100e;
+    --a-panel:#1c1917;
+    --a-panel-2:#242019;
+    --a-line:#37312a;
+    --a-ink:#f3ede6;
+    --a-ink-soft:#a89e92;
+    --radius:16px;
+    --shadow-card:0 1px 2px rgba(63,37,10,.06),0 6px 18px -6px rgba(63,37,10,.12);
+    --shadow-float:0 2px 4px rgba(63,37,10,.08),0 16px 40px -12px rgba(63,37,10,.22);
+    --font-head:'Kanit',sans-serif;
+    --font-body:'Sarabun',sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    font-family:var(--font-body);color:var(--ink);background:var(--paper);
+    line-height:1.7;min-height:100vh;
+    display:flex;flex-direction:column;
+    background-image:
+      radial-gradient(1200px 500px at 85% -10%, rgba(255,107,0,.07), transparent 60%),
+      radial-gradient(900px 420px at -10% 20%, rgba(21,101,192,.05), transparent 55%);
+  }
+  h1,h2,h3,h4{font-family:var(--font-head);letter-spacing:-.02em;line-height:1.3;color:var(--ink)}
+  button{font-family:inherit;cursor:pointer}
+  button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid rgba(255,107,0,.5);outline-offset:2px}
+  input{font-family:inherit}
+  .view{display:none}
+  .view.active{display:block}
+  #view-home.active{display:flex;flex-direction:column;flex:1}
+
+  /* ===== mock ribbon ===== */
+  .ribbon{
+    text-align:center;
+    background:#2b2119;color:#ffd9bd;font-size:12px;padding:3px 10px;letter-spacing:.02em;
+  }
+  /* ===== top bar (light pages) ===== */
+  .topbar{
+    position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:8px;
+    padding:10px 14px;
+    background:rgba(250,247,244,.85);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .topbar .logo{display:flex;align-items:center;gap:8px;margin-right:4px;white-space:nowrap}
+  .lg-word{font-family:var(--font-head);font-weight:700;font-size:17px;letter-spacing:-.02em;color:var(--ink)}
+  .lg-word em{font-style:normal;color:var(--brand)}
+  .nav{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;flex:1}
+  .nav::-webkit-scrollbar{display:none}
+  .navbtn{
+    border:1px solid transparent;background:transparent;color:var(--ink-soft);
+    padding:7px 14px;border-radius:999px;font-size:14px;font-weight:600;white-space:nowrap;
+    transition:background-color .15s ease,color .15s ease,transform .12s cubic-bezier(.2,.9,.3,1.4);
+  }
+  .navbtn:hover{background:#f1e8df;color:var(--ink)}
+  .navbtn:active{transform:scale(.95)}
+  .navbtn.on{background:var(--ink);color:#fff}
+  .navbtn.admin.on{background:var(--brand);color:#fff}
+  .chip-op{
+    display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--ink);
+    background:var(--card);border:1px solid var(--line);padding:5px 12px;border-radius:999px;white-space:nowrap;
+  }
+  .chip-op .dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+  .iconbtn{
+    width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--card);
+    font-size:15px;display:grid;place-items:center;flex:none;
+    transition:background-color .15s ease,transform .12s cubic-bezier(.2,.9,.3,1.4);
+  }
+  .iconbtn:hover{background:#f1e8df}
+  .iconbtn:active{transform:scale(.9)}
+  @media(max-width:640px){
+    .topbar{padding:8px 10px;gap:6px}
+    .topbar .logo .lg-word{display:none}
+    .navbtn{padding:6px 11px;font-size:13px}
+    .navbtn .nic{display:none}
+    .chip-op{font-size:12px;padding:4px 10px}
+    .iconbtn{width:32px;height:32px;font-size:13px}
+  }
+  @media(max-width:420px){.chip-op span.opname{display:none}}
+
+  .wrap{max-width:1060px;margin:0 auto;padding:22px 16px 90px}
+
+  /* ===== HOME ===== */
+  .launch{display:grid;gap:16px;grid-template-columns:1fr;margin-top:12px}
+  @media(min-width:760px){.launch{grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr}}
+  .lcard{
+    position:relative;display:flex;flex-direction:column;gap:8px;text-align:left;
+    background:var(--card);border:1px solid var(--line);border-radius:20px;padding:22px 20px;
+    box-shadow:var(--shadow-card);overflow:hidden;
+    transition:transform .18s cubic-bezier(.2,.9,.3,1.3),box-shadow .18s ease;
+  }
+  .lcard:hover{transform:translateY(-3px);box-shadow:var(--shadow-float)}
+  .lcard:active{transform:translateY(-1px) scale(.99)}
+  .lcard .ic{font-size:30px;line-height:1}
+  .lcard h3{font-size:21px;font-weight:600}
+  .lcard p{font-size:13.5px;color:var(--ink-soft);line-height:1.6}
+  .lcard .status{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto;padding-top:10px}
+  .pill{font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;background:var(--brand-soft);color:var(--brand-deep)}
+  .pill.blue{background:#e8f1fb;color:var(--cip1)}
+  .pill.ok{background:#e6f4ec;color:var(--ok)}
+  .pill.warn{background:#fdf1de;color:var(--warn)}
+  .lcard.prod::after,.lcard.cip::after,.lcard.stick::after{
+    content:"";position:absolute;inset:auto -30px -40px auto;width:150px;height:150px;border-radius:50%;
+    background:radial-gradient(circle, rgba(255,107,0,.12), transparent 70%);pointer-events:none;
+  }
+  .lcard.cip::after{background:radial-gradient(circle, rgba(21,101,192,.12), transparent 70%)}
+  .lcard.stick::after{background:radial-gradient(circle, rgba(15,122,108,.14), transparent 70%)}
+  .pill.teal{background:#e8f6f3;color:var(--chat)}
+
+  /* ===== HOME FOOTER ===== */
+  .home-foot{margin-top:auto;border-top:1px solid var(--line);background:#f3ebe1}
+  .foot-in{max-width:1060px;margin:0 auto;padding:16px}
+  .flogo{display:flex;align-items:center;gap:8px}
+  .flogo .lg-word{font-size:16px}
+
+  /* ===== section shells ===== */
+  .pagehead{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;margin:18px 0 14px;flex-wrap:wrap}
+  .pagehead h2{font-size:clamp(22px,4vw,28px);font-weight:700;letter-spacing:-.03em}
+  .pagehead .sub{font-size:13px;color:var(--ink-soft)}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow-card);padding:16px;
+  }
+  /* ===== lock banner ===== */
+  .lockbar{
+    display:flex;align-items:center;gap:10px;background:#fdf1de;border:1px solid #f0ddb8;color:#7a5200;
+    border-radius:12px;padding:9px 14px;font-size:13.5px;font-weight:600;margin-bottom:14px;
+  }
+
+  /* ===== CIP ===== */
+  .seg{
+    display:flex;gap:4px;background:#f1e8df;border-radius:14px;padding:4px;overflow-x:auto;scrollbar-width:none;
+  }
+  .seg::-webkit-scrollbar{display:none}
+  .seg button{
+    flex:1;min-width:86px;border:none;background:transparent;border-radius:10px;padding:9px 12px;
+    font-size:14px;font-weight:700;font-family:var(--font-head);color:var(--ink-soft);white-space:nowrap;
+    display:flex;align-items:center;justify-content:center;gap:7px;
+    transition:background-color .15s ease,color .15s ease,transform .12s ease;
+  }
+  .seg button:active{transform:scale(.96)}
+  .seg button .ldot{width:9px;height:9px;border-radius:50%;flex:none;opacity:.55}
+  .seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(63,37,10,.15)}
+  .seg button.on .ldot{opacity:1}
+  .cip-pane{display:none;margin-top:16px}
+  .cip-pane.active{display:block}
+  .cip-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .cip-head h3{font-size:18px;display:flex;align-items:center;gap:8px}
+  .cip-head h3 .bar{width:5px;height:20px;border-radius:3px}
+  .btn{
+    border:none;border-radius:12px;padding:9px 16px;font-size:14px;font-weight:700;color:#fff;background:var(--brand);
+    box-shadow:0 2px 8px -2px rgba(255,107,0,.5);
+    transition:transform .12s cubic-bezier(.2,.9,.3,1.4),box-shadow .15s ease,background-color .15s ease;
+  }
+  .btn:hover{box-shadow:0 4px 14px -3px rgba(255,107,0,.6)}
+  .btn:active{transform:scale(.95)}
+  .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);box-shadow:none}
+  .btn.ghost:hover{background:#f1e8df}
+  .btn.small{padding:6px 12px;font-size:13px;border-radius:10px}
+  table.mock{width:100%;border-collapse:collapse;font-size:13px}
+  table.mock th{
+    text-align:left;font-family:var(--font-head);font-weight:600;font-size:12px;color:var(--ink-soft);
+    border-bottom:1px solid var(--line);padding:7px 8px;white-space:nowrap;
+  }
+  table.mock td{border-bottom:1px solid #f5eee7;padding:8px;white-space:nowrap}
+  .tscroll{overflow-x:auto}
+  .field{display:inline-block;background:#f7f1ea;border:1px solid var(--line);border-radius:8px;padding:2px 8px;min-width:52px;text-align:center}
+  .stamp{font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:999px}
+  .stamp.ok{background:#e6f4ec;color:var(--ok)}
+  .stamp.run{background:#fff3ea;color:var(--brand-deep)}
+  .stamp.wait{background:#efe9e2;color:var(--ink-soft)}
+  .stamp.bad{background:#fdecea;color:var(--danger)}
+  .subcard{border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:12px}
+  .subcard h4{font-size:14.5px;margin-bottom:8px;color:var(--ink)}
+  .thumbrow{display:flex;gap:8px;flex-wrap:wrap}
+  .thumb{
+    width:74px;height:56px;border-radius:8px;border:1px solid var(--line);position:relative;overflow:hidden;
+    background:linear-gradient(140deg,#dfe9f3,#c8d7e8);display:grid;place-items:center;font-size:20px;
+  }
+  .thumb::after{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.28),transparent 55%)}
+  .thumb.add{background:#f7f1ea;border-style:dashed;font-size:22px;color:var(--ink-soft)}
+  .thumb.add::after{display:none}
+  .checks{display:flex;gap:14px;flex-wrap:wrap;font-size:13.5px}
+  .checks label{display:flex;align-items:center;gap:6px}
+  .steps{list-style:none;display:flex;flex-direction:column;gap:0}
+  .steps li{display:flex;gap:12px;padding:10px 4px;border-bottom:1px solid #f5eee7;align-items:flex-start}
+  .steps .no{
+    width:26px;height:26px;border-radius:50%;flex:none;display:grid;place-items:center;
+    font-family:var(--font-head);font-weight:600;font-size:12.5px;background:#efe9e2;color:var(--ink-soft);margin-top:2px;
+  }
+  .steps li.done .no{background:#e6f4ec;color:var(--ok)}
+  .steps li.run .no{background:var(--brand);color:#fff}
+  .steps .body{flex:1;min-width:0}
+  .steps .body b{font-size:14px;font-weight:600}
+  .steps .meta{font-size:12.5px;color:var(--ink-soft)}
+
+  /* ===== PRODUCTION ===== */
+  .linechips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .linechips button{
+    border:1px solid var(--line);background:var(--card);border-radius:999px;padding:7px 16px;font-weight:700;
+    font-family:var(--font-head);font-size:13.5px;color:var(--ink-soft);
+    transition:background-color .15s ease,color .15s ease,transform .12s ease;
+  }
+  .linechips button:hover{background:#f1e8df}
+  .linechips button:active{transform:scale(.95)}
+  .linechips button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+  .bgrid{display:grid;gap:12px;grid-template-columns:1fr}
+  @media(min-width:700px){.bgrid{grid-template-columns:1fr 1fr 1fr}}
+  .bcard h4{display:flex;justify-content:space-between;align-items:center;font-size:16px}
+  .bcard .kv{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:13px;margin-top:8px}
+  .bcard .kv span:nth-child(odd){color:var(--ink-soft)}
+  .bcard .kv span:nth-child(even){font-weight:600;text-align:right}
+
+  /* ===== STICKER CHAT ===== */
+  .chatbox{display:flex;flex-direction:column;gap:12px;min-height:340px}
+  .chat-msg{max-width:78%;padding:10px 14px;border-radius:14px;font-size:14px;line-height:1.6}
+  .chat-msg.me{align-self:flex-end;background:var(--ink);color:#fff;border-bottom-right-radius:4px}
+  .chat-msg.bot{align-self:flex-start;background:#f4ede6;color:var(--ink);border-bottom-left-radius:4px}
+  .chat-input{display:flex;gap:8px;margin-top:auto;padding-top:6px}
+  .chat-input input{
+    flex:1;border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:14px;
+    font-family:inherit;transition:border-color .15s ease;
+  }
+  .chat-input input:focus{border-color:var(--chat)}
+
+  /* ===== ADMIN LOGIN ===== */
+  #view-adminlogin{min-height:calc(100vh - 60px);display:none}
+  #view-adminlogin.active{display:grid;place-items:center;padding:40px 16px}
+  .logincard{
+    width:min(380px,100%);background:linear-gradient(150deg,#1c1917,#282219);border:1px solid #3a332b;
+    border-radius:22px;padding:30px 26px;color:var(--a-ink);box-shadow:0 8px 24px rgba(20,12,4,.35),0 30px 70px -20px rgba(20,12,4,.5);
+  }
+  .logincard .lock{
+    width:52px;height:52px;border-radius:16px;display:grid;place-items:center;font-size:24px;margin-bottom:14px;
+    background:radial-gradient(circle at 30% 25%,#ff8a33,var(--brand) 70%);box-shadow:0 6px 16px -4px rgba(255,107,0,.55);
+  }
+  .logincard h2{color:var(--a-ink);font-size:22px;margin-bottom:2px}
+  .logincard .sub{font-size:13px;color:var(--a-ink-soft);margin-bottom:20px}
+  .logincard label{display:block;font-size:12.5px;font-weight:600;color:var(--a-ink-soft);margin:12px 0 5px}
+  .logincard input{
+    width:100%;background:#12100e;border:1px solid #3a332b;border-radius:10px;color:var(--a-ink);
+    padding:10px 12px;font-size:14.5px;transition:border-color .15s ease;
+  }
+  .logincard input:focus{border-color:var(--brand)}
+  .logincard .btn{width:100%;margin-top:20px;padding:11px}
+  .logincard .hint{font-size:11.5px;color:#7d7264;text-align:center;margin-top:12px}
+
+  /* ===== ADMIN DASHBOARD ===== */
+  #view-admin.active{display:block;min-height:100vh;background:var(--a-bg);color:var(--a-ink)}
+  #view-admin h1,#view-admin h2,#view-admin h3,#view-admin h4{color:var(--a-ink)}
+  .atop{
+    position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:8px;
+    background:rgba(18,16,14,.9);backdrop-filter:blur(10px);border-bottom:1px solid #2a251f;padding:10px 18px;
+  }
+  .atop .logo{margin-right:2px}
+  .atop-tag{font-size:12px;color:var(--a-ink-soft);font-weight:600;margin-right:auto;white-space:nowrap}
+  .abtn{
+    border:1px solid #2f2a23;background:#1c1917;color:var(--a-ink-soft);
+    padding:7px 13px;border-radius:10px;font-size:13.5px;font-weight:600;white-space:nowrap;
+    display:flex;align-items:center;gap:6px;
+    transition:background-color .15s ease,color .15s ease,transform .12s ease;
+  }
+  .abtn:hover{background:#241f18;color:var(--a-ink)}
+  .abtn:active{transform:scale(.96)}
+  .abtn.on{background:linear-gradient(90deg,rgba(255,107,0,.22),rgba(255,107,0,.08));color:#ffb87a;border-color:#4a3420}
+  .abtn.ghost{background:transparent}
+  .amain{display:flex;align-items:flex-start;max-width:1300px;margin:0 auto}
+  .aside-r{
+    width:220px;flex:none;border-right:1px solid var(--a-line);
+    padding:20px 14px 40px;display:flex;flex-direction:column;gap:2px;
+    position:sticky;top:57px;
+  }
+  .rsbtn{
+    display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:none;background:transparent;
+    color:var(--a-ink-soft);font-size:13.5px;font-weight:600;padding:9px 10px;border-radius:10px;
+    transition:background-color .15s ease,color .15s ease;
+  }
+  .rsbtn:hover{background:#221d17;color:var(--a-ink)}
+  .rsbtn.on{background:linear-gradient(90deg,rgba(255,107,0,.18),rgba(255,107,0,.06));color:#ffb87a}
+  .rsbtn .ic{width:20px;text-align:center;font-size:15px}
+  .rsbtn .tag{margin-left:auto;font-size:10px;background:#3a2c1c;color:#ffb87a;border-radius:999px;padding:1px 7px;font-weight:700}
+  .rsbtn.sub{padding-left:30px;font-size:12.5px}
+  .rsbtn.sub .ic{width:16px;font-size:13px}
+  @media(min-width:821px){.menuwrap{display:none}}
+  @media(max-width:820px){.aside-r{display:none}}
+  .menuwrap{position:relative}
+  .menu-dd{
+    position:absolute;top:calc(100% + 8px);left:0;min-width:230px;max-width:min(260px,calc(100vw - 32px));
+    background:#1c1917;border:1px solid #2f2a23;border-radius:14px;padding:6px;
+    box-shadow:0 10px 30px -8px rgba(0,0,0,.55),0 2px 8px rgba(0,0,0,.3);
+    display:none;flex-direction:column;gap:1px;z-index:60;max-height:70vh;overflow-y:auto;
+  }
+  .menu-dd.open{display:flex}
+  .menu-dd button{
+    display:flex;align-items:center;gap:9px;width:100%;text-align:left;border:none;background:transparent;
+    color:var(--a-ink-soft);font-size:13.5px;font-weight:600;padding:9px 10px;border-radius:9px;
+    transition:background-color .15s ease,color .15s ease;
+  }
+  .menu-dd button:hover{background:#241f18;color:var(--a-ink)}
+  .menu-dd button.on{background:linear-gradient(90deg,rgba(255,107,0,.18),rgba(255,107,0,.06));color:#ffb87a}
+  .menu-dd button .ic{width:18px;text-align:center;font-size:14px}
+  .menu-dd button .tag{margin-left:auto;font-size:10px;background:#3a2c1c;color:#ffb87a;border-radius:999px;padding:1px 7px;font-weight:700}
+  .menu-dd button.sub{padding-left:28px;font-size:12.5px}
+  .menu-dd button.sub .ic{width:15px;font-size:12.5px}
+  .dd-sep{height:1px;background:#2a251f;margin:5px 4px}
+  .search{
+    flex:1;min-width:160px;max-width:320px;display:flex;align-items:center;gap:8px;background:#1c1917;border:1px solid #2f2a23;
+    border-radius:10px;padding:7px 12px;color:#7d7264;font-size:13px;
+  }
+  .sys{display:flex;align-items:center;gap:6px;font-size:12.5px;color:#7fd6a1;font-weight:600;white-space:nowrap}
+  .sys .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px rgba(28,138,76,.9)}
+  .achip{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;background:#1c1917;border:1px solid #2f2a23;border-radius:999px;padding:5px 12px;white-space:nowrap}
+  .achip .av{width:22px;height:22px;border-radius:50%;background:var(--brand);display:grid;place-items:center;font-size:11px;color:#fff}
+  .abody{padding:20px 18px 60px;flex:1;min-width:0}
+  .apane{display:none}
+  .apane.active{display:block}
+  .abody .htitle{font-size:clamp(20px,3.2vw,26px);font-weight:700;letter-spacing:-.03em;margin-bottom:2px}
+  .abody .hsub{font-size:13px;color:var(--a-ink-soft);margin-bottom:18px}
+  .stats{display:grid;gap:12px;grid-template-columns:1fr 1fr;margin-bottom:16px}
+  @media(min-width:860px){.stats{grid-template-columns:repeat(4,1fr)}}
+  .stat{
+    background:linear-gradient(150deg,var(--a-panel),var(--a-panel-2));border:1px solid var(--a-line);
+    border-radius:16px;padding:14px 16px;position:relative;overflow:hidden;
+  }
+  .stat .lb{font-size:12px;color:var(--a-ink-soft);font-weight:600}
+  .stat .v{font-family:var(--font-head);font-size:26px;font-weight:700;letter-spacing:-.02em;margin:2px 0}
+  .stat .d{font-size:11.5px;color:var(--a-ink-soft)}
+  .stat .d b{font-weight:700}
+  .stat .d .up{color:#7fd6a1}.stat .d .down{color:#ff9d80}
+  .stat .glow{position:absolute;right:-24px;top:-24px;width:90px;height:90px;border-radius:50%;pointer-events:none}
+  .prg{height:6px;border-radius:99px;background:#2c2620;margin-top:8px;overflow:hidden}
+  .prg i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--brand),#ffa24d)}
+  .cols{display:grid;gap:14px;grid-template-columns:1fr}
+  @media(min-width:900px){.cols{grid-template-columns:1.4fr 1fr}}
+  .panel{background:var(--a-panel);border:1px solid var(--a-line);border-radius:16px;padding:16px}
+  .panel h3{font-size:15.5px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between}
+  .panel h3 .more{font-size:12px;color:#ffb87a;font-weight:600;background:none;border:none;padding:2px 4px;border-radius:6px}
+  .panel h3 .more:hover{background:#2a231b}
+  .feed{list-style:none;display:flex;flex-direction:column}
+  .feed li{display:flex;gap:12px;padding:9px 0;border-bottom:1px solid #262119;font-size:13.5px;align-items:flex-start}
+  .feed li:last-child{border-bottom:none}
+  .feed .t{font-family:var(--font-head);font-size:12px;color:var(--a-ink-soft);width:44px;flex:none;margin-top:2px}
+  .feed .fic{width:26px;height:26px;flex:none;border-radius:8px;display:grid;place-items:center;font-size:13px;background:#262019}
+  .feed .body{color:#d9d0c5;line-height:1.55}
+  .feed .body b{color:var(--a-ink)}
+  .feed .body small{display:block;font-size:11.5px;color:var(--a-ink-soft)}
+  .person{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #262119}
+  .person:last-child{border-bottom:none}
+  .person .av{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:13px;color:#fff;flex:none}
+  .person .nm{font-size:13.5px;font-weight:700}
+  .person .rl{font-size:11.5px;color:var(--a-ink-soft)}
+  .person .right{margin-left:auto;text-align:right;font-size:12px;color:var(--a-ink-soft);flex:none}
+  .person .prg{width:74px;margin-top:5px}
+  .alist{list-style:none;display:flex;flex-direction:column;gap:8px}
+  .alert{display:flex;gap:10px;font-size:13px;background:#241d15;border:1px solid #3d3227;border-radius:10px;padding:9px 12px;align-items:flex-start}
+  .alert.red{background:#291b18;border-color:#4a2c26}
+  .alert .body b{display:block}
+  .alert .body small{color:var(--a-ink-soft)}
+  /* placeholder panes */
+  .ph-note{
+    font-size:13px;color:#d9d0c5;background:#241f18;border:1px dashed #4a4033;border-radius:12px;
+    padding:10px 14px;margin-bottom:16px;
+  }
+  .ph-note b{color:#ffb87a}
+  .skel{display:flex;flex-direction:column;gap:10px}
+  .skel .row{display:flex;gap:10px}
+  .sk{background:linear-gradient(90deg,#221d17,#2a241c,#221d17);background-size:200% 100%;border-radius:10px;animation:shim 1.6s linear infinite}
+  @keyframes shim{to{background-position:-200% 0}}
+  .sk.h40{height:40px}.sk.h90{height:90px}.sk.h140{height:140px}
+  .sk.w1{flex:1}.sk.w2{flex:2}.sk.w3{flex:3}
+
+  @media(max-width:820px){
+    .search{display:none}
+  }
+  @media(max-width:480px){
+    .atop-tag{display:none}
+    .abtn .tx{display:none}
+    .menu-dd{position:fixed;left:12px;right:12px;max-width:none;min-width:0}
+  }
+
+  /* toast */
+  #toast{
+    position:fixed;left:50%;bottom:26px;transform:translate(-50%,20px);z-index:100;
+    background:#2b2119;color:#fff;font-size:13.5px;font-weight:600;padding:10px 18px;border-radius:999px;
+    opacity:0;pointer-events:none;transition:opacity .2s ease,transform .2s cubic-bezier(.2,.9,.3,1.3);
+    box-shadow:0 10px 30px -8px rgba(20,12,4,.5);max-width:90vw;text-align:center;
+  }
+  #toast.show{opacity:1;transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+
+<div class="ribbon">MOCKUP — เดโมจัดหน้า UI ใหม่ · ข้อมูลทั้งหมดเป็นตัวอย่าง ยังไม่เชื่อมระบบจริง</div>
+
+<!-- ============ TOP BAR (light pages) ============ -->
+<header class="topbar" id="topbar">
+  <div class="logo">
+    <svg width="28" height="28" viewBox="0 0 34 34" aria-hidden="true">
+      <defs><linearGradient id="lg-tb" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff6b00"/><stop offset="1" stop-color="#ff8c00"/></linearGradient></defs>
+      <rect x="1" y="1" width="32" height="32" rx="9.5" fill="url(#lg-tb)" stroke="rgba(255,255,255,.35)" stroke-width="1.2"/>
+      <path transform="translate(5.5,5.5) scale(0.96)" d="M12 2.5C8.5 7 5.5 10.8 5.5 14.2C5.5 18.1 8.4 21 12 21C15.6 21 18.5 18.1 18.5 14.2C18.5 10.8 15.5 7 12 2.5Z" fill="#fff"/>
+      <path transform="translate(5.5,5.5) scale(0.96)" d="M9 14.3C9 16.4 10.5 18 12.4 17.96" stroke="#ff8c00" stroke-width="1.6" stroke-linecap="round" opacity=".55" fill="none"/>
+    </svg>
+    <span class="lg-word">SPP<em>-MP</em></span>
+  </div>
+  <nav class="nav">
+    <button class="navbtn on" data-go="home"><span class="nic">🏠 </span>หน้าหลัก</button>
+    <button class="navbtn" data-go="production"><span class="nic">🏭 </span>ผลิต</button>
+    <button class="navbtn" data-go="cip"><span class="nic">💧 </span>CIP</button>
+    <button class="navbtn admin" data-go="adminlogin"><span class="nic">🔐 </span>Admin</button>
+  </nav>
+  <span class="chip-op"><span class="dot"></span><span class="opname">ม้ำ</span></span>
+  <button class="iconbtn" onclick="toast('โหมดมืดทั้งแอป: จะทำในระบบจริง (mockup โชว์เฉพาะปุ่ม)')" aria-label="สลับโหมดมืด">🌙</button>
+</header>
+
+<!-- ============ HOME ============ -->
+<section class="view active" id="view-home">
+  <div class="wrap">
+    <div class="launch">
+      <button class="lcard prod" data-go="production">
+        <span class="ic">🏭</span>
+        <h3>บันทึกการผลิต</h3>
+        <p>ลงบันทึก batch, brix, pH, lot และเวลาเริ่ม–จบ ของแต่ละ Line</p>
+        <span class="status">
+          <span class="pill">แผนวันนี้ 3 batch · 300 กล่อง</span>
+          <span class="pill ok">batch A เสร็จแล้ว</span>
+        </span>
+      </button>
+      <button class="lcard cip" data-go="cip">
+        <span class="ic">💧</span>
+        <h3>CIP</h3>
+        <p>ล้างระบบ Line 1 · Line 2 · Line 3 และ CIP ทดลอง — รวมอยู่หน้าเดียว</p>
+        <span class="status">
+          <span class="pill blue">Line 2 กำลังทำอยู่ — นาย</span>
+          <span class="pill warn">Line 1 ครบกำหนดวันนี้</span>
+        </span>
+      </button>
+      <button class="lcard stick" data-go="stickerchat">
+        <span class="ic">💬</span>
+        <h3>วิธีติดสติ๊กเกอร์</h3>
+        <p>ถาม AI หาวิธีติดสติ๊กเกอร์ตามลูกค้าแต่ละเจ้า พร้อมรูปประกอบ</p>
+        <span class="status">
+          <span class="pill teal">ถามล่าสุด: ลูกค้า ABC</span>
+          <span class="pill ok">พร้อมใช้งาน</span>
+        </span>
+      </button>
+    </div>
+  </div>
+
+  <footer class="home-foot">
+    <div class="foot-in">
+      <div class="flogo">
+        <svg width="26" height="26" viewBox="0 0 34 34" aria-hidden="true">
+          <defs><linearGradient id="lg-ft" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff6b00"/><stop offset="1" stop-color="#ff8c00"/></linearGradient></defs>
+          <rect x="1" y="1" width="32" height="32" rx="9.5" fill="url(#lg-ft)" stroke="rgba(255,255,255,.35)" stroke-width="1.2"/>
+          <path transform="translate(5.5,5.5) scale(0.96)" d="M12 2.5C8.5 7 5.5 10.8 5.5 14.2C5.5 18.1 8.4 21 12 21C15.6 21 18.5 18.1 18.5 14.2C18.5 10.8 15.5 7 12 2.5Z" fill="#fff"/>
+          <path transform="translate(5.5,5.5) scale(0.96)" d="M9 14.3C9 16.4 10.5 18 12.4 17.96" stroke="#ff8c00" stroke-width="1.6" stroke-linecap="round" opacity=".55" fill="none"/>
+        </svg>
+        <span class="lg-word">SPP<em>-MP</em></span>
+      </div>
+    </div>
+  </footer>
+</section>
+
+<!-- ============ PRODUCTION ============ -->
+<section class="view" id="view-production">
+  <div class="wrap">
+    <div class="pagehead">
+      <div>
+        <h2>🏭 บันทึกการผลิต</h2>
+        <div class="sub">อังคาร 26 ก.ค. · กะเช้า · ผู้บันทึก: ม้ำ</div>
+      </div>
+      <button class="btn small ghost" onclick="toast('ประวัติการผลิต (mock)')">📜 ประวัติ</button>
+    </div>
+    <div class="lockbar">🔓 คุณถือสิทธิ์แก้ไขหน้านี้อยู่ (page lock) — คนอื่นจะเห็นเป็นอ่านอย่างเดียว</div>
+    <div class="linechips">
+      <button class="on">Line 1</button><button>Line 2</button><button>Line 3</button>
+    </div>
+    <div class="bgrid">
+      <div class="card bcard">
+        <h4>Batch A <span class="stamp ok">เสร็จแล้ว</span></h4>
+        <div class="kv">
+          <span>รสชาติ</span><span>ส้ม</span>
+          <span>Cooking batch</span><span>กข-14</span>
+          <span>Brix / pH</span><span>12.4 / 3.62</span>
+          <span>Lot</span><span>L1-260726-A</span>
+          <span>เวลา</span><span>06:15 – 08:40</span>
+        </div>
+      </div>
+      <div class="card bcard">
+        <h4>Batch B <span class="stamp run">กำลังผลิต</span></h4>
+        <div class="kv">
+          <span>รสชาติ</span><span>องุ่นเคนยา</span>
+          <span>Cooking batch</span><span>กข-15</span>
+          <span>Brix / pH</span><span>12.1 / <b style="color:var(--danger)">3.95 ⚠</b></span>
+          <span>Lot</span><span>L1-260726-B</span>
+          <span>เวลา</span><span>09:05 – …</span>
+        </div>
+      </div>
+      <div class="card bcard" style="opacity:.75">
+        <h4>Batch C <span class="stamp wait">รอคิว</span></h4>
+        <div class="kv">
+          <span>รสชาติ</span><span>ลิ้นจี่</span>
+          <span>Cooking batch</span><span>—</span>
+          <span>Brix / pH</span><span>— / —</span>
+          <span>Lot</span><span>—</span>
+          <span>เวลา</span><span>ตามแผน ~13:00</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ STICKER CHAT ============ -->
+<section class="view" id="view-stickerchat">
+  <div class="wrap">
+    <div class="pagehead">
+      <div>
+        <h2>💬 วิธีติดสติ๊กเกอร์</h2>
+        <div class="sub">ถาม AI หาวิธีติดสติ๊กเกอร์ตามลูกค้า พร้อมรูปประกอบ</div>
+      </div>
+      <button class="btn small ghost" onclick="toast('ประวัติการถาม (mock)')">📜 ประวัติ</button>
+    </div>
+    <div class="card chatbox">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="chat-msg me">ลูกค้า ABC ติดสติ๊กเกอร์ยังไง?</div>
+        <div class="chat-msg bot">
+          ลูกค้า <b>ABC</b> ติดสติ๊กเกอร์แบบพาดฝา — แนวทแยง 45° เริ่มจากขอบซ้ายบน
+          <div class="thumbrow" style="margin-top:8px"><div class="thumb">📷</div><div class="thumb">📷</div></div>
+        </div>
+        <div class="chat-msg me">แล้วลูกค้า XYZ ล่ะ?</div>
+        <div class="chat-msg bot">ลูกค้า <b>XYZ</b> ใช้แบบติดรอบขวด 2 ดวง บน–ล่าง ระยะห่าง 3 ซม.</div>
+      </div>
+      <div class="chat-input">
+        <input type="text" placeholder="พิมพ์ชื่อลูกค้าหรือคำถาม…">
+        <button class="btn small" onclick="toast('ส่งคำถาม (mock)')">ส่ง</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CIP (unified) ============ -->
+<section class="view" id="view-cip">
+  <div class="wrap">
+    <div class="pagehead">
+      <div>
+        <h2>💧 CIP — ทุก Line ในหน้าเดียว</h2>
+        <div class="sub">เลือก Line ด้านล่าง · ฟอร์มของแต่ละ Line ยังเป็นชุดเดิม</div>
+      </div>
+      <button class="btn small ghost" onclick="toast('ประวัติ CIP รวมทุก Line (mock)')">📜 ประวัติรวม</button>
+    </div>
+
+    <div class="seg" id="cipseg">
+      <button class="on" data-cip="1"><span class="ldot" style="background:var(--cip1)"></span>Line 1</button>
+      <button data-cip="2"><span class="ldot" style="background:var(--cip2)"></span>Line 2</button>
+      <button data-cip="3"><span class="ldot" style="background:var(--cip3)"></span>Line 3</button>
+      <button data-cip="x"><span class="ldot" style="background:var(--cipx)"></span>⚗️ ทดลอง</button>
+    </div>
+
+    <!-- Line 1 -->
+    <div class="cip-pane active" id="cip-1">
+      <div class="cip-head">
+        <h3><span class="bar" style="background:var(--cip1)"></span>Line 1 <span class="stamp warn" style="background:#fdf1de;color:#7a5200">ครบกำหนดวันนี้</span></h3>
+        <button class="btn small">▶ เริ่ม CIP Line 1</button>
+      </div>
+      <div class="card">
+        <div class="subcard" style="margin-top:0">
+          <h4>Main</h4>
+          <div class="tscroll"><table class="mock">
+            <tr><th>ขั้นตอน</th><th>เวลา</th><th>pH</th><th>Brix</th><th>สถานะ</th></tr>
+            <tr><td>Rinse น้ำร้อน</td><td><span class="field">06:10</span></td><td><span class="field">7.1</span></td><td><span class="field">0.2</span></td><td><span class="stamp ok">ผ่าน</span></td></tr>
+            <tr><td>Caustic 2%</td><td><span class="field">06:35</span></td><td><span class="field">12.4</span></td><td><span class="field">—</span></td><td><span class="stamp ok">ผ่าน</span></td></tr>
+            <tr><td>Final rinse</td><td><span class="field">—</span></td><td><span class="field">—</span></td><td><span class="field">—</span></td><td><span class="stamp wait">รอ</span></td></tr>
+          </table></div>
+        </div>
+        <div class="subcard">
+          <h4>Back Rinse</h4>
+          <div class="tscroll"><table class="mock">
+            <tr><th>รอบ</th><th>เวลา</th><th>pH</th><th>Brix</th></tr>
+            <tr><td>รอบ 1</td><td><span class="field">07:02</span></td><td><span class="field">6.9</span></td><td><span class="field">0.0</span></td></tr>
+          </table></div>
+        </div>
+        <div class="subcard">
+          <h4>Back Mixing</h4>
+          <div class="tscroll"><table class="mock">
+            <tr><th>รอบ</th><th>เวลา</th><th>pH</th><th>Brix</th></tr>
+            <tr><td>รอบ 1</td><td><span class="field">—</span></td><td><span class="field">—</span></td><td><span class="field">—</span></td></tr>
+          </table></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+          <button class="btn small ghost">＋ เพิ่มแถว</button>
+          <button class="btn small" style="margin-left:auto">✔ จบ CIP</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Line 2 -->
+    <div class="cip-pane" id="cip-2">
+      <div class="cip-head">
+        <h3><span class="bar" style="background:var(--cip2)"></span>Line 2 <span class="stamp run">กำลังทำอยู่</span></h3>
+        <button class="btn small" style="background:var(--cip2)">✔ จบ CIP</button>
+      </div>
+      <div class="lockbar">🔒 <b>นาย</b> กำลังบันทึก Line 2 อยู่ — หน้านี้เป็นอ่านอย่างเดียวสำหรับคุณ</div>
+      <div class="card">
+        <div class="tscroll"><table class="mock">
+          <tr><th>ขั้นตอน</th><th>เวลา</th><th>MIP liquid</th><th>Pump 1</th><th>Pump 2</th><th>Excelerate</th></tr>
+          <tr><td>Pre-rinse</td><td><span class="field">06:12</span></td><td><span class="field">—</span></td><td><span class="field">2.1</span></td><td><span class="field">2.0</span></td><td><span class="field">—</span></td></tr>
+          <tr><td>MIP วนรอบ 1</td><td><span class="field">06:40</span></td><td><span class="field">1.8%</span></td><td><span class="field">2.3</span></td><td><span class="field">2.2</span></td><td><span class="field">0.4</span></td></tr>
+          <tr><td>MIP วนรอบ 2</td><td><span class="field">07:05</span></td><td><span class="field">1.8%</span></td><td><span class="field">2.3</span></td><td><span class="field">2.1</span></td><td><span class="field">0.4</span></td></tr>
+        </table></div>
+        <div class="subcard">
+          <h4>รูป Backwash</h4>
+          <div class="thumbrow">
+            <div class="thumb">📷</div><div class="thumb">📷</div><button class="thumb add" aria-label="เพิ่มรูป">＋</button>
+          </div>
+        </div>
+        <div class="subcard">
+          <h4>Back — เช็คลิสต์</h4>
+          <div class="checks">
+            <label><input type="checkbox" checked> Oxonia</label>
+            <label><input type="checkbox" checked> RO</label>
+            <label><input type="checkbox"> จับเวลาวน 20 นาที</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Line 3 -->
+    <div class="cip-pane" id="cip-3">
+      <div class="cip-head">
+        <h3><span class="bar" style="background:var(--cip3)"></span>Line 3 <span class="stamp ok">ล่าสุด: เมื่อวาน ผ่าน</span></h3>
+        <button class="btn small" style="background:var(--cip3)">▶ เริ่ม CIP Line 3</button>
+      </div>
+      <div class="card">
+        <p style="font-size:13.5px;color:var(--ink-soft)">ฟอร์มชุดเดียวกับ Line 2 (ใช้ component ร่วมกันอยู่แล้ว) — draft แยกกันต่อ Line เหมือนเดิม</p>
+        <div class="tscroll" style="margin-top:10px"><table class="mock">
+          <tr><th>ขั้นตอน</th><th>เวลา</th><th>MIP liquid</th><th>Pump 1</th><th>Pump 2</th><th>Excelerate</th></tr>
+          <tr><td>Pre-rinse</td><td><span class="field">—</span></td><td><span class="field">—</span></td><td><span class="field">—</span></td><td><span class="field">—</span></td><td><span class="field">—</span></td></tr>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- ทดลอง -->
+    <div class="cip-pane" id="cip-x">
+      <div class="cip-head">
+        <h3><span class="bar" style="background:var(--cipx)"></span>CIP ทดลอง <span class="stamp run">Batch #12 กำลังทำ</span></h3>
+        <button class="btn small ghost">รีเซ็ต batch</button>
+      </div>
+      <div class="card">
+        <ul class="steps">
+          <li class="done"><span class="no">✓</span><div class="body"><b>เตรียมสาร + เช็ควาล์ว</b><div class="meta">06:05 · ม้ำ</div></div><span class="stamp ok">เสร็จ</span></li>
+          <li class="done"><span class="no">✓</span><div class="body"><b>Rinse รอบแรก</b><div class="meta">06:20 · pressure 2.1 bar · brix 0.3</div></div><span class="stamp ok">เสร็จ</span></li>
+          <li class="run"><span class="no">3</span><div class="body"><b>วนสารทำความสะอาด</b><div class="meta">เริ่ม 06:48 · pH 12.1 · 📷 1 รูป</div></div><span class="stamp run">กำลังทำ</span></li>
+          <li><span class="no">4</span><div class="body"><b>Final rinse + เช็ค pH</b><div class="meta">รอขั้นตอนก่อนหน้า</div></div><span class="stamp wait">รอ</span></li>
+        </ul>
+        <div style="display:flex;margin-top:14px">
+          <button class="btn small" style="background:var(--cipx);margin-left:auto">✔ จบ batch</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============ ADMIN LOGIN ============ -->
+<section class="view" id="view-adminlogin">
+  <form class="logincard" onsubmit="event.preventDefault();go('admin')">
+    <svg width="52" height="52" viewBox="0 0 34 34" aria-hidden="true" style="display:block;margin-bottom:14px;filter:drop-shadow(0 6px 14px rgba(255,107,0,.45))">
+      <defs><linearGradient id="lg-lc" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff6b00"/><stop offset="1" stop-color="#ff8c00"/></linearGradient></defs>
+      <rect x="1" y="1" width="32" height="32" rx="9.5" fill="url(#lg-lc)" stroke="rgba(255,255,255,.35)" stroke-width="1"/>
+      <path transform="translate(5.5,5.5) scale(0.96)" d="M12 2.5C8.5 7 5.5 10.8 5.5 14.2C5.5 18.1 8.4 21 12 21C15.6 21 18.5 18.1 18.5 14.2C18.5 10.8 15.5 7 12 2.5Z" fill="#fff"/>
+      <path transform="translate(5.5,5.5) scale(0.96)" d="M9 14.3C9 16.4 10.5 18 12.4 17.96" stroke="#ff8c00" stroke-width="1.6" stroke-linecap="round" opacity=".55" fill="none"/>
+    </svg>
+    <h2>SPP-MP Admin</h2>
+    <p class="sub">พื้นที่ผู้ดูแล — จัดการงาน ทีม รายงาน และคู่มือทั้งหมด</p>
+    <label for="au">ชื่อผู้ใช้</label>
+    <input id="au" type="text" placeholder="admin" autocomplete="username">
+    <label for="ap">รหัสผ่าน</label>
+    <input id="ap" type="password" placeholder="••••••••" autocomplete="current-password">
+    <button class="btn" type="submit">เข้าสู่ระบบ →</button>
+    <p class="hint">mockup: กรอกอะไรก็ได้ (ของจริงใช้ gate แบบเดียวกับหน้าจัดการคู่มือสติ๊กเกอร์)</p>
+  </form>
+</section>
+
+<!-- ============ ADMIN DASHBOARD ============ -->
+<section class="view" id="view-admin">
+  <div class="atop">
+    <div class="logo">
+      <svg width="26" height="26" viewBox="0 0 34 34" aria-hidden="true">
+        <defs><linearGradient id="lg-ad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff6b00"/><stop offset="1" stop-color="#ff8c00"/></linearGradient></defs>
+        <rect x="1" y="1" width="32" height="32" rx="9.5" fill="url(#lg-ad)" stroke="rgba(255,255,255,.3)" stroke-width="1.2"/>
+        <path transform="translate(5.5,5.5) scale(0.96)" d="M12 2.5C8.5 7 5.5 10.8 5.5 14.2C5.5 18.1 8.4 21 12 21C15.6 21 18.5 18.1 18.5 14.2C18.5 10.8 15.5 7 12 2.5Z" fill="#fff"/>
+        <path transform="translate(5.5,5.5) scale(0.96)" d="M9 14.3C9 16.4 10.5 18 12.4 17.96" stroke="#ff8c00" stroke-width="1.6" stroke-linecap="round" opacity=".55" fill="none"/>
+      </svg>
+      <span class="lg-word" style="color:var(--a-ink)">SPP<em>-MP</em></span>
+    </div>
+    <span class="atop-tag">แผงควบคุมผู้ดูแล</span>
+
+    <div class="menuwrap">
+      <button class="abtn" id="menuBtn" onclick="toggleMenu(event)"><span class="ic">☰</span><span class="tx">เมนู</span></button>
+      <div class="menu-dd" id="menuDD">
+        <button data-pane="overview"><span class="ic">📊</span>ภาพรวม</button>
+        <div class="dd-sep"></div>
+        <button data-pane="today"><span class="ic">✅</span>งานวันนี้<span class="tag">4 ค้าง</span></button>
+        <button data-pane="audit"><span class="ic">🧭</span>พื้นที่รับผิดชอบ</button>
+        <button data-pane="calendar"><span class="ic">📅</span>ปฏิทิน</button>
+        <button data-pane="report"><span class="ic">📈</span>รายงาน</button>
+        <div class="dd-sep"></div>
+        <button data-pane="timeline"><span class="ic">🕒</span>Timeline รับ-ส่งกะ</button>
+        <button data-pane="recurring"><span class="ic">🔁</span>งานประจำ</button>
+        <div class="dd-sep"></div>
+        <button data-pane="ai"><span class="ic">🤖</span>AI ผู้ช่วย</button>
+        <div class="dd-sep"></div>
+        <button data-pane="line4"><span class="ic">📋</span>คู่มือ Line 4</button>
+        <button data-pane="stickeradmin"><span class="ic">🗂️</span>QC Record</button>
+        <button class="sub" data-pane="specs"><span class="ic">📐</span>สเปคคุณภาพ</button>
+      </div>
+    </div>
+
+    <div class="search">🔎 ค้นหางาน, batch, คู่มือ…</div>
+    <span class="sys"><span class="dot"></span>ระบบปกติ</span>
+    <span class="achip"><span class="av">A</span>ผู้ดูแล</span>
+    <button class="abtn ghost" data-go="home"><span class="ic">↩</span><span class="tx">ออกจาก Admin</span></button>
+  </div>
+
+  <div class="amain">
+    <aside class="aside-r">
+      <button class="rsbtn on" data-pane="overview"><span class="ic">📊</span>ภาพรวม</button>
+      <button class="rsbtn" data-pane="today"><span class="ic">✅</span>งานวันนี้<span class="tag">4 ค้าง</span></button>
+      <button class="rsbtn" data-pane="audit"><span class="ic">🧭</span>พื้นที่รับผิดชอบ</button>
+      <button class="rsbtn" data-pane="calendar"><span class="ic">📅</span>ปฏิทิน</button>
+      <button class="rsbtn" data-pane="report"><span class="ic">📈</span>รายงาน</button>
+      <button class="rsbtn" data-pane="timeline"><span class="ic">🕒</span>Timeline รับ-ส่งกะ</button>
+      <button class="rsbtn" data-pane="recurring"><span class="ic">🔁</span>งานประจำ</button>
+      <button class="rsbtn" data-pane="ai"><span class="ic">🤖</span>AI ผู้ช่วย</button>
+      <button class="rsbtn" data-pane="line4"><span class="ic">📋</span>คู่มือ Line 4</button>
+      <button class="rsbtn" data-pane="stickeradmin"><span class="ic">🗂️</span>QC Record</button>
+      <button class="rsbtn sub" data-pane="specs"><span class="ic">📐</span>สเปคคุณภาพ</button>
+    </aside>
+    <div class="abody">
+      <!-- ===== OVERVIEW ===== -->
+      <div class="apane active" id="pane-overview">
+        <h2 class="htitle">ภาพรวมวันนี้</h2>
+        <p class="hsub">อังคาร 26 ก.ค. · กะเช้า (06:00–14:00) · เข้าเวร: ม้ำ, นาย</p>
+
+        <div class="stats">
+          <div class="stat">
+            <div class="glow" style="background:radial-gradient(circle,rgba(255,107,0,.25),transparent 70%)"></div>
+            <div class="lb">งานวันนี้</div>
+            <div class="v">8<span style="font-size:15px;color:var(--a-ink-soft)">/12</span></div>
+            <div class="d">เสร็จแล้ว 67%</div>
+            <div class="prg"><i style="width:67%"></i></div>
+          </div>
+          <div class="stat">
+            <div class="glow" style="background:radial-gradient(circle,rgba(198,40,40,.28),transparent 70%)"></div>
+            <div class="lb">งานด่วนค้าง</div>
+            <div class="v" style="color:#ff9d80">2</div>
+            <div class="d">เกินกำหนด 1 งาน <b class="down">▲</b></div>
+          </div>
+          <div class="stat">
+            <div class="glow" style="background:radial-gradient(circle,rgba(21,101,192,.3),transparent 70%)"></div>
+            <div class="lb">CIP ล่าสุด</div>
+            <div class="v" style="font-size:19px">Line 2 · 06:40</div>
+            <div class="d">กำลังทำ (นาย) · Line 1 ครบกำหนดวันนี้</div>
+          </div>
+          <div class="stat">
+            <div class="glow" style="background:radial-gradient(circle,rgba(28,138,76,.28),transparent 70%)"></div>
+            <div class="lb">แผนผลิตวันนี้</div>
+            <div class="v" style="font-size:19px">3 batch · 300 กล่อง</div>
+            <div class="d">เสร็จ 1 · กำลังผลิต 1 · รอ 1</div>
+          </div>
+        </div>
+
+        <div class="cols">
+          <div class="panel">
+            <h3>กิจกรรมล่าสุด <button class="more" onclick="toast('Timeline เต็ม (mock)')">ดูทั้งหมด →</button></h3>
+            <ul class="feed">
+              <li><span class="t">09:05</span><span class="fic">🏭</span><div class="body"><b>ม้ำ</b> เริ่มผลิต Batch B (องุ่นเคนยา) — Line 1<small>pH แรกวัด 3.95 เกินสเปค · แจ้งเตือนแล้ว</small></div></li>
+              <li><span class="t">08:40</span><span class="fic">✅</span><div class="body">Batch A (ส้ม) เสร็จ — 100 กล่อง<small>Lot L1-260726-A · brix 12.4 / pH 3.62</small></div></li>
+              <li><span class="t">06:48</span><span class="fic">⚗️</span><div class="body"><b>ม้ำ</b> ทำ CIP ทดลอง ถึงขั้นตอน "วนสารทำความสะอาด"</div></li>
+              <li><span class="t">06:40</span><span class="fic">💧</span><div class="body"><b>นาย</b> เริ่ม MIP วนรอบ 1 — CIP Line 2</div></li>
+              <li><span class="t">06:00</span><span class="fic">🔄</span><div class="body">รับกะเรียบร้อย: <b>ม้ำ</b> รับต่อจาก <b>พลุ๊ก</b><small>ถัง 3 = batch ล่าสุด (กข-13) · เหลือส่งแพ็ค 40 กล่อง</small></div></li>
+              <li><span class="t">05:45</span><span class="fic">📦</span><div class="body">กะดึกปิดยอดแพ็ค 260 กล่อง (พลุ๊ก)</div></li>
+            </ul>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:14px">
+            <div class="panel">
+              <h3>หน้าที่วันนี้ <button class="more" onclick="showPane('today')">จัดการ →</button></h3>
+              <div class="person">
+                <span class="av" style="background:#c2571b">ม้ำ</span>
+                <div><div class="nm">ม้ำ</div><div class="rl">คุมผลิต Line 1 + CIP ทดลอง</div></div>
+                <div class="right">4/6 งาน<div class="prg"><i style="width:66%"></i></div></div>
+              </div>
+              <div class="person">
+                <span class="av" style="background:#1565c0">นาย</span>
+                <div><div class="nm">นาย</div><div class="rl">CIP Line 2 + เช็คสารเคมี</div></div>
+                <div class="right">3/4 งาน<div class="prg"><i style="width:75%"></i></div></div>
+              </div>
+              <div class="person">
+                <span class="av" style="background:#4a6b3a">พลุ๊ก</span>
+                <div><div class="nm">พลุ๊ก</div><div class="rl">พักกะ (ลงเวรกะดึก)</div></div>
+                <div class="right">—</div>
+              </div>
+            </div>
+            <div class="panel">
+              <h3>แจ้งเตือน</h3>
+              <ul class="alist">
+                <li class="alert red">⚠️<div class="body"><b>pH Batch B = 3.95 เกินสเปค (≤3.80)</b><small>Line 1 · 09:05 · รอปรับแก้และวัดซ้ำ</small></div></li>
+                <li class="alert">🧴<div class="body"><b>Oxonia เหลือ ~2 วัน</b><small>แจ้งสั่งซื้อในงานประจำแล้ว</small></div></li>
+                <li class="alert">🕐<div class="alert-b body"><b>Line 1 ครบกำหนด CIP วันนี้</b><small>ล่าสุดทำ 23 ก.ค.</small></div></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== placeholder panes ===== -->
+      <div class="apane" id="pane-today">
+        <h2 class="htitle">✅ งานวันนี้</h2>
+        <p class="hsub">บอร์ดงานรายวัน + ความคืบหน้าทีม + หน้าที่บุคคล</p>
+        <div class="ph-note">ย้ายมาจากแท็บ <b>"งานวันนี้"</b> ของหน้า To-do เดิม — เนื้อหา/ฟีเจอร์เดิมทั้งหมด (dashboard หน้าที่บุคคล, ปิดงานจาก Telegram ได้เหมือนเดิม)</div>
+        <div class="skel"><div class="row"><div class="sk h40 w1"></div><div class="sk h40 w1"></div><div class="sk h40 w1"></div></div><div class="sk h140"></div><div class="row"><div class="sk h90 w2"></div><div class="sk h90 w1"></div></div></div>
+      </div>
+      <div class="apane" id="pane-audit">
+        <h2 class="htitle">🧭 พื้นที่รับผิดชอบ</h2>
+        <p class="hsub">แบ่งงานอัตโนมัติ + อ่านเอกสารจากรูป + การ์ดก่อน/หลัง</p>
+        <div class="ph-note">ย้ายมาจากแท็บ <b>"พื้นที่รับผิดชอบ"</b> เดิม — เนื้อหาเดิมทั้งหมด</div>
+        <div class="skel"><div class="row"><div class="sk h90 w1"></div><div class="sk h90 w1"></div></div><div class="sk h140"></div></div>
+      </div>
+      <div class="apane" id="pane-calendar">
+        <h2 class="htitle">📅 ปฏิทิน</h2>
+        <p class="hsub">ปฏิทินงาน + KPI รายคน</p>
+        <div class="ph-note">ย้ายมาจากแท็บ <b>"ปฏิทิน"</b> เดิม — เนื้อหาเดิมทั้งหมด</div>
+        <div class="skel"><div class="sk h140"></div><div class="row"><div class="sk h40 w1"></div><div class="sk h40 w1"></div><div class="sk h40 w1"></div></div></div>
+      </div>
+      <div class="apane" id="pane-report">
+        <h2 class="htitle">📈 รายงาน</h2>
+        <p class="hsub">รายงานผลิต/แพ็ค + ตั้งเวลาส่งรายงานเข้า Telegram</p>
+        <div class="ph-note">ย้ายมาจากแท็บ <b>"รายงาน"</b> เดิม — เนื้อหาเดิมทั้งหมด</div>
+        <div class="skel"><div class="row"><div class="sk h90 w1"></div><div class="sk h90 w1"></div><div class="sk h90 w1"></div></div><div class="sk h140"></div></div>
+      </div>
+      <div class="apane" id="pane-timeline">
+        <h2 class="htitle">🕒 Timeline รับ-ส่งกะ</h2>
+        <p class="hsub">Stepper ①รับกะ ②ลงแผน(AI) ③แผนผลิตวันนี้ ④ส่งกะ</p>
+        <div class="ph-note">ย้ายมาจากแท็บ <b>"Timeline"</b> เดิม — flow รับกะ/ส่งกะ + material balance เดิมทั้งหมด</div>
+        <div class="skel"><div class="row"><div class="sk h40 w1"></div><div class="sk h40 w1"></div><div class="sk h40 w1"></div><div class="sk h40 w1"></div></div><div class="sk h140"></div></div>
+      </div>
+      <div class="apane" id="pane-recurring">
+        <h2 class="htitle">🔁 งานประจำ</h2>
+        <p class="hsub">เทมเพลตงานซ้ำ + รูปอ้างอิง/หลังทำ</p>
+        <div class="ph-note">ย้ายมาจากแท็บ <b>"งานประจำ"</b> เดิม — เนื้อหาเดิมทั้งหมด</div>
+        <div class="skel"><div class="sk h90"></div><div class="sk h90"></div><div class="sk h90"></div></div>
+      </div>
+      <div class="apane" id="pane-ai">
+        <h2 class="htitle">🤖 AI ผู้ช่วย</h2>
+        <p class="hsub">ถาม-ตอบข้อมูลผลิต + สั่งงานแบบยืนยันก่อนเขียน</p>
+        <div class="ph-note">ย้ายมาจากแท็บ <b>"AI"</b> เดิม — เนื้อหาเดิมทั้งหมด</div>
+        <div class="skel"><div class="sk h140"></div><div class="sk h40"></div></div>
+      </div>
+      <div class="apane" id="pane-specs">
+        <h2 class="htitle">📐 สเปคคุณภาพ</h2>
+        <p class="hsub">ช่วงค่ามาตรฐาน brix / pH ต่อรสชาติ</p>
+        <div class="ph-note">ย้ายมาจากแท็บ <b>"สเปค"</b> เดิม — เนื้อหาเดิมทั้งหมด (อยู่หลัง login admin แล้ว ปลอดภัยขึ้น)</div>
+        <div class="skel"><div class="sk h140"></div></div>
+      </div>
+      <div class="apane" id="pane-line4">
+        <h2 class="htitle">📋 คู่มือ Line 4</h2>
+        <p class="hsub">คู่มือ manual เครื่อง Line 4</p>
+        <div class="ph-note">ย้ายมาจากแท็บ <b>"Line 4"</b> เดิม — เนื้อหาเดิมทั้งหมด</div>
+        <div class="skel"><div class="sk h140"></div><div class="sk h90"></div></div>
+      </div>
+      <div class="apane" id="pane-stickeradmin">
+        <h2 class="htitle">🗂️ QC Record</h2>
+        <p class="hsub">เพิ่ม/แก้คู่มือสติ๊กเกอร์ (เดิมมี login แยก — ตอนนี้ใช้ login admin เดียวกัน)</p>
+        <div class="ph-note">ย้ายมาจากแท็บ <b>"จัดการคู่มือ"</b> เดิม — เนื้อหาเดิมทั้งหมด</div>
+        <div class="skel"><div class="row"><div class="sk h90 w1"></div><div class="sk h90 w1"></div></div><div class="sk h140"></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div id="toast" role="status"></div>
+
+<script>
+  const views=['home','production','stickerchat','cip','adminlogin','admin'];
+  function go(v){
+    views.forEach(x=>document.getElementById('view-'+x).classList.toggle('active',x===v));
+    document.getElementById('topbar').style.display=(v==='admin'||v==='adminlogin')?'none':'flex';
+    document.querySelectorAll('.navbtn').forEach(b=>{
+      const t=b.dataset.go;
+      b.classList.toggle('on',t===v||(t==='adminlogin'&&(v==='admin'||v==='adminlogin')));
+    });
+    closeMenu();
+    window.scrollTo({top:0});
+  }
+  document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.go)));
+
+  // CIP tabs
+  document.querySelectorAll('#cipseg button').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('#cipseg button').forEach(x=>x.classList.toggle('on',x===b));
+    document.querySelectorAll('.cip-pane').forEach(p=>p.classList.toggle('active',p.id==='cip-'+b.dataset.cip));
+  }));
+
+  // Admin panes
+  function showPane(p){
+    document.querySelectorAll('[data-pane]').forEach(b=>b.classList.toggle('on',b.dataset.pane===p));
+    document.querySelectorAll('.apane').forEach(x=>x.classList.toggle('active',x.id==='pane-'+p));
+    closeMenu();
+    window.scrollTo({top:0});
+  }
+  document.querySelectorAll('[data-pane]').forEach(b=>b.addEventListener('click',()=>showPane(b.dataset.pane)));
+
+  // admin header dropdown menu
+  function toggleMenu(e){
+    e.stopPropagation();
+    const dd=document.getElementById('menuDD');
+    if(!dd.classList.contains('open') && window.innerWidth<=480){
+      const r=document.querySelector('#view-admin .atop').getBoundingClientRect();
+      dd.style.top=(r.bottom+8)+'px';
+    } else {
+      dd.style.top='';
+    }
+    dd.classList.toggle('open');
+  }
+  function closeMenu(){document.getElementById('menuDD').classList.remove('open')}
+  document.addEventListener('click',(e)=>{
+    if(document.getElementById('menuDD').classList.contains('open') && !e.target.closest('.menuwrap')) closeMenu();
+  });
+
+  // toast
+  let tt;
+  function toast(msg){
+    const t=document.getElementById('toast');
+    t.textContent=msg;t.classList.add('show');
+    clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),2600);
+  }
+</script>
+</body>
+</html>

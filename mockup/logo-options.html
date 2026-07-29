@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>เลือกโลโก้ SPP-MP — 3 แบบ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700;800&family=Sarabun:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --brand:#ff6b00;--brand-2:#ff8c00;--brand-deep:#c24f00;
+    --ink:#2b2119;--ink-soft:#6d6259;--paper:#faf7f4;--card:#fff;--line:#eee3d9;
+    --a-bg:#161310;--a-line:#37312a;--a-ink:#f3ede6;--a-ink-soft:#a89e92;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    font-family:'Sarabun',sans-serif;color:var(--ink);background:var(--paper);line-height:1.7;
+    background-image:radial-gradient(1000px 400px at 90% -10%,rgba(255,107,0,.07),transparent 60%);
+    padding-bottom:80px;
+  }
+  h1,h2,h3{font-family:'Kanit',sans-serif;letter-spacing:-.02em;line-height:1.3}
+  .wrap{max-width:900px;margin:0 auto;padding:34px 16px}
+  .kicker{font-size:13px;font-weight:700;color:var(--brand-deep);letter-spacing:.08em}
+  h1{font-size:clamp(26px,5vw,34px);letter-spacing:-.03em;margin:4px 0 6px}
+  .lead{font-size:14.5px;color:var(--ink-soft);max-width:56ch}
+
+  .opt{margin-top:38px}
+  .opt-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px}
+  .opt-head .no{
+    font-family:'Kanit';font-weight:700;font-size:14px;color:#fff;background:var(--ink);
+    border-radius:999px;padding:2px 13px;
+  }
+  .opt-head h2{font-size:21px}
+  .opt-desc{font-size:13.5px;color:var(--ink-soft);margin-bottom:14px;max-width:64ch}
+  .ctxs{display:grid;gap:12px;grid-template-columns:1fr}
+  @media(min-width:800px){.ctxs{grid-template-columns:1.25fr 1fr}}
+
+  .ctx{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--card);box-shadow:0 1px 2px rgba(63,37,10,.05),0 6px 16px -8px rgba(63,37,10,.12)}
+  .ctx .cap{font-size:11.5px;font-weight:600;color:var(--ink-soft);padding:7px 14px;border-bottom:1px solid var(--line);background:#fbf8f5}
+  .strip{display:flex;align-items:center;gap:14px;padding:14px 18px;min-height:66px}
+  .strip .pills{display:flex;gap:6px;margin-left:auto}
+  .strip .pill{width:54px;height:26px;border-radius:999px;background:#f1e8df}
+  .strip .pill.on{background:var(--ink)}
+  .ctx-dark{background:var(--a-bg);border-color:#2a251f}
+  .ctx-dark .cap{background:#1c1814;border-color:#2a251f;color:var(--a-ink-soft)}
+  .ctx-dark .sub{font-size:10.5px;color:var(--a-ink-soft)}
+  .smallrow{display:flex;align-items:center;gap:22px;padding:14px 18px}
+  .smallrow .lbl{font-size:11px;color:var(--ink-soft)}
+
+  /* ===== shared logo pieces ===== */
+  .lg{display:flex;align-items:center;gap:10px;white-space:nowrap}
+  .lg .word{font-family:'Kanit';font-weight:700;letter-spacing:-.02em;line-height:1.05}
+  .ink{color:var(--ink)} .ctx-dark .ink{color:var(--a-ink)}
+  .org{color:var(--brand)}
+  .grad-txt{background:linear-gradient(100deg,var(--brand),#ffa24d);-webkit-background-clip:text;background-clip:text;color:transparent}
+
+  /* B — stacked wordmark for badge */
+  .stack{display:flex;flex-direction:column;justify-content:center;line-height:1}
+  .stack .top{font-family:'Kanit';font-weight:700;letter-spacing:-.02em}
+  .stack .tag{font-family:'Kanit';font-weight:500;font-size:.36em;letter-spacing:.34em;color:var(--brand-deep);margin-top:.28em}
+  .ctx-dark .stack .tag{color:#ffb87a}
+
+  footer{margin-top:44px;font-size:13.5px;color:var(--ink-soft);background:#f4ede6;border:1px dashed #d8c9ba;border-radius:12px;padding:12px 16px}
+  footer b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">MOCKUP · BRAND</div>
+  <h1>โลโก้ SPP-MP — 3 แบบให้เลือก</h1>
+  <p class="lead">ทุกแบบเป็น SVG/ตัวอักษรล้วน (คมทุกขนาด ไม่ใช้ไฟล์รูป) โชว์ในบริบทจริง: แถบบนพื้นสว่าง, sidebar Admin พื้นเข้ม และขนาดเล็กสำหรับมือถือ/favicon</p>
+
+  <!-- ================= แบบ 1 ================= -->
+  <section class="opt">
+    <div class="opt-head"><span class="no">แบบ 1</span><h2>Droplet Tile — ต่อยอดโลโก้เดิมของแอป</h2></div>
+    <p class="opt-desc">กล่องส้มมุมโค้ง + หยดน้ำขาว (ยกมาจากโลโก้หน้า login ปัจจุบัน) จับคู่กับคำว่า SPP-MP — คุ้นตาผู้ใช้เดิมที่สุด</p>
+    <div class="ctxs">
+      <div class="ctx">
+        <div class="cap">แถบบน · พื้นสว่าง</div>
+        <div class="strip">
+          <span class="lg" style="font-size:19px">
+            <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+              <defs><linearGradient id="g1a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff6b00"/><stop offset="1" stop-color="#ff8c00"/></linearGradient></defs>
+              <rect x="1" y="1" width="32" height="32" rx="9.5" fill="url(#g1a)" stroke="rgba(255,255,255,.35)" stroke-width="1.2"/>
+              <path transform="translate(5.5,5.5) scale(0.96)" d="M12 2.5C8.5 7 5.5 10.8 5.5 14.2C5.5 18.1 8.4 21 12 21C15.6 21 18.5 18.1 18.5 14.2C18.5 10.8 15.5 7 12 2.5Z" fill="#fff"/>
+              <path transform="translate(5.5,5.5) scale(0.96)" d="M9 14.3C9 16.4 10.5 18 12.4 17.96" stroke="#ff8c00" stroke-width="1.6" stroke-linecap="round" opacity=".55" fill="none"/>
+            </svg>
+            <span class="word"><span class="ink">SPP</span><span class="org">-MP</span></span>
+          </span>
+          <span class="pills"><span class="pill on"></span><span class="pill"></span><span class="pill"></span></span>
+        </div>
+      </div>
+      <div class="ctx ctx-dark">
+        <div class="cap">Sidebar Admin · พื้นเข้ม</div>
+        <div class="strip">
+          <span class="lg" style="font-size:18px">
+            <svg width="36" height="36" viewBox="0 0 34 34" aria-hidden="true">
+              <defs><linearGradient id="g1b" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff6b00"/><stop offset="1" stop-color="#ff8c00"/></linearGradient></defs>
+              <rect x="1" y="1" width="32" height="32" rx="9.5" fill="url(#g1b)" stroke="rgba(255,255,255,.3)" stroke-width="1.2"/>
+              <path transform="translate(5.5,5.5) scale(0.96)" d="M12 2.5C8.5 7 5.5 10.8 5.5 14.2C5.5 18.1 8.4 21 12 21C15.6 21 18.5 18.1 18.5 14.2C18.5 10.8 15.5 7 12 2.5Z" fill="#fff"/>
+              <path transform="translate(5.5,5.5) scale(0.96)" d="M9 14.3C9 16.4 10.5 18 12.4 17.96" stroke="#ff8c00" stroke-width="1.6" stroke-linecap="round" opacity=".55" fill="none"/>
+            </svg>
+            <span style="display:flex;flex-direction:column;line-height:1.1">
+              <span class="word"><span class="ink">SPP</span><span class="org">-MP</span></span>
+              <span class="sub">แผงควบคุมผู้ดูแล</span>
+            </span>
+          </span>
+        </div>
+      </div>
+    </div>
+    <div class="ctx" style="margin-top:12px">
+      <div class="cap">ขนาดเล็ก · มือถือ / favicon</div>
+      <div class="smallrow">
+        <span class="lg" style="font-size:14px"><svg width="22" height="22" viewBox="0 0 34 34"><rect x="1" y="1" width="32" height="32" rx="9.5" fill="#ff7a10"/><path transform="translate(5.5,5.5) scale(0.96)" d="M12 2.5C8.5 7 5.5 10.8 5.5 14.2C5.5 18.1 8.4 21 12 21C15.6 21 18.5 18.1 18.5 14.2C18.5 10.8 15.5 7 12 2.5Z" fill="#fff"/></svg><span class="word"><span class="ink">SPP</span><span class="org">-MP</span></span></span>
+        <svg width="30" height="30" viewBox="0 0 34 34"><rect x="1" y="1" width="32" height="32" rx="9.5" fill="#ff7a10"/><path transform="translate(5.5,5.5) scale(0.96)" d="M12 2.5C8.5 7 5.5 10.8 5.5 14.2C5.5 18.1 8.4 21 12 21C15.6 21 18.5 18.1 18.5 14.2C18.5 10.8 15.5 7 12 2.5Z" fill="#fff"/></svg>
+        <span class="lbl">← ใช้เดี่ยว ๆ เป็นไอคอนแอปได้เลย</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= แบบ 2 ================= -->
+  <section class="opt">
+    <div class="opt-head"><span class="no">แบบ 2</span><h2>Water Badge — ตราโรงงาน ดูทางการ</h2></div>
+    <p class="opt-desc">เหรียญกลม gradient ส้ม มีคลื่นน้ำ 2 ชั้นที่ฐาน + ตัว S ใหญ่ตรงกลาง จับคู่ wordmark ซ้อน 2 บรรทัดพร้อมแท็ก PRODUCTION · CIP — เหมาะกับเอกสาร/รายงาน/ตรายาง</p>
+    <div class="ctxs">
+      <div class="ctx">
+        <div class="cap">แถบบน · พื้นสว่าง</div>
+        <div class="strip">
+          <span class="lg" style="font-size:19px">
+            <svg width="38" height="38" viewBox="0 0 40 40" aria-hidden="true">
+              <defs>
+                <linearGradient id="g2a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff8c00"/><stop offset="1" stop-color="#f25c00"/></linearGradient>
+                <clipPath id="c2a"><circle cx="20" cy="20" r="18"/></clipPath>
+              </defs>
+              <circle cx="20" cy="20" r="18" fill="url(#g2a)"/>
+              <circle cx="20" cy="20" r="15.4" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1.1"/>
+              <g clip-path="url(#c2a)">
+                <path d="M-2 27 Q 5 23.6 12 27 T 26 27 T 42 27 V44 H-2 Z" fill="rgba(255,255,255,.28)"/>
+                <path d="M-2 31 Q 5 27.6 12 31 T 26 31 T 42 31 V44 H-2 Z" fill="rgba(255,255,255,.5)"/>
+              </g>
+              <text x="20" y="25.5" text-anchor="middle" font-family="Kanit" font-weight="800" font-size="17" fill="#fff">S</text>
+            </svg>
+            <span class="stack">
+              <span class="top"><span class="ink">SPP</span><span class="org">-MP</span></span>
+              <span class="tag">PRODUCTION · CIP</span>
+            </span>
+          </span>
+          <span class="pills"><span class="pill on"></span><span class="pill"></span><span class="pill"></span></span>
+        </div>
+      </div>
+      <div class="ctx ctx-dark">
+        <div class="cap">Sidebar Admin · พื้นเข้ม</div>
+        <div class="strip">
+          <span class="lg" style="font-size:18px">
+            <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">
+              <defs>
+                <linearGradient id="g2b" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff8c00"/><stop offset="1" stop-color="#f25c00"/></linearGradient>
+                <clipPath id="c2b"><circle cx="20" cy="20" r="18"/></clipPath>
+              </defs>
+              <circle cx="20" cy="20" r="18" fill="url(#g2b)"/>
+              <circle cx="20" cy="20" r="15.4" fill="none" stroke="rgba(255,255,255,.4)" stroke-width="1.1"/>
+              <g clip-path="url(#c2b)">
+                <path d="M-2 27 Q 5 23.6 12 27 T 26 27 T 42 27 V44 H-2 Z" fill="rgba(255,255,255,.28)"/>
+                <path d="M-2 31 Q 5 27.6 12 31 T 26 31 T 42 31 V44 H-2 Z" fill="rgba(255,255,255,.5)"/>
+              </g>
+              <text x="20" y="25.5" text-anchor="middle" font-family="Kanit" font-weight="800" font-size="17" fill="#fff">S</text>
+            </svg>
+            <span class="stack">
+              <span class="top"><span class="ink">SPP</span><span class="org">-MP</span></span>
+              <span class="tag">ADMIN CONSOLE</span>
+            </span>
+          </span>
+        </div>
+      </div>
+    </div>
+    <div class="ctx" style="margin-top:12px">
+      <div class="cap">ขนาดเล็ก · มือถือ / favicon</div>
+      <div class="smallrow">
+        <span class="lg" style="font-size:14px">
+          <svg width="24" height="24" viewBox="0 0 40 40"><defs><clipPath id="c2c"><circle cx="20" cy="20" r="18"/></clipPath></defs><circle cx="20" cy="20" r="18" fill="#ff7a10"/><g clip-path="url(#c2c)"><path d="M-2 29 Q 5 25.6 12 29 T 26 29 T 42 29 V44 H-2 Z" fill="rgba(255,255,255,.45)"/></g><text x="20" y="25.5" text-anchor="middle" font-family="Kanit" font-weight="800" font-size="17" fill="#fff">S</text></svg>
+          <span class="stack"><span class="top"><span class="ink">SPP</span><span class="org">-MP</span></span></span>
+        </span>
+        <svg width="30" height="30" viewBox="0 0 40 40"><defs><clipPath id="c2d"><circle cx="20" cy="20" r="18"/></clipPath></defs><circle cx="20" cy="20" r="18" fill="#ff7a10"/><g clip-path="url(#c2d)"><path d="M-2 29 Q 5 25.6 12 29 T 26 29 T 42 29 V44 H-2 Z" fill="rgba(255,255,255,.45)"/></g><text x="20" y="25.5" text-anchor="middle" font-family="Kanit" font-weight="800" font-size="17" fill="#fff">S</text></svg>
+        <span class="lbl">← เหรียญเดี่ยวใช้เป็นตราประทับ/ไอคอนได้</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= แบบ 3 ================= -->
+  <section class="opt">
+    <div class="opt-head"><span class="no">แบบ 3</span><h2>Wordmark ล้วน — มินิมอล โมเดิร์น</h2></div>
+    <p class="opt-desc">ตัวอักษรหนา tracking แน่น ไม่มีกรอบ — ขีดกลางแทนด้วยหยดน้ำส้มเล็ก ๆ และ MP ไล่สี gradient ส้ม เบาที่สุด กินพื้นที่แนวนอนน้อยสุด</p>
+    <div class="ctxs">
+      <div class="ctx">
+        <div class="cap">แถบบน · พื้นสว่าง</div>
+        <div class="strip">
+          <span class="lg" style="font-size:21px;gap:0">
+            <span class="word" style="letter-spacing:-.04em"><span class="ink">SPP</span></span>
+            <svg width="13" height="17" viewBox="0 0 13 17" style="margin:0 2.5px 0 3.5px" aria-hidden="true"><path d="M6.5 0.8C4.2 3.9 2.2 6.5 2.2 8.9C2.2 11.6 4.1 13.6 6.5 13.6C8.9 13.6 10.8 11.6 10.8 8.9C10.8 6.5 8.8 3.9 6.5 0.8Z" fill="#ff6b00"/></svg>
+            <span class="word grad-txt" style="letter-spacing:-.04em">MP</span>
+          </span>
+          <span class="pills"><span class="pill on"></span><span class="pill"></span><span class="pill"></span></span>
+        </div>
+      </div>
+      <div class="ctx ctx-dark">
+        <div class="cap">Sidebar Admin · พื้นเข้ม</div>
+        <div class="strip">
+          <span class="lg" style="font-size:20px;gap:0">
+            <span class="word" style="letter-spacing:-.04em"><span class="ink">SPP</span></span>
+            <svg width="12" height="16" viewBox="0 0 13 17" style="margin:0 2.5px 0 3.5px" aria-hidden="true"><path d="M6.5 0.8C4.2 3.9 2.2 6.5 2.2 8.9C2.2 11.6 4.1 13.6 6.5 13.6C8.9 13.6 10.8 11.6 10.8 8.9C10.8 6.5 8.8 3.9 6.5 0.8Z" fill="#ff8a33"/></svg>
+            <span class="word grad-txt" style="letter-spacing:-.04em">MP</span>
+          </span>
+        </div>
+      </div>
+    </div>
+    <div class="ctx" style="margin-top:12px">
+      <div class="cap">ขนาดเล็ก · มือถือ / favicon</div>
+      <div class="smallrow">
+        <span class="lg" style="font-size:14px;gap:0">
+          <span class="word" style="letter-spacing:-.03em"><span class="ink">SPP</span></span>
+          <svg width="9" height="12" viewBox="0 0 13 17" style="margin:0 2px 0 2.5px"><path d="M6.5 0.8C4.2 3.9 2.2 6.5 2.2 8.9C2.2 11.6 4.1 13.6 6.5 13.6C8.9 13.6 10.8 11.6 10.8 8.9C10.8 6.5 8.8 3.9 6.5 0.8Z" fill="#ff6b00"/></svg>
+          <span class="word grad-txt" style="letter-spacing:-.03em">MP</span>
+        </span>
+        <svg width="30" height="30" viewBox="0 0 34 34"><rect x="1" y="1" width="32" height="32" rx="9.5" fill="#2b2119"/><text x="12" y="23" text-anchor="middle" font-family="Kanit" font-weight="800" font-size="13" fill="#fff">S</text><path transform="translate(14.5,10) scale(0.75)" d="M6.5 0.8C4.2 3.9 2.2 6.5 2.2 8.9C2.2 11.6 4.1 13.6 6.5 13.6C8.9 13.6 10.8 11.6 10.8 8.9C10.8 6.5 8.8 3.9 6.5 0.8Z" fill="#ff6b00"/></svg>
+        <span class="lbl">← ตอนย่อเป็นไอคอน ใช้ S + หยดน้ำบนพื้นเข้ม</span>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    ✅ <b>วิธีเลือก:</b> ตอบมาว่าเอา <b>แบบ 1 / แบบ 2 / แบบ 3</b> (หรือสั่งผสมได้ เช่น "เหรียญแบบ 2 แต่ตัวหนังสือแบบ 3") — เลือกแล้วเดี๋ยวใส่ลงทุกจุดใน mockup หลักให้: แถบบน, sidebar Admin และหน้า login
+  </footer>
+</div>
+</body>
+</html>
