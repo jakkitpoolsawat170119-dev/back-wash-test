@@ -1761,6 +1761,79 @@ app.post('/api/sku', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── ดึงรายการ SKU จากชีต SKU (source of truth ของ keyword ที่ n8n ใช้ resolve) ──
+// ชีตมีแค่ keyword / full_product / group → เติม sku_code + product_name + เดา pack_factor ให้
+// ของที่หน้างานตั้งเอง (count_unit, pack_factor, machine) จะ "ไม่ถูกทับ" ถ้า SKU นั้นมีอยู่แล้ว
+const SPP_N8N_SKU_URL = process.env.SPP_N8N_SKU_URL || 'https://n8n.srv1267366.hstgr.cloud/webhook/spp-sku-list';
+
+// "S77S743200 น้ำเชื่อม... 850 ml *12" → { sku_code, product_name } (ตรรกะเดียวกับโหนด Resolve SKU)
+const splitFullProduct = (full) => {
+  const s = String(full || '').trim();
+  if (!s) return { sku_code: '', product_name: '' };
+  const parts = s.split(/\s+/);
+  const looksLikeCode = /^[A-Z0-9]{6,}$/.test(parts[0]);
+  return looksLikeCode
+    ? { sku_code: parts[0], product_name: parts.slice(1).join(' ').replace(/\*/g, '×') }
+    : { sku_code: '', product_name: s.replace(/\*/g, '×') };
+};
+
+// เดาจำนวนชิ้นต่อกล่องจากตัวคูณท้ายชื่อ: "(8g*30*4*10)" → 30×4×10 = 1200 · "(800ml*12)" → 12
+// เดาไม่ได้คืน 0 แล้วให้หน้างานมาเติมเอง (แจ้งไว้ใน needsReview)
+const guessPackFactor = (full) => {
+  const m = String(full || '').match(/\*\s*(\d+)/g);
+  if (!m) return 0;
+  return m.reduce((acc, x) => acc * (Number(x.replace(/[^\d]/g, '')) || 1), 1);
+};
+
+app.post('/api/sku/sync', async (req, res) => {
+  let rows;
+  try {
+    const r = await axios.post(SPP_N8N_SKU_URL, {}, { headers: { 'Content-Type': 'application/json' }, timeout: 25000 });
+    rows = Array.isArray(r.data) ? r.data : (r.data?.items || []);
+  } catch (e) {
+    console.error('[SKU sync] n8n error:', e.response?.data || e.message);
+    return res.status(502).json({ error: 'ดึงรายการ SKU จากชีตไม่สำเร็จ (ตรวจว่า workflow v4 เปิดใช้งานอยู่)' });
+  }
+  if (!rows.length) return res.status(502).json({ error: 'ชีต SKU ไม่มีข้อมูลกลับมา' });
+
+  const created = [], updated = [], needsReview = [];
+  try {
+    for (const row of rows) {
+      const keyword = String(row.keyword || '').trim();
+      if (!keyword) continue;
+      const { sku_code, product_name } = splitFullProduct(row.full_product);
+      const group = String(row.group || '').trim();
+      const existing = (await dbAll('SELECT keyword, pack_factor, count_unit FROM sku_master WHERE keyword = ?', [keyword]))[0];
+
+      if (existing) {
+        // อัปเดตเฉพาะข้อมูลที่ชีตเป็นเจ้าของ — ไม่แตะ count_unit / pack_factor / machine ที่หน้างานตั้งไว้
+        await db.exec(
+          `UPDATE sku_master SET sku_code = ?, product_name = ?, group_name = ?, active = 1, updated_at = ?
+             WHERE keyword = ?`,
+          [sku_code, product_name, group || '', nowBKK(), keyword]
+        );
+        updated.push(keyword);
+        if (!Number(existing.pack_factor)) needsReview.push({ keyword, reason: 'ยังไม่มีจำนวนชิ้น/กล่อง' });
+      } else {
+        const pf = guessPackFactor(row.full_product);
+        await db.exec(
+          `INSERT INTO sku_master (keyword, sku_code, product_name, group_name, machine, count_unit, pack_factor, plan_flavor, active, updated_at)
+           VALUES (?, ?, ?, ?, '', 'กล่อง', ?, '', 1, ?)`,
+          [keyword, sku_code, product_name, group || '', pf, nowBKK()]
+        );
+        created.push(keyword);
+        needsReview.push({ keyword, reason: pf ? `เดาชิ้น/กล่อง = ${pf} · ยังไม่ได้ตั้งเครื่องและหน่วยนับ` : 'ยังไม่มีจำนวนชิ้น/กล่อง และเครื่อง' });
+      }
+    }
+  } catch (e) {
+    console.error('[SKU sync] db error:', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+
+  console.log(`[SKU sync] created=${created.length} updated=${updated.length} review=${needsReview.length}`);
+  res.json({ ok: true, total: rows.length, created, updated, needsReview });
+});
+
 // ทีมงานประจำกะ (ให้ฟอร์มติ๊กเลือก แล้วนับเป็นจำนวนคนผลิต)
 app.get('/api/shift-crew', async (req, res) => {
   try {

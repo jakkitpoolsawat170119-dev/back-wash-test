@@ -104,6 +104,27 @@ const SppReportForm: React.FC<Props> = ({ operatorName }) => {
   const [sent, setSent] = useState<{ report_id: string; verify_url: string; sent_via: string; expires: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // ดึงรายการ SKU ล่าสุดจากชีต (keyword ในชีตคือตัวที่ n8n ใช้ resolve — ต้องตรงกัน)
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
+  const syncSku = async () => {
+    setSyncing(true); setSyncMsg('');
+    try {
+      const r = await fetch(`${apiUrl}/api/sku/sync`, { method: 'POST' });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `ดึงไม่สำเร็จ (${r.status})`);
+      const fresh = await fetch(`${apiUrl}/api/sku`).then(x => x.json());
+      if (Array.isArray(fresh.items) && fresh.items.length) { setSkus(fresh.items); setOffline(false); }
+      const review = (d.needsReview || []) as { keyword: string; reason: string }[];
+      setSyncMsg(
+        `✅ ดึงจากชีตแล้ว ${d.total} รายการ — เพิ่มใหม่ ${d.created?.length || 0} · อัปเดต ${d.updated?.length || 0}` +
+        (review.length ? `\n⚠️ ต้องตั้งค่าเพิ่ม ${review.length} รายการ: ${review.slice(0, 5).map(x => x.keyword).join(', ')}${review.length > 5 ? ' …' : ''}` : '')
+      );
+    } catch (e) {
+      setSyncMsg(`❌ ${e instanceof Error ? e.message : 'ดึงรายการไม่สำเร็จ'}`);
+    } finally { setSyncing(false); }
+  };
+
   // โหลด master data
   useEffect(() => {
     let alive = true;
@@ -300,7 +321,13 @@ const SppReportForm: React.FC<Props> = ({ operatorName }) => {
         <div style={secTitle}>📦 สินค้า</div>
         <div style={grid(200)}>
           <div style={{ gridColumn: '1 / -1' }}>
-            <label style={lb}>เลือกสินค้า *</label>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <label style={{ ...lb, flex: 1 }}>เลือกสินค้า * <span style={{ fontWeight: 'normal' }}>({skus.length} รายการ)</span></label>
+              <button onClick={syncSku} disabled={syncing}
+                style={{ background: 'none', border: 'none', color: syncing ? '#aaa' : '#1565c0', fontSize: '0.78rem', fontWeight: 'bold', cursor: syncing ? 'wait' : 'pointer', padding: 0 }}>
+                {syncing ? '⏳ กำลังดึง…' : '🔄 ดึงรายการล่าสุดจากชีต'}
+              </button>
+            </div>
             <select style={inp} value={skuKey} onChange={e => { setSkuKey(e.target.value); setPlanEdit(false); }}>
               <option value="">-- เลือกสินค้า --</option>
               {skus.map(s => (
@@ -309,6 +336,13 @@ const SppReportForm: React.FC<Props> = ({ operatorName }) => {
                 </option>
               ))}
             </select>
+            {syncMsg && (
+              <div style={{ fontSize: '0.78rem', marginTop: 6, padding: '7px 10px', borderRadius: 8,
+                background: syncMsg.startsWith('❌') ? '#fdeaea' : '#e6f4ec',
+                color: syncMsg.startsWith('❌') ? '#c62828' : '#1c8a4c', whiteSpace: 'pre-line' }}>
+                {syncMsg}
+              </div>
+            )}
           </div>
           {sku && <>
             <div><label style={lb}>กลุ่ม Product<span style={autoChip}>อัตโนมัติ</span></label><input style={inpRO} value={sku.group_name || ''} readOnly /></div>
