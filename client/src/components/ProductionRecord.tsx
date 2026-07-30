@@ -214,7 +214,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     "Freshy Punch", "Freshy blue Lemon", "Senorita Fres Mint","Senorita Strawberry",
     "Freshy Orange", "Signature Rose", "Freshy Shine Muscat Grape", "Freshy Peach",
     "Freshy Mango", "Dilute W-Molass", "Freshy Brownsugar", "Freshy Blueberry", "Senorita Signature Pomegranate", "CIP",
-    "Senorita Blue Curacao",
+    "Senorita Blue Curacao", "Freshy Kiwi",
   ];
 
   const flavorColors: Record<string, { bg: string; border: string }> = {
@@ -234,8 +234,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     "Senorita Blue Curacao":{ bg: '#e1f5fe', border: '#03a9f4' },
     "Freshy Lime":       { bg: '#f9fbe7', border: '#8bc34a' },
     "CIP":               { bg: '#f5f5f5', border: '#9e9e9e' },
-    "ว่าง":              { bg: '#eeeeee', border: '#bdbdbd' },
-    "Freshy Green Apple":{ bg: '#e8f5e9', border: '#43a047' },
+    "Freshy Kiwi":       { bg: '#e8f5e9', border: '#318735ff'},
     "Freshy Sala":       { bg: '#fce4ec', border: '#e91e63' },
     "Senorita Yuzu":     { bg: '#fffde7', border: '#f9a825' },
     "MLH 02":            { bg: '#e0f2f1', border: '#009688' },
