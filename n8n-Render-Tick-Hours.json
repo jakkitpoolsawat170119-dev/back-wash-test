@@ -1,0 +1,69 @@
+{
+  "name": "Render Tick (04-23 Bangkok)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/5 4-22 * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b2c3d4e5-0001-4a00-8000-000000000001",
+      "name": "Every 5 min 04-23"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://back-wash-test.onrender.com/api/report/tick",
+        "options": {
+          "timeout": 60000,
+          "redirect": {
+            "redirect": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        224,
+        0
+      ],
+      "id": "b2c3d4e5-0002-4a00-8000-000000000002",
+      "name": "Tick Render",
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Every 5 min 04-23": {
+      "main": [
+        [
+          {
+            "node": "Tick Render",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Bangkok"
+  },
+  "tags": []
+}

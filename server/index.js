@@ -3978,6 +3978,7 @@ app.post('/api/report/tick', async (req, res) => {
   await shiftAnalysisTick();
   await kpiReportTick();
   await kpiAlertTick();
+  await sheetSyncTick(); // ให้ tick ที่ n8n ยิงครบเท่า setInterval (สำคัญเมื่อ Render หลับนอกช่วง window)
   res.json({ ok: true, at: new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }) });
 });
 
