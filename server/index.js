@@ -15,7 +15,9 @@ const app = express();
 const port = process.env.PORT || 3001;
 
 app.use(cors());
-app.use(express.json({ limit: '20mb' }));
+// เก็บ raw body ไว้ด้วย — LINE เซ็น payload ด้วย HMAC ของ "ไบต์ดิบ" ถ้าเอา JSON ที่ parse แล้วมา
+// stringify ใหม่ ลายเซ็นจะไม่ตรง (ลำดับคีย์/ช่องว่างเปลี่ยน)
+app.use(express.json({ limit: '20mb', verify: (req, _res, buf) => { req.rawBody = buf; } }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
@@ -201,6 +203,30 @@ const SCHEMA = [
       sent_at TEXT,
       created_at TEXT,
       updated_at TEXT
+    )`,
+  // ── บอท Production_SPP (เฟส 2) ────────────────────────────────────────────
+  // ผูก Telegram user → ชื่อคนจริง · ถามครั้งเดียวแล้วจำไว้ ไม่ต้องพิมพ์ชื่อทุกครั้ง
+  `CREATE TABLE IF NOT EXISTS spp_tg_user (
+      id ${db.pk},
+      telegram_user_id TEXT UNIQUE,
+      name TEXT,
+      role TEXT DEFAULT 'production',
+      chat_id TEXT,
+      registered_at TEXT,
+      last_seen_at TEXT
+    )`,
+  // ร่างของกะที่กำลังกรอกอยู่ในแชท — เก็บลง DB ไม่ใช่หน่วยความจำ
+  // Render free tier หลับ/รีสตาร์ตได้ตลอด ถ้าเก็บใน RAM ยอดที่กรอกมาทั้งกะหายทันที
+  // draft = JSON { header, items[], current{} } · ยังไม่เป็น production_reports จนกว่าจะกด "ส่งทั้งกะ"
+  // (จงใจไม่เขียนเป็นแถว draft ใน production_reports เพื่อไม่ให้ของค้างครึ่ง ๆ โผล่ในหน้าอนุมัติ)
+  `CREATE TABLE IF NOT EXISTS spp_tg_session (
+      id ${db.pk},
+      chat_id TEXT,
+      user_id TEXT,
+      state TEXT,
+      draft TEXT,
+      updated_at TEXT,
+      UNIQUE(chat_id, user_id)
     )`,
   // audit trail แบบ append-only — ห้ามมี UNIQUE/NOT NULL ที่ทำให้เขียนไม่ผ่าน
   `CREATE TABLE IF NOT EXISTS production_report_events (
@@ -558,6 +584,34 @@ async function initDb() {
   try { await db.exec("ALTER TABLE operators ADD COLUMN role TEXT DEFAULT 'operator'"); } catch { /* มีแล้ว */ }
   // batch_id: ผูกรายงานเข้ากับชุดของกะ — NULL = รายงานเดี่ยวแบบเดิม (ลิงก์เก่ายังใช้ได้)
   try { await db.exec('ALTER TABLE production_reports ADD COLUMN batch_id TEXT'); } catch { /* มีแล้ว */ }
+  // migration (เฟส 2): ทางเข้า Telegram + วงจร "ส่งกลับแก้" + คลังกดรับทราบใน LINE
+  //   telegram_*  = ผูกรายงานกับคนที่ลงยอดในแชท เพื่อเด้งกลับไปหาคนเดิมได้
+  //   fix_*       = ประวัติการถูกส่งกลับแก้ (ห้าม insert แถวใหม่ — แก้ที่แถวเดิมเสมอ)
+  //   wh_ack_*    = คลังกด "รับทราบ" บนการ์ด LINE หลังหัวหน้าอนุมัติ
+  for (const [col, type] of [
+    ['telegram_user_id', 'TEXT'], ['telegram_chat_id', 'TEXT'],
+    ['fix_note', 'TEXT'], ['fix_count', 'INTEGER DEFAULT 0'],
+    ['wh_ack_at', 'TEXT'], ['wh_ack_by', 'TEXT'],
+    ['line_pushed_at', 'TEXT'], ['line_push_error', 'TEXT'],
+  ]) {
+    try { await db.exec(`ALTER TABLE production_reports ADD COLUMN ${col} ${type}`); } catch { /* มีแล้ว */ }
+  }
+  // migration (เฟส 2): review_note = เหตุผลที่ SKU ตัวนี้ยังเปิดใช้ไม่ได้ (คิวรอตรวจหลัง import ทั้งชีต)
+  try { await db.exec('ALTER TABLE sku_master ADD COLUMN review_note TEXT'); } catch { /* มีแล้ว */ }
+  // pallet_route: 1/NULL = สายพาน → robot จัดเรียงพาเลท (คลังเห็นของเอง) · 2 = พนักงานบรรจุจัดเรียงเอง
+  // สาย 2 คลังมองไม่เห็นของที่ค้างพาเลท → บอทต้องบังคับแนบรูปค้างพาเลท
+  // ไม่ใส่ DEFAULT เพื่อให้ NULL = "ยังไม่เคยตั้ง" — seed ข้างล่างจะแตะเฉพาะแถวที่ยัง NULL (แก้เองแล้วไม่ถูกทับ)
+  try { await db.exec('ALTER TABLE sku_master ADD COLUMN pallet_route INTEGER'); } catch { /* มีแล้ว */ }
+  await seedPalletRoutes();
+  // index สำหรับหน้าค้นย้อนหลัง (เฟส 2) — ข้อมูลสะสมข้ามเดือนแล้ว scan ทั้งตารางจะช้าขึ้นเรื่อย ๆ
+  for (const ix of [
+    'CREATE INDEX IF NOT EXISTS ix_prod_reports_work_day ON production_reports (work_day)',
+    'CREATE INDEX IF NOT EXISTS ix_prod_reports_sku ON production_reports (sku_keyword)',
+    'CREATE INDEX IF NOT EXISTS ix_prod_reports_status ON production_reports (status)',
+    'CREATE INDEX IF NOT EXISTS ix_prod_events_report ON production_report_events (report_id)',
+  ]) {
+    try { await db.exec(ix); } catch (e) { console.error('[db] index failed', e.message); }
+  }
   // seed SKU + ทีมงานกะ (idempotent · DO NOTHING เพื่อไม่ทับค่าที่ผู้ใช้แก้เอง เช่น count_unit)
   for (const [kw, grp, mc, pf, unit, flavor] of DEFAULT_SKUS) {
     await db.exec(
@@ -955,6 +1009,27 @@ const tgApi = async (method, payload) => {
   if (!token) { console.log(`[TG] ${method} skipped (no token)`); return null; }
   try { const r = await axios.post(`https://api.telegram.org/bot${token}/${method}`, payload); return r.data; }
   catch (e) { console.error(`[TG] ${method} error`, e.response?.data || e.message); return null; }
+};
+
+// ── ช่องทาง Telegram ของระบบลงยอดผลิต (SPP) ────────────────────────────────
+// แยกบอท/กลุ่มออกจากบอท CIP-duty: คนละเรื่อง คนละกลุ่มผู้รับ และบอท SPP ต้องเป็นเจ้าของ
+// webhook ที่ /api/telegram/spp-update เอง (Telegram ให้บอทละ 1 webhook)
+// ยังไม่ตั้ง env → fallback ไปบอท/กลุ่มเดิม เพื่อให้ของที่ใช้อยู่ไม่พังก่อนตั้งค่าบน Render
+const sppBotToken = () => process.env.SPP_TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
+const sppChatId = () => process.env.SPP_TELEGRAM_CHAT_ID || process.env.TELEGRAM_CHAT_ID;
+
+const sppTg = async (method, payload) => {
+  const token = sppBotToken();
+  if (!token) { console.log(`[SPP-TG] ${method} skipped (no token)`); return null; }
+  try { const r = await axios.post(`https://api.telegram.org/bot${token}/${method}`, payload); return r.data; }
+  catch (e) { console.error(`[SPP-TG] ${method} error`, e.response?.data || e.message); return null; }
+};
+
+// ส่งข้อความเข้ากลุ่ม SPP · คืน true เมื่อส่งสำเร็จจริง (ผู้เรียกใช้ตัดสินว่าจะบันทึกว่า "ส่งแล้ว" ไหม)
+const sendSppTelegram = async (text, extra = {}) => {
+  if (!sppBotToken() || !sppChatId()) { console.error('[SPP-TG] missing token/chatId'); return false; }
+  const r = await sppTg('sendMessage', { chat_id: sppChatId(), text, parse_mode: 'HTML', ...extra });
+  return !!(r && r.ok);
 };
 
 const dataUrlToBuffer = (dataUrl) => {
@@ -1680,10 +1755,8 @@ async function notifyVerifyLink(rep) {
     `กรอกยอดที่นับได้: ${url}`,
     `(ลิงก์ใช้ได้ครั้งเดียว หมดอายุ ${escapeHtml(rep.verify_expires_at)})`,
   ].join('\n');
-  // sendToTelegram กลืน error เอง → ต้องเช็ค env ก่อน ไม่งั้นจะรายงานว่า "ส่งแล้ว" ทั้งที่ไม่ได้ส่ง
-  if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) return 'none';
-  try { await sendToTelegram(text); return 'telegram'; }
-  catch { return 'none'; }
+  // sendSppTelegram คืน true เฉพาะตอนส่งผ่านจริง — ห้ามรายงานว่า "ส่งแล้ว" ทั้งที่ไม่ได้ส่ง
+  return (await sendSppTelegram(text)) ? 'telegram' : 'none';
 }
 
 // แจ้งลิงก์ชุด (กะหนึ่ง 8+ รายการ = ลิงก์เดียว) — ข้อความสรุปแทนการยิงทีละรายการ
@@ -1699,9 +1772,7 @@ async function notifyBatchLink(batch, items) {
     `กรอกยอดที่นับได้ทั้งหมดในลิงก์เดียว: ${url}`,
     `(ลิงก์ใช้ได้ครั้งเดียว หมดอายุ ${escapeHtml(batch.verify_expires_at)})`,
   ].join('\n');
-  if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) return 'none';
-  try { await sendToTelegram(text); return 'telegram'; }
-  catch { return 'none'; }
+  return (await sendSppTelegram(text)) ? 'telegram' : 'none';
 }
 
 // ── สร้าง 1 รายงานลง DB ─────────────────────────────────────────────────
@@ -1710,7 +1781,7 @@ async function notifyBatchLink(batch, items) {
 // โยน Error พร้อม .httpStatus เมื่อข้อมูลไม่ผ่าน ให้ผู้เรียกจับไปตอบเอง
 const badRequest = (msg) => Object.assign(new Error(msg), { httpStatus: 400 });
 
-async function createReportRow({ header, item, batchId = null, token = null, expires = null }) {
+async function createReportRow({ header, item, batchId = null, token = null, expires = null, channel = 'web' }) {
   const keyword = String(item.sku_keyword || '').trim();
   const prodQty = Number(item.prod_qty);
   if (!keyword) throw badRequest('ต้องเลือกสินค้า (SKU)');
@@ -1753,6 +1824,10 @@ async function createReportRow({ header, item, batchId = null, token = null, exp
                       - n(header.clean_time) - n(header.stop_after_target) - n(item.bdown_time),
     wastes: Array.isArray(item.wastes) ? item.wastes : [],
     extra_note: item.extra_note || '',
+    // เฟส 2 (ทางเข้า Telegram): รูปค้างพาเลท + ภาชนะบรรจุชำรุด 5 ประเภท
+    // สินค้าสาย 2 คลังมองไม่เห็นของที่ค้างพาเลท รูปคือหลักฐานเดียวที่ยันยอดได้
+    ...(item.pallet_photo ? { pallet_photo: item.pallet_photo } : {}),
+    ...(item.damaged ? { damaged: item.damaged } : {}),
   };
 
   const reportId = 'RPT-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
@@ -1761,21 +1836,86 @@ async function createReportRow({ header, item, batchId = null, token = null, exp
     `INSERT INTO production_reports
       (report_id, batch_id, work_day, report_date, shift, sku_keyword, sku_code, product_name, group_name, machine,
        count_unit, pack_factor, plan_qty, plan_source, prod_qty, prod_pcs, reporter_name, crew_count, reported_at,
-       prod_status, miss_reason, status, verify_token, verify_expires_at, payload, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending_warehouse',?,?,?,?,?)`,
+       prod_status, miss_reason, status, verify_token, verify_expires_at, payload,
+       telegram_user_id, telegram_chat_id, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending_warehouse',?,?,?,?,?,?,?)`,
     [reportId, batchId, workDay, workDay, shift, keyword, sku.sku_code || '', sku.product_name || keyword,
      // เครื่องเลือกได้หน้างาน (สินค้าเดียวกันวิ่งได้หลายเครื่อง เช่น Syrup → Linear#1-#4)
      sku.group_name || '', String(item.machine || sku.machine || '').trim(), sku.count_unit || 'กล่อง', packFactor,
      plan.plan_qty, plan.plan_source, prodQty, prodPcs, reporter, crew.length, now,
-     prodStatus, missReason, token, expires, JSON.stringify(payload), now, now]
+     prodStatus, missReason, token, expires, JSON.stringify(payload),
+     // ผูกไว้กับคนที่ลงยอดใน Telegram — หัวหน้ากด "ส่งกลับแก้" แล้วต้องรู้ว่าจะเด้งหาใคร
+     header.telegram_user_id || null, header.telegram_chat_id || null, now, now]
   );
-  await logReportEvent(reportId, 'created', reporter, `ลงยอด ${prodQty} ${sku.count_unit}`, 'web', 'production');
+  await logReportEvent(reportId, 'created', reporter, `ลงยอด ${prodQty} ${sku.count_unit}`, channel, 'production');
 
   return {
     report_id: reportId, sku_keyword: keyword, product_name: sku.product_name || keyword,
     count_unit: sku.count_unit || 'กล่อง', prod_qty: prodQty, prod_pcs: prodPcs,
     plan_qty: plan.plan_qty, plan_source: plan.plan_source, prod_status: prodStatus,
   };
+}
+
+// ── ตรวจจับความผิดปกติของรายงาน (เฟส 2) ────────────────────────────────────
+// เป็นกฎล้วน ๆ ไม่เรียก LLM: เร็ว ทำนายผลได้ อธิบายได้ และไม่มีค่าใช้จ่ายต่อการส่ง 1 ชุด
+// ผลเก็บใน payload.ai_flags → หน้าอนุมัติเอาไปแสดงเป็นป้ายเตือน
+// ⚠️ ห้ามใช้ตัดสินใจแทนหัวหน้า — เตือนอย่างเดียว
+async function flagBatchAnomalies(created) {
+  for (const c of created) {
+    const rows = await dbAll('SELECT * FROM production_reports WHERE report_id = ?', [c.report_id]);
+    const r = rows[0];
+    if (!r) continue;
+    let payload = {};
+    try { payload = JSON.parse(r.payload || '{}'); } catch { continue; }
+
+    const flags = [];
+    const qty = Number(r.prod_qty) || 0;
+
+    // 1) ต่ำกว่าแผนมาก
+    if (r.plan_qty > 0) {
+      const pct = Math.round((qty / r.plan_qty) * 100);
+      if (pct < 70) flags.push({ level: 'warn', text: `ได้แค่ ${pct}% ของแผน (${qty}/${r.plan_qty})` });
+      else if (pct > 130) flags.push({ level: 'info', text: `เกินแผน ${pct}% — เช็กว่าลงยอดถูกกะไหม` });
+    }
+
+    // 2) ต่างจากค่าเฉลี่ยของ SKU นี้ใน 30 วันหลัง
+    try {
+      const hist = await dbAll(
+        `SELECT AVG(prod_qty) AS avg_qty, COUNT(*) AS n FROM production_reports
+          WHERE sku_keyword = ? AND report_id <> ? AND work_day >= ? AND prod_qty > 0`,
+        [r.sku_keyword, r.report_id, addDaysStr(r.work_day, -30)]
+      );
+      const avg = Number(hist[0]?.avg_qty) || 0;
+      const n = Number(hist[0]?.n) || 0;
+      if (n >= 3 && avg > 0) {
+        const ratio = qty / avg;
+        if (ratio > 2) flags.push({ level: 'warn', text: `มากกว่าค่าเฉลี่ย 30 วัน ${ratio.toFixed(1)} เท่า (เฉลี่ย ${Math.round(avg)})` });
+        else if (ratio < 0.4) flags.push({ level: 'info', text: `น้อยกว่าค่าเฉลี่ย 30 วันมาก (เฉลี่ย ${Math.round(avg)})` });
+      }
+    } catch { /* ไม่มีประวัติก็ข้าม */ }
+
+    // 3) สินค้าสาย 2 (จัดพาเลทเอง) แต่ไม่มีรูปค้างพาเลท — คลังยันยอดไม่ได้
+    try {
+      const sku = (await dbAll('SELECT pallet_route FROM sku_master WHERE keyword = ?', [r.sku_keyword]))[0];
+      if (Number(sku?.pallet_route) === 2 && !payload.pallet_photo) {
+        flags.push({ level: 'warn', text: 'สินค้าจัดพาเลทเอง แต่ไม่มีรูปค้างพาเลท' });
+      }
+    } catch { /* ข้าม */ }
+
+    // 4) เลขหน้าเครื่องไม่สมเหตุผลกับยอด (counter ควรใกล้ยอด×ชิ้นต่อกล่อง)
+    const counter = Number(payload.counter) || 0;
+    const expectPcs = qty * (Number(r.pack_factor) || 0);
+    if (counter > 0 && expectPcs > 0) {
+      const ratio = counter / expectPcs;
+      if (ratio > 3 || ratio < 0.33) {
+        flags.push({ level: 'info', text: `เลขหน้าเครื่อง ${counter.toLocaleString()} ไม่สอดคล้องกับยอด ${expectPcs.toLocaleString()} ชิ้น` });
+      }
+    }
+
+    if (!flags.length) continue;
+    payload.ai_flags = flags;
+    await db.exec('UPDATE production_reports SET payload = ? WHERE report_id = ?', [JSON.stringify(payload), r.report_id]);
+  }
 }
 
 // ส่งรายการที่อนุมัติแล้วเข้า n8n → เขียนชีต1 · ไม่ throw (ให้ sheetSyncTick ตามเก็บ)
@@ -1860,16 +2000,21 @@ app.post('/api/sku', async (req, res) => {
   try {
     for (const it of items) {
       if (!it.keyword) continue;
+      // ตรวจแล้วมี pack_factor และเปิดใช้ → เคลียร์ review_note ออกจากคิวรอตรวจไปเลย
+      const active = it.active === 0 ? 0 : 1;
+      const packFactor = Number(it.pack_factor) || 0;
+      const reviewNote = active && packFactor ? null : (it.review_note ?? null);
       await db.exec(
-        `INSERT INTO sku_master (keyword, sku_code, product_name, group_name, machine, count_unit, pack_factor, plan_flavor, active, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO sku_master (keyword, sku_code, product_name, group_name, machine, count_unit, pack_factor, plan_flavor, active, pallet_route, review_note, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (keyword) DO UPDATE SET
            sku_code=excluded.sku_code, product_name=excluded.product_name, group_name=excluded.group_name,
            machine=excluded.machine, count_unit=excluded.count_unit, pack_factor=excluded.pack_factor,
-           plan_flavor=excluded.plan_flavor, active=excluded.active, updated_at=excluded.updated_at`,
+           plan_flavor=excluded.plan_flavor, active=excluded.active, pallet_route=excluded.pallet_route,
+           review_note=excluded.review_note, updated_at=excluded.updated_at`,
         [it.keyword, it.sku_code || '', it.product_name || '', it.group_name || '', it.machine || '',
-         it.count_unit || 'กล่อง', Number(it.pack_factor) || 0, it.plan_flavor || '',
-         it.active === 0 ? 0 : 1, nowBKK()]
+         it.count_unit || 'กล่อง', packFactor, it.plan_flavor || '',
+         active, it.pallet_route === 2 ? 2 : (it.pallet_route === 1 ? 1 : null), reviewNote, nowBKK()]
       );
     }
     res.json({ ok: true, saved: items.length });
@@ -1899,6 +2044,46 @@ const guessPackFactor = (full) => {
   if (!m) return 0;
   return m.reduce((acc, x) => acc * (Number(x.replace(/[^\d]/g, '')) || 1), 1);
 };
+
+// ── สินค้าสาย 2: พนักงานบรรจุจัดเรียงพาเลทเอง คลังมองไม่เห็นของที่ค้างพาเลท ───
+// (จากโน้ต Notion: Icing, น้ำตาลปี๊บ, Lowcal, Senorita, น้ำเชื่อม 20x1)
+// แตะเฉพาะแถวที่ pallet_route ยัง NULL → รันกี่รอบก็ได้ และไม่ทับค่าที่หน้างานแก้เอง
+const PALLET_ROUTE2_GROUPS = ['Icing', 'Senorita', 'Low Cal.'];
+// ชื่อในชีตปนไทย/อังกฤษ — ต้องจับทั้งสองแบบ (ไอซิ่ง/icing, เซนญอ/senorita) ไม่งั้นหลุดเงียบ ๆ
+const PALLET_ROUTE2_NAME_RE = /ปี๊บ|low\s*cal|โลว์แคล|icing|ไอซิ่ง|เซนญอ|senorita|20\s*kg|20\s*×\s*1|20\s*x\s*1|\(BIB\)/i;
+
+async function seedPalletRoutes() {
+  try {
+    const rows = await dbAll('SELECT keyword, group_name, product_name FROM sku_master WHERE pallet_route IS NULL', []);
+    let n = 0;
+    for (const r of rows) {
+      const hay = `${r.keyword || ''} ${r.product_name || ''}`;
+      const isRoute2 = PALLET_ROUTE2_GROUPS.includes((r.group_name || '').trim()) || PALLET_ROUTE2_NAME_RE.test(hay);
+      if (!isRoute2) continue;
+      await db.exec('UPDATE sku_master SET pallet_route = 2 WHERE keyword = ? AND pallet_route IS NULL', [r.keyword]);
+      n++;
+    }
+    if (n) console.log(`[SKU] pallet_route=2 seeded for ${n} SKUs`);
+  } catch (e) { console.error('[SKU] seedPalletRoutes failed', e.message); }
+}
+
+// ── CSV parser เล็ก ๆ (ไม่เพิ่ม dependency) — รองรับฟิลด์ในเครื่องหมายคำพูดที่มี , หรือขึ้นบรรทัดใหม่ ──
+function parseCsv(text) {
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQuotes = false; }
+      else field += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+    else if (c !== '\r') field += c;
+  }
+  if (field || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
 
 app.post('/api/sku/sync', async (req, res) => {
   let rows;
@@ -1947,6 +2132,116 @@ app.post('/api/sku/sync', async (req, res) => {
 
   console.log(`[SKU sync] created=${created.length} updated=${updated.length} review=${needsReview.length}`);
   res.json({ ok: true, total: rows.length, created, updated, needsReview });
+});
+
+// ── นำเข้า "รายการสินค้าทั้งหมด" จากชีตของฝ่ายผลิต (~200 SKU) ────────────────
+// ชีตเปิดสาธารณะ → ดึง CSV ตรงได้ ไม่ต้องผ่าน n8n และไม่ต้องใช้ Google credential
+// รูปแบบชีตไม่สะอาด: ชื่อสินค้าถูกตัดคร่อมหลายคอลัมน์ (B–H) เพราะเดิมวางมาจากข้อความ
+//   คอลัมน์ 0 = รหัส SKU · 1..7 = ชิ้นส่วนของชื่อ · 8 = เครื่อง
+//   บางแถวขึ้นต้นด้วย "EX" แล้วรหัสไปอยู่คอลัมน์ 1
+//   บางแถวไม่มีรหัสเลย (เช่น ไซรัปเฟรชชี่ 20 kg. BIB.) — ยังเป็นสินค้า
+//   ท้ายชีตเป็นรายชื่อ "กลุ่ม" ล้วน ๆ (Syrup/Freshy/Icing/...) ไม่ใช่สินค้า → แยกด้วย "ไม่มีตัวเลขในแถว"
+const ALL_SKU_CSV_URL = process.env.SPP_ALL_SKU_CSV_URL
+  || 'https://docs.google.com/spreadsheets/d/1a7_hNWzGErVEdwkmASRf-UmWE5ecf2TsdQZS3Y6YRbA/export?format=csv';
+
+const looksLikeSkuCode = (v) => /^[A-Z][0-9A-Z]{6,12}$/.test(String(v || '').trim());
+
+// แปลง 1 แถว CSV → { sku_code, product_name, machine } หรือ null ถ้าไม่ใช่สินค้า
+function parseAllSkuRow(cells) {
+  const c = cells.map(x => String(x || '').trim());
+  if (!c.some(Boolean)) return null;
+  if (c[0] === 'SKU') return null;                       // แถวหัวตาราง
+  if (!/[0-9]/.test(c.join(' '))) return null;           // ไม่มีตัวเลขเลย = ชื่อกลุ่มท้ายชีต ไม่ใช่สินค้า
+
+  const machine = (c[8] || '').trim();
+  let code = '', nameParts;
+  if (c[0] === 'EX' && looksLikeSkuCode(c[1])) { code = c[1]; nameParts = c.slice(2, 8); }
+  else if (looksLikeSkuCode(c[0])) { code = c[0]; nameParts = c.slice(1, 8); }
+  else nameParts = c.slice(0, 8);                        // สินค้าที่ไม่มีรหัสในชีต
+
+  const product_name = nameParts.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  if (!code && !product_name) return null;
+  return { sku_code: code, product_name, machine };
+}
+
+app.post('/api/sku/import-all', async (req, res) => {
+  let csv;
+  try {
+    const r = await axios.get(ALL_SKU_CSV_URL, { timeout: 25000, responseType: 'text' });
+    csv = typeof r.data === 'string' ? r.data : String(r.data);
+  } catch (e) {
+    console.error('[SKU import-all] fetch error:', e.response?.status || e.message);
+    return res.status(502).json({ error: 'ดึงชีตรายการสินค้าไม่สำเร็จ (ตรวจว่าชีตยังเปิดให้ "ผู้ที่มีลิงก์" อ่านได้)' });
+  }
+
+  const parsed = parseCsv(csv).map(parseAllSkuRow).filter(Boolean);
+  if (!parsed.length) return res.status(502).json({ error: 'อ่านชีตแล้วไม่พบรายการสินค้า' });
+
+  const created = [], updated = [], needsReview = [], skipped = [], duplicates = [];
+  const seen = new Set();
+  try {
+    for (const row of parsed) {
+      // ชีตมีรหัสซ้ำกันจริงอยู่ 2 ตัว — ข้ามตัวที่ซ้ำแล้วรายงานให้รู้ ดีกว่าปล่อยให้ DO NOTHING เงียบ ๆ
+      const dupKey = row.sku_code || row.product_name;
+      if (seen.has(dupKey)) { duplicates.push(dupKey); continue; }
+      seen.add(dupKey);
+
+      // จับคู่ด้วย sku_code ก่อน (ของเดิม 16 ตัวมี keyword เป็นชื่อเล่น เช่น "Syrup 1.8" ไม่ใช่รหัส)
+      // แล้วค่อยลอง keyword — กันสร้างซ้ำเมื่อชีตกับ seed เป็นสินค้าตัวเดียวกัน
+      const existing = row.sku_code
+        ? (await dbAll('SELECT keyword, pack_factor, count_unit FROM sku_master WHERE sku_code = ?', [row.sku_code]))[0]
+        : (await dbAll('SELECT keyword, pack_factor, count_unit FROM sku_master WHERE keyword = ?', [row.product_name]))[0];
+
+      if (existing) {
+        // invariant: ชีตเป็นเจ้าของแค่ชื่อ/รหัส/กลุ่ม — count_unit, pack_factor, machine ตั้งกันหน้างาน ห้ามทับ
+        await db.exec(
+          'UPDATE sku_master SET sku_code = ?, product_name = ?, updated_at = ? WHERE keyword = ?',
+          [row.sku_code || '', row.product_name, nowBKK(), existing.keyword]
+        );
+        updated.push(existing.keyword);
+        if (!Number(existing.pack_factor)) needsReview.push({ keyword: existing.keyword, reason: 'ยังไม่มีจำนวนชิ้น/หน่วยนับ' });
+        continue;
+      }
+
+      // keyword ต้องไม่ชนของเดิม — ใช้รหัส SKU เป็นหลัก ไม่มีรหัสค่อยใช้ชื่อ
+      const keyword = row.sku_code || row.product_name;
+      if (!keyword) { skipped.push(row.product_name); continue; }
+
+      const pf = guessPackFactor(row.product_name);
+      // เดา pack_factor ไม่ได้ = ยังคำนวณยอดชิ้นไม่ถูก → ปิดไว้ก่อน ไม่ให้โผล่ในฟอร์มจนกว่าจะมีคนมาตรวจ
+      const reviewNote = pf
+        ? 'นำเข้าจากชีตรายการสินค้า — ยังไม่ได้ยืนยันหน่วยนับ/เครื่อง'
+        : 'นำเข้าจากชีตรายการสินค้า — เดาจำนวนชิ้นต่อหน่วยไม่ได้ ต้องกรอกเอง';
+      await db.exec(
+        `INSERT INTO sku_master (keyword, sku_code, product_name, group_name, machine, count_unit, pack_factor,
+                                 plan_flavor, active, review_note, updated_at)
+         VALUES (?, ?, ?, '', ?, 'กล่อง', ?, '', ?, ?, ?)
+         ON CONFLICT (keyword) DO NOTHING`,
+        [keyword, row.sku_code || '', row.product_name, row.machine, pf, pf ? 1 : 0, reviewNote, nowBKK()]
+      );
+      created.push(keyword);
+      needsReview.push({ keyword, product_name: row.product_name, pack_factor: pf, active: pf ? 1 : 0, reason: reviewNote });
+    }
+    await seedPalletRoutes();   // สินค้าที่เพิ่งเข้ามาต้องได้ธงสาย 2 ด้วย
+  } catch (e) {
+    console.error('[SKU import-all] db error:', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+
+  console.log(`[SKU import-all] parsed=${parsed.length} created=${created.length} updated=${updated.length} dup=${duplicates.length} review=${needsReview.length}`);
+  res.json({ ok: true, total: parsed.length, created, updated, skipped, duplicates, needsReview });
+});
+
+// รายการ SKU ที่ยังเปิดใช้ไม่ได้ / ยังไม่มี pack_factor — คิวให้หน้างานมาเติมแล้วกดเปิดใช้
+app.get('/api/sku/review', async (req, res) => {
+  try {
+    const rows = await dbAll(
+      `SELECT keyword, sku_code, product_name, group_name, machine, count_unit, pack_factor, pallet_route, active, review_note
+         FROM sku_master
+        WHERE active = 0 OR pack_factor IS NULL OR pack_factor = 0
+        ORDER BY active, group_name, keyword`, []);
+    res.json({ items: rows, total: rows.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ทีมงานประจำกะ (ให้ฟอร์มติ๊กเลือก แล้วนับเป็นจำนวนคนผลิต)
@@ -2015,72 +2310,99 @@ app.post('/api/production/report', async (req, res) => {
 
 // ── ①' ลงยอดทั้งกะเป็นชุดเดียว → ออกลิงก์เดียวให้คลัง ───────────────────────
 // กะหนึ่งลง 8+ รายการ · ลิงก์รายการละอันคลังกดไม่ไหว
-app.post('/api/production/batch', async (req, res) => {
-  const b = req.body || {};
-  const h = b.header || {};
-  const items = Array.isArray(b.items) ? b.items : [];
+//
+// แยกไส้ออกจาก route เพราะบอท Telegram เรียกเส้นทางเดียวกันนี้ (เหมือน createReportRow/decideReport)
+// โยน Error พร้อม .httpStatus เมื่อข้อมูลไม่ผ่าน ให้ผู้เรียกจับไปตอบเอง
+async function createProductionBatch({ header: h = {}, items = [], channel = 'web' }) {
   const reporter = String(h.reporter || '').trim();
   const shift = String(h.shift || '').trim();
-  const workDay = h.date || workDayBKK();
+  const workDay = h.date || h.work_day || workDayBKK();
 
-  if (!reporter) return res.status(400).json({ error: 'ต้องระบุชื่อผู้ลงยอด' });
-  if (!items.length) return res.status(400).json({ error: 'ต้องมีอย่างน้อย 1 รายการ' });
+  if (!reporter) throw badRequest('ต้องระบุชื่อผู้ลงยอด');
+  if (!items.length) throw badRequest('ต้องมีอย่างน้อย 1 รายการ');
 
+  // กันกดส่งซ้ำทั้งชุด — ชุดของกะเดียวกันโดยคนเดียวกันที่ยังรอคลัง สร้างไม่เกิน 2 นาที
+  const dup = await dbAll(
+    `SELECT batch_id FROM production_batches
+     WHERE work_day = ? AND shift = ? AND created_by = ? AND status = 'pending_warehouse' AND created_at >= ?`,
+    [workDay, shift, reporter, bkkPlusHours(-2 / 60)]
+  );
+  if (dup.length) {
+    throw Object.assign(new Error('ชุดนี้เพิ่งถูกส่งไปแล้ว'), { httpStatus: 409, existing_batch_id: dup[0].batch_id });
+  }
+
+  const batchId = 'BAT-' + Date.now();
+  const token = crypto.randomBytes(24).toString('base64url');
+  const expires = bkkPlusHours(VERIFY_TTL_HOURS);
+  const now = nowBKK();
+  const header = { work_day: workDay, shift, reporter, crew: h.crew, ...h };
+
+  // สร้าง batch ก่อน แล้วค่อยใส่รายการ — ถ้ารายการไหนพัง ลบชุดทิ้งทั้งหมด ไม่ทิ้งของครึ่ง ๆ
+  await db.exec(
+    `INSERT INTO production_batches
+      (batch_id, work_day, shift, created_by, item_count, status, verify_token, verify_expires_at, created_at, updated_at)
+     VALUES (?,?,?,?,?, 'pending_warehouse', ?,?,?,?)`,
+    [batchId, workDay, shift, reporter, items.length, token, expires, now, now]
+  );
+
+  const created = [];
   try {
-    // กันกดส่งซ้ำทั้งชุด — ชุดของกะเดียวกันโดยคนเดียวกันที่ยังรอคลัง สร้างไม่เกิน 2 นาที
-    const dup = await dbAll(
-      `SELECT batch_id FROM production_batches
-       WHERE work_day = ? AND shift = ? AND created_by = ? AND status = 'pending_warehouse' AND created_at >= ?`,
-      [workDay, shift, reporter, bkkPlusHours(-2 / 60)]
-    );
-    if (dup.length) return res.status(409).json({ error: 'ชุดนี้เพิ่งถูกส่งไปแล้ว', existing_batch_id: dup[0].batch_id });
-
-    const batchId = 'BAT-' + Date.now();
-    const token = crypto.randomBytes(24).toString('base64url');
-    const expires = bkkPlusHours(VERIFY_TTL_HOURS);
-    const now = nowBKK();
-    const header = { work_day: workDay, shift, reporter, crew: h.crew, ...h };
-
-    // สร้าง batch ก่อน แล้วค่อยใส่รายการ — ถ้ารายการไหนพัง ลบชุดทิ้งทั้งหมด ไม่ทิ้งของครึ่ง ๆ
-    await db.exec(
-      `INSERT INTO production_batches
-        (batch_id, work_day, shift, created_by, item_count, status, verify_token, verify_expires_at, created_at, updated_at)
-       VALUES (?,?,?,?,?, 'pending_warehouse', ?,?,?,?)`,
-      [batchId, workDay, shift, reporter, items.length, token, expires, now, now]
-    );
-
-    const created = [];
-    try {
-      for (const item of items) {
-        created.push(await createReportRow({ header, item, batchId }));
-      }
-    } catch (e) {
-      await db.exec('DELETE FROM production_reports WHERE batch_id = ?', [batchId]);
-      await db.exec('DELETE FROM production_batches WHERE batch_id = ?', [batchId]);
-      if (e.httpStatus) return res.status(e.httpStatus).json({ error: e.message });
-      throw e;
+    for (const item of items) {
+      created.push(await createReportRow({ header, item, batchId, channel }));
     }
+  } catch (e) {
+    await db.exec('DELETE FROM production_reports WHERE batch_id = ?', [batchId]);
+    await db.exec('DELETE FROM production_batches WHERE batch_id = ?', [batchId]);
+    throw e;
+  }
 
-    // DB ครบแล้วค่อยแจ้ง — แจ้งครั้งเดียวต่อชุด
-    const sentVia = await notifyBatchLink(
-      { batch_id: batchId, work_day: workDay, shift, created_by: reporter, verify_token: token, verify_expires_at: expires },
-      created
-    );
-    await db.exec('UPDATE production_batches SET sent_via=?, sent_at=?, updated_at=? WHERE batch_id=?', [sentVia, now, now, batchId]);
-    for (const r of created) await logReportEvent(r.report_id, 'link_sent', 'system', `ชุด ${batchId} · ช่องทาง: ${sentVia}`, sentVia);
+  // DB ครบแล้วค่อยแจ้ง — แจ้งครั้งเดียวต่อชุด
+  const sentVia = await notifyBatchLink(
+    { batch_id: batchId, work_day: workDay, shift, created_by: reporter, verify_token: token, verify_expires_at: expires },
+    created
+  );
+  await db.exec('UPDATE production_batches SET sent_via=?, sent_at=?, updated_at=? WHERE batch_id=?', [sentVia, now, now, batchId]);
+  for (const r of created) await logReportEvent(r.report_id, 'link_sent', 'system', `ชุด ${batchId} · ช่องทาง: ${sentVia}`, sentVia);
 
-    console.log(`[SPP] batch ${batchId} created items=${created.length} sent=${sentVia}`);
+  // ตรวจความผิดปกติแล้วติดป้ายไว้ให้หัวหน้าดู — เป็น "ป้ายเตือน" ไม่ใช่คนตัดสิน
+  // (กติกาเดิม: หัวหน้าอนุมัติทุกรายการ ไม่มี auto-approve)
+  await flagBatchAnomalies(created).catch(e => console.error('[SPP] flag anomalies failed', e.message));
+
+  console.log(`[SPP] batch ${batchId} created items=${created.length} sent=${sentVia} channel=${channel}`);
+  return {
+    batch_id: batchId, item_count: created.length, items: created,
+    verify_token: token, verify_url: verifyUrlOf(token), verify_expires_at: expires, sent_via: sentVia,
+  };
+}
+
+app.post('/api/production/batch', async (req, res) => {
+  const b = req.body || {};
+  try {
+    const out = await createProductionBatch({ header: b.header || {}, items: Array.isArray(b.items) ? b.items : [] });
     res.json({
-      ok: true, batch_id: batchId, item_count: created.length,
-      verify_url: verifyUrlOf(token), verify_expires_at: expires, sent_via: sentVia,
-      items: created,
+      ok: true, batch_id: out.batch_id, item_count: out.item_count,
+      verify_url: out.verify_url, verify_expires_at: out.verify_expires_at, sent_via: out.sent_via,
+      items: out.items,
     });
   } catch (e) {
-    if (e.httpStatus) return res.status(e.httpStatus).json({ error: e.message });
+    // ส่งซ้ำ (409) แนบ batch เดิมกลับไปด้วย เหมือนพฤติกรรมเดิมก่อนแยกฟังก์ชัน
+    if (e.httpStatus) {
+      return res.status(e.httpStatus).json({
+        error: e.message, ...(e.existing_batch_id ? { existing_batch_id: e.existing_batch_id } : {}),
+      });
+    }
     console.error('[SPP] create batch failed', e.message);
     res.status(500).json({ error: e.message });
   }
 });
+
+// payload ที่ปลอดภัยต่อการส่งเป็นลิสต์ — ตัด base64 ของรูปออก เหลือแค่ธงว่า "มีรูปไหม"
+function stripPhotoFromPayload(raw) {
+  let p = {};
+  try { p = JSON.parse(raw || '{}'); } catch { return { payload: {}, has_pallet_photo: false }; }
+  const { pallet_photo, ...rest } = p;
+  return { payload: rest, has_pallet_photo: !!pallet_photo };
+}
 
 // ── รายการรายงาน (หน้าอนุมัติของหัวหน้า) ────────────────────────────────────
 app.get('/api/production/reports', async (req, res) => {
@@ -2091,7 +2413,11 @@ app.get('/api/production/reports', async (req, res) => {
       ? await dbAll('SELECT * FROM production_reports WHERE work_day = ? AND status = ? ORDER BY id DESC', [date, status])
       : await dbAll('SELECT * FROM production_reports WHERE work_day = ? ORDER BY id DESC', [date]);
     // ไม่ส่ง token ออกไปกับรายการ — ป้องกันหลุดผ่านหน้าจอที่ไม่เกี่ยว
-    res.json({ date, items: rows.map(({ verify_token, ...r }) => ({ ...r, has_link: !!verify_token })) });
+    // และไม่ส่งรูปค้างพาเลท (base64 ใน payload) มากับลิสต์ — กะหนึ่ง 8+ รูปคือหลาย MB ต่อการโหลด 1 ครั้ง
+    // อยากดูรูป → เรียก /api/production/report/:id ทีละใบ
+    res.json({ date, items: rows.map(({ verify_token, payload, ...r }) => ({
+      ...r, has_link: !!verify_token, ...stripPhotoFromPayload(payload),
+    })) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -2105,6 +2431,65 @@ app.get('/api/production/report/:reportId', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── ค้นย้อนหลัง / Timeline (เฟส 2) ──────────────────────────────────────────
+// หน้าอนุมัติดูได้ทีละวัน · หน้านี้ดูข้ามช่วงวัน + กรองตาม SKU/กะ/สถานะ + สรุปยอดต่อ SKU
+app.get('/api/production/history', async (req, res) => {
+  const to = String(req.query.to || workDayBKK());
+  const from = String(req.query.from || to);
+  const limit = Math.min(Number(req.query.limit) || 200, 500);
+  const offset = Math.max(Number(req.query.offset) || 0, 0);
+
+  const where = ['work_day >= ?', 'work_day <= ?'];
+  const params = [from, to];
+  if (req.query.sku) { where.push('sku_keyword = ?'); params.push(String(req.query.sku)); }
+  if (req.query.shift) { where.push('shift = ?'); params.push(String(req.query.shift)); }
+  if (req.query.status) { where.push('status = ?'); params.push(String(req.query.status)); }
+  if (req.query.q) {
+    // ค้นแบบหลวม ๆ ด้วย LIKE — ใช้ได้ทั้ง SQLite และ Postgres (ไม่ใช้ฟังก์ชันเฉพาะ dialect)
+    where.push('(product_name LIKE ? OR sku_keyword LIKE ? OR sku_code LIKE ? OR reporter_name LIKE ?)');
+    const like = `%${String(req.query.q)}%`;
+    params.push(like, like, like, like);
+  }
+  const whereSql = where.join(' AND ');
+
+  try {
+    const rows = await dbAll(
+      `SELECT * FROM production_reports WHERE ${whereSql} ORDER BY work_day DESC, id DESC LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+    const totalRow = await dbAll(`SELECT COUNT(*) AS n FROM production_reports WHERE ${whereSql}`, params);
+    const summary = await dbAll(
+      `SELECT sku_keyword, product_name, count_unit,
+              COUNT(*) AS reports,
+              SUM(prod_qty) AS total_prod,
+              SUM(COALESCE(approved_qty, wh_qty, prod_qty)) AS total_final
+         FROM production_reports WHERE ${whereSql}
+        GROUP BY sku_keyword, product_name, count_unit
+        ORDER BY total_prod DESC`, params
+    );
+    res.json({
+      from, to, total: Number(totalRow[0]?.n) || 0, limit, offset,
+      items: rows.map(({ verify_token, payload, ...r }) => ({ ...r, ...stripPhotoFromPayload(payload) })),
+      summary,
+    });
+  } catch (e) {
+    console.error('[SPP] history failed', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// รูปค้างพาเลทของรายงานเดียว — โหลดตอนกดดูเท่านั้น ไม่ติดมากับลิสต์
+app.get('/api/production/report/:reportId/pallet-photo', async (req, res) => {
+  try {
+    const rows = await dbAll('SELECT payload FROM production_reports WHERE report_id = ?', [req.params.reportId]);
+    if (!rows.length) return res.status(404).json({ error: 'ไม่พบรายงานนี้' });
+    let payload = {};
+    try { payload = JSON.parse(rows[0].payload || '{}'); } catch { /* payload เสีย */ }
+    if (!payload.pallet_photo) return res.status(404).json({ error: 'รายงานนี้ไม่มีรูปค้างพาเลท' });
+    res.json({ image: payload.pallet_photo });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── ③ หัวหน้าอนุมัติ (ทุกรายการ ไม่มี auto-approve แม้เลขตรงกัน) ─────────────
 app.post('/api/production/report/:reportId/decide', async (req, res) => {
   const { approve, approver, approved_source, note } = req.body || {};
@@ -2112,6 +2497,48 @@ app.post('/api/production/report/:reportId/decide', async (req, res) => {
   if (approve === false && !String(note || '').trim()) return res.status(400).json({ error: 'ปฏิเสธต้องระบุเหตุผล' });
   try {
     const out = await decideReport(req.params.reportId, approve !== false, String(approver).trim(), { approved_source, note, channel: 'web' });
+    res.status(out.ok ? 200 : 409).json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── ③' หัวหน้า "ส่งกลับให้แก้" (เฟส 2) ────────────────────────────────────────
+// ต่างจากปฏิเสธ: ปฏิเสธ = จบ · ส่งกลับแก้ = เด้งไปหาคนลงยอดใน Telegram แล้วรอส่งใหม่
+// แก้ที่แถวเดิมเสมอ — ไม่ออกลิงก์คลังใหม่ (คลังนับของจริงไปแล้ว · กันลิงก์ท่วมกลุ่ม)
+async function sendBackReport(reportId, actor, note, channel = 'web') {
+  const r = (await dbAll('SELECT * FROM production_reports WHERE report_id = ?', [reportId]))[0];
+  if (!r) return { ok: false, message: 'ไม่พบรายงานนี้' };
+  if (r.status !== 'pending_approval') return { ok: false, message: `รายการนี้ไม่ได้รออนุมัติแล้ว (${r.status})`, status: r.status };
+
+  const upd = await db.exec(
+    `UPDATE production_reports SET status='needs_fix', fix_note=?, updated_at=?
+      WHERE report_id=? AND status='pending_approval'`,
+    [note, nowBKK(), reportId]
+  );
+  if (!upd.rowCount) return { ok: false, message: 'รายการนี้ถูกจัดการไปแล้ว' };
+  await logReportEvent(reportId, 'sent_back', actor, note, channel, 'supervisor');
+
+  // เด้งหาคนลงยอดในแชทเดิมถ้ารู้ว่าเป็นใคร ไม่รู้ก็ประกาศเข้ากลุ่ม
+  const text = [
+    '✏️ <b>หัวหน้าส่งกลับให้แก้</b>',
+    `${escapeHtml(r.product_name || r.sku_keyword)} · ${escapeHtml(r.work_day)} ${escapeHtml(r.shift)}`,
+    `ยอดที่ส่งไป: <b>${r.prod_qty} ${escapeHtml(r.count_unit)}</b>`,
+    r.wh_qty != null ? `คลังนับได้: <b>${r.wh_qty} ${escapeHtml(r.count_unit)}</b>` : null,
+    `\n📝 <i>${escapeHtml(note)}</i>`,
+  ].filter(Boolean).join('\n');
+  const kb = [[{ text: '✏️ แก้ไขรายการนี้', callback_data: `s:fix:${reportId}` }]];
+
+  if (r.telegram_chat_id) await sppTg('sendMessage', { chat_id: r.telegram_chat_id, text, parse_mode: 'HTML', reply_markup: { inline_keyboard: kb } });
+  else await sendSppTelegram(`${text}\n\n<i>(ลงยอดผ่านเว็บ — แก้ในหน้าลงยอดผลิต)</i>`);
+
+  return { ok: true, status: 'needs_fix' };
+}
+
+app.post('/api/production/report/:reportId/send-back', async (req, res) => {
+  const { actor, note } = req.body || {};
+  if (!String(actor || '').trim()) return res.status(400).json({ error: 'ต้องระบุชื่อผู้ส่งกลับ' });
+  if (!String(note || '').trim()) return res.status(400).json({ error: 'ต้องระบุว่าให้แก้อะไร' });
+  try {
+    const out = await sendBackReport(req.params.reportId, String(actor).trim(), String(note).trim(), 'web');
     res.status(out.ok ? 200 : 409).json(out);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -2135,7 +2562,10 @@ app.post('/api/production/batch/:batchId/decide', async (req, res) => {
     }
     const now = nowBKK();
     await db.exec("UPDATE production_batches SET status='closed', updated_at=? WHERE batch_id=?", [now, req.params.batchId]);
-    res.json({ ok: true, decided: done.length, failed: failed.length, failures: failed });
+    // อนุมัติแล้ว → ยิงการ์ดให้คลังกดรับทราบในกลุ่ม LINE (ไม่ตั้ง env ก็ข้ามไป ไม่ทำให้ตอบช้า/พัง)
+    let lineSent = 'none';
+    if (approve !== false) lineSent = await pushWarehouseCard(req.params.batchId).catch(() => 'none');
+    res.json({ ok: true, decided: done.length, failed: failed.length, failures: failed, line_sent: lineSent });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -2271,12 +2701,18 @@ app.post('/api/production/verify/:token', async (req, res) => {
           `คลังนับได้ ${c.wh_qty} ${c.r.count_unit}${c.diff !== 0 ? ` (ต่าง ${c.diff > 0 ? '+' : ''}${c.diff})` : ' (ตรงกัน)'}`, 'web', 'warehouse');
       }
 
-      sendToTelegram([
+      // แนบปุ่มให้หัวหน้าอนุมัติทั้งชุดได้จากแชทเลย — เรียก decideReport() ตัวเดียวกับเว็บ
+      sendSppTelegram([
         `📥 <b>คลังยืนยันแล้ว ${calc.length} รายการ</b> · ${escapeHtml(bt.work_day)} ${escapeHtml(bt.shift)}`,
         `ตรงกัน ${calc.length - diffs.length} · ต่าง <b>${diffs.length}</b>`,
         ...diffs.map(c => `• ${escapeHtml(c.r.product_name || c.r.sku_keyword)}: แจ้ง ${c.r.prod_qty} → นับได้ <b>${c.wh_qty}</b> (${c.diff > 0 ? '+' : ''}${c.diff} ${escapeHtml(c.r.count_unit)})`),
         `ผู้ตรวจนับ: ${escapeHtml(whName)} · รอหัวหน้างานอนุมัติ`,
-      ].join('\n')).catch(() => {});
+      ].join('\n'), {
+        reply_markup: { inline_keyboard: [
+          [{ text: '✅ อนุมัติทั้งชุด', callback_data: `s:appb:${bt.batch_id}` }],
+          [{ text: '🔍 เปิดในแอป', url: `${APP_PUBLIC_URL}/` }],
+        ] },
+      }).catch(() => {});
 
       return res.json({
         ok: true, batch_id: bt.batch_id, item_count: calc.length,
@@ -2319,7 +2755,7 @@ app.post('/api/production/verify/:token', async (req, res) => {
 
     await logReportEvent(r.report_id, 'warehouse_submitted', whName,
       `คลังนับได้ ${whQty} ${r.count_unit}${diff !== 0 ? ` (ต่าง ${diff > 0 ? '+' : ''}${diff})` : ' (ตรงกัน)'}`, 'web', 'warehouse');
-    sendToTelegram([
+    sendSppTelegram([
       diff === 0 ? '✅ <b>คลังยืนยันแล้ว — ตัวเลขตรงกัน</b>' : '⚠️ <b>คลังยืนยันแล้ว — ตัวเลขไม่ตรง</b>',
       `${escapeHtml(r.product_name || r.sku_keyword)} · ${escapeHtml(r.shift)}`,
       `ฝ่ายผลิตแจ้ง ${r.prod_qty} ${escapeHtml(r.count_unit)} · คลังนับได้ <b>${whQty} ${escapeHtml(r.count_unit)}</b>`,
@@ -2334,11 +2770,769 @@ app.post('/api/production/verify/:token', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// บอท Production_SPP (เฟส 2) — กรอกยอดผลิตจบในแชท Telegram
+//   "แผนผลิตวันนี้" → เลือกสินค้า → เดินฟอร์มทีละช่อง → เก็บเข้าร่างของกะ
+//   → กด "ส่งทั้งกะ" ครั้งเดียว → createProductionBatch() เส้นทางเดียวกับเว็บ (1 ลิงก์ต่อกะ)
+// ร่างเก็บลง spp_tg_session (DB) ไม่ใช่ RAM — Render free tier หลับได้ตลอด
+// ใช้แพตเทิร์นเดียวกับบอท duty ที่ /api/telegram/duty-update
+// ═══════════════════════════════════════════════════════════════════════════
+
+const SPP_DAMAGE_KINDS = [
+  { key: 'ถุง', re: /ถุง(?!\s*pack)/i },
+  { key: 'กล่อง', re: /กล่อง/i },
+  { key: 'ถุง pack', re: /ถุง\s*pack|pack/i },
+  { key: 'ขวด/กระปุก', re: /ขวด|กระปุก/i },
+  { key: 'ฝา', re: /ฝา/i },
+];
+
+// กะปัจจุบันตามตารางโรงงาน (เดินจริง 7 วัน) → คืนรูปแบบเดียวกับฟอร์มเว็บและ shift_crew: กะ1/กะ2/กะ3
+function currentShiftCode() {
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
+  const h = now.getHours();
+  const shifts = factoryShiftsForWeekday(now.getDay());
+  if (shifts.length === 2) return (h >= 6 && h < 18) ? 'กะ1' : 'กะ3';
+  if (h >= 6 && h < 14) return 'กะ1';
+  if (h >= 14 && h < 22) return 'กะ2';
+  return 'กะ3';
+}
+
+// ── state ของบทสนทนา ────────────────────────────────────────────────────────
+async function getSppSession(chatId, userId) {
+  const rows = await dbAll('SELECT state, draft FROM spp_tg_session WHERE chat_id = ? AND user_id = ?', [String(chatId), String(userId)]);
+  if (!rows[0]) return { state: '', draft: {} };
+  let draft = {};
+  try { draft = JSON.parse(rows[0].draft || '{}'); } catch { /* ร่างเสีย — เริ่มใหม่ดีกว่าพัง */ }
+  return { state: rows[0].state || '', draft };
+}
+async function setSppSession(chatId, userId, state, draft) {
+  await db.exec(
+    `INSERT INTO spp_tg_session (chat_id, user_id, state, draft, updated_at) VALUES (?,?,?,?,?)
+     ON CONFLICT(chat_id, user_id) DO UPDATE SET state=excluded.state, draft=excluded.draft, updated_at=excluded.updated_at`,
+    [String(chatId), String(userId), state || '', JSON.stringify(draft || {}), nowBKK()]
+  );
+}
+async function clearSppSession(chatId, userId) {
+  await db.exec('DELETE FROM spp_tg_session WHERE chat_id = ? AND user_id = ?', [String(chatId), String(userId)]);
+}
+async function getSppUser(userId) {
+  return (await dbAll('SELECT * FROM spp_tg_user WHERE telegram_user_id = ?', [String(userId)]))[0] || null;
+}
+async function setSppUser(userId, name, chatId) {
+  await db.exec(
+    `INSERT INTO spp_tg_user (telegram_user_id, name, chat_id, registered_at, last_seen_at) VALUES (?,?,?,?,?)
+     ON CONFLICT(telegram_user_id) DO UPDATE SET name=excluded.name, chat_id=excluded.chat_id, last_seen_at=excluded.last_seen_at`,
+    [String(userId), name, String(chatId), nowBKK(), nowBKK()]
+  );
+}
+
+// ── ปุ่ม / ข้อความ ──────────────────────────────────────────────────────────
+const sppSend = (chatId, text, keyboard) =>
+  sppTg('sendMessage', {
+    chat_id: chatId, text, parse_mode: 'HTML',
+    ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
+  });
+
+const sppMainMenu = (draft) => {
+  const n = (draft.items || []).length;
+  return [
+    [{ text: '📋 แผนผลิตวันนี้', callback_data: 's:plan' }],
+    [{ text: '➕ ลงยอด (เลือกจากสินค้าทั้งหมด)', callback_data: 's:all:0' }],
+    ...(n ? [[{ text: `📤 ส่งทั้งกะ (${n} รายการ)`, callback_data: 's:submit' }]] : []),
+    ...(n ? [[{ text: '👀 ดูร่าง', callback_data: 's:draft' }, { text: '🗑 ล้างร่าง', callback_data: 's:clear' }]] : []),
+  ];
+};
+
+// สรุปร่างของกะที่ยังไม่ได้ส่ง
+function sppDraftText(draft) {
+  const items = draft.items || [];
+  if (!items.length) return 'ยังไม่มีรายการในร่าง';
+  return [
+    `📝 <b>ร่างของกะ · ${items.length} รายการ</b>`,
+    `${escapeHtml(draft.header?.date || '')} · ${escapeHtml(draft.header?.shift || '')} · ${escapeHtml(draft.header?.reporter || '')}`,
+    '',
+    ...items.map((it, i) => `${i + 1}. ${escapeHtml(it.product_name || it.sku_keyword)} — <b>${it.prod_qty} ${escapeHtml(it.count_unit || '')}</b>`),
+  ].join('\n');
+}
+
+// รายการสินค้าที่มีแผนวันนี้ (shift_plans ผูกกับ sku_master ผ่าน plan_flavor)
+// รวมทุกกะของวันนั้น — คนลงยอดมักลงของกะที่เพิ่งจบ ไม่ใช่กะที่กำลังเดินอยู่
+async function sppTodaySkus(workDay) {
+  const plans = await dbAll('SELECT DISTINCT flavor FROM shift_plans WHERE work_day = ?', [workDay]).catch(() => []);
+  if (!plans.length) return [];
+  const flavors = plans.map(p => (p.flavor || '').trim()).filter(Boolean);
+  if (!flavors.length) return [];
+  const marks = flavors.map(() => '?').join(',');
+  return dbAll(
+    `SELECT * FROM sku_master WHERE active = 1 AND plan_flavor IN (${marks}) ORDER BY group_name, keyword`, flavors
+  ).catch(() => []);
+}
+
+const SPP_PAGE = 8;
+// เก็บรายการที่กำลังโชว์ไว้ใน session แล้วให้ปุ่มอ้างด้วย index — callback_data จำกัด 64 ไบต์
+// keyword ภาษาไทยยาว ๆ ใส่ตรง ๆ ไม่พอแน่
+function sppSkuKeyboard(list, page, backTo) {
+  const start = page * SPP_PAGE;
+  const slice = list.slice(start, start + SPP_PAGE);
+  const rows = slice.map((s, i) => [{
+    text: `${s.product_name || s.keyword}`.slice(0, 55),
+    callback_data: `s:sku:${start + i}`,
+  }]);
+  const nav = [];
+  if (page > 0) nav.push({ text: '◀️ ก่อนหน้า', callback_data: `s:${backTo}:${page - 1}` });
+  if (start + SPP_PAGE < list.length) nav.push({ text: 'ถัดไป ▶️', callback_data: `s:${backTo}:${page + 1}` });
+  if (nav.length) rows.push(nav);
+  rows.push([{ text: '⬅️ เมนูหลัก', callback_data: 's:menu' }]);
+  return rows;
+}
+
+// ถามช่องถัดไปของฟอร์ม — ลำดับตามโน้ต Notion
+async function sppAskNext(chatId, userId, draft) {
+  const cur = draft.current || {};
+  const sku = cur.sku || {};
+  if (!cur.machine) {
+    const opts = [...new Set([sku.machine, 'Manual', 'ต้มหัวเชื้อ'].filter(Boolean))];
+    const rows = opts.map((m, i) => [{ text: m, callback_data: `s:mc:${i}` }]);
+    rows.push([{ text: '⌨️ พิมพ์ชื่อเครื่องเอง', callback_data: 's:mctype' }]);
+    draft.current.machine_opts = opts;
+    await setSppSession(chatId, userId, 'item_machine', draft);
+    return sppSend(chatId, `🏭 <b>${escapeHtml(sku.product_name || sku.keyword)}</b>\n\nเลือก <b>เครื่องบรรจุ</b>`, rows);
+  }
+  if (cur.counter === undefined) {
+    // งาน Manual "ปกติ" ไม่มีเลขหน้าเครื่อง แต่บาง Line มีจริง → ต้องกรอกได้เสมอ (quick win 1a)
+    // จึงให้ปุ่ม 0 เป็นทางลัด ไม่ใช่บังคับเป็น 0
+    const manual = cur.machine === 'Manual' || cur.machine === 'ต้มหัวเชื้อ';
+    await setSppSession(chatId, userId, 'item_counter', draft);
+    return sppSend(chatId,
+      `พิมพ์ <b>ยอดเลขหน้าเครื่อง (ชิ้น)</b>${manual ? '\n<i>งาน Manual ปกติไม่มีเลขหน้าเครื่อง — กด 0 ได้เลย</i>' : ''}`,
+      [[{ text: '0 — ไม่มีเลขหน้าเครื่อง', callback_data: 's:counter0' }]]);
+  }
+  if (cur.prod_qty === undefined) {
+    await setSppSession(chatId, userId, 'item_qty', draft);
+    return sppSend(chatId, `พิมพ์ <b>จำนวนที่ผลิตได้</b> (${escapeHtml(sku.count_unit || 'กล่อง')})`);
+  }
+  if (cur.pallet_photo === undefined) {
+    const mustPhoto = Number(sku.pallet_route) === 2;
+    await setSppSession(chatId, userId, 'item_photo', draft);
+    return sppSend(chatId,
+      mustPhoto
+        ? '📸 <b>ส่งรูปค้างพาเลท</b>\n<i>สินค้าตัวนี้พนักงานจัดเรียงพาเลทเอง คลังมองไม่เห็นของ จึงต้องมีรูปยืนยัน</i>'
+        : '📸 ส่งรูปค้างพาเลท (ถ้ามี)',
+      mustPhoto ? null : [[{ text: '⏭ ไม่มีรูป', callback_data: 's:skipphoto' }]]);
+  }
+  if (cur.damaged === undefined) {
+    await setSppSession(chatId, userId, 'item_damaged', draft);
+    return sppSend(chatId,
+      ['🧺 <b>ภาชนะบรรจุชำรุด</b>',
+       'พิมพ์เฉพาะที่มี เช่น <code>ถุง 2 กล่อง 1</code>',
+       `<i>ประเภท: ${SPP_DAMAGE_KINDS.map(d => d.key).join(' · ')}</i>`].join('\n'),
+      [[{ text: '✅ ไม่มีของเสีย', callback_data: 's:nodmg' }]]);
+  }
+  // ครบแล้ว → ให้ทวนก่อนเก็บเข้าร่าง
+  const dmg = Object.entries(cur.damaged || {}).filter(([, v]) => v > 0);
+  await setSppSession(chatId, userId, 'item_confirm', draft);
+  return sppSend(chatId, [
+    '🧾 <b>ทวนรายการ</b>',
+    `สินค้า: <b>${escapeHtml(sku.product_name || sku.keyword)}</b>`,
+    `เครื่องบรรจุ: ${escapeHtml(cur.machine)}`,
+    `เลขหน้าเครื่อง: ${cur.counter}`,
+    `ผลิตได้: <b>${cur.prod_qty} ${escapeHtml(sku.count_unit || 'กล่อง')}</b>`,
+    `รูปค้างพาเลท: ${cur.pallet_photo ? 'แนบแล้ว ✅' : 'ไม่มี'}`,
+    `ของเสีย: ${dmg.length ? dmg.map(([k, v]) => `${k} ${v}`).join(' · ') : 'ไม่มี'}`,
+  ].join('\n'), [
+    [{ text: '✅ เก็บเข้าร่าง', callback_data: 's:save' }],
+    [{ text: '🔄 กรอกใหม่', callback_data: 's:redo' }, { text: '❌ ทิ้งรายการนี้', callback_data: 's:menu' }],
+  ]);
+}
+
+// ตัวเลขล้วน (ผู้ใช้พิมพ์ 1,200 หรือมีช่องว่างได้)
+const sppNum = (t) => {
+  const v = Number(String(t || '').replace(/[,\s]/g, ''));
+  return Number.isFinite(v) && v >= 0 ? v : null;
+};
+
+async function sppHandleText(chatId, userId, text, sess) {
+  const draft = sess.draft || {};
+
+  if (sess.state === 'ask_name_type') {
+    const name = text.trim();
+    if (!name) return sppSend(chatId, 'พิมพ์ชื่อ-นามสกุลของคุณ');
+    await setSppUser(userId, name, chatId);
+    await setSppSession(chatId, userId, '', draft);
+    return sppSend(chatId, `ยินดีต้อนรับ <b>${escapeHtml(name)}</b> ✅`, sppMainMenu(draft));
+  }
+  if (sess.state === 'item_machine_type') {
+    draft.current.machine = text.trim();
+    return sppAskNext(chatId, userId, draft);
+  }
+  if (sess.state === 'item_counter') {
+    const v = sppNum(text);
+    if (v === null) return sppSend(chatId, '⚠️ ต้องเป็นตัวเลข เช่น <code>1440</code> (ไม่มีก็พิมพ์ 0)');
+    draft.current.counter = v;
+    return sppAskNext(chatId, userId, draft);
+  }
+  if (sess.state === 'item_qty') {
+    const v = sppNum(text);
+    if (v === null) return sppSend(chatId, '⚠️ ต้องเป็นตัวเลข เช่น <code>120</code>');
+    draft.current.prod_qty = v;
+    return sppAskNext(chatId, userId, draft);
+  }
+  if (sess.state === 'item_damaged') {
+    // "ถุง 2 กล่อง 1" → { ถุง: 2, กล่อง: 1 } · ตัวที่ไม่พูดถึง = 0
+    const damaged = {};
+    let matched = false;
+    for (const d of SPP_DAMAGE_KINDS) {
+      const m = text.match(new RegExp(`${d.re.source}\\D{0,4}(\\d+)`, 'i'));
+      if (m) { damaged[d.key] = Number(m[1]); matched = true; }
+    }
+    if (!matched) return sppSend(chatId, '⚠️ อ่านไม่ออก — พิมพ์แบบนี้ <code>ถุง 2 กล่อง 1</code> หรือกดปุ่ม "ไม่มีของเสีย"',
+      [[{ text: '✅ ไม่มีของเสีย', callback_data: 's:nodmg' }]]);
+    draft.current.damaged = damaged;
+    return sppAskNext(chatId, userId, draft);
+  }
+  if (sess.state === 'fix_qty') {
+    const v = sppNum(text);
+    if (v === null) return sppSend(chatId, '⚠️ ต้องเป็นตัวเลข');
+    return sppApplyFix(chatId, userId, draft, v);
+  }
+  if (sess.state === 'item_photo') {
+    // กำลังรอรูปอยู่ — ถ้าปล่อยข้อความหลุดเงียบ ๆ ผู้ใช้จะนึกว่าบอทค้าง
+    const mustPhoto = Number(draft.current?.sku?.pallet_route) === 2;
+    return sppSend(chatId, `📸 ตอนนี้กำลังรอ<b>รูปค้างพาเลท</b>อยู่ — ส่งรูปเข้ามาได้เลย${mustPhoto ? '\n<i>สินค้าตัวนี้ต้องมีรูป ข้ามไม่ได้</i>' : ''}`,
+      mustPhoto ? null : [[{ text: '⏭ ไม่มีรูป', callback_data: 's:skipphoto' }]]);
+  }
+  if (sess.state === 'item_confirm') {
+    return sppSend(chatId, 'กดปุ่มด้านบนเพื่อ <b>เก็บเข้าร่าง</b> หรือ <b>กรอกใหม่</b>',
+      [[{ text: '✅ เก็บเข้าร่าง', callback_data: 's:save' }, { text: '🔄 กรอกใหม่', callback_data: 's:redo' }]]);
+  }
+  if (sess.state === 'item_machine') {
+    // ผู้ใช้พิมพ์ชื่อเครื่องมาเองแทนที่จะกดปุ่ม — รับไปเลย ไม่ต้องบังคับให้กด
+    draft.current.machine = text.trim();
+    return sppAskNext(chatId, userId, draft);
+  }
+
+  // ไม่ได้อยู่ในฟอร์ม — ถือเป็นคำสั่ง
+  const t = text.trim();
+  if (/แผนผลิตวันนี้|^\/plan/i.test(t)) return sppShowPlan(chatId, userId, draft, 0);
+  if (/^\/cancel|ยกเลิก/i.test(t)) { await clearSppSession(chatId, userId); return sppSend(chatId, 'ล้างร่างแล้ว ✅', sppMainMenu({})); }
+  if (/ร่าง|^\/draft/i.test(t)) return sppSend(chatId, sppDraftText(draft), sppMainMenu(draft));
+  return sppSend(chatId, '👋 <b>Production_SPP</b>\nเลือกเมนูด้านล่าง หรือพิมพ์ "แผนผลิตวันนี้"', sppMainMenu(draft));
+}
+
+async function sppShowPlan(chatId, userId, draft, page) {
+  const workDay = workDayBKK();
+  const shift = draft.header?.shift || currentShiftCode();
+  const list = await sppTodaySkus(workDay);
+  if (!list.length) {
+    return sppSend(chatId, `📋 <b>${escapeHtml(workDay)}</b> — ยังไม่มีแผนผลิตในระบบ\nเลือกจากสินค้าทั้งหมดแทนได้`,
+      [[{ text: '➕ เลือกจากสินค้าทั้งหมด', callback_data: 's:all:0' }], [{ text: '⬅️ เมนูหลัก', callback_data: 's:menu' }]]);
+  }
+  draft.pick_list = list.map(s => s.keyword);
+  await setSppSession(chatId, userId, '', draft);
+  return sppSend(chatId, `📋 <b>แผนผลิตวันนี้</b> · ${escapeHtml(workDay)} ${escapeHtml(shift)}\nเลือกสินค้าที่จะลงยอด`,
+    sppSkuKeyboard(list, page, 'plan'));
+}
+
+async function sppShowAll(chatId, userId, draft, page) {
+  const list = await dbAll('SELECT * FROM sku_master WHERE active = 1 ORDER BY group_name, keyword', []);
+  if (!list.length) return sppSend(chatId, 'ยังไม่มีสินค้าที่เปิดใช้ในระบบ');
+  draft.pick_list = list.map(s => s.keyword);
+  await setSppSession(chatId, userId, '', draft);
+  return sppSend(chatId, `🗂 <b>สินค้าทั้งหมด</b> (${list.length} รายการ)`, sppSkuKeyboard(list, page, 'all'));
+}
+
+// เก็บรายการปัจจุบันเข้าร่างของกะ
+async function sppSaveItem(chatId, userId, draft, user) {
+  const cur = draft.current || {};
+  const sku = cur.sku || {};
+  draft.items = draft.items || [];
+  draft.items.push({
+    sku_keyword: sku.keyword,
+    product_name: sku.product_name || sku.keyword,
+    count_unit: sku.count_unit || 'กล่อง',
+    machine: cur.machine,
+    counter: cur.counter,
+    machine_cycle: 0,
+    prod_qty: cur.prod_qty,
+    pallet_photo: cur.pallet_photo || '',
+    damaged: cur.damaged || {},
+    wastes: Object.entries(cur.damaged || {}).filter(([, v]) => v > 0).map(([type, qty]) => ({ type, qty, reason: 'ภาชนะบรรจุชำรุด' })),
+  });
+  draft.header = draft.header || {};
+  draft.header.date = draft.header.date || workDayBKK();
+  draft.header.shift = draft.header.shift || currentShiftCode();
+  draft.header.reporter = user?.name || draft.header.reporter || '';
+  draft.header.telegram_user_id = String(userId);
+  draft.header.telegram_chat_id = String(chatId);
+  delete draft.current;
+  await setSppSession(chatId, userId, '', draft);
+  return sppSend(chatId, `✅ เก็บแล้ว — ตอนนี้มี <b>${draft.items.length}</b> รายการในร่าง`, sppMainMenu(draft));
+}
+
+// ส่งทั้งกะ → เส้นทางเดียวกับเว็บ
+async function sppSubmitShift(chatId, userId, draft) {
+  const items = draft.items || [];
+  if (!items.length) return sppSend(chatId, 'ยังไม่มีรายการให้ส่ง', sppMainMenu(draft));
+  try {
+    const out = await createProductionBatch({ header: draft.header || {}, items, channel: 'telegram' });
+    await clearSppSession(chatId, userId);
+    return sppSend(chatId, [
+      `📤 <b>ส่งยอดทั้งกะแล้ว ${out.item_count} รายการ</b>`,
+      `ชุด: <code>${out.batch_id}</code>`,
+      out.sent_via === 'telegram' ? 'ส่งลิงก์ให้คลังตรวจนับแล้ว ✅' : '⚠️ ยังส่งลิงก์เข้ากลุ่มไม่ได้ (ยังไม่ได้ตั้งค่ากลุ่ม)',
+      '',
+      `ลิงก์ให้คลัง: ${out.verify_url}`,
+    ].join('\n'));
+  } catch (e) {
+    console.error('[SPP bot] submit failed', e.message);
+    // ร่างยังอยู่ครบ — ผู้ใช้กดส่งใหม่ได้โดยไม่ต้องกรอกซ้ำ
+    return sppSend(chatId, `❌ ส่งไม่สำเร็จ: ${escapeHtml(e.message)}\n\nร่างยังอยู่ กดส่งใหม่ได้`, sppMainMenu(draft));
+  }
+}
+
+// ── webhook ของบอท SPP ──────────────────────────────────────────────────────
+app.post('/api/telegram/spp-update', (req, res) => {
+  res.sendStatus(200);                       // ตอบทันที กัน Telegram ยิงซ้ำตอนประมวลผลช้า
+  (async () => {
+    try {
+      const upd = req.body || {};
+      const cq = upd.callback_query;
+      const msg = cq ? cq.message : (upd.message || upd.edited_message);
+      const chatId = msg?.chat?.id;
+      const userId = (cq ? cq.from?.id : upd.message?.from?.id);
+      if (!chatId || !userId) return;
+
+      const sess = await getSppSession(chatId, userId);
+      const draft = sess.draft || {};
+      let user = await getSppUser(userId);
+
+      // ยังไม่รู้ว่าเป็นใคร → ถามก่อนเสมอ (ยกเว้นตอนกำลังตอบชื่ออยู่)
+      if (!user && !cq && sess.state !== 'ask_name_type') {
+        const shift = currentShiftCode();
+        const crew = await dbAll('SELECT name FROM shift_crew WHERE shift = ? AND active = 1 ORDER BY sort_order', [shift]);
+        draft.name_opts = crew.map(c => c.name);
+        await setSppSession(chatId, userId, 'ask_name', draft);
+        const rows = crew.map((c, i) => [{ text: c.name, callback_data: `s:name:${i}` }]);
+        rows.push([{ text: '⌨️ ไม่มีชื่อฉัน — พิมพ์เอง', callback_data: 's:nametype' }]);
+        await sppSend(chatId, `👋 สวัสดี! ก่อนเริ่ม — <b>คุณคือใคร?</b>\n<i>ทีม ${escapeHtml(shift)}</i>`, rows);
+        return;
+      }
+
+      // ── ปุ่ม ──
+      if (cq) {
+        const data = cq.data || '';
+        const ack = (text, alert) => sppTg('answerCallbackQuery', {
+          callback_query_id: cq.id, ...(text ? { text } : {}), ...(alert ? { show_alert: true } : {}),
+        });
+
+        if (data.startsWith('s:name:')) {
+          const name = (draft.name_opts || [])[Number(data.split(':')[2])];
+          if (!name) { await ack('เลือกไม่สำเร็จ'); return; }
+          await setSppUser(userId, name, chatId);
+          delete draft.name_opts;
+          await setSppSession(chatId, userId, '', draft);
+          await ack(`สวัสดี ${name}`);
+          await sppSend(chatId, `ยินดีต้อนรับ <b>${escapeHtml(name)}</b> ✅`, sppMainMenu(draft));
+          return;
+        }
+        if (data === 's:nametype') {
+          await setSppSession(chatId, userId, 'ask_name_type', draft);
+          await ack(); await sppSend(chatId, 'พิมพ์ชื่อ-นามสกุลของคุณ');
+          return;
+        }
+        // อนุมัติทั้งชุดจากในกลุ่ม — อยู่ก่อน guard "ต้องลงทะเบียน" เพราะหัวหน้าอาจไม่เคยคุยกับบอทตัวต่อตัว
+        // ชื่อผู้อนุมัติต้องบันทึกได้เสมอ: ใช้ชื่อที่ลงทะเบียนไว้ ไม่มีก็ใช้ชื่อ Telegram
+        if (data.startsWith('s:appb:')) {
+          const batchId = data.slice(7);
+          const approver = user?.name
+            || [cq.from?.first_name, cq.from?.last_name].filter(Boolean).join(' ')
+            || (cq.from?.username ? '@' + cq.from.username : `TG:${userId}`);
+          const rows = await dbAll(
+            "SELECT report_id FROM production_reports WHERE batch_id = ? AND status = 'pending_approval' ORDER BY id", [batchId]);
+          if (!rows.length) { await ack('ไม่มีรายการที่รออนุมัติในชุดนี้', true); return; }
+          let done = 0;
+          for (const r of rows) {
+            const out = await decideReport(r.report_id, true, approver, { approved_source: 'warehouse', channel: 'telegram' });
+            if (out.ok) done++;
+          }
+          await db.exec("UPDATE production_batches SET status='closed', updated_at=? WHERE batch_id=?", [nowBKK(), batchId]);
+          const lineSent = await pushWarehouseCard(batchId).catch(() => 'none');
+          await ack(`อนุมัติแล้ว ${done} รายการ`);
+          await sendSppTelegram([
+            `✅ <b>อนุมัติทั้งชุดแล้ว ${done} รายการ</b>`,
+            `ชุด <code>${escapeHtml(batchId)}</code> · โดย <b>${escapeHtml(approver)}</b>`,
+            lineSent === 'line' ? 'ส่งการ์ดให้คลังกดรับทราบใน LINE แล้ว 📦' : null,
+          ].filter(Boolean).join('\n'));
+          return;
+        }
+
+        if (!user) { await ack('กด /start ก่อน'); return; }
+
+        if (data === 's:menu') { await ack(); await sppSend(chatId, 'เมนูหลัก', sppMainMenu(draft)); return; }
+        if (data === 's:draft') { await ack(); await sppSend(chatId, sppDraftText(draft), sppMainMenu(draft)); return; }
+        if (data === 's:clear') {
+          await clearSppSession(chatId, userId); await ack('ล้างร่างแล้ว');
+          await sppSend(chatId, 'ล้างร่างแล้ว ✅', sppMainMenu({})); return;
+        }
+        if (data.startsWith('s:plan')) { await ack(); await sppShowPlan(chatId, userId, draft, Number(data.split(':')[2] || 0)); return; }
+        if (data.startsWith('s:all')) { await ack(); await sppShowAll(chatId, userId, draft, Number(data.split(':')[2] || 0)); return; }
+
+        if (data.startsWith('s:sku:')) {
+          const kw = (draft.pick_list || [])[Number(data.split(':')[2])];
+          const sku = kw ? (await dbAll('SELECT * FROM sku_master WHERE keyword = ?', [kw]))[0] : null;
+          if (!sku) { await ack('ไม่พบสินค้านี้'); return; }
+          draft.current = { sku };
+          await ack(sku.product_name || sku.keyword);
+          await sppAskNext(chatId, userId, draft);
+          return;
+        }
+        if (data.startsWith('s:mc:')) {
+          const opts = draft.current?.machine_opts || [];
+          const m = opts[Number(data.split(':')[2])];
+          if (!m || !draft.current) { await ack('เลือกไม่สำเร็จ'); return; }
+          draft.current.machine = m;
+          await ack(m);
+          await sppAskNext(chatId, userId, draft);
+          return;
+        }
+        if (data === 's:mctype') {
+          await setSppSession(chatId, userId, 'item_machine_type', draft);
+          await ack(); await sppSend(chatId, 'พิมพ์ชื่อเครื่องบรรจุ'); return;
+        }
+        if (data === 's:counter0') {
+          if (!draft.current) { await ack(); return; }
+          draft.current.counter = 0;
+          await ack('0'); await sppAskNext(chatId, userId, draft); return;
+        }
+        if (data === 's:skipphoto') {
+          if (!draft.current) { await ack(); return; }
+          draft.current.pallet_photo = '';
+          await ack('ข้ามรูปแล้ว'); await sppAskNext(chatId, userId, draft); return;
+        }
+        if (data === 's:nodmg') {
+          if (!draft.current) { await ack(); return; }
+          draft.current.damaged = {};
+          await ack('ไม่มีของเสีย'); await sppAskNext(chatId, userId, draft); return;
+        }
+        if (data === 's:redo') {
+          if (draft.current?.sku) draft.current = { sku: draft.current.sku };
+          await ack('กรอกใหม่'); await sppAskNext(chatId, userId, draft); return;
+        }
+        if (data === 's:save') { await ack('เก็บแล้ว'); await sppSaveItem(chatId, userId, draft, user); return; }
+        if (data === 's:submit') { await ack('กำลังส่ง…'); await sppSubmitShift(chatId, userId, draft); return; }
+        if (data.startsWith('s:fix:')) { await ack(); await sppStartFix(chatId, userId, draft, data.slice(6)); return; }
+        await ack();
+        return;
+      }
+
+      // ── รูป (รูปค้างพาเลท) ──
+      const photos = upd.message?.photo;
+      if (photos?.length && sess.state === 'item_photo' && draft.current) {
+        const fileId = photos[photos.length - 1].file_id;       // ตัวสุดท้าย = ความละเอียดสูงสุด
+        const dataUrl = await downloadSppFile(fileId);
+        if (!dataUrl) { await sppSend(chatId, '⚠️ โหลดรูปไม่สำเร็จ ลองส่งใหม่'); return; }
+        draft.current.pallet_photo = dataUrl;
+        await sppSend(chatId, 'รับรูปแล้ว ✅');
+        await sppAskNext(chatId, userId, draft);
+        return;
+      }
+
+      // ── ข้อความ ──
+      const text = upd.message?.text;
+      if (!text) return;
+      await db.exec('UPDATE spp_tg_user SET last_seen_at = ? WHERE telegram_user_id = ?', [nowBKK(), String(userId)]).catch(() => {});
+      await sppHandleText(chatId, userId, text, { ...sess, draft });
+    } catch (e) { console.error('[SPP bot] error', e); }
+  })();
+});
+
+// ── วงจร "หัวหน้าส่งกลับให้แก้" ฝั่งบอท ─────────────────────────────────────
+// กดปุ่มจากข้อความแจ้งเตือน → บอทถามยอดใหม่ → แก้ที่ "แถวเดิม" เสมอ (ห้าม insert ใหม่/ห้ามลบ)
+async function sppStartFix(chatId, userId, draft, reportId) {
+  const r = (await dbAll('SELECT * FROM production_reports WHERE report_id = ?', [reportId]))[0];
+  if (!r) return sppSend(chatId, 'ไม่พบรายงานนี้');
+  if (r.status !== 'needs_fix') return sppSend(chatId, `รายการนี้ไม่ได้รออยู่ในสถานะแก้ไขแล้ว (${escapeHtml(r.status)})`);
+  draft.fix = { report_id: reportId };
+  await setSppSession(chatId, userId, 'fix_qty', draft);
+  return sppSend(chatId, [
+    `✏️ <b>แก้ไข: ${escapeHtml(r.product_name || r.sku_keyword)}</b>`,
+    `${escapeHtml(r.work_day)} · ${escapeHtml(r.shift)}`,
+    `ยอดที่ส่งไปเดิม: <b>${r.prod_qty} ${escapeHtml(r.count_unit)}</b>`,
+    r.wh_qty != null ? `คลังนับได้: <b>${r.wh_qty} ${escapeHtml(r.count_unit)}</b>` : null,
+    r.fix_note ? `\n📝 หัวหน้าแจ้ง: <i>${escapeHtml(r.fix_note)}</i>` : null,
+    '',
+    `พิมพ์ <b>ยอดที่ถูกต้อง</b> (${escapeHtml(r.count_unit)})`,
+  ].filter(Boolean).join('\n'));
+}
+
+async function sppApplyFix(chatId, userId, draft, newQty) {
+  const reportId = draft.fix?.report_id;
+  if (!reportId) { await setSppSession(chatId, userId, '', draft); return sppSend(chatId, 'ไม่พบรายการที่กำลังแก้'); }
+  const r = (await dbAll('SELECT * FROM production_reports WHERE report_id = ?', [reportId]))[0];
+  if (!r) return sppSend(chatId, 'ไม่พบรายงานนี้');
+
+  const packFactor = Number(r.pack_factor) || 0;
+  const prodPcs = newQty * packFactor;
+  // คลังนับไปแล้ว → คิด variance ใหม่เทียบเลขคลังเดิม (ไม่ออกลิงก์ใหม่ กันลิงก์ท่วมกลุ่ม)
+  const whQty = r.wh_qty;
+  const diff = whQty != null ? whQty - newQty : null;
+  const pct = (whQty != null && newQty) ? Math.round((diff / newQty) * 1000) / 10 : null;
+  const prodStatus = r.plan_qty > 0 && newQty < r.plan_qty ? 'ไม่ได้ยอดผลิต' : 'ได้ยอดผลิต';
+
+  // conditional UPDATE + rowCount — กันสองคนกดแก้พร้อมกัน
+  const upd = await db.exec(
+    `UPDATE production_reports
+        SET prod_qty=?, prod_pcs=?, prod_status=?, variance_qty=?, variance_pct=?, variance_flag=?,
+            status='pending_approval', fix_count=COALESCE(fix_count,0)+1, updated_at=?
+      WHERE report_id=? AND status='needs_fix'`,
+    [newQty, prodPcs, prodStatus, diff, pct, diff === null ? null : (diff === 0 ? 'match' : 'diff'), nowBKK(), reportId]
+  );
+  if (!upd.rowCount) {
+    await setSppSession(chatId, userId, '', draft);
+    return sppSend(chatId, '⚠️ รายการนี้ถูกจัดการไปแล้ว');
+  }
+
+  delete draft.fix;
+  await setSppSession(chatId, userId, '', draft);
+  // ร่างถูกล้างไปตอนส่งกะแล้ว → header.reporter ว่าง ต้องดึงชื่อจากทะเบียนผู้ใช้ ไม่ใช่โชว์เลข id
+  const fixer = (await getSppUser(userId))?.name || draft.header?.reporter || `TG:${userId}`;
+  await logReportEvent(reportId, 'resubmitted', fixer,
+    `แก้ยอด ${r.prod_qty} → ${newQty} ${r.count_unit}`, 'telegram', 'production');
+
+  await sendSppTelegram([
+    `🔄 <b>ฝ่ายผลิตแก้ยอดแล้ว — รออนุมัติอีกครั้ง</b>`,
+    `${escapeHtml(r.product_name || r.sku_keyword)} · ${escapeHtml(r.work_day)} ${escapeHtml(r.shift)}`,
+    `ยอดเดิม ${r.prod_qty} → <b>${newQty} ${escapeHtml(r.count_unit)}</b>`,
+    whQty != null ? `คลังนับได้ ${whQty} · ผลต่างใหม่ <b>${diff > 0 ? '+' : ''}${diff}</b>` : null,
+  ].filter(Boolean).join('\n'));
+
+  return sppSend(chatId, `✅ ส่งกลับให้หัวหน้าแล้ว — ยอดใหม่ <b>${newQty} ${escapeHtml(r.count_unit)}</b>`, sppMainMenu(draft));
+}
+
+// getFile ของบอท SPP (บอทคนละตัวกับ duty → ใช้ token ของตัวเอง)
+async function downloadSppFile(fileId) {
+  const token = sppBotToken();
+  if (!token) return null;
+  try {
+    const info = await sppTg('getFile', { file_id: fileId });
+    const filePath = info?.result?.file_path;
+    if (!filePath) return null;
+    const resp = await axios.get(`https://api.telegram.org/file/bot${token}/${filePath}`, { responseType: 'arraybuffer' });
+    const mime = filePath.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+    return `data:${mime};base64,${Buffer.from(resp.data).toString('base64')}`;
+  } catch (e) { console.error('[SPP bot] getFile error', e.response?.data || e.message); return null; }
+}
+
+// ตั้ง webhook ของบอท SPP มาที่แอป — คนละบอทกับ CIP จึงไม่ชนกัน
+// ⚠️ ต้องปิด Telegram Trigger ใน n8n v4 ก่อน ไม่งั้นแย่ง webhook กัน (Telegram ให้บอทละ 1 ตัว)
+const registerSppWebhook = async () => {
+  if (!process.env.SPP_TELEGRAM_BOT_TOKEN) return;      // ยังไม่ตั้ง token = ยังไม่เปิดใช้บอทนี้
+  try {
+    await axios.get(`https://api.telegram.org/bot${process.env.SPP_TELEGRAM_BOT_TOKEN}/setWebhook`,
+      { params: { url: `${PUBLIC_URL}/api/telegram/spp-update` } });
+    console.log('[SPP bot] webhook registered');
+  } catch (e) { console.error('[SPP bot] webhook registration failed', e.response?.data || e.message); }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LINE — การ์ดแจ้งคลังหลังหัวหน้าอนุมัติ + ปุ่ม "กดรับทราบ" (เฟส 2)
+//   งานจริงคลังคุยกันในกลุ่ม LINE ไม่ใช่ Telegram · การ์ดนี้คือใบรับของ
+//   ไม่ได้ตั้ง env → ข้ามเงียบ ๆ ทุกอย่างที่เหลือยังทำงานเหมือนเดิม
+// ═══════════════════════════════════════════════════════════════════════════
+const LINE_TOKEN = () => process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
+const LINE_SECRET = () => process.env.LINE_CHANNEL_SECRET || '';
+const LINE_GROUP = () => process.env.LINE_GROUP_ID || '';
+
+// groupId ล่าสุดที่บอทเห็น — ใช้ครั้งเดียวตอน setup (เชิญ OA เข้ากลุ่ม แล้วมาอ่านค่าไปใส่ env)
+let lastSeenLineGroupId = '';
+
+const lineApi = async (path, body) => {
+  const token = LINE_TOKEN();
+  if (!token) return null;
+  try {
+    const r = await axios.post(`https://api.line.me/v2/bot/${path}`, body, {
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, timeout: 15000,
+    });
+    return r.data ?? {};
+  } catch (e) {
+    console.error(`[LINE] ${path} error`, e.response?.status, JSON.stringify(e.response?.data || e.message).slice(0, 300));
+    throw e;
+  }
+};
+
+const lineNum = (v) => (v == null ? '-' : Number(v).toLocaleString());
+
+// การ์ดสรุปให้คลัง — ตัวเลขทั้งสองฝั่งอยู่บนใบเดียว + ปุ่มรับทราบ
+function buildWarehouseFlex(batch, reports) {
+  const row = (label, value, color) => ({
+    type: 'box', layout: 'horizontal', contents: [
+      { type: 'text', text: label, size: 'sm', color: '#8a7f72', flex: 5 },
+      { type: 'text', text: String(value), size: 'sm', weight: 'bold', align: 'end', flex: 4, ...(color ? { color } : {}) },
+    ],
+  });
+  const itemBlocks = reports.slice(0, 10).flatMap(r => {
+    const diff = r.variance_qty;
+    return [
+      { type: 'separator', margin: 'md' },
+      { type: 'text', text: r.product_name || r.sku_keyword, size: 'sm', weight: 'bold', wrap: true, margin: 'md' },
+      row('ฝ่ายผลิตนับได้', `${lineNum(r.prod_qty)} ${r.count_unit}`),
+      row('คลังสินค้านับได้', `${lineNum(r.wh_qty)} ${r.count_unit}`),
+      ...(diff ? [row('ผลต่าง', `${diff > 0 ? '+' : ''}${diff} ${r.count_unit}`, '#c62828')] : []),
+    ];
+  });
+  const more = reports.length > 10 ? [{ type: 'text', text: `… และอีก ${reports.length - 10} รายการ`, size: 'xs', color: '#8a7f72', margin: 'md' }] : [];
+
+  return {
+    type: 'bubble',
+    header: {
+      type: 'box', layout: 'vertical', backgroundColor: '#1c8a4c', paddingAll: '14px',
+      contents: [
+        { type: 'text', text: '📦 ตรวจรับสินค้าเข้าคลัง', color: '#ffffff', weight: 'bold', size: 'md' },
+        { type: 'text', text: `${batch.work_day} · ${batch.shift}`, color: '#dff0e5', size: 'xs', margin: 'sm' },
+      ],
+    },
+    body: {
+      type: 'box', layout: 'vertical', paddingAll: '14px', contents: [
+        row('ผู้ลงยอด', batch.created_by || '-'),
+        row('ผู้ตรวจนับคลัง', batch.wh_name || '-'),
+        row('จำนวนรายการ', `${reports.length} รายการ`),
+        ...itemBlocks, ...more,
+      ],
+    },
+    footer: {
+      type: 'box', layout: 'vertical', contents: [{
+        type: 'button', style: 'primary', color: '#1c8a4c', height: 'sm',
+        action: { type: 'postback', label: '✅ กดรับทราบ', data: `ack:${batch.batch_id}`, displayText: 'รับทราบยอดเข้าคลังแล้ว' },
+      }],
+    },
+  };
+}
+
+// ส่งการ์ดเข้ากลุ่มคลัง — เรียกหลังอนุมัติครบทั้งชุด
+async function pushWarehouseCard(batchId) {
+  if (!LINE_TOKEN() || !LINE_GROUP()) return 'none';
+  const batch = (await dbAll('SELECT * FROM production_batches WHERE batch_id = ?', [batchId]))[0];
+  if (!batch) return 'none';
+  const reports = await dbAll("SELECT * FROM production_reports WHERE batch_id = ? AND status = 'approved' ORDER BY id", [batchId]);
+  if (!reports.length) return 'none';
+
+  const now = nowBKK();
+  try {
+    await lineApi('message/push', {
+      to: LINE_GROUP(),
+      messages: [{ type: 'flex', altText: `ตรวจรับสินค้าเข้าคลัง ${batch.work_day} ${batch.shift} (${reports.length} รายการ)`, contents: buildWarehouseFlex(batch, reports) }],
+    });
+    for (const r of reports) {
+      await db.exec('UPDATE production_reports SET line_pushed_at=?, line_push_error=NULL WHERE report_id=?', [now, r.report_id]);
+    }
+    console.log(`[LINE] warehouse card pushed batch=${batchId} items=${reports.length}`);
+    return 'line';
+  } catch (e) {
+    const msg = String(e.response?.data?.message || e.message).slice(0, 300);
+    for (const r of reports) {
+      await db.exec('UPDATE production_reports SET line_push_error=? WHERE report_id=?', [msg, r.report_id]);
+    }
+    return 'none';
+  }
+}
+
+// ตรวจลายเซ็น: HMAC-SHA256 ของ raw body ด้วย channel secret → base64
+// เทียบด้วย timingSafeEqual · ยาวไม่เท่ากันถือว่าไม่ผ่านทันที (timingSafeEqual โยน error ถ้าความยาวต่างกัน)
+function verifyLineSignature(req) {
+  const secret = LINE_SECRET();
+  if (!secret) return false;
+  const sig = req.get('X-Line-Signature') || '';
+  const expected = crypto.createHmac('sha256', secret).update(req.rawBody || Buffer.from('')).digest('base64');
+  const a = Buffer.from(sig), b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+app.post('/api/line/webhook', async (req, res) => {
+  if (!LINE_SECRET()) return res.status(503).json({ error: 'ยังไม่ได้ตั้ง LINE_CHANNEL_SECRET' });
+  if (!verifyLineSignature(req)) {
+    console.warn('[LINE] bad signature from', req.ip);
+    return res.sendStatus(401);
+  }
+  res.sendStatus(200);                       // ตอบก่อน แล้วค่อยทำงาน — LINE timeout เร็ว
+  (async () => {
+    for (const ev of (req.body?.events || [])) {
+      try {
+        // จำ groupId ไว้ให้ตอน setup อ่านไปใส่ env (ครั้งเดียว)
+        const gid = ev.source?.groupId || ev.source?.roomId;
+        if (gid && gid !== lastSeenLineGroupId) {
+          lastSeenLineGroupId = gid;
+          console.log(`[LINE] group id seen: ${gid}`);
+        }
+        if (ev.type !== 'postback') continue;
+        const data = String(ev.postback?.data || '');
+        if (!data.startsWith('ack:')) continue;
+        await handleWarehouseAck(data.slice(4), ev);
+      } catch (e) { console.error('[LINE] event error', e.message); }
+    }
+  })();
+});
+
+async function handleWarehouseAck(batchId, ev) {
+  const reports = await dbAll("SELECT report_id, wh_ack_at FROM production_reports WHERE batch_id = ? AND status = 'approved'", [batchId]);
+  if (!reports.length) return;
+  if (reports.every(r => r.wh_ack_at)) {
+    if (ev.replyToken) await lineApi('message/reply', { replyToken: ev.replyToken, messages: [{ type: 'text', text: 'ชุดนี้กดรับทราบไปแล้ว ✅' }] });
+    return;
+  }
+
+  // ชื่อคนกด — ดึงจากโปรไฟล์ LINE เพื่อให้ audit trail มีชื่อคน ไม่ใช่ userId ดิบ
+  let who = '';
+  const uid = ev.source?.userId;
+  const gid = ev.source?.groupId;
+  if (uid) {
+    try {
+      const token = LINE_TOKEN();
+      const path = gid ? `group/${gid}/member/${uid}` : `profile/${uid}`;
+      const r = await axios.get(`https://api.line.me/v2/bot/${path}`, { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 });
+      who = r.data?.displayName || '';
+    } catch { /* ดึงชื่อไม่ได้ก็ยังบันทึกเวลาได้ */ }
+  }
+  const actor = who || (uid ? `LINE:${uid.slice(0, 8)}` : 'คลัง');
+  const now = nowBKK();
+  for (const r of reports) {
+    const upd = await db.exec('UPDATE production_reports SET wh_ack_at=?, wh_ack_by=?, updated_at=? WHERE report_id=? AND wh_ack_at IS NULL',
+      [now, actor, now, r.report_id]);
+    if (upd.rowCount) await logReportEvent(r.report_id, 'warehouse_ack', actor, 'คลังกดรับทราบในกลุ่ม LINE', 'line', 'warehouse');
+  }
+  console.log(`[LINE] warehouse ack batch=${batchId} by=${actor}`);
+  if (ev.replyToken) {
+    await lineApi('message/reply', {
+      replyToken: ev.replyToken,
+      messages: [{ type: 'text', text: `รับทราบแล้ว ✅\nผู้รับ: ${actor}\nบันทึกเข้าระบบเรียบร้อย` }],
+    }).catch(() => {});
+  }
+}
+
+// ใช้ตอน setup ครั้งเดียว: เชิญ OA เข้ากลุ่มคลัง → พิมพ์อะไรก็ได้ในกลุ่ม → เรียก endpoint นี้อ่าน groupId
+app.get('/api/line/group-id', (req, res) => {
+  res.json({
+    group_id: lastSeenLineGroupId || null,
+    configured_group_id: LINE_GROUP() || null,
+    has_token: !!LINE_TOKEN(),
+    has_secret: !!LINE_SECRET(),
+    hint: lastSeenLineGroupId
+      ? 'เอา group_id ไปใส่ env LINE_GROUP_ID บน Render แล้ว redeploy'
+      : 'ยังไม่เห็น event จากกลุ่มไหนเลย — เชิญ LINE OA เข้ากลุ่มคลังแล้วพิมพ์ข้อความสักครั้ง',
+  });
+});
+
 // ตามเก็บรายการที่อนุมัติแล้วแต่เขียนชีตไม่สำเร็จ (n8n ล่ม/เน็ตหลุด) — เกาะจังหวะ scheduler 60 วิ
 async function sheetSyncTick() {
   try {
+    // เก็บทั้งที่ error และที่ค้าง 'pending' — syncReportToSheet ยิงแบบ fire-and-forget
+    // ถ้าเซิร์ฟเวอร์ดับ/หลับกลางคัน (Render free tier หลับบ่อย) แถวจะค้าง pending ตลอดกาล
+    // และไม่มีใครตามเก็บ · กัน re-send ซ้ำระหว่างที่ยังยิงอยู่ด้วยการดูเฉพาะที่อนุมัติเกิน 5 นาที
+    const staleBefore = bkkPlusHours(-5 / 60);
     const rows = await dbAll(
-      "SELECT report_id FROM production_reports WHERE status='approved' AND sheet_status='error' AND sheet_attempts < 10 ORDER BY id LIMIT 5", []
+      `SELECT report_id FROM production_reports
+        WHERE status='approved' AND sheet_attempts < 10
+          AND (sheet_status='error' OR (sheet_status='pending' AND decided_at < ?))
+        ORDER BY id LIMIT 5`, [staleBefore]
     );
     for (const r of rows) await syncReportToSheet(r.report_id);
   } catch (e) { console.error('[SPP] sheetSyncTick', e.message); }
@@ -5942,6 +7136,9 @@ if (require.main === module) {
         // (n8n-Telegram-Production-Chart.json) ใช้บอทตัวเดียวกันสำหรับ "สรุปยอดผลิตวันนี้"
         // เปิดอีกครั้งได้เมื่อ n8n ฝั่งนั้น deactivate ไปแล้วจริงๆ หรือออกแบบให้ทำงานร่วมกันแล้ว
         // registerTelegramWebhook();
+        // บอท SPP เป็นคนละบอท จึงตั้ง webhook ของตัวเองได้โดยไม่ชนกับข้างบน
+        // (แต่ต้องปิด Telegram Trigger ใน n8n v4 ก่อน เพราะใช้บอทตัวเดียวกัน)
+        registerSppWebhook();
         // ตัวจับเวลาส่งรายงานอัตโนมัติ + วิเคราะห์สิ้นกะ (เฟส 1) — เช็กทุกนาที (ต้องให้เซิร์ฟเวอร์ตื่นอยู่; มี Keep-Warm ping ช่วย)
         setInterval(() => { reportTick(); reminderTick(); shiftAnalysisTick(); kpiReportTick(); kpiAlertTick(); sheetSyncTick(); }, 60 * 1000);
         console.log('[report] scheduler started (every 60s) + shift-analysis');

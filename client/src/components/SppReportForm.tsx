@@ -179,7 +179,8 @@ const SppReportForm: React.FC<Props> = ({ operatorName }) => {
   useEffect(() => { setMachine(sku?.machine || ''); }, [sku]);
   const unit = sku?.count_unit || 'กล่อง';
   const packFactor = sku?.pack_factor ?? 0;
-  // งาน Manual ไม่มี Counter/รอบเครื่อง — ดูจากเครื่องที่เลือกจริง ไม่ใช่ค่าตั้งต้นของ SKU
+  // งาน Manual ปกติไม่มี Counter/รอบเครื่อง จึงเติม 0 ให้ — แต่บาง Line มีเลขหน้าเครื่องจริง จึงต้องแก้ได้
+  // ดูจากเครื่องที่เลือกจริง ไม่ใช่ค่าตั้งต้นของ SKU
   const isManual = machine === 'Manual' || machine === 'ต้มหัวเชื้อ' || machine === '';
 
   // ทีมงานของกะที่เลือก — เปลี่ยนกะแล้วติ๊กทุกคนให้ใหม่
@@ -267,8 +268,8 @@ const SppReportForm: React.FC<Props> = ({ operatorName }) => {
       prod_qty: num(prodQty), plan_qty: planNum,
       plan_override: planEdit || planSource === 'none' || planSource === 'unit_mismatch',
       plan_source: planSource,
-      counter: isManual ? 0 : num(counter),
-      machine_cycle: isManual ? 0 : num(machineCycle),
+      counter: num(counter),
+      machine_cycle: num(machineCycle),
       bdown_time: num(bdown),
       lot_date: lotDate, miss_reason: missReason.trim(), extra_note: extraNote.trim(),
       wastes: wastes.filter(w => num(w.qty) > 0).map(w => ({ type: w.type, qty: num(w.qty), reason: w.reason })),
@@ -505,7 +506,15 @@ const SppReportForm: React.FC<Props> = ({ operatorName }) => {
           {sku && <>
             <div><label style={lb}>กลุ่ม Product<span style={autoChip}>อัตโนมัติ</span></label><input style={inpRO} value={sku.group_name || ''} readOnly /></div>
             <div><label style={lb}>เครื่องบรรจุ<span style={autoChip}>ตั้งต้นจากสินค้า · เลือกได้</span></label>
-              <select style={inp} value={machine} onChange={e => setMachine(e.target.value)}>
+              <select style={inp} value={machine} onChange={e => {
+                const m = e.target.value;
+                setMachine(m);
+                // เลือกเครื่อง Manual → เติม 0 ให้เฉพาะช่องที่ยังว่าง (ยังแก้เองได้ · ไม่ทับเลขที่พิมพ์ไว้แล้ว)
+                if (m === 'Manual' || m === 'ต้มหัวเชื้อ') {
+                  setCounter(c => (c.trim() === '' ? '0' : c));
+                  setMachineCycle(c => (c.trim() === '' ? '0' : c));
+                }
+              }}>
                 {machine && !MACHINES.includes(machine) && <option value={machine}>{machine}</option>}
                 <option value="">-- ยังไม่ระบุเครื่อง --</option>
                 {MACHINES.map(m => <option key={m} value={m}>{m}</option>)}
@@ -537,12 +546,12 @@ const SppReportForm: React.FC<Props> = ({ operatorName }) => {
             </div>
           </div>
           <div><label style={lb}>ผลิตเกิดจริง ({unit}) *</label><input type="number" min="0" style={inp} value={prodQty} onChange={e => setProdQty(e.target.value)} /></div>
-          <div><label style={lb}>ยอดเลขหน้าเครื่อง (ชิ้น)</label><input type="number" min="0" style={isManual ? inpRO : inp} value={isManual ? '0' : counter} onChange={e => setCounter(e.target.value)} readOnly={isManual} /></div>
-          <div><label style={lb}>เดินรอบเครื่อง</label><input type="number" min="0" style={isManual ? inpRO : inp} value={isManual ? '0' : machineCycle} onChange={e => setMachineCycle(e.target.value)} readOnly={isManual} /></div>
+          <div><label style={lb}>ยอดเลขหน้าเครื่อง (ชิ้น)</label><input type="number" min="0" style={inp} value={counter} onChange={e => setCounter(e.target.value)} /></div>
+          <div><label style={lb}>เดินรอบเครื่อง</label><input type="number" min="0" style={inp} value={machineCycle} onChange={e => setMachineCycle(e.target.value)} /></div>
         </div>
         <div style={calcBox}>
           🧮 ชิ้นที่ผลิตได้ = {num(prodQty)} {unit} × {packFactor} = <b>{prodPcs.toLocaleString()} ชิ้น</b><span style={autoChip}>ระบบคำนวณ</span>
-          {isManual && <span style={{ marginLeft: 8, color: '#a1887f' }}>(งาน Manual — Counter/รอบเครื่อง = 0)</span>}
+          {isManual && <span style={{ marginLeft: 8, color: '#a1887f' }}>(งาน Manual — ปกติ 0 · แก้ได้ถ้ามีเลขหน้าเครื่อง)</span>}
         </div>
         <div style={{ ...calcBox, background: missTarget ? '#fdeaea' : '#e6f4ec', borderColor: missTarget ? '#f2c9c9' : '#cfe8d8' }}>
           🎯 สถานะการผลิต: <b style={{ color: missTarget ? '#c62828' : '#1c8a4c' }}>{status}</b>

@@ -7,10 +7,12 @@ import Line4Manual from './Line4Manual';
 import StickerGuideAdmin from './StickerGuideAdmin';
 import SppReportForm from './SppReportForm';
 import ProductionApprovalBoard from './ProductionApprovalBoard';
+import SkuReviewPanel from './SkuReviewPanel';
+import ProductionTimeline from './ProductionTimeline';
 import ErrorBoundary from './ErrorBoundary';
 
 type TodoTab = 'today' | 'audit' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs';
-type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove';
+type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline';
 
 const TODO_TABS: string[] = ['today', 'audit', 'calendar', 'report', 'timeline', 'recurring', 'ai', 'specs'];
 
@@ -19,6 +21,8 @@ const MENU: { pane: Pane; ic: string; label: string; sub?: boolean }[] = [
   { pane: 'timeline', ic: '🕒', label: 'Timeline รับ-ส่งกะ' },
   { pane: 'sppreport', ic: '🏭', label: 'ลงยอดผลิต' },
   { pane: 'sppapprove', ic: '✔️', label: 'อนุมัติยอดผลิต', sub: true },
+  { pane: 'spptimeline', ic: '🕘', label: 'ประวัติยอดผลิต', sub: true },
+  { pane: 'skureview', ic: '🗃️', label: 'SKU รอตรวจสอบ', sub: true },
   { pane: 'today', ic: '✅', label: 'งานวันนี้' },
   { pane: 'audit', ic: '🧭', label: 'พื้นที่รับผิดชอบ' },
   { pane: 'calendar', ic: '📅', label: 'ปฏิทิน' },
@@ -151,6 +155,18 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
           {pane === 'sppapprove' && (
             <div className="rd-legacy">
               <ErrorBoundary label="admin-sppapprove"><ProductionApprovalBoard operator={operator} /></ErrorBoundary>
+            </div>
+          )}
+
+          {pane === 'spptimeline' && (
+            <div className="rd-legacy">
+              <ErrorBoundary label="admin-spptimeline"><ProductionTimeline /></ErrorBoundary>
+            </div>
+          )}
+
+          {pane === 'skureview' && (
+            <div className="rd-legacy">
+              <ErrorBoundary label="admin-skureview"><SkuReviewPanel /></ErrorBoundary>
             </div>
           )}
         </div>

@@ -13,6 +13,10 @@ interface Report {
   status: string; prod_status: string | null; miss_reason: string | null;
   approver_name: string | null; approved_qty: number | null; approved_source: string | null; decided_at: string | null;
   sheet_status: string; sheet_error: string | null; verify_expires_at: string | null;
+  fix_note?: string | null; fix_count?: number | null;          // เฟส 2: ประวัติการถูกส่งกลับให้แก้
+  wh_ack_at?: string | null; wh_ack_by?: string | null;         // เฟส 2: คลังกดรับทราบในการ์ด LINE
+  has_pallet_photo?: boolean;                                   // รูปโหลดแยกตอนกดดู (ไม่ติดมากับลิสต์)
+  payload?: { ai_flags?: { level: string; text: string }[] };    // ป้ายเตือนจากการตรวจเชิงกฎ (ไม่ตัดสินแทนหัวหน้า)
 }
 interface Evt { event: string; actor: string; detail: string; created_at: string }
 
@@ -36,6 +40,7 @@ const STATUS_META: Record<string, { label: string; bg: string; fg: string }> = {
   pending_approval: { label: 'รอหัวหน้าอนุมัติ', bg: '#e8f1fb', fg: '#1565c0' },
   approved: { label: 'อนุมัติแล้ว', bg: '#e6f4ec', fg: '#1c8a4c' },
   rejected: { label: 'ปฏิเสธ', bg: '#fdeaea', fg: '#c62828' },
+  needs_fix: { label: 'ส่งกลับให้แก้', bg: '#fdeeea', fg: '#c24f00' },
 };
 
 const ProductionApprovalBoard: React.FC<{ operator?: string }> = ({ operator }) => {
@@ -46,6 +51,7 @@ const ProductionApprovalBoard: React.FC<{ operator?: string }> = ({ operator }) 
   const [pick, setPick] = useState<Record<string, 'warehouse' | 'production'>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [approver, setApprover] = useState(operator || '');
+  const [photos, setPhotos] = useState<Record<string, string>>({});   // report_id → data URL | 'loading' | ''
 
   const load = useCallback(() => {
     fetch(`${apiUrl}/api/production/reports?date=${date}`)
@@ -112,6 +118,36 @@ const ProductionApprovalBoard: React.FC<{ operator?: string }> = ({ operator }) 
     finally { setBusy(null); }
   };
 
+  // รูปค้างพาเลทเป็น base64 ก้อนใหญ่ — โหลดเฉพาะใบที่กดดู แล้วจำไว้ในหน่วยความจำ
+  const showPhoto = async (id: string) => {
+    if (photos[id]) { setPhotos(p => ({ ...p, [id]: p[id] === 'loading' ? 'loading' : p[id] })); return; }
+    setPhotos(p => ({ ...p, [id]: 'loading' }));
+    try {
+      const res = await fetch(`${apiUrl}/api/production/report/${id}/pallet-photo`);
+      const d = await res.json().catch(() => ({}));
+      setPhotos(p => ({ ...p, [id]: res.ok && d.image ? d.image : '' }));
+    } catch { setPhotos(p => ({ ...p, [id]: '' })); }
+  };
+
+  // ส่งกลับให้แก้ — ต่างจากปฏิเสธ: เด้งไปหาคนลงยอดใน Telegram แล้วรอเขาส่งใหม่ที่แถวเดิม
+  const sendBack = async (r: Report) => {
+    if (!approver.trim()) { alert('กรุณากรอกชื่อผู้อนุมัติก่อน'); return; }
+    const note = window.prompt(`ให้ "${r.reporter_name}" แก้อะไร? (บังคับ)`) || '';
+    if (!note.trim()) return;
+    setBusy(r.report_id);
+    try {
+      const res = await fetch(`${apiUrl}/api/production/report/${r.report_id}/send-back`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actor: approver.trim(), note: note.trim() }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { alert(`❌ ${d.error || d.message || 'ไม่สำเร็จ'}`); return; }
+      setEvents(e => { const n = { ...e }; delete n[r.report_id]; return n; });
+      load();
+    } catch { alert('❌ เชื่อมต่อไม่ได้'); }
+    finally { setBusy(null); }
+  };
+
   const resend = async (r: Report) => {
     setBusy(r.report_id);
     try {
@@ -130,6 +166,7 @@ const ProductionApprovalBoard: React.FC<{ operator?: string }> = ({ operator }) 
 
   const groups: [string, string][] = [
     ['pending_approval', '⏳ รอหัวหน้าอนุมัติ'],
+    ['needs_fix', '✏️ ส่งกลับให้แก้ — รอฝ่ายผลิตส่งใหม่'],
     ['pending_warehouse', '📦 รอคลังตรวจนับ'],
     ['approved', '✅ อนุมัติแล้ว'],
     ['rejected', '❌ ปฏิเสธ'],
@@ -177,6 +214,48 @@ const ProductionApprovalBoard: React.FC<{ operator?: string }> = ({ operator }) 
           </div>
         )}
 
+        {!!r.payload?.ai_flags?.length && (
+          <div style={{ marginBottom: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {r.payload.ai_flags.map((f, i) => (
+              <div key={i} style={{
+                fontSize: '0.79rem', borderRadius: 9, padding: '7px 11px',
+                background: f.level === 'warn' ? '#fdf1de' : '#f2f5f8',
+                border: `1px solid ${f.level === 'warn' ? '#f3ddb8' : '#e2e8ee'}`,
+                color: f.level === 'warn' ? '#8a5a00' : '#4a5967',
+              }}>
+                {f.level === 'warn' ? '⚠️' : 'ℹ️'} {f.text}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!!r.fix_count && (
+          <div style={{ fontSize: '0.78rem', color: '#c24f00', marginBottom: 8 }}>
+            ✏️ ถูกส่งกลับให้แก้มาแล้ว {r.fix_count} ครั้ง — ตัวเลขนี้แก้หลังคลังนับ ตรวจก่อนอนุมัติ
+          </div>
+        )}
+
+        {r.has_pallet_photo && (
+          <div style={{ marginBottom: 10 }}>
+            {!photos[r.report_id] ? (
+              <button onClick={() => showPhoto(r.report_id)} style={{ background: 'none', border: 'none', color: '#c24f00', cursor: 'pointer', fontSize: '0.8rem', padding: 0 }}>
+                📸 ดูรูปค้างพาเลท
+              </button>
+            ) : photos[r.report_id] === 'loading' ? (
+              <span style={{ fontSize: '0.8rem', color: '#8a7f72' }}>กำลังโหลดรูป…</span>
+            ) : (
+              <img src={photos[r.report_id]} alt="รูปค้างพาเลท"
+                style={{ maxWidth: '100%', maxHeight: 320, borderRadius: 10, border: '1px solid #e5e0d8', display: 'block' }} />
+            )}
+          </div>
+        )}
+
+        {r.wh_ack_at && (
+          <div style={{ fontSize: '0.78rem', color: '#1c8a4c', marginBottom: 8 }}>
+            ✓ คลังรับทราบแล้ว{r.wh_ack_by ? ` โดย ${r.wh_ack_by}` : ''} · {r.wh_ack_at.replace('T', ' ').slice(0, 16)}
+          </div>
+        )}
+
         <button onClick={() => openDetail(r.report_id)} style={{ background: 'none', border: 'none', color: '#c24f00', cursor: 'pointer', fontSize: '0.8rem', padding: 0, marginBottom: isOpen ? 8 : 0 }}>
           {isOpen ? '▲ ซ่อนประวัติ' : '▼ ดูประวัติการทำรายการ'}
         </button>
@@ -206,9 +285,17 @@ const ProductionApprovalBoard: React.FC<{ operator?: string }> = ({ operator }) 
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               <button disabled={busy === r.report_id} onClick={() => decide(r, true)} style={{ ...btn, background: busy === r.report_id ? '#bdbdbd' : 'linear-gradient(135deg,#3cb371,#1c8a4c)' }}>✅ อนุมัติ</button>
+              <button disabled={busy === r.report_id} onClick={() => sendBack(r)} style={{ ...btn, background: '#fff', color: '#c24f00', border: '1px solid #f6dcc4' }}>✏️ ส่งกลับแก้ไข</button>
               <button disabled={busy === r.report_id} onClick={() => decide(r, false)} style={{ ...btn, background: '#fff', color: '#c62828', border: '1px solid #f2c9c9' }}>❌ ปฏิเสธ</button>
             </div>
           </>
+        )}
+
+        {r.status === 'needs_fix' && (
+          <div style={{ background: '#fdeeea', border: '1px solid #f6d5c4', borderRadius: 10, padding: '9px 12px', marginTop: 8, fontSize: '0.82rem', color: '#8a4a1c' }}>
+            ✏️ ส่งกลับให้ <b>{r.reporter_name}</b> แก้แล้ว — รอส่งกลับมาใหม่
+            {r.fix_note && <div style={{ marginTop: 4 }}>📝 {r.fix_note}</div>}
+          </div>
         )}
 
         {r.status === 'pending_warehouse' && (
