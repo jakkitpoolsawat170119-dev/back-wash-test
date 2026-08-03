@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockup — บอท Telegram ควรทำอะไรเพิ่ม (Production_SPP)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@500;600;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --brand:#ff6b00;
+    --brand-deep:#c24f00;
+    --brand-soft:#fff3ea;
+    --ink:#2b2119;
+    --ink-soft:#6d6259;
+    --ink-faint:#a1968a;
+    --paper:#faf7f4;
+    --card:#ffffff;
+    --line:#eee3d9;
+    --ok:#1c8a4c;
+    --ok-soft:#e6f4ec;
+    --warn:#c77700;
+    --warn-soft:#fdf1de;
+    --danger:#c62828;
+    --danger-soft:#fdeaea;
+    --line-green:#06c755;
+    /* Telegram */
+    --tg-bg:#d9e5ef;
+    --tg-in:#ffffff;
+    --tg-out:#effdde;
+    --tg-blue:#3390ec;
+    --tg-meta:#8c9aa6;
+    --tg-rule:#eef1f4;
+    --radius:16px;
+    --shadow-card:0 1px 2px rgba(63,37,10,.06),0 6px 18px -6px rgba(63,37,10,.12);
+    --shadow-float:0 2px 4px rgba(63,37,10,.08),0 16px 40px -12px rgba(63,37,10,.22);
+    --font-head:'Kanit',sans-serif;
+    --font-body:'Sarabun',sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    font-family:var(--font-body);color:var(--ink);background:var(--paper);
+    line-height:1.7;min-height:100vh;
+    background-image:
+      radial-gradient(1200px 500px at 85% -10%, rgba(255,107,0,.07), transparent 60%),
+      radial-gradient(900px 420px at -10% 20%, rgba(21,101,192,.05), transparent 55%);
+  }
+  h1,h2,h3,h4{font-family:var(--font-head);letter-spacing:-.02em;line-height:1.3;color:var(--ink)}
+  button{font-family:inherit;cursor:pointer}
+  button:focus-visible,a:focus-visible{outline:3px solid rgba(255,107,0,.5);outline-offset:2px}
+  .view{display:none}
+  .view.active{display:block;animation:fade .28s cubic-bezier(.2,.7,.3,1)}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  /* ===== ribbon + nav ===== */
+  .ribbon{text-align:center;background:#2b2119;color:#ffd9bd;font-size:12px;padding:5px 10px;letter-spacing:.02em}
+  .navbar{
+    position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:10px;
+    padding:9px 14px;background:rgba(250,247,244,.92);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .lg-word{font-family:var(--font-head);font-weight:700;font-size:16px;letter-spacing:-.02em;flex:none}
+  .lg-word em{font-style:normal;color:var(--brand)}
+  .steps{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;flex:1}
+  .steps::-webkit-scrollbar{display:none}
+  .stepbtn{
+    border:1px solid transparent;background:transparent;color:var(--ink-soft);
+    padding:7px 13px;border-radius:11px;font-size:13.5px;font-weight:600;white-space:nowrap;
+    transition:background .18s cubic-bezier(.2,.7,.3,1),color .18s,transform .12s;
+  }
+  .stepbtn:hover{background:#f1e8df;color:var(--ink)}
+  .stepbtn:active{transform:scale(.96)}
+  .stepbtn.on{background:var(--ink);color:#fff}
+  .stepbtn .n{opacity:.55;margin-right:5px;font-weight:700}
+  .stepbtn.on .n{opacity:.8}
+  @media(max-width:760px){.lg-word{display:none}.stepbtn{padding:6px 10px;font-size:12.5px}}
+
+  .wrap{max-width:1080px;margin:0 auto;padding:26px 16px 70px}
+
+  /* ===== หัวข้อแต่ละจอ ===== */
+  .head{max-width:640px;margin:0 auto 22px}
+  .kicker{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.06em;
+    color:var(--brand-deep);background:var(--brand-soft);padding:4px 11px;border-radius:999px;margin-bottom:10px}
+  .kicker.grey{color:var(--ink-soft);background:#f1ece6}
+  .head h1{font-size:clamp(21px,3.4vw,29px);margin-bottom:8px}
+  .head p{color:var(--ink-soft);font-size:15px}
+
+  /* ===== โทรศัพท์ + แชท Telegram ===== */
+  .stage{display:flex;gap:26px;align-items:flex-start;justify-content:center;flex-wrap:wrap}
+  .phone{
+    width:100%;max-width:390px;border-radius:26px;overflow:hidden;
+    box-shadow:var(--shadow-float);border:1px solid #cbd5de;background:var(--tg-bg);flex:none;
+  }
+  .tgbar{display:flex;align-items:center;gap:10px;padding:10px 13px;background:#527da3;color:#fff}
+  .tgav{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#ff9a4d,#e05500);
+    display:grid;place-items:center;font-size:15px;flex:none}
+  .tgname{font-family:var(--font-head);font-weight:600;font-size:14.5px;line-height:1.2}
+  .tgsub{font-size:11.5px;opacity:.8;line-height:1.2}
+  .chat{padding:14px 12px;display:flex;flex-direction:column;gap:9px;min-height:200px;
+    background-image:radial-gradient(circle at 20% 15%, rgba(255,255,255,.5), transparent 45%),
+                     radial-gradient(circle at 80% 70%, rgba(255,255,255,.35), transparent 40%)}
+  .msg{max-width:86%;padding:8px 12px;border-radius:15px;font-size:14px;line-height:1.62;
+    box-shadow:0 1px 1.5px rgba(0,0,0,.09);position:relative;word-wrap:break-word}
+  .msg.bot{background:var(--tg-in);border-bottom-left-radius:5px;align-self:flex-start}
+  .msg.me{background:var(--tg-out);border-bottom-right-radius:5px;align-self:flex-end}
+  .msg.wide{max-width:94%}
+  .msg b{font-weight:700}
+  .msg .t{display:block;text-align:right;font-size:10.5px;color:var(--tg-meta);margin-top:3px}
+  .msg.me .t{color:#6a9e58}
+  .msg .em{color:var(--ink-soft);font-size:13px}
+  .sys{align-self:center;background:rgba(43,33,25,.55);color:#fff;font-size:11.5px;
+    padding:3px 12px;border-radius:999px;letter-spacing:.01em;text-align:center;max-width:90%}
+
+  /* ฟอร์มในฟองแชท */
+  .form{margin:8px 0 2px;border-top:1px solid var(--tg-rule);padding-top:8px;
+    display:flex;flex-direction:column;gap:4px}
+  .fr{display:flex;align-items:baseline;gap:6px;font-size:13.5px;flex-wrap:wrap}
+  .fr>i{color:var(--tg-meta);font-style:normal;min-width:92px;flex:none}
+  .fr>b{font-weight:700}
+  .auto{font-size:9.5px;font-weight:700;background:#e8f2fd;color:#2b6cb0;
+    padding:1px 6px;border-radius:999px;letter-spacing:.03em;white-space:nowrap}
+  .calc{background:#f4f8fa;border-radius:9px;padding:6px 10px;font-size:12.5px;
+    color:var(--ink-soft);margin-top:7px;line-height:1.55}
+  .calc .yes{color:var(--ok);font-weight:700}
+  .sect{margin-top:9px;border-top:1px solid var(--tg-rule);padding-top:8px;font-size:13.5px}
+  .sect>.ttl{font-weight:700;margin-bottom:5px;display:flex;align-items:center;gap:6px}
+  .dmg{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;font-size:13px}
+  .dmg div{display:flex;justify-content:space-between;gap:8px;
+    border-bottom:1px dotted #dbe3ea;padding-bottom:1px}
+  .dmg div i{color:var(--tg-meta);font-style:normal}
+  .dmg div u{text-decoration:none;color:var(--ink-faint)}
+
+  /* inline keyboard */
+  .kb{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+  .kb .row{display:flex;gap:4px}
+  .kb button{
+    flex:1;background:rgba(255,255,255,.92);border:none;border-radius:9px;padding:8px 6px;
+    color:var(--tg-blue);font-size:13px;font-weight:600;
+    transition:background .16s cubic-bezier(.2,.7,.3,1),transform .1s;
+  }
+  .kb button:hover{background:#e8f2fd}
+  .kb button:active{transform:scale(.97)}
+  .kb button.dim{color:var(--ink-soft)}
+  .kb button.send{background:var(--tg-blue);color:#fff;font-weight:700;padding:10px 6px;font-size:13.5px;
+    box-shadow:0 2px 8px -2px rgba(51,144,236,.6)}
+  .kb button.send:hover{background:#2481dd}
+  .photo{width:130px;height:92px;border-radius:11px;margin-top:4px;
+    background:linear-gradient(135deg,#d3c0a6,#a2856a);
+    display:grid;place-items:center;color:#fff6ea;font-size:22px}
+  .typing{display:flex;gap:3px;align-items:center;padding:11px 14px}
+  .typing i{width:6px;height:6px;border-radius:50%;background:var(--tg-meta);animation:bl 1.1s infinite}
+  .typing i:nth-child(2){animation-delay:.18s}.typing i:nth-child(3){animation-delay:.36s}
+  @keyframes bl{0%,60%,100%{opacity:.25}30%{opacity:1}}
+
+  /* ===== กล่องอธิบายข้าง ๆ ===== */
+  .side{flex:1;min-width:270px;max-width:400px;display:flex;flex-direction:column;gap:12px}
+  .note{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:15px 17px;box-shadow:var(--shadow-card)}
+  .note h4{font-size:14.5px;margin-bottom:7px;display:flex;align-items:center;gap:7px}
+  .note p,.note li{font-size:13.5px;color:var(--ink-soft)}
+  .note ul{padding-left:17px;display:flex;flex-direction:column;gap:4px}
+  .note.good{background:var(--ok-soft);border-color:#cfe8d8}
+  .note.good h4{color:var(--ok)}
+  .note.warn{background:var(--warn-soft);border-color:#f3ddb8}
+  .note.warn h4{color:var(--warn)}
+  .note .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .tag{display:inline-block;font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:999px;
+    background:#f1ece6;color:var(--ink-soft)}
+  .tag.ai{background:#ede7fb;color:#5b3fa8}
+  .tag.rule{background:#e4f0fb;color:#1565c0}
+  .tag.extra{background:#f0ece6;color:#8a7f72}
+
+  /* ตัวอย่างหน้า Admin ในแอป */
+  .note.admin{border-color:#cfdcea;background:linear-gradient(180deg,#f6faff,#fff)}
+  .note.admin h4{color:#1565c0}
+  .adm{margin-top:9px;border:1px solid #dbe6f2;border-radius:11px;overflow:hidden;background:#fff}
+  .admhead{background:#eef4fb;padding:6px 11px;font-size:12px;font-weight:700;color:#2b6cb0}
+  .admrow{display:flex;align-items:center;gap:9px;padding:7px 11px;font-size:13px;
+    border-top:1px solid #eef2f7}
+  .admrow span{flex:1;color:var(--ink);display:flex;flex-direction:column;line-height:1.35}
+  .admrow span u{text-decoration:none;font-size:10.5px;color:var(--ink-faint)}
+  .note.bad{background:var(--danger-soft);border-color:#f2c9c9}
+  .note.bad h4{color:var(--danger)}
+  .admrow b{font-weight:700;font-variant-numeric:tabular-nums}
+  .admrow .st{font-style:normal;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
+  .admrow .st.ok{background:var(--ok-soft);color:var(--ok)}
+  .admrow .st.wait{background:var(--warn-soft);color:var(--warn)}
+  .admrow.new{background:#fffaf2;animation:pop .5s cubic-bezier(.2,.7,.3,1)}
+  @keyframes pop{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+  code{background:#f1ece6;padding:1px 6px;border-radius:5px;color:var(--ink-soft);font-size:12.5px}
+
+  /* ===== หน้า Admin เต็มจอ ===== */
+  .adminpage{max-width:860px;margin:0 auto;background:var(--card);border:1px solid var(--line);
+    border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow-float)}
+  .abar{display:flex;align-items:center;gap:9px;padding:11px 15px;background:#f7f2ec;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .abar .ttl{font-family:var(--font-head);font-weight:600;font-size:15px;flex:1;min-width:170px}
+  .apill{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;background:#fff;
+    border:1px solid var(--line);color:var(--ink-soft)}
+  .apill.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .arow{padding:13px 15px;border-bottom:1px solid #f4eee7;display:flex;gap:13px;align-items:flex-start;flex-wrap:wrap}
+  .arow:last-child{border-bottom:none}
+  .arow.done{background:#fbfdfb}
+  .arow.flag{background:#fffbf4}
+  .athumb{width:52px;height:52px;border-radius:10px;flex:none;display:grid;place-items:center;font-size:19px;
+    background:linear-gradient(135deg,#d3c0a6,#a2856a);color:#fff6ea}
+  .athumb.none{background:#f4eee7;color:#c3b6a7;font-size:15px}
+  .amain{flex:1;min-width:190px}
+  .aname{font-family:var(--font-head);font-weight:600;font-size:15px;margin-bottom:1px}
+  .awho{font-size:12px;color:var(--ink-faint);margin-bottom:6px}
+  .afacts{display:flex;gap:5px 14px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-soft)}
+  .afacts b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
+  .aflag{margin-top:7px;font-size:12.5px;background:var(--warn-soft);border:1px solid #f3ddb8;
+    color:#8a5a00;border-radius:9px;padding:6px 10px}
+  .aact{display:flex;flex-direction:column;gap:5px;min-width:150px}
+  .aact button{border:1px solid var(--line);background:#fff;border-radius:9px;padding:7px 11px;
+    font-size:12.5px;font-weight:600;color:var(--ink-soft);white-space:nowrap;
+    transition:background .16s cubic-bezier(.2,.7,.3,1),border-color .16s,transform .1s}
+  .aact button:hover{background:#faf6f1;border-color:#e0cdb8}
+  .aact button:active{transform:scale(.97)}
+  .aact button.ok{background:var(--ok);border-color:var(--ok);color:#fff}
+  .aact button.ok:hover{background:#177a42}
+  .astate{font-size:12px;font-weight:700;color:var(--ok);text-align:center;padding:7px 0}
+  .afoot{padding:13px 15px;background:#f7f2ec;border-top:1px solid var(--line);
+    display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .afoot .txt{flex:1;min-width:180px;font-size:13px;color:var(--ink-soft)}
+
+  /* โหมดแก้ไขในแถว Admin */
+  .aedit{margin-top:9px;border:1px dashed #d9c9b4;background:#fffdfa;border-radius:11px;padding:11px 12px}
+  .aedit .eh{font-size:11.5px;font-weight:700;color:var(--brand-deep);margin-bottom:8px;letter-spacing:.02em}
+  .egrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:8px 10px}
+  .ef{display:flex;flex-direction:column;gap:3px}
+  .ef label{font-size:11px;color:var(--ink-faint);font-weight:600}
+  .ef input,.ef select{font-family:inherit;font-size:13px;padding:6px 8px;border:1px solid #e2d6c6;
+    border-radius:8px;background:#fff;color:var(--ink);width:100%}
+  .ef input:focus,.ef select:focus{outline:2px solid rgba(255,107,0,.45);outline-offset:1px;border-color:var(--brand)}
+  .ewaste{margin-top:9px;border-top:1px dashed #e6d8c5;padding-top:8px}
+  .ewaste .lbl{font-size:11px;color:var(--ink-faint);font-weight:600;margin-bottom:5px}
+  .ewaste .row5{display:grid;grid-template-columns:repeat(auto-fit,minmax(84px,1fr));gap:6px}
+  .ewaste .w{display:flex;align-items:center;gap:5px;background:#fff;border:1px solid #e2d6c6;
+    border-radius:8px;padding:4px 7px}
+  .ewaste .w i{font-style:normal;font-size:11.5px;color:var(--ink-soft);flex:1}
+  .ewaste .w input{width:38px;border:none;background:transparent;font-family:inherit;font-size:13px;
+    font-weight:700;text-align:right;color:var(--ink);padding:0}
+  .ewaste .w input:focus{outline:none}
+  .ephoto{margin-top:9px;border-top:1px dashed #e6d8c5;padding-top:8px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .ephoto .mini{width:42px;height:42px;border-radius:9px;background:linear-gradient(135deg,#d3c0a6,#a2856a);
+    display:grid;place-items:center;color:#fff6ea;font-size:16px;flex:none}
+  .ephoto button{border:1px solid #e2d6c6;background:#fff;border-radius:8px;padding:5px 11px;
+    font-size:12px;font-weight:600;color:var(--ink-soft);
+    transition:background .16s cubic-bezier(.2,.7,.3,1),transform .1s}
+  .ephoto button:hover{background:#faf6f1}
+  .ephoto button:active{transform:scale(.97)}
+  .aact button.save{background:var(--brand);border-color:var(--brand);color:#fff}
+  .aact button.save:hover{background:var(--brand-deep)}
+
+  /* ===== ขั้นปิดท้าย: คลัง → approve → ชีต ===== */
+  .flow3{display:flex;gap:14px;align-items:stretch;justify-content:center;flex-wrap:wrap;margin-bottom:20px}
+  .fstep{flex:1;min-width:290px;max-width:400px;display:flex;flex-direction:column;gap:8px}
+  .fcap{display:flex;align-items:center;gap:8px;font-family:var(--font-head);font-weight:600;font-size:14px}
+  .fcap b{width:23px;height:23px;border-radius:50%;background:var(--ink);color:#fff;
+    display:grid;place-items:center;font-size:12px;flex:none}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    overflow:hidden;box-shadow:var(--shadow-card);flex:1}
+  .phead{padding:9px 13px;font-size:12.5px;font-weight:700;border-bottom:1px solid var(--line)}
+  .phead.wh{background:#eef4fb;color:#2b6cb0}
+  .phead.ad{background:#f7f2ec;color:var(--brand-deep)}
+  .phead.sh{background:#e9f5ee;color:var(--ok)}
+  .prow{padding:9px 13px;border-bottom:1px solid #f6f1ea;font-size:13px}
+  .prow:last-child{border-bottom:none}
+  .pname{font-weight:700;margin-bottom:3px}
+  .psub{font-size:12px;color:var(--ink-faint)}
+  .cnt{display:flex;align-items:center;gap:7px;margin-top:5px;flex-wrap:wrap}
+  .cnt .said{font-size:12px;color:var(--ink-soft)}
+  .cnt input{width:62px;font-family:inherit;font-size:13.5px;font-weight:700;text-align:right;
+    padding:4px 7px;border:1px solid #cfdcea;border-radius:8px;background:#fff;color:var(--ink)}
+  .cnt input:focus{outline:2px solid rgba(51,144,236,.4);outline-offset:1px}
+  .vs{display:flex;align-items:center;gap:6px;margin-top:5px;font-size:12.5px;flex-wrap:wrap}
+  .vs .n{font-weight:700;font-variant-numeric:tabular-nums}
+  .mark{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
+  .mark.same{background:var(--ok-soft);color:var(--ok)}
+  .mark.diff{background:var(--danger-soft);color:var(--danger)}
+  .pfoot{padding:11px 13px;background:#faf7f3;border-top:1px solid var(--line);text-align:center}
+  .pbtn{width:100%;border:none;border-radius:10px;padding:9px 14px;font-family:var(--font-head);
+    font-weight:600;font-size:13.5px;color:#fff;
+    transition:background .16s cubic-bezier(.2,.7,.3,1),transform .1s}
+  .pbtn:active{transform:scale(.98)}
+  .pbtn.blue{background:var(--tg-blue)}.pbtn.blue:hover{background:#2481dd}
+  .pbtn.org{background:var(--brand)}.pbtn.org:hover{background:var(--brand-deep)}
+  .arrow{display:grid;place-items:center;font-size:20px;color:var(--brand);flex:none;padding:6px 0}
+  .sheetrow{display:flex;gap:9px;padding:8px 13px;border-bottom:1px solid #f0f5f1;font-size:12.5px;
+    font-variant-numeric:tabular-nums}
+  .sheetrow:last-child{border-bottom:none}
+  .sheetrow span:first-child{flex:1}
+  .done-big{text-align:center;padding:15px 13px;background:#f3faf5}
+  .done-big .ic{font-size:27px;line-height:1}
+  .done-big .tx{font-family:var(--font-head);font-weight:600;color:var(--ok);margin-top:5px;font-size:15px}
+  .done-big .sm{font-size:12px;color:var(--ink-soft);margin-top:3px}
+
+  /* เมนูจำลอง */
+  .menu{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;margin-top:9px;font-size:13px}
+  .menu div{padding:6px 12px;border-bottom:1px solid #f6f1ea;color:var(--ink-soft)}
+  .menu div:last-child{border-bottom:none}
+  .menu div.sub{padding-left:30px;font-size:12.5px}
+  .menu div.hit{background:var(--brand-soft);color:var(--brand-deep);font-weight:700}
+  .bigbtn{background:var(--brand);color:#fff;border:none;border-radius:11px;padding:11px 20px;
+    font-family:var(--font-head);font-weight:600;font-size:14.5px;
+    box-shadow:0 3px 12px -3px rgba(255,107,0,.65);
+    transition:background .16s cubic-bezier(.2,.7,.3,1),transform .12s}
+  .bigbtn:hover{background:var(--brand-deep)}
+  .bigbtn:active{transform:scale(.97)}
+  .bigbtn:disabled{background:#ded4c8;box-shadow:none;cursor:not-allowed;color:#fffdfb}
+
+  /* ===== หน้าเคาะ ===== */
+  .pickgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:15px;margin-top:6px}
+  .pick{background:var(--card);border:2px solid var(--line);border-radius:var(--radius);padding:17px;
+    box-shadow:var(--shadow-card);transition:border-color .2s cubic-bezier(.2,.7,.3,1),transform .16s;
+    cursor:pointer;text-align:left;display:block;width:100%}
+  .pick:hover{transform:translateY(-2px);border-color:#e0cdb8}
+  .pick.on{border-color:var(--brand);background:linear-gradient(180deg,#fff8f2,#fff)}
+  .pick .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px}
+  .pick h4{font-size:15.5px}
+  .pick .box{width:23px;height:23px;border-radius:7px;border:2px solid #ddd2c4;flex:none;
+    display:grid;place-items:center;color:#fff;font-size:13px;font-weight:700;
+    transition:background .16s,border-color .16s}
+  .pick.on .box{background:var(--brand);border-color:var(--brand)}
+  .pick p{font-size:13.5px;color:var(--ink-soft);margin-bottom:9px}
+  .pick .meta{display:flex;gap:6px;flex-wrap:wrap}
+
+  .summary{margin-top:22px;background:var(--ink);color:#fff5ec;border-radius:var(--radius);padding:19px 21px}
+  .summary h4{color:#fff;font-size:15px;margin-bottom:9px}
+  .summary #picked{font-size:14.5px;line-height:1.9;white-space:pre-line}
+  .summary .hint{font-size:12.5px;opacity:.65;margin-top:11px}
+
+  .foot{max-width:640px;margin:30px auto 0;font-size:13px;color:var(--ink-faint);text-align:center}
+</style>
+</head>
+<body>
+
+<div class="ribbon">MOCKUP — ภาพจำลอง ยังไม่ได้ทำจริง · ข้อมูลในจอเป็นตัวอย่างสมมติ · เรียงตามลำดับงานจริง กดปุ่มด้านบนไล่ดู</div>
+
+<div class="navbar">
+  <div class="lg-word">Production<em>_SPP</em></div>
+  <div class="steps">
+    <button class="stepbtn on" data-go="now"><span class="n">0</span>ตอนนี้เป็นแบบนี้</button>
+    <button class="stepbtn" data-go="plan"><span class="n">1</span>ลงแผนผลิต</button>
+    <button class="stepbtn" data-go="opt1"><span class="n">2</span>พนักงานลงยอด</button>
+    <button class="stepbtn" data-go="opt3"><span class="n">3</span>ตรวจก่อนส่ง</button>
+    <button class="stepbtn" data-go="admin"><span class="n">4</span>หัวหน้าตรวจ (Admin)</button>
+    <button class="stepbtn" data-go="close"><span class="n">5</span>คลังนับ → Approve → ชีต</button>
+    <button class="stepbtn" data-go="opt4"><span class="n">6</span>ตามงานสิ้นกะ</button>
+    <button class="stepbtn" data-go="opt2"><span class="n">7</span>ถามย้อนหลัง</button>
+    <button class="stepbtn" data-go="pick"><span class="n">✓</span>เลือกที่อยากได้</button>
+  </div>
+</div>
+
+<div class="wrap">
+
+<!-- ══════════ 0 · ตอนนี้ ══════════ -->
+<section class="view active" id="now">
+  <div class="head">
+    <span class="kicker grey">ของเดิม · ใช้งานได้อยู่แล้ว</span>
+    <h1>ก่อนอื่น — ตอนนี้บอทเป็นแบบนี้</h1>
+    <p>บอทถามทีละช่อง พนักงานกดปุ่มไปเรื่อย ๆ จนครบ ใช้ได้จริง แต่ต้องกด 7 ครั้งต่อสินค้า 1 ตัว</p>
+  </div>
+  <div class="stage">
+    <div class="phone">
+      <div class="tgbar"><div class="tgav">🏭</div>
+        <div><div class="tgname">Production_SPP</div><div class="tgsub">bot</div></div></div>
+      <div class="chat">
+        <div class="sys">วันนี้ · 05:40</div>
+        <div class="msg me">แผนผลิตวันนี้<span class="t">05:40</span></div>
+        <div class="msg bot">📋 <b>แผนผลิตวันนี้</b> · 2 ส.ค. กะ1<br>เลือกสินค้าที่จะลงยอด
+          <div class="kb">
+            <div class="row"><button>Amazon 750x12</button></div>
+            <div class="row"><button>Syrup800</button></div>
+            <div class="row"><button>Icing900</button></div>
+          </div><span class="t">05:40</span></div>
+        <div class="msg me">▸ Amazon 750x12<span class="t">05:41</span></div>
+        <div class="msg bot">🏭 <b>Amazon 750x12</b><br><br>เลือก <b>เครื่องบรรจุ</b>
+          <div class="kb">
+            <div class="row"><button>Linear#1 (Lina Pack)</button></div>
+            <div class="row"><button>Manual</button><button>ต้มหัวเชื้อ</button></div>
+          </div><span class="t">05:41</span></div>
+        <div class="msg me">▸ Linear#1<span class="t">05:41</span></div>
+        <div class="msg bot">พิมพ์ <b>ยอดเลขหน้าเครื่อง (ชิ้น)</b><span class="t">05:41</span></div>
+        <div class="msg me">1440<span class="t">05:42</span></div>
+        <div class="msg bot">พิมพ์ <b>จำนวนที่ผลิตได้</b> (กล่อง)<span class="t">05:42</span></div>
+        <div class="msg me">120<span class="t">05:42</span></div>
+        <div class="msg bot">📸 ส่งรูปค้างพาเลท (ถ้ามี)
+          <div class="kb"><div class="row"><button class="dim">⏭ ไม่มีรูป</button></div></div><span class="t">05:42</span></div>
+        <div class="sys">… ยังเหลืออีก 2 สเต็ป</div>
+      </div>
+    </div>
+    <div class="side">
+      <div class="note">
+        <h4>👍 ข้อดี</h4>
+        <ul>
+          <li>ไม่ผิดพลาด บอทถามทีละช่อง กรอกครบแน่นอน</li>
+          <li>ไม่ต้องใช้ AI = ไม่มีค่าใช้จ่ายต่อครั้ง</li>
+          <li>พนักงานใหม่ใช้เป็นทันที ไม่ต้องสอน</li>
+        </ul>
+      </div>
+      <div class="note warn">
+        <h4>⚠️ จุดที่ช้า</h4>
+        <ul>
+          <li><b>1 สินค้า = กด 7 ครั้ง</b></li>
+          <li>กะหนึ่งลง 8 รายการ = <b>กดประมาณ 56 ครั้ง</b></li>
+          <li>คนที่ชำนาญแล้วจะรู้สึกว่าช้ากว่าจดใส่กระดาษ</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h4>🗺️ จอถัดไปคืออะไร</h4>
+        <p>จอ <b>1 → 5</b> เรียงตามลำดับงานจริง ตั้งแต่ลงแผนตอนเย็นจนจบกะเช้า<br><br>
+        ทั้งหมดเป็นของที่ทำ<b>เพิ่ม</b> ไม่ได้ทำแทน — ของเดิมยังอยู่ ใครถนัดกดปุ่มก็กดปุ่มได้เหมือนเดิม</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ 1 · ลงแผนผลิต ══════════ -->
+<section class="view" id="plan">
+  <div class="head">
+    <span class="kicker">ขั้นที่ 1 · ตัวเลือกที่ 1</span>
+    <h1>ลงแผนผลิต — จุดตั้งต้นของทั้งระบบ</h1>
+    <p>ถ้าไม่มีแผน บอทก็ไม่รู้ว่าวันนี้ต้องผลิตอะไร — จอ "แผนผลิตวันนี้" จะว่าง และบอทตามงานสิ้นกะไม่ได้ ตอนนี้ลงแผนได้ในเว็บอย่างเดียว แต่หัวหน้ากะมักอยู่หน้างานไม่ได้อยู่หน้าคอม</p>
+  </div>
+  <div class="stage">
+    <div class="phone">
+      <div class="tgbar"><div class="tgav">🏭</div>
+        <div><div class="tgname">Production_SPP</div><div class="tgsub">bot</div></div></div>
+      <div class="chat">
+        <div class="sys">เย็นวันเสาร์ · หัวหน้ากะลงแผนของพรุ่งนี้</div>
+        <div class="msg me">ลงแผนพรุ่งนี้กะเช้า Syrup800 300 กล่อง Icing900 200<span class="t">21:30</span></div>
+        <div class="msg bot">📋 <b>แผนผลิต · 3 ส.ค. กะเช้า</b><br>
+          <span class="em">วันอาทิตย์ · กะ 12 ชม. (06:00–18:00)</span><br><br>
+          • Syrup800 — <b>300</b> กล่อง <span class="em">(3 batch)</span><br>
+          • Icing900 — <b>200</b> กล่อง <span class="em">(2 batch)</span><br><br>
+          ถูกต้องไหม?
+          <div class="kb">
+            <div class="row"><button class="send">✅ บันทึกแผน</button></div>
+            <div class="row"><button class="dim">✏️ แก้</button><button class="dim">❌ ยกเลิก</button></div>
+          </div><span class="t">21:30</span></div>
+        <div class="msg me">▸ ✅ บันทึกแผน<span class="t">21:31</span></div>
+        <div class="msg bot">บันทึกแล้ว ✅<br>
+          <span class="em">พรุ่งนี้พนักงานพิมพ์ "แผนผลิตวันนี้" จะเห็น 2 ตัวนี้ทันที<br>
+          และถ้าลงยอดไม่ครบ บอทจะเตือนตอนสิ้นกะให้เอง</span><span class="t">21:31</span></div>
+        <div class="sys">ชั่วโมงกะ ระบบรู้เองจากวันในสัปดาห์</div>
+        <div class="msg bot">ℹ️ <b>ไม่ต้องกรอกชั่วโมงกะ</b><br>
+          จ–พฤ → 3 กะ กะละ <b>8 ชม.</b><br>
+          ศ / ส / อา → 2 กะ กะละ <b>12 ชม.</b><br>
+          <span class="em">ระบบดูจากวันที่ให้เอง</span><span class="t">21:31</span></div>
+      </div>
+    </div>
+    <div class="side">
+      <div class="note good">
+        <h4>👍 ได้อะไร</h4>
+        <ul>
+          <li>ลงแผนจากหน้างานได้ ไม่ต้องกลับไปหน้าคอม</li>
+          <li>มีแผนแล้ว ระบบเทียบ "ได้ยอด / ไม่ได้ยอด" ให้อัตโนมัติ</li>
+          <li>เป็น<b>เงื่อนไข</b>ให้ขั้นที่ 6 (ตามงานสิ้นกะ) ทำงานได้</li>
+          <li>แผนที่ลงตรงนี้ จะไปโผล่ในขั้นที่ 2 ทันที</li>
+        </ul>
+      </div>
+      <div class="note warn">
+        <h4>⚖️ เรื่องที่ต้องเคาะ</h4>
+        <ul>
+          <li>ให้<b>ใครลงแผนได้บ้าง</b>? ถ้าใครก็ลงได้อาจลงทับกัน — จำกัดเฉพาะหัวหน้ากะไหม</li>
+          <li>ถ้าอยากพิมพ์เป็นภาษาคนแบบในภาพ ต้องใช้ AI · ถ้าไม่อยากใช้ AI ทำเป็นกดปุ่มเลือกทีละตัวก็ได้</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h4>📌 ชีตแผนผลิตเดิม</h4>
+        <p>โน้ตแนบชีตแผนผลิตมาด้วย (<code>1Tm9UibL…</code>) ถ้าอยากให้ระบบดึงจากชีตนั้นอัตโนมัติแทนการพิมพ์ บอกได้ ทำได้เหมือนกัน</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ 2 · พนักงานลงยอด ══════════ -->
+<section class="view" id="opt1">
+  <div class="head">
+    <span class="kicker">ขั้นที่ 2 · ตัวเลือกที่ 2</span>
+    <h1>พนักงานลงยอด — พิมพ์ประโยคเดียว ได้ฟอร์มเต็มใบ</h1>
+    <p>พิมพ์แบบพูดปกติ บอทแยกเองว่าอันไหนคือสินค้า อันไหนคือยอด แล้วตอบกลับเป็นฟอร์มครบทุกช่อง เหลือแค่เติมที่ขาดแล้วกดส่ง</p>
+  </div>
+  <div class="stage">
+    <div class="phone">
+      <div class="tgbar"><div class="tgav">🏭</div>
+        <div><div class="tgname">Production_SPP</div><div class="tgsub">bot</div></div></div>
+      <div class="chat">
+        <div class="sys">เช้าวันอาทิตย์ · แผนจากขั้นที่ 1 อยู่ในระบบแล้ว</div>
+        <div class="msg me">Amazon 750 ได้ 120 กล่อง เครื่อง Linear#1 เลข 1440<span class="t">05:41</span></div>
+
+        <div class="msg bot wide">🧾 <b>แบบฟอร์มบันทึกยอดผลิต</b>
+          <div class="form">
+            <div class="fr"><i>สินค้า</i><b>Amazon 750x12</b><span class="auto">อัตโนมัติ</span></div>
+            <div class="fr"><i>เครื่องบรรจุ</i><b>Linear#1 (Lina Pack)</b></div>
+            <div class="fr"><i>ชื่อผู้รายงาน</i><b>จักรกฤษณ์</b><span class="auto">จำไว้ให้</span></div>
+            <div class="fr"><i>เลขหน้าเครื่อง</i><b>1,440 ชิ้น</b></div>
+            <div class="fr"><i>ผลิตได้</i><b>120 กล่อง</b></div>
+          </div>
+          <div class="calc">
+            🧮 คิดเป็น <b>1,440 ชิ้น</b> (120 × 12)<br>
+            🎯 แผนกะนี้ 100 กล่อง · <span class="yes">✓ ได้ยอด</span>
+          </div>
+
+          <div class="sect">
+            <div class="ttl">📦 ภาชนะบรรจุชำรุด</div>
+            <div class="dmg">
+              <div><i>ถุง</i><u>— </u></div>
+              <div><i>กล่อง</i><u>— </u></div>
+              <div><i>ถุง pack</i><u>— </u></div>
+              <div><i>ขวด/กระปุก</i><u>— </u></div>
+              <div><i>ฝา</i><u>— </u></div>
+            </div>
+            <div class="kb">
+              <div class="row"><button>✏️ กรอกของเสีย</button><button class="dim">ไม่มีของเสีย</button></div>
+            </div>
+          </div>
+
+          <div class="sect">
+            <div class="ttl">📸 รูปค้างพาเลท</div>
+            <span class="em">ขาดแค่รูปค้างพาเลท ส่งมาได้เลย</span>
+            <div class="kb">
+              <div class="row"><button class="dim">⏭ ไม่มีรูป</button></div>
+            </div>
+          </div>
+
+          <div class="kb">
+            <div class="row"><button class="send">🔍 ส่งเพื่อตรวจสอบ</button></div>
+          </div>
+          <span class="t">05:41</span></div>
+
+        <div class="sys">กดแล้ว → บอทเอาไปตรวจก่อน (ขั้นที่ 3) ยังไม่ออกไปหาใคร</div>
+
+        <div class="sys">พิมพ์ไม่ครบก็ได้ บอทถามต่อเอง</div>
+        <div class="msg me">syrup800 ได้ 240<span class="t">05:44</span></div>
+        <div class="msg bot">✅ <b>Syrup800</b> · 240 กล่อง<br>
+          <span class="em">ยังไม่ได้บอกเครื่องบรรจุ</span>
+          <div class="kb">
+            <div class="row"><button>Linear#1</button><button>Linear#2</button></div>
+            <div class="row"><button>Linear#3</button><button>Manual</button></div>
+          </div><span class="t">05:44</span></div>
+      </div>
+    </div>
+    <div class="side">
+      <div class="note good">
+        <h4>👍 ได้อะไร</h4>
+        <ul>
+          <li>ลงยอด 1 ตัว จาก <b>กด 7 ครั้ง → พิมพ์ 1 บรรทัด</b></li>
+          <li>บอทตอบ<b>ฟอร์มเต็มใบ</b>กลับมา เห็นครบก่อนกดส่ง ไม่ต้องเดาว่าลงอะไรไปแล้วบ้าง</li>
+          <li>ช่องติดป้าย <span class="tag">อัตโนมัติ</span> คือบอทเติมให้ ไม่ต้องพิมพ์เอง</li>
+          <li>พิมพ์ไม่ครบก็ไม่พัง บอทถามต่อจนครบเหมือนเดิม</li>
+          <li>คนที่ไม่ถนัดพิมพ์ยังกดปุ่มแบบเดิมได้ ไม่บังคับ</li>
+        </ul>
+      </div>
+      <div class="note warn">
+        <h4>⚖️ แลกกับอะไร</h4>
+        <ul>
+          <li>ต้องใช้ AI อ่านประโยค → <b>มีค่าใช้จ่ายต่อการพิมพ์ 1 ครั้ง</b> (หลักสตางค์)</li>
+          <li>บางครั้งอาจแกะผิด เช่นสินค้าชื่อคล้ายกัน — จึงต้องมีฟอร์มให้ทวนก่อนกดส่งเสมอ อย่างในภาพ</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h4>🔧 ทำยังไง</h4>
+        <p>แอปมีผู้ช่วย AI อยู่แล้ว (<code>/api/assistant</code>) ต่อบอทเข้ากับตัวเดิมได้เลย ไม่ต้องสร้างระบบใหม่</p>
+        <div class="meta"><span class="tag ai">ใช้ AI</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ 3 · ตรวจก่อนส่ง ══════════ -->
+<section class="view" id="opt3">
+  <div class="head">
+    <span class="kicker">ขั้นที่ 3 · ตัวเลือกที่ 3</span>
+    <h1>บอทตรวจทานให้ ก่อนยืนยัน</h1>
+    <p>ต่อจากขั้นที่ 2 — พอกด "ส่งเพื่อตรวจสอบ" บอทเอาไปเทียบกับแผนและประวัติย้อนหลังให้ก่อน ถูกต้องค่อยกดยืนยัน ถ้าผิดปกติจะทักทันที</p>
+  </div>
+  <div class="stage">
+    <div class="phone">
+      <div class="tgbar"><div class="tgav">🏭</div>
+        <div><div class="tgname">Production_SPP</div><div class="tgsub">bot</div></div></div>
+      <div class="chat">
+        <div class="sys">ต่อจากขั้นที่ 2 — จักรกฤษณ์ · Line 1</div>
+        <div class="msg me">▸ 🔍 ส่งเพื่อตรวจสอบ<span class="t">05:43</span></div>
+        <div class="typing msg bot" style="max-width:64px"><i></i><i></i><i></i></div>
+        <div class="msg bot">🔍 <b>ตรวจแล้ว — ไม่พบอะไรผิดปกติ</b><br>
+          <span class="em">Amazon 750x12 · 120 กล่อง<br>
+          เทียบแผนกะนี้ 100 กล่อง ✓<br>
+          เทียบเฉลี่ย 30 วัน (118 กล่อง) ✓<br>
+          มีรูปค้างพาเลทครบ ✓</span>
+          <div class="kb">
+            <div class="row"><button class="send">✅ ยืนยันข้อมูลถูกต้อง</button></div>
+            <div class="row"><button class="dim">✏️ ขอแก้</button></div>
+          </div><span class="t">05:43</span></div>
+        <div class="msg me">▸ ✅ ยืนยันข้อมูลถูกต้อง<span class="t">05:43</span></div>
+        <div class="msg bot">📥 <b>เข้าแอปแล้ว — รอหัวหน้าตรวจ</b><br>
+          <span class="em">จบงานของ Line 1 ตัวนี้แล้ว</span><span class="t">05:43</span></div>
+
+        <div class="sys">Line 2 — คนละคนกับข้างบน · สมหญิง</div>
+        <div class="msg me">Icing 25 kg ได้ 200 กระสอบ เครื่อง - เลขหน้าเครื่อง 200<span class="t">11:18</span></div>
+        <div class="msg bot">🧾 <b>Icing 25 kg</b> · <b>200 กระสอบ</b><br>
+          <span class="em">เครื่องบรรจุ Manual · เลขหน้าเครื่อง 200<br>
+          ผู้รายงาน สมหญิง (Line 2)</span>
+          <div class="kb"><div class="row"><button class="send">🔍 ส่งเพื่อตรวจสอบ</button></div></div>
+          <span class="t">11:18</span></div>
+        <div class="msg me">▸ 🔍 ส่งเพื่อตรวจสอบ<span class="t">11:20</span></div>
+        <div class="msg bot">⚠️ <b>ขอเช็คก่อน 2 จุด</b><br><br>
+          <b>1. 200 กระสอบ</b><br>
+          <span class="em">ปกติกะละ ~80 กระสอบ · สูงกว่าปกติ 2.5 เท่า</span><br><br>
+          <b>2. ไม่มีรูปค้างพาเลท</b><br>
+          <span class="em">Icing เป็นสินค้าที่พนักงานจัดพาเลทเอง คลังมองไม่เห็นของ<br>ถ้าไม่มีรูป คลังจะยันยอดไม่ได้</span>
+          <div class="kb">
+            <div class="row"><button class="dim">✅ ยืนยันข้อมูลถูกต้อง</button></div>
+            <div class="row"><button>✏️ ขอแก้ยอด</button></div>
+            <div class="row"><button>📸 ส่งรูปค้างพาเลท</button></div>
+          </div><span class="t">11:20</span></div>
+        <div class="msg me"><div class="photo">📷</div><span class="t">11:21</span></div>
+        <div class="msg bot">รับรูปแล้ว ✅ ยอด 200 กระสอบ ยืนยันว่าถูก
+          <div class="kb"><div class="row"><button class="send">✅ ยืนยันข้อมูลถูกต้อง</button></div></div>
+          <span class="t">11:21</span></div>
+        <div class="msg me">▸ ✅ ยืนยันข้อมูลถูกต้อง<span class="t">11:21</span></div>
+        <div class="msg bot">📥 <b>เข้าแอปแล้ว — รอหัวหน้าตรวจ</b><span class="t">11:21</span></div>
+
+        <div class="sys">งานของบอทจบตรงนี้</div>
+        <div class="msg bot">ℹ️ <b>บอทไม่ส่งอะไรไปคลัง</b><br>
+          <span class="em">ยอดทุกตัวเข้าหน้า Admin หมดแล้ว<br>
+          <b>หัวหน้า</b>เป็นคนตรวจ แล้วส่งให้คลังจากในแอป</span><span class="t">13:50</span></div>
+      </div>
+    </div>
+    <div class="side">
+      <div class="note good">
+        <h4>👍 ได้อะไร</h4>
+        <ul>
+          <li>ตรวจ<b>ทีละรายการ</b>ทันทีที่กรอกเสร็จ ไม่ต้องรอถึงสิ้นกะแล้วค่อยมาไล่แก้</li>
+          <li>จับพิมพ์ผิดตั้งแต่ต้นทาง <b>ก่อน</b>ที่จะไปกวนคลังและหัวหน้า</li>
+          <li>เตือนเรื่องรูปค้างพาเลทของสินค้าสาย 2 ให้อัตโนมัติ</li>
+        </ul>
+      </div>
+      <div class="note admin">
+        <h4>📍 กดยืนยันแล้ว → เข้าแอปทันที</h4>
+        <p>ข้อมูลไหลเข้า <b>หน้า Admin ของแอป</b> ให้หัวหน้าตรวจ ไม่ต้องรอสิ้นกะ — แต่ละไลน์มีคนลงของตัวเอง ทยอยเข้ามาคนละเวลา</p>
+        <div class="adm">
+          <div class="admhead">💻 ลงยอดผลิต · 3 ส.ค. กะเช้า</div>
+          <div class="admrow"><span>Amazon 750x12<u>จักรกฤษณ์ · Line 1</u></span><b>120</b><i class="st ok">ตรวจแล้ว</i></div>
+          <div class="admrow"><span>Syrup800<u>ประเสริฐ · Line 3</u></span><b>240</b><i class="st ok">ตรวจแล้ว</i></div>
+          <div class="admrow new"><span>Icing 25 kg<u>สมหญิง · Line 2</u></span><b>200</b><i class="st wait">รอตรวจ</i></div>
+        </div>
+        <p style="margin-top:9px">หัวหน้าเห็นยอดทยอยเข้ามา<b>ระหว่างกะ</b> ไม่ใช่มาโผล่ทีเดียวตอนจบ</p>
+      </div>
+
+      <div class="note bad">
+        <h4>🚫 กฎเหล็ก</h4>
+        <p><b>บอทไม่ส่งข้อมูลข้ามไปคลังเด็ดขาด</b> — ทุกอย่างต้องเข้าแอปให้หัวหน้าตรวจก่อนเสมอ</p>
+        <p style="margin-top:7px">คลังจะได้ข้อมูลก็ต่อเมื่อ<b>หัวหน้ากดส่งจากในแอป</b>เท่านั้น ไม่มีทางลัด</p>
+      </div>
+      <div class="note">
+        <h4>⚖️ แลกกับอะไร</h4>
+        <ul>
+          <li><b>ไม่ต้องใช้ AI</b> — เทียบตัวเลขล้วน ๆ ไม่มีค่าใช้จ่ายเพิ่ม</li>
+          <li>เพิ่มการกด 1 ครั้งต่อรายการ (ยืนยัน) แลกกับการไม่ต้องวนกลับมาแก้ทีหลัง</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h4>🔧 ทำยังไง</h4>
+        <p>ตัวตรวจนี้<b>มีอยู่แล้ว</b>ในระบบ (ป้ายเตือนในหน้าอนุมัติ) แค่ย้ายมาเตือนตั้งแต่ในบอท</p>
+        <div class="meta"><span class="tag rule">ไม่ใช้ AI · ฟรี</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ 4 · หน้า Admin หัวหน้าตรวจ ══════════ -->
+<section class="view" id="admin">
+  <div class="head">
+    <span class="kicker">ขั้นที่ 4 · จำเป็น ไม่ใช่ตัวเลือกเสริม</span>
+    <h1>หน้า Admin — หัวหน้าตรวจก่อนถึงจะไปคลัง</h1>
+    <p>ยอดจากบอททุกไลน์ทยอยมารวมที่นี่ หัวหน้าไล่ตรวจทีละรายการ (approve แยกแต่ละไลน์) แล้วกดส่งให้คลังทีเดียว 1 ลิงก์</p>
+  </div>
+
+  <div class="adminpage">
+    <div class="abar">
+      <div class="ttl">🏭 ลงยอดผลิต · 3 ส.ค. 2569</div>
+      <span class="apill on">กะเช้า</span>
+      <span class="apill">กะบ่าย</span>
+      <span class="apill">กะดึก</span>
+      <span class="apill">รอตรวจ 1</span>
+    </div>
+
+    <div class="arow done">
+      <div class="athumb">📷</div>
+      <div class="amain">
+        <div class="aname">Amazon 750x12</div>
+        <div class="awho">จักรกฤษณ์ · Line 1 · ลงเมื่อ 05:43</div>
+        <div class="afacts">
+          <span>เครื่อง <b>Linear#1</b></span>
+          <span>เลขหน้าเครื่อง <b>1,440</b></span>
+          <span>ผลิตได้ <b>120 กล่อง</b></span>
+          <span>แผน <b>100</b> ✓</span>
+          <span>ของเสีย <b>—</b></span>
+        </div>
+      </div>
+      <div class="aact"><div class="astate">✅ ตรวจแล้ว</div></div>
+    </div>
+
+    <div class="arow done">
+      <div class="athumb none">ไม่มีรูป</div>
+      <div class="amain">
+        <div class="aname">Syrup800</div>
+        <div class="awho">ประเสริฐ · Line 3 · ลงเมื่อ 09:12</div>
+        <div class="afacts">
+          <span>เครื่อง <b>Linear#3</b></span>
+          <span>เลขหน้าเครื่อง <b>2,880</b></span>
+          <span>ผลิตได้ <b>240 กล่อง</b></span>
+          <span>แผน <b>300</b> ✗ ไม่ถึง</span>
+          <span>ของเสีย <b>ฝา 12</b></span>
+        </div>
+      </div>
+      <div class="aact"><div class="astate">✅ ตรวจแล้ว</div></div>
+    </div>
+
+    <div class="arow flag">
+      <div class="athumb">📷</div>
+      <div class="amain">
+        <div class="aname">Icing 25 kg</div>
+        <div class="awho">สมหญิง · Line 2 · ลงเมื่อ 11:21</div>
+        <div class="afacts">
+          <span>เครื่อง <b>Manual</b></span>
+          <span>เลขหน้าเครื่อง <b>200</b></span>
+          <span>ผลิตได้ <b>200 กระสอบ</b></span>
+          <span>แผน <b>80</b></span>
+          <span>ของเสีย <b>ถุง 5</b></span>
+        </div>
+        <div class="aflag">⚠️ บอทเคยทัก — ยอดสูงกว่าเฉลี่ย 30 วัน 2.5 เท่า · พนักงานยืนยันแล้วพร้อมแนบรูป</div>
+
+        <div class="aedit">
+          <div class="eh">✏️ หัวหน้าแก้ได้ทุกช่อง — ก่อนส่งให้คลังเท่านั้น</div>
+          <div class="egrid">
+            <div class="ef"><label>สินค้า</label>
+              <select><option>Icing 25 kg</option><option>Icing900</option><option>Lowcal 25 kg</option></select></div>
+            <div class="ef"><label>ชื่อผู้รายงาน</label><input value="สมหญิง"></div>
+            <div class="ef"><label>ไลน์ผลิต</label>
+              <select><option>Line 2</option><option>Line 1</option><option>Line 3</option></select></div>
+            <div class="ef"><label>เครื่องบรรจุ</label>
+              <select><option>Manual</option><option>Linear#1</option><option>ต้มหัวเชื้อ</option></select></div>
+            <div class="ef"><label>เลขหน้าเครื่อง</label><input type="number" value="200"></div>
+            <div class="ef"><label>ผลิตได้ (กระสอบ)</label><input type="number" value="200"></div>
+          </div>
+
+          <div class="ewaste">
+            <div class="lbl">ภาชนะบรรจุชำรุด</div>
+            <div class="row5">
+              <div class="w"><i>ถุง</i><input type="number" value="5"></div>
+              <div class="w"><i>กล่อง</i><input type="number" value="0"></div>
+              <div class="w"><i>ถุง pack</i><input type="number" value="0"></div>
+              <div class="w"><i>ขวด/กระปุก</i><input type="number" value="0"></div>
+              <div class="w"><i>ฝา</i><input type="number" value="0"></div>
+            </div>
+          </div>
+
+          <div class="ephoto">
+            <div class="mini">📷</div>
+            <span style="font-size:12px;color:var(--ink-soft);flex:1">รูปค้างพาเลท · ส่งจากบอท 11:21</span>
+            <button>🔍 ดูเต็ม</button>
+            <button>🔄 เปลี่ยนรูป</button>
+            <button>🗑 ลบ</button>
+          </div>
+        </div>
+      </div>
+      <div class="aact">
+        <button class="save">💾 บันทึกที่แก้</button>
+        <button class="ok">✅ ตรวจแล้ว</button>
+        <button>✏️ ส่งกลับให้พนักงานแก้</button>
+      </div>
+    </div>
+
+    <div class="afoot">
+      <div class="txt">ตรวจแล้ว <b>2</b> จาก 3 รายการ · เหลืออีก 1 รายการถึงจะส่งได้</div>
+      <button class="bigbtn" disabled>📤 ส่งให้คลังนับ (1 ลิงก์)</button>
+    </div>
+  </div>
+
+  <div class="stage" style="margin-top:22px">
+    <div class="side" style="max-width:none;flex-direction:row;flex-wrap:wrap">
+      <div class="note good" style="flex:1;min-width:270px">
+        <h4>👍 หัวหน้าได้อะไร</h4>
+        <ul>
+          <li>เห็นยอดทยอยเข้ามา<b>ระหว่างกะ</b> ไม่ต้องรอจบกะ</li>
+          <li>เห็นครบในบรรทัดเดียว — ใคร/ไลน์ไหน/เครื่องอะไร/รูปค้างพาเลท/ของเสีย</li>
+          <li>ตรวจ<b>แยกทีละไลน์</b>ได้ ตามที่โน้ตเขียนไว้</li>
+          <li>รายการที่บอทเคยทักจะขึ้นแถบเหลืองให้ดูก่อน</li>
+        </ul>
+      </div>
+      <div class="note bad" style="flex:1;min-width:270px">
+        <h4>🚫 ปุ่มส่งคลังกดไม่ได้จนกว่าจะตรวจครบ</h4>
+        <p>ปุ่ม <b>📤 ส่งให้คลังนับ</b> จะเทาอยู่จนกว่าหัวหน้าจะตรวจครบทุกรายการ — กันไม่ให้ของที่ยังไม่ผ่านตาหลุดไปถึงคลัง</p>
+        <p style="margin-top:7px">กดแล้วออกลิงก์เดียวให้คลังกรอกยอดที่นับได้ทั้งกะ</p>
+      </div>
+      <div class="note warn" style="flex:1;min-width:270px">
+        <h4>⚠️ ต้องแก้โค้ดที่ push ไปแล้ว</h4>
+        <p>ตอนนี้ระบบจริงส่งลิงก์ให้คลัง<b>ทันที</b>ที่ปิดกะ ยังไม่ผ่านหัวหน้า</p>
+        <p style="margin-top:7px">ต้องเพิ่มสถานะใหม่ <b>"รอหัวหน้าตรวจ"</b> ไว้หน้าสุด แล้วเลื่อนขั้นส่งคลังไปอยู่หลังหัวหน้ากดตรวจ</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="stage" style="margin-top:15px">
+    <div class="side" style="max-width:none;flex-direction:row;flex-wrap:wrap">
+      <div class="note" style="flex:1;min-width:280px">
+        <h4>🔒 แก้ได้ถึงเมื่อไหร่</h4>
+        <ul>
+          <li><b>ก่อนส่งคลัง</b> — หัวหน้าแก้ได้ทุกช่อง รวมรูปค้างพาเลทและของเสีย</li>
+          <li><b>หลังส่งคลังแล้ว</b> — <b>ล็อกทันที</b> เพราะคลังกำลังนับเทียบกับเลขชุดนั้น ถ้าแก้ทีหลังตัวเลขที่คลังเห็นจะไม่ตรงกับที่ระบบเก็บ</li>
+          <li>อยากแก้หลังส่งไปแล้ว → ต้องดึงกลับ (ยกเลิกลิงก์เดิม) แล้วออกลิงก์ใหม่</li>
+          <li>ทุกการแก้บันทึกไว้ในประวัติ — ใครแก้ แก้จากอะไรเป็นอะไร เวลาไหน</li>
+        </ul>
+      </div>
+
+      <div class="note admin" style="flex:1;min-width:280px">
+        <h4>📂 หน้านี้อยู่ตรงไหนในเมนู</h4>
+        <p><b>ไม่ต้องเพิ่มเมนูใหม่</b> — ใช้ที่มีอยู่แล้ว คือ <b>ลงยอดผลิต → อนุมัติยอดผลิต</b> แค่เพิ่มสถานะ "รอหัวหน้าตรวจ" เข้าไปในตัวกรอง</p>
+        <div class="menu">
+          <div>📊 ภาพรวม</div>
+          <div>🕒 Timeline รับ-ส่งกะ</div>
+          <div>🏭 ลงยอดผลิต</div>
+          <div class="sub hit">✔️ อนุมัติยอดผลิต ← หน้านี้</div>
+          <div class="sub">🕘 ประวัติยอดผลิต</div>
+          <div class="sub">🗃️ SKU รอตรวจสอบ</div>
+          <div>✅ งานวันนี้ …</div>
+        </div>
+        <p style="margin-top:9px">หัวหน้าเข้าที่เดียวจบ ทั้งตรวจก่อนส่งคลัง และอนุมัติหลังคลังนับ — ไม่ต้องวิ่งดู 2 หน้า</p>
+      </div>
+
+      <div class="note" style="flex:1;min-width:280px">
+        <h4>🏷️ สถานะที่จะเห็นในตัวกรอง</h4>
+        <ul>
+          <li><b>รอหัวหน้าตรวจ</b> — เพิ่มใหม่ · ค่าตั้งต้นที่เปิดมาเจอ</li>
+          <li>รอคลังตรวจนับ <span class="tag">มีอยู่แล้ว</span></li>
+          <li>รอหัวหน้าอนุมัติ <span class="tag">มีอยู่แล้ว</span></li>
+          <li>ส่งกลับให้แก้ · อนุมัติแล้ว · ปฏิเสธ <span class="tag">มีอยู่แล้ว</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ 5 · คลังนับ → Approve → ชีต ══════════ -->
+<section class="view" id="close">
+  <div class="head">
+    <span class="kicker">ขั้นที่ 5 · ปิดงาน</span>
+    <h1>คลังนับ → กลับมาที่ Admin → Approve → เข้าชีต</h1>
+    <p>ขั้นสุดท้าย ข้อมูลวนกลับมาให้หัวหน้าอีกรอบ เพราะรอบแรกหัวหน้าเห็นแค่เลขฝ่ายผลิต รอบนี้เห็นเลขคลังมาเทียบด้วย</p>
+  </div>
+
+  <div class="flow3">
+    <div class="fstep">
+      <div class="fcap"><b>1</b> คลังเปิดลิงก์นับ</div>
+      <div class="panel">
+        <div class="phead wh">📦 ตรวจนับยอดผลิต · 3 ส.ค. กะเช้า · 3 รายการ</div>
+        <div class="prow">
+          <div class="pname">Amazon 750x12</div>
+          <div class="cnt"><span class="said">ผลิตแจ้ง 120 กล่อง · นับได้</span><input value="120"></div>
+        </div>
+        <div class="prow">
+          <div class="pname">Syrup800</div>
+          <div class="cnt"><span class="said">ผลิตแจ้ง 240 กล่อง · นับได้</span><input value="228"></div>
+          <div class="cnt"><span class="said">เหตุผลที่ต่าง</span><input value="กล่องเปียก" style="width:120px;text-align:left;font-weight:400"></div>
+        </div>
+        <div class="prow">
+          <div class="pname">Icing 25 kg</div>
+          <div class="cnt"><span class="said">ผลิตแจ้ง 200 กระสอบ · นับได้</span><input value="200"></div>
+        </div>
+        <div class="prow"><div class="cnt"><span class="said">ผู้ตรวจนับ</span>
+          <input value="สมชาย" style="width:110px;text-align:left;font-weight:400"></div></div>
+        <div class="pfoot"><button class="pbtn blue">✅ ยืนยันการตรวจนับ</button></div>
+      </div>
+    </div>
+
+    <div class="arrow">➜</div>
+
+    <div class="fstep">
+      <div class="fcap"><b>2</b> ไหลกลับหน้า Admin</div>
+      <div class="panel">
+        <div class="phead ad">✔️ อนุมัติยอดผลิต · กรอง "รอหัวหน้าอนุมัติ"</div>
+        <div class="prow">
+          <div class="pname">Amazon 750x12</div>
+          <div class="psub">จักรกฤษณ์ · Line 1</div>
+          <div class="vs">ผลิต <span class="n">120</span> · คลัง <span class="n">120</span>
+            <span class="mark same">ตรงกัน</span></div>
+        </div>
+        <div class="prow">
+          <div class="pname">Syrup800</div>
+          <div class="psub">ประเสริฐ · Line 3</div>
+          <div class="vs">ผลิต <span class="n">240</span> · คลัง <span class="n">228</span>
+            <span class="mark diff">ต่าง −12</span></div>
+          <div class="psub" style="margin-top:4px">เหตุผลจากคลัง: กล่องเปียก</div>
+        </div>
+        <div class="prow">
+          <div class="pname">Icing 25 kg</div>
+          <div class="psub">สมหญิง · Line 2</div>
+          <div class="vs">ผลิต <span class="n">200</span> · คลัง <span class="n">200</span>
+            <span class="mark same">ตรงกัน</span></div>
+        </div>
+        <div class="pfoot"><button class="pbtn org">✅ อนุมัติทั้งกะ (3 รายการ)</button></div>
+      </div>
+    </div>
+
+    <div class="arrow">➜</div>
+
+    <div class="fstep">
+      <div class="fcap"><b>3</b> เข้า Google Sheet</div>
+      <div class="panel">
+        <div class="phead sh">📗 ชีต1 · เขียนแถวใหม่แล้ว</div>
+        <div class="sheetrow"><span>Amazon 750x12</span><span>120</span><span>120</span></div>
+        <div class="sheetrow"><span>Syrup800</span><span>240</span><span>228</span></div>
+        <div class="sheetrow"><span>Icing 25 kg</span><span>200</span><span>200</span></div>
+        <div class="done-big">
+          <div class="ic">🎉</div>
+          <div class="tx">จบขั้นตอนทั้งหมด</div>
+          <div class="sm">ค้นย้อนหลังได้ที่ "ประวัติยอดผลิต"</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="side" style="max-width:none;flex-direction:row;flex-wrap:wrap">
+      <div class="note good" style="flex:1;min-width:270px">
+        <h4>✅ ส่วนนี้ระบบทำได้อยู่แล้ว</h4>
+        <ul>
+          <li>ลิงก์ให้คลังกรอก · เทียบเลขผลิตกับเลขคลัง · ถามเหตุผลเมื่อไม่ตรง</li>
+          <li>หน้าอนุมัติของหัวหน้า · เขียนเข้าชีต1 ผ่าน n8n</li>
+          <li>ถ้าเขียนชีตไม่สำเร็จ มีตัวตามเก็บให้อัตโนมัติ</li>
+        </ul>
+        <p style="margin-top:8px">ขั้นที่ 5 นี้<b>ไม่ต้องสร้างใหม่</b> แค่ต่อท้ายให้ถูกลำดับ</p>
+      </div>
+      <div class="note" style="flex:1;min-width:270px">
+        <h4>🔁 ทำไมหัวหน้าต้องดู 2 รอบ</h4>
+        <ul>
+          <li><b>รอบแรก (ขั้น 4)</b> — เห็นแค่เลขฝ่ายผลิต ตรวจว่ากรอกถูกไหมก่อนไปกวนคลัง</li>
+          <li><b>รอบสอง (ขั้น 5)</b> — เห็นเลขคลังมาเทียบ ตัดสินว่ายอมรับผลต่างไหม</li>
+          <li>เป็นคนละคำถามกัน เลยต้องดู 2 จังหวะ</li>
+        </ul>
+      </div>
+      <div class="note admin" style="flex:1;min-width:270px">
+        <h4>📗 เข้าชีตตอนไหน</h4>
+        <p><b>ตอนหัวหน้ากด Approve เท่านั้น</b> ก่อนหน้านั้นข้อมูลอยู่ในฐานข้อมูลของแอปอย่างเดียว</p>
+        <p style="margin-top:7px">ถ้าปฏิเสธ/ส่งกลับแก้ → ไม่เขียนชีต รอจนกว่าจะอนุมัติจริง</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ 6 · ตามงานสิ้นกะ ══════════ -->
+<section class="view" id="opt4">
+  <div class="head">
+    <span class="kicker grey">ตัวเลือกเสริมที่ 6 · ไม่ใช่ทางเดินหลัก</span>
+    <h1>บอทตามงานเองตอนสิ้นกะ</h1>
+    <p>อันนี้เป็น<b>ของเสริม</b> ไม่มีก็ได้ ทางเดินหลักจบไปแล้วที่ขั้น 1–3 — ตัวนี้แค่ช่วยเตือนฝั่งผู้ใช้ว่ายังลงไม่ครบ โดยเทียบแผนจากขั้นที่ 1 กับที่ลงมาจริง</p>
+  </div>
+  <div class="stage">
+    <div class="phone">
+      <div class="tgbar"><div class="tgav">🏭</div>
+        <div><div class="tgname">Production_SPP</div><div class="tgsub">bot</div></div></div>
+      <div class="chat">
+        <div class="sys">05:45 — บอททักเอง ไม่มีใครสั่ง</div>
+        <div class="msg bot">⏰ <b>ใกล้หมดกะแล้ว (อีก 15 นาที)</b><br><br>
+          แผนกะนี้มี <b>5 ตัว</b> · ลงยอดมาแล้ว <b>3 ตัว</b><br><br>
+          ยังไม่ได้ลง:<br>
+          • <b>Icing900</b> (แผน 80 กล่อง)<br>
+          • <b>Syrup300</b> (แผน 150 กล่อง)
+          <div class="kb">
+            <div class="row"><button class="send">📝 ลงยอดตอนนี้</button></div>
+            <div class="row"><button class="dim">กะนี้ไม่ได้ผลิต 2 ตัวนี้</button></div>
+          </div><span class="t">05:45</span></div>
+        <div class="msg me">▸ กะนี้ไม่ได้ผลิต 2 ตัวนี้<span class="t">05:46</span></div>
+        <div class="msg bot">รับทราบ ✅ บันทึกว่ากะนี้ไม่ได้ผลิต<br>
+          <span class="em">เหตุผล? (พิมพ์สั้น ๆ ก็ได้)</span><span class="t">05:46</span></div>
+        <div class="msg me">เครื่อง ICING เสีย รออะไหล่<span class="t">05:47</span></div>
+        <div class="msg bot">บันทึกแล้ว ✅<br>
+          <span class="em">หัวหน้าจะเห็นในหน้าอนุมัติว่าทำไมไม่ได้ยอด<br>ไม่ต้องมาตามถามอีก</span><span class="t">05:47</span></div>
+      </div>
+    </div>
+    <div class="side">
+      <div class="note good">
+        <h4>👍 ได้อะไร</h4>
+        <ul>
+          <li>ยอดไม่ตกหล่น — กันลืมลงข้ามกะ</li>
+          <li>รู้เหตุผลตั้งแต่ตอนนั้น ไม่ต้องมาสืบทีหลังว่าทำไมยอดหาย</li>
+          <li>หัวหน้าไม่ต้องไล่ถามทีละคน</li>
+        </ul>
+      </div>
+      <div class="note warn">
+        <h4>⚖️ แลกกับอะไร</h4>
+        <ul>
+          <li><b>ต้องมีแผนในระบบก่อน</b> (ขั้นที่ 1) ถ้าไม่มีแผน บอทก็ไม่รู้ว่าควรมีอะไรบ้าง</li>
+          <li>ถ้าเตือนบ่อยไปอาจรำคาญ (ตั้งเวลาได้)</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h4>🔧 ทำยังไง</h4>
+        <p>ระบบมีตัวจับเวลาเช็คทุกนาทีอยู่แล้ว (ใช้ส่งรายงานสิ้นกะ) เพิ่มเงื่อนไขนี้เข้าไป</p>
+        <div class="meta"><span class="tag rule">ไม่ใช้ AI · ฟรี</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ 5 · ถามย้อนหลัง ══════════ -->
+<section class="view" id="opt2">
+  <div class="head">
+    <span class="kicker grey">ตัวเลือกเสริมที่ 7 · ไม่ใช่ทางเดินหลัก</span>
+    <h1>ถามข้อมูลย้อนหลังในแชทได้</h1>
+    <p>อีกตัว<b>เสริม</b>ฝั่งผู้ใช้ ไม่ผูกกับลำดับงาน ใช้ได้ทุกเมื่อ — ไม่ต้องเปิดเว็บ ไม่ต้องเปิดชีต พิมพ์ถามแล้วบอทดึงตัวเลขจากระบบมาตอบ</p>
+  </div>
+  <div class="stage">
+    <div class="phone">
+      <div class="tgbar"><div class="tgav">🏭</div>
+        <div><div class="tgname">Production_SPP</div><div class="tgsub">bot</div></div></div>
+      <div class="chat">
+        <div class="msg me">เมื่อวานกะดึกผลิตอะไรบ้าง<span class="t">07:12</span></div>
+        <div class="msg bot">📋 <b>1 ส.ค. · กะ3 (ดึก)</b><br>
+          • Syrup800 — <b>240</b> กล่อง<br>
+          • Icing900 — <b>80</b> กล่อง<br>
+          • ต้มหัวเชื้อ — <b>3</b> หม้อ<br><br>
+          <span class="em">รวม 3 รายการ · คลังนับตรงทั้งหมด ✅<br>ผู้ลงยอด: จักรกฤษณ์</span><span class="t">07:12</span></div>
+        <div class="msg me">Syrup800 เดือนที่แล้วได้กี่กล่อง<span class="t">07:13</span></div>
+        <div class="msg bot">📊 <b>Syrup800 · กรกฎาคม</b><br>
+          รวม <b>4,820 กล่อง</b> (18 ใบ)<br>
+          เฉลี่ยกะละ 268 กล่อง<br>
+          สูงสุด 15 ก.ค. — 410 กล่อง<br><br>
+          <span class="em">ไม่ได้ยอดตามแผน 2 กะ (เครื่องเสีย)</span><span class="t">07:13</span></div>
+        <div class="msg me">เดือนนี้มีของที่คลังนับไม่ตรงกี่รายการ<span class="t">07:14</span></div>
+        <div class="msg bot">⚠️ <b>ส.ค. · ยอดไม่ตรง 4 รายการ</b><br>
+          • Icing900 2 ส.ค. — ต่าง −12 กล่อง<br>
+          • ปี๊บ20 1 ส.ค. — ต่าง −5 กล่อง<br>
+          • Senorita750 1 ส.ค. — ต่าง +3<br>
+          • Lowcal 1 ส.ค. — ต่าง −2<br><br>
+          <span class="em">ทั้ง 4 ตัวเป็นสินค้าที่จัดพาเลทเอง</span><span class="t">07:14</span></div>
+      </div>
+    </div>
+    <div class="side">
+      <div class="note good">
+        <h4>👍 ได้อะไร</h4>
+        <ul>
+          <li>หัวหน้า/คลังถามได้จากมือถือ ไม่ต้องเปิดคอม</li>
+          <li>ตอบจาก <b>ข้อมูลจริงในระบบ</b> ไม่ใช่บอทเดา</li>
+          <li>เห็นแนวโน้มได้เร็ว เช่น "ตัวไหนคลังนับไม่ตรงบ่อย"</li>
+        </ul>
+      </div>
+      <div class="note warn">
+        <h4>⚖️ แลกกับอะไร</h4>
+        <ul>
+          <li>ใช้ AI เหมือนขั้นที่ 2 → มีค่าใช้จ่ายต่อคำถาม</li>
+          <li>ถ้าถามกำกวมอาจตอบไม่ตรงที่คิด ต้องถามใหม่ให้ชัด</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h4>🔧 ทำยังไง</h4>
+        <p>ผู้ช่วย AI ในแอปมีเครื่องมือ <code>query_database</code> อยู่แล้ว — เอามาต่อกับบอทได้เลย</p>
+        <div class="meta"><span class="tag ai">ใช้ AI</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ เลือก ══════════ -->
+<section class="view" id="pick">
+  <div class="head">
+    <span class="kicker">ขั้นสุดท้าย</span>
+    <h1>อยากได้อันไหนบ้าง?</h1>
+    <p><b>ข้อ 1–3 คือทางเดินหลัก</b> — ลงแผน → พนักงานลงยอด → บอทตรวจ → เข้าหน้า Admin ให้หัวหน้าตรวจ → คลังนับ → Approve → ชีต<br>
+    <b>ข้อ 6–7 เป็นของเสริม</b>ฝั่งผู้ใช้ ไว้เตือนและถามย้อนหลัง ไม่มีก็ได้ · (ขั้น 4 และ 5 จำเป็น ไม่ใช่ตัวเลือก)</p>
+  </div>
+
+  <div class="pickgrid">
+    <button class="pick" data-k="1">
+      <div class="top"><h4>1 · ลงแผนผลิตในบอท</h4><div class="box">✓</div></div>
+      <p>ลงแผนพรุ่งนี้จากมือถือได้ ไม่ต้องเปิดเว็บ — เป็นจุดตั้งต้นให้บอทรู้ว่าวันนี้ผลิตอะไร</p>
+      <div class="meta"><span class="tag">อยู่ในโน้ตเดิม</span><span class="tag">ข้อ 4 ต้องมีอันนี้ก่อน</span></div>
+    </button>
+
+    <button class="pick" data-k="2">
+      <div class="top"><h4>2 · พิมพ์ทีเดียวจบ</h4><div class="box">✓</div></div>
+      <p>พิมพ์ "Amazon 750 ได้ 120 กล่อง" แล้วบอทตอบฟอร์มเต็มใบกลับมา เหลือแค่เติมของเสีย/รูป แล้วกดส่ง</p>
+      <div class="meta"><span class="tag ai">ใช้ AI</span><span class="tag">ลงยอดเร็วขึ้นมาก</span></div>
+    </button>
+
+    <button class="pick" data-k="3">
+      <div class="top"><h4>3 · ตรวจก่อนส่ง</h4><div class="box">✓</div></div>
+      <p>ยอดผิดปกติหรือขาดรูปค้างพาเลท บอททักก่อนส่งให้คลัง</p>
+      <div class="meta"><span class="tag rule">ไม่ใช้ AI · ฟรี</span><span class="tag">มีของเดิมอยู่แล้ว</span></div>
+    </button>
+
+    <button class="pick" data-k="6">
+      <div class="top"><h4>6 · ตามงานสิ้นกะ</h4><div class="box">✓</div></div>
+      <p>แผนมี 5 ลงมา 3 บอทเตือนเองว่าเหลืออะไร พร้อมถามเหตุผล</p>
+      <div class="meta"><span class="tag extra">เสริม</span><span class="tag rule">ไม่ใช้ AI · ฟรี</span><span class="tag">ต้องมีข้อ 1 ก่อน</span></div>
+    </button>
+
+    <button class="pick" data-k="7">
+      <div class="top"><h4>7 · ถามย้อนหลัง</h4><div class="box">✓</div></div>
+      <p>"เมื่อวานกะดึกผลิตอะไรบ้าง" แล้วบอทดึงตัวเลขจริงมาตอบในแชท</p>
+      <div class="meta"><span class="tag extra">เสริม</span><span class="tag ai">ใช้ AI</span><span class="tag">หัวหน้าใช้บ่อย</span></div>
+    </button>
+  </div>
+
+  <div class="summary">
+    <h4>📋 สรุปที่เลือก</h4>
+    <div id="picked">— ยังไม่ได้เลือก —</div>
+    <div class="hint">อ่านบรรทัดนี้บอกผมได้เลย เช่น "เอา 1 กับ 2" · จะไม่เอาเลยก็บอกได้ ของเดิมใช้งานได้อยู่แล้ว</div>
+  </div>
+
+  <div class="foot">
+    <p>หมายเหตุ — โน้ตเขียนคำว่า <code>OpenClaw</code> ไว้ ผมไม่รู้จักเครื่องมือตัวนี้ครับ<br>
+    ถ้าหมายถึงเครื่องมือเฉพาะตัวไหน ส่งลิงก์มาได้ แต่ทั้ง 5 ข้อข้างบนทำได้ด้วยของที่แอปมีอยู่แล้ว ไม่ต้องต่อระบบนอกเพิ่ม</p>
+  </div>
+</section>
+
+</div>
+
+<script>
+  // สลับจอ
+  document.querySelectorAll('.stepbtn').forEach(function(b){
+    b.addEventListener('click', function(){
+      document.querySelectorAll('.stepbtn').forEach(function(x){ x.classList.remove('on'); });
+      b.classList.add('on');
+      document.querySelectorAll('.view').forEach(function(v){ v.classList.remove('active'); });
+      document.getElementById(b.dataset.go).classList.add('active');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+
+  // เลือกตัวเลือก — เลขตรงกับปุ่มบนสุด
+  var NAMES = {
+    '1':'1 · ลงแผนผลิตในบอท',
+    '2':'2 · พิมพ์ทีเดียวจบ (ใช้ AI)',
+    '3':'3 · ตรวจก่อนส่ง (ฟรี)',
+    '6':'6 · ตามงานสิ้นกะ (ฟรี)',
+    '7':'7 · ถามย้อนหลัง (ใช้ AI)'
+  };
+  function refresh(){
+    var on = [].slice.call(document.querySelectorAll('.pick.on')).map(function(p){ return p.dataset.k; }).sort();
+    var el = document.getElementById('picked');
+    if(!on.length){ el.textContent = '— ยังไม่ได้เลือก —'; return; }
+    var txt = on.map(function(k){ return '✓ ' + NAMES[k]; }).join('\n');
+    if(on.indexOf('6') > -1 && on.indexOf('1') < 0){
+      txt += '\n\n⚠️ ข้อ 6 ต้องมีข้อ 1 ด้วย ไม่งั้นบอทไม่รู้ว่าแผนมีอะไร';
+    }
+    el.textContent = txt + '\n\nพูดสั้น ๆ ได้ว่า: "เอาข้อ ' + on.join(' กับ ') + '"';
+  }
+  document.querySelectorAll('.pick').forEach(function(p){
+    p.addEventListener('click', function(){ p.classList.toggle('on'); refresh(); });
+  });
+</script>
+
+</body>
+</html>

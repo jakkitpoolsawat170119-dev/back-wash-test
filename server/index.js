@@ -130,7 +130,11 @@ const SCHEMA = [
       UNIQUE(shift, name)
     )`,
   // รายงานยอดผลิต = source of truth (DB นำ · Google Sheet ตามทีหลัง)
-  // สถานะ: pending_warehouse → pending_approval → approved | rejected
+  // สถานะ: pending_review → pending_warehouse → pending_approval → approved | rejected
+  //   pending_review    = เข้าแอปแล้ว รอหัวหน้าตรวจ (แก้ได้ทุกช่องเฉพาะช่วงนี้)
+  //   pending_warehouse = หัวหน้าตรวจครบแล้วส่งลิงก์ให้คลัง → ล็อกค่า ห้ามแก้
+  //   pending_approval  = คลังนับเสร็จ ไหลกลับมาให้หัวหน้าอนุมัติรอบสอง
+  // กฎเหล็ก: ข้อมูลห้ามข้ามไปคลังโดยไม่ผ่าน pending_review
   // prod_qty / wh_qty อยู่ในหน่วยเดียวกันเสมอ (= count_unit) · *_pcs คำนวณฝั่ง server เท่านั้น
   // payload = JSON ของช่องที่ไม่ต้อง query (เวลา 6 ช่อง, ของเสียรายประเภท, ทีมงาน, Lot)
   `CREATE TABLE IF NOT EXISTS production_reports (
@@ -595,6 +599,19 @@ async function initDb() {
     ['line_pushed_at', 'TEXT'], ['line_push_error', 'TEXT'],
   ]) {
     try { await db.exec(`ALTER TABLE production_reports ADD COLUMN ${col} ${type}`); } catch { /* มีแล้ว */ }
+  }
+  // migration (เฟส 3): หัวหน้าตรวจก่อนถึงจะไปคลัง
+  //   reviewed_* = หัวหน้ากด "ตรวจแล้ว" รายตัว (ต้องครบทุกรายการในชุดถึงจะส่งคลังได้)
+  //   edited_*   = หัวหน้าแก้ค่าเองก่อนส่งคลัง — เก็บไว้ให้รู้ว่าเลขถูกแตะโดยใคร
+  // ล็อกหลังส่งคลัง: แก้ได้เฉพาะตอน status='pending_review' เท่านั้น เพราะคลังนับเทียบกับเลขชุดที่ส่งไป
+  for (const [col, type] of [
+    ['reviewed_at', 'TEXT'], ['reviewed_by', 'TEXT'],
+    ['edited_at', 'TEXT'], ['edited_by', 'TEXT'], ['edit_count', 'INTEGER DEFAULT 0'],
+  ]) {
+    try { await db.exec(`ALTER TABLE production_reports ADD COLUMN ${col} ${type}`); } catch { /* มีแล้ว */ }
+  }
+  for (const col of ['reviewed_at', 'reviewed_by']) {
+    try { await db.exec(`ALTER TABLE production_batches ADD COLUMN ${col} TEXT`); } catch { /* มีแล้ว */ }
   }
   // migration (เฟส 2): review_note = เหตุผลที่ SKU ตัวนี้ยังเปิดใช้ไม่ได้ (คิวรอตรวจหลัง import ทั้งชีต)
   try { await db.exec('ALTER TABLE sku_master ADD COLUMN review_note TEXT'); } catch { /* มีแล้ว */ }
@@ -1838,7 +1855,7 @@ async function createReportRow({ header, item, batchId = null, token = null, exp
        count_unit, pack_factor, plan_qty, plan_source, prod_qty, prod_pcs, reporter_name, crew_count, reported_at,
        prod_status, miss_reason, status, verify_token, verify_expires_at, payload,
        telegram_user_id, telegram_chat_id, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending_warehouse',?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending_review',?,?,?,?,?,?,?)`,
     [reportId, batchId, workDay, workDay, shift, keyword, sku.sku_code || '', sku.product_name || keyword,
      // เครื่องเลือกได้หน้างาน (สินค้าเดียวกันวิ่งได้หลายเครื่อง เช่น Syrup → Linear#1-#4)
      sku.group_name || '', String(item.machine || sku.machine || '').trim(), sku.count_unit || 'กล่อง', packFactor,
@@ -2321,10 +2338,11 @@ async function createProductionBatch({ header: h = {}, items = [], channel = 'we
   if (!reporter) throw badRequest('ต้องระบุชื่อผู้ลงยอด');
   if (!items.length) throw badRequest('ต้องมีอย่างน้อย 1 รายการ');
 
-  // กันกดส่งซ้ำทั้งชุด — ชุดของกะเดียวกันโดยคนเดียวกันที่ยังรอคลัง สร้างไม่เกิน 2 นาที
+  // กันกดส่งซ้ำทั้งชุด — ชุดของกะเดียวกันโดยคนเดียวกันที่ยังไม่ถึงคลัง สร้างไม่เกิน 2 นาที
   const dup = await dbAll(
     `SELECT batch_id FROM production_batches
-     WHERE work_day = ? AND shift = ? AND created_by = ? AND status = 'pending_warehouse' AND created_at >= ?`,
+     WHERE work_day = ? AND shift = ? AND created_by = ?
+       AND status IN ('pending_review','pending_warehouse') AND created_at >= ?`,
     [workDay, shift, reporter, bkkPlusHours(-2 / 60)]
   );
   if (dup.length) {
@@ -2341,7 +2359,7 @@ async function createProductionBatch({ header: h = {}, items = [], channel = 'we
   await db.exec(
     `INSERT INTO production_batches
       (batch_id, work_day, shift, created_by, item_count, status, verify_token, verify_expires_at, created_at, updated_at)
-     VALUES (?,?,?,?,?, 'pending_warehouse', ?,?,?,?)`,
+     VALUES (?,?,?,?,?, 'pending_review', ?,?,?,?)`,
     [batchId, workDay, shift, reporter, items.length, token, expires, now, now]
   );
 
@@ -2356,23 +2374,38 @@ async function createProductionBatch({ header: h = {}, items = [], channel = 'we
     throw e;
   }
 
-  // DB ครบแล้วค่อยแจ้ง — แจ้งครั้งเดียวต่อชุด
-  const sentVia = await notifyBatchLink(
-    { batch_id: batchId, work_day: workDay, shift, created_by: reporter, verify_token: token, verify_expires_at: expires },
-    created
-  );
-  await db.exec('UPDATE production_batches SET sent_via=?, sent_at=?, updated_at=? WHERE batch_id=?', [sentVia, now, now, batchId]);
-  for (const r of created) await logReportEvent(r.report_id, 'link_sent', 'system', `ชุด ${batchId} · ช่องทาง: ${sentVia}`, sentVia);
-
   // ตรวจความผิดปกติแล้วติดป้ายไว้ให้หัวหน้าดู — เป็น "ป้ายเตือน" ไม่ใช่คนตัดสิน
   // (กติกาเดิม: หัวหน้าอนุมัติทุกรายการ ไม่มี auto-approve)
   await flagBatchAnomalies(created).catch(e => console.error('[SPP] flag anomalies failed', e.message));
 
-  console.log(`[SPP] batch ${batchId} created items=${created.length} sent=${sentVia} channel=${channel}`);
+  // ❗ไม่ส่งลิงก์ให้คลังตรงนี้ — ข้อมูลต้องผ่านหัวหน้าตรวจในหน้า Admin ก่อนเสมอ
+  // คลังจะได้ลิงก์ก็ต่อเมื่อหัวหน้ากด "ส่งให้คลังนับ" (POST .../send-to-warehouse) เท่านั้น
+  for (const r of created) await logReportEvent(r.report_id, 'created', reporter, `ชุด ${batchId} · รอหัวหน้าตรวจ`, channel);
+  const sentVia = await notifyReviewNeeded({ batch_id: batchId, work_day: workDay, shift, created_by: reporter }, created);
+
+  console.log(`[SPP] batch ${batchId} created items=${created.length} → pending_review channel=${channel}`);
   return {
     batch_id: batchId, item_count: created.length, items: created,
-    verify_token: token, verify_url: verifyUrlOf(token), verify_expires_at: expires, sent_via: sentVia,
+    status: 'pending_review', notified_via: sentVia,
+    // ยังไม่เปิดเผยลิงก์ตรงนี้ — ออกให้ตอนหัวหน้ากดส่งคลัง
+    verify_expires_at: expires,
   };
+}
+
+// แจ้งหัวหน้าว่ามียอดเข้ามารอตรวจ — ไม่มีลิงก์คลังในข้อความนี้โดยตั้งใจ
+async function notifyReviewNeeded(batch, reports) {
+  const lines = [
+    `📥 <b>ยอดผลิตเข้าใหม่ ${reports.length} รายการ</b> · ${escapeHtml(batch.work_day)} ${escapeHtml(batch.shift)}`,
+    `ผู้ลงยอด: ${escapeHtml(batch.created_by)}`,
+    '',
+    ...reports.slice(0, 8).map(r => `• ${escapeHtml(r.product_name || r.sku_keyword)} — <b>${r.prod_qty}</b> ${escapeHtml(r.count_unit)}`),
+    reports.length > 8 ? `… และอีก ${reports.length - 8} รายการ` : null,
+    '',
+    '🔎 รอหัวหน้าตรวจในหน้า Admin ก่อนส่งให้คลัง',
+    `${PUBLIC_URL}/admin`,
+  ].filter(Boolean).join('\n');
+  try { await sendSppTelegram(lines); return 'telegram'; }
+  catch (e) { console.error('[SPP] notify review failed', e.message); return 'none'; }
 }
 
 app.post('/api/production/batch', async (req, res) => {
@@ -2507,12 +2540,17 @@ app.post('/api/production/report/:reportId/decide', async (req, res) => {
 async function sendBackReport(reportId, actor, note, channel = 'web') {
   const r = (await dbAll('SELECT * FROM production_reports WHERE report_id = ?', [reportId]))[0];
   if (!r) return { ok: false, message: 'ไม่พบรายงานนี้' };
-  if (r.status !== 'pending_approval') return { ok: false, message: `รายการนี้ไม่ได้รออนุมัติแล้ว (${r.status})`, status: r.status };
+  // ส่งกลับได้ 2 จังหวะ: ตอนหัวหน้าตรวจก่อนส่งคลัง (pending_review) และตอนอนุมัติหลังคลังนับ (pending_approval)
+  // ถ้าส่งไปคลังแล้ว (pending_warehouse) ห้ามดึงกลับทางนี้ — คลังกำลังนับอยู่ ต้องยกเลิกลิงก์ก่อน
+  const CAN_SEND_BACK = ['pending_review', 'pending_approval'];
+  if (!CAN_SEND_BACK.includes(r.status)) {
+    return { ok: false, message: `สถานะ "${r.status}" ส่งกลับให้แก้ไม่ได้`, status: r.status };
+  }
 
   const upd = await db.exec(
     `UPDATE production_reports SET status='needs_fix', fix_note=?, updated_at=?
-      WHERE report_id=? AND status='pending_approval'`,
-    [note, nowBKK(), reportId]
+      WHERE report_id=? AND status=?`,
+    [note, nowBKK(), reportId, r.status]
   );
   if (!upd.rowCount) return { ok: false, message: 'รายการนี้ถูกจัดการไปแล้ว' };
   await logReportEvent(reportId, 'sent_back', actor, note, channel, 'supervisor');
@@ -2540,6 +2578,134 @@ app.post('/api/production/report/:reportId/send-back', async (req, res) => {
   try {
     const out = await sendBackReport(req.params.reportId, String(actor).trim(), String(note).trim(), 'web');
     res.status(out.ok ? 200 : 409).json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── ขั้นที่ 4: หัวหน้าตรวจก่อนส่งคลัง ────────────────────────────────────
+// ช่องที่หัวหน้าแก้ได้ตอน pending_review · นอกลิสต์นี้แก้ไม่ได้ (กันแก้ยอดคลัง/สถานะ/token)
+const REVIEW_EDITABLE = ['sku_keyword', 'product_name', 'machine', 'reporter_name', 'prod_qty', 'counter', 'machine_cycle'];
+
+// แก้ค่าก่อนส่งคลัง — ล็อกทันทีที่ออกจาก pending_review เพราะคลังนับเทียบกับเลขที่ส่งไป
+app.patch('/api/production/report/:reportId', async (req, res) => {
+  const actor = String(req.body?.actor || '').trim();
+  if (!actor) return res.status(400).json({ error: 'ต้องระบุชื่อผู้แก้' });
+  try {
+    const rows = await dbAll('SELECT * FROM production_reports WHERE report_id = ?', [req.params.reportId]);
+    const r = rows[0];
+    if (!r) return res.status(404).json({ error: 'ไม่พบรายการนี้' });
+    if (r.status !== 'pending_review') {
+      return res.status(409).json({ error: 'แก้ได้เฉพาะก่อนส่งให้คลัง — รายการนี้ส่งไปแล้ว ต้องดึงกลับก่อน' });
+    }
+
+    const sets = [], vals = [], changes = [];
+    const patch = req.body?.fields || {};
+    for (const k of REVIEW_EDITABLE) {
+      if (!(k in patch)) continue;
+      const before = r[k];
+      const after = ['prod_qty', 'counter', 'machine_cycle'].includes(k) ? Math.round(Number(patch[k])) : String(patch[k]).trim();
+      if (['prod_qty', 'counter', 'machine_cycle'].includes(k) && (!Number.isFinite(after) || after < 0)) {
+        return res.status(400).json({ error: `ค่า ${k} ไม่ถูกต้อง` });
+      }
+      if (String(before ?? '') === String(after)) continue;
+      sets.push(`${k}=?`); vals.push(after);
+      changes.push(`${k}: ${before ?? '-'} → ${after}`);
+    }
+
+    // prod_qty เปลี่ยน → ชิ้นต้องคิดใหม่ฝั่ง server เสมอ (ห้ามให้ client ส่ง pcs มาเอง)
+    if ('prod_qty' in patch) {
+      sets.push('prod_pcs=?'); vals.push(Math.round(Number(patch.prod_qty)) * (Number(r.pack_factor) || 0));
+    }
+    // ของเสีย 5 ช่อง + รูปค้างพาเลท อยู่ใน payload
+    if (patch.damaged || 'pallet_photo' in patch) {
+      let pl = {};
+      try { pl = JSON.parse(r.payload || '{}'); } catch { /* payload เสีย — เขียนทับด้วยของใหม่ */ }
+      if (patch.damaged) { pl.damaged = patch.damaged; changes.push('ภาชนะบรรจุชำรุด'); }
+      if ('pallet_photo' in patch) {
+        if (patch.pallet_photo) pl.pallet_photo = patch.pallet_photo; else delete pl.pallet_photo;
+        changes.push(patch.pallet_photo ? 'เปลี่ยนรูปค้างพาเลท' : 'ลบรูปค้างพาเลท');
+      }
+      sets.push('payload=?'); vals.push(JSON.stringify(pl));
+    }
+    if (!sets.length) return res.json({ ok: true, changed: 0, message: 'ไม่มีอะไรเปลี่ยน' });
+
+    const now = nowBKK();
+    sets.push('edited_at=?', 'edited_by=?', 'edit_count=COALESCE(edit_count,0)+1', 'updated_at=?');
+    vals.push(now, actor, now, req.params.reportId);
+    // แก้ได้เฉพาะตอนยัง pending_review — เช็คซ้ำใน WHERE กัน race กับปุ่มส่งคลัง
+    const upd = await db.exec(
+      `UPDATE production_reports SET ${sets.join(', ')} WHERE report_id=? AND status='pending_review'`, vals);
+    if (!upd.rowCount) return res.status(409).json({ error: 'รายการเพิ่งถูกส่งให้คลัง แก้ไม่ได้แล้ว' });
+
+    await logReportEvent(req.params.reportId, 'edited', actor, changes.join(' · '), 'web', 'supervisor');
+    res.json({ ok: true, changed: changes.length, changes });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// หัวหน้ากด "ตรวจแล้ว" รายตัว (กดซ้ำ = ยกเลิกการตรวจ)
+app.post('/api/production/report/:reportId/review', async (req, res) => {
+  const actor = String(req.body?.actor || '').trim();
+  if (!actor) return res.status(400).json({ error: 'ต้องระบุชื่อผู้ตรวจ' });
+  const undo = req.body?.undo === true;
+  try {
+    const upd = await db.exec(
+      `UPDATE production_reports SET reviewed_at=?, reviewed_by=?, updated_at=?
+        WHERE report_id=? AND status='pending_review'`,
+      [undo ? null : nowBKK(), undo ? null : actor, nowBKK(), req.params.reportId]
+    );
+    if (!upd.rowCount) return res.status(409).json({ error: 'รายการนี้ไม่ได้อยู่ในขั้นรอหัวหน้าตรวจ' });
+    await logReportEvent(req.params.reportId, undo ? 'review_undone' : 'reviewed', actor,
+      undo ? 'ยกเลิกการตรวจ' : 'หัวหน้าตรวจแล้ว', 'web', 'supervisor');
+    res.json({ ok: true, reviewed: !undo });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ส่งให้คลังนับ — ทางเดียวที่ข้อมูลจะถึงคลังได้ · ต้องตรวจครบทุกรายการก่อน
+app.post('/api/production/batch/:batchId/send-to-warehouse', async (req, res) => {
+  const actor = String(req.body?.actor || '').trim();
+  if (!actor) return res.status(400).json({ error: 'ต้องระบุชื่อหัวหน้าที่ส่ง' });
+  try {
+    const batches = await dbAll('SELECT * FROM production_batches WHERE batch_id = ?', [req.params.batchId]);
+    const bt = batches[0];
+    if (!bt) return res.status(404).json({ error: 'ไม่พบชุดนี้' });
+    if (bt.status !== 'pending_review') return res.status(409).json({ error: 'ชุดนี้ส่งให้คลังไปแล้ว' });
+
+    const rows = await dbAll("SELECT * FROM production_reports WHERE batch_id = ? AND status='pending_review' ORDER BY id",
+      [req.params.batchId]);
+    if (!rows.length) return res.status(409).json({ error: 'ไม่มีรายการที่รอตรวจในชุดนี้' });
+    const notYet = rows.filter(r => !r.reviewed_at);
+    if (notYet.length) {
+      return res.status(409).json({
+        error: `ยังตรวจไม่ครบ — เหลืออีก ${notYet.length} รายการ`,
+        pending: notYet.map(r => r.product_name || r.sku_keyword),
+      });
+    }
+
+    // ต่ออายุลิงก์จากตอนกดส่ง (ไม่ใช่ตอนพนักงานลงยอด) — คลังจะได้เวลาเต็มตามกำหนด
+    const now = nowBKK();
+    const expires = bkkPlusHours(VERIFY_TTL_HOURS);
+    const upd = await db.exec(
+      `UPDATE production_batches SET status='pending_warehouse', verify_expires_at=?, reviewed_by=?, reviewed_at=?, updated_at=?
+        WHERE batch_id=? AND status='pending_review'`,
+      [expires, actor, now, now, req.params.batchId]
+    );
+    if (!upd.rowCount) return res.status(409).json({ error: 'ชุดนี้เพิ่งถูกส่งไปแล้ว' });
+    await db.exec(
+      `UPDATE production_reports SET status='pending_warehouse', verify_expires_at=?, updated_at=?
+        WHERE batch_id=? AND status='pending_review'`,
+      [expires, now, req.params.batchId]
+    );
+
+    const sentVia = await notifyBatchLink(
+      { batch_id: bt.batch_id, work_day: bt.work_day, shift: bt.shift, created_by: bt.created_by,
+        verify_token: bt.verify_token, verify_expires_at: expires },
+      rows
+    );
+    await db.exec('UPDATE production_batches SET sent_via=?, sent_at=?, updated_at=? WHERE batch_id=?',
+      [sentVia, now, now, req.params.batchId]);
+    for (const r of rows) {
+      await logReportEvent(r.report_id, 'sent_to_warehouse', actor, `หัวหน้าตรวจครบแล้ว · ช่องทาง: ${sentVia}`, sentVia, 'supervisor');
+    }
+    res.json({ ok: true, sent: rows.length, sent_via: sentVia, verify_url: verifyUrlOf(bt.verify_token), verify_expires_at: expires });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
