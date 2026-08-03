@@ -1877,6 +1877,57 @@ async function createReportRow({ header, item, batchId = null, token = null, exp
 // เป็นกฎล้วน ๆ ไม่เรียก LLM: เร็ว ทำนายผลได้ อธิบายได้ และไม่มีค่าใช้จ่ายต่อการส่ง 1 ชุด
 // ผลเก็บใน payload.ai_flags → หน้าอนุมัติเอาไปแสดงเป็นป้ายเตือน
 // ⚠️ ห้ามใช้ตัดสินใจแทนหัวหน้า — เตือนอย่างเดียว
+// ตรวจความผิดปกติของ 1 รายการ — ทำงานได้ทั้งกับแถวที่เขียน DB แล้วและกับร่างที่ยังไม่ได้บันทึก
+// (บอทเรียกก่อนบันทึกเพื่อทักผู้ใช้ · createProductionBatch เรียกหลังบันทึกเพื่อติดป้ายให้หัวหน้า)
+// คืน [] เมื่อไม่พบอะไร — เป็นป้ายเตือนอย่างเดียว ไม่บล็อกและไม่ตัดสินแทนคน
+async function checkItemAnomalies({ sku_keyword, prod_qty, plan_qty, pack_factor, counter, pallet_photo, work_day, report_id = null }) {
+  const flags = [];
+  const qty = Number(prod_qty) || 0;
+  const day = work_day || workDayBKK();
+
+  // 1) ห่างจากแผนมาก
+  if (Number(plan_qty) > 0) {
+    const pct = Math.round((qty / Number(plan_qty)) * 100);
+    if (pct < 70) flags.push({ level: 'warn', text: `ได้แค่ ${pct}% ของแผน (${qty}/${plan_qty})` });
+    else if (pct > 130) flags.push({ level: 'info', text: `เกินแผน ${pct}% — เช็กว่าลงยอดถูกกะไหม` });
+  }
+
+  // 2) ต่างจากค่าเฉลี่ยของ SKU นี้ใน 30 วันหลัง (ต้องมีประวัติ ≥3 ใบถึงจะเชื่อค่าเฉลี่ย)
+  try {
+    const hist = await dbAll(
+      `SELECT AVG(prod_qty) AS avg_qty, COUNT(*) AS n FROM production_reports
+        WHERE sku_keyword = ? AND report_id <> ? AND work_day >= ? AND prod_qty > 0`,
+      [sku_keyword, report_id || '', addDaysStr(day, -30)]
+    );
+    const avg = Number(hist[0]?.avg_qty) || 0;
+    const n = Number(hist[0]?.n) || 0;
+    if (n >= 3 && avg > 0) {
+      const ratio = qty / avg;
+      if (ratio > 2) flags.push({ level: 'warn', text: `มากกว่าค่าเฉลี่ย 30 วัน ${ratio.toFixed(1)} เท่า (เฉลี่ย ${Math.round(avg)})` });
+      else if (ratio < 0.4) flags.push({ level: 'info', text: `น้อยกว่าค่าเฉลี่ย 30 วันมาก (เฉลี่ย ${Math.round(avg)})` });
+    }
+  } catch { /* ไม่มีประวัติก็ข้าม */ }
+
+  // 3) สินค้าสาย 2 (จัดพาเลทเอง) แต่ไม่มีรูปค้างพาเลท — คลังยันยอดไม่ได้
+  try {
+    const sku = (await dbAll('SELECT pallet_route FROM sku_master WHERE keyword = ?', [sku_keyword]))[0];
+    if (Number(sku?.pallet_route) === 2 && !pallet_photo) {
+      flags.push({ level: 'warn', text: 'สินค้าจัดพาเลทเอง แต่ไม่มีรูปค้างพาเลท', fix: 'photo' });
+    }
+  } catch { /* ข้าม */ }
+
+  // 4) เลขหน้าเครื่องไม่สมเหตุผลกับยอด (counter ควรใกล้ยอด×ชิ้นต่อกล่อง)
+  const cnt = Number(counter) || 0;
+  const expectPcs = qty * (Number(pack_factor) || 0);
+  if (cnt > 0 && expectPcs > 0) {
+    const ratio = cnt / expectPcs;
+    if (ratio > 3 || ratio < 0.33) {
+      flags.push({ level: 'info', text: `เลขหน้าเครื่อง ${cnt.toLocaleString()} ไม่สอดคล้องกับยอด ${expectPcs.toLocaleString()} ชิ้น` });
+    }
+  }
+  return flags;
+}
+
 async function flagBatchAnomalies(created) {
   for (const c of created) {
     const rows = await dbAll('SELECT * FROM production_reports WHERE report_id = ?', [c.report_id]);
@@ -1885,50 +1936,10 @@ async function flagBatchAnomalies(created) {
     let payload = {};
     try { payload = JSON.parse(r.payload || '{}'); } catch { continue; }
 
-    const flags = [];
-    const qty = Number(r.prod_qty) || 0;
-
-    // 1) ต่ำกว่าแผนมาก
-    if (r.plan_qty > 0) {
-      const pct = Math.round((qty / r.plan_qty) * 100);
-      if (pct < 70) flags.push({ level: 'warn', text: `ได้แค่ ${pct}% ของแผน (${qty}/${r.plan_qty})` });
-      else if (pct > 130) flags.push({ level: 'info', text: `เกินแผน ${pct}% — เช็กว่าลงยอดถูกกะไหม` });
-    }
-
-    // 2) ต่างจากค่าเฉลี่ยของ SKU นี้ใน 30 วันหลัง
-    try {
-      const hist = await dbAll(
-        `SELECT AVG(prod_qty) AS avg_qty, COUNT(*) AS n FROM production_reports
-          WHERE sku_keyword = ? AND report_id <> ? AND work_day >= ? AND prod_qty > 0`,
-        [r.sku_keyword, r.report_id, addDaysStr(r.work_day, -30)]
-      );
-      const avg = Number(hist[0]?.avg_qty) || 0;
-      const n = Number(hist[0]?.n) || 0;
-      if (n >= 3 && avg > 0) {
-        const ratio = qty / avg;
-        if (ratio > 2) flags.push({ level: 'warn', text: `มากกว่าค่าเฉลี่ย 30 วัน ${ratio.toFixed(1)} เท่า (เฉลี่ย ${Math.round(avg)})` });
-        else if (ratio < 0.4) flags.push({ level: 'info', text: `น้อยกว่าค่าเฉลี่ย 30 วันมาก (เฉลี่ย ${Math.round(avg)})` });
-      }
-    } catch { /* ไม่มีประวัติก็ข้าม */ }
-
-    // 3) สินค้าสาย 2 (จัดพาเลทเอง) แต่ไม่มีรูปค้างพาเลท — คลังยันยอดไม่ได้
-    try {
-      const sku = (await dbAll('SELECT pallet_route FROM sku_master WHERE keyword = ?', [r.sku_keyword]))[0];
-      if (Number(sku?.pallet_route) === 2 && !payload.pallet_photo) {
-        flags.push({ level: 'warn', text: 'สินค้าจัดพาเลทเอง แต่ไม่มีรูปค้างพาเลท' });
-      }
-    } catch { /* ข้าม */ }
-
-    // 4) เลขหน้าเครื่องไม่สมเหตุผลกับยอด (counter ควรใกล้ยอด×ชิ้นต่อกล่อง)
-    const counter = Number(payload.counter) || 0;
-    const expectPcs = qty * (Number(r.pack_factor) || 0);
-    if (counter > 0 && expectPcs > 0) {
-      const ratio = counter / expectPcs;
-      if (ratio > 3 || ratio < 0.33) {
-        flags.push({ level: 'info', text: `เลขหน้าเครื่อง ${counter.toLocaleString()} ไม่สอดคล้องกับยอด ${expectPcs.toLocaleString()} ชิ้น` });
-      }
-    }
-
+    const flags = await checkItemAnomalies({
+      sku_keyword: r.sku_keyword, prod_qty: r.prod_qty, plan_qty: r.plan_qty, pack_factor: r.pack_factor,
+      counter: payload.counter, pallet_photo: payload.pallet_photo, work_day: r.work_day, report_id: r.report_id,
+    });
     if (!flags.length) continue;
     payload.ai_flags = flags;
     await db.exec('UPDATE production_reports SET payload = ? WHERE report_id = ?', [JSON.stringify(payload), r.report_id]);
@@ -2390,6 +2401,49 @@ async function createProductionBatch({ header: h = {}, items = [], channel = 'we
     // ยังไม่เปิดเผยลิงก์ตรงนี้ — ออกให้ตอนหัวหน้ากดส่งคลัง
     verify_expires_at: expires,
   };
+}
+
+// ── เพิ่มทีละรายการเข้าชุดของกะ (ทางเข้าจากบอท) ────────────────────────────
+// ชุด = "กะ" ไม่ใช่ "คน" — แต่ละไลน์มีคนลงคนละคน แต่คลังต้องได้ลิงก์เดียวต่อกะ
+// ยืนยันปุ๊บเขียน DB ปั๊บ (status=pending_review) หัวหน้าเห็นในหน้า Admin ทันทีระหว่างกะ
+async function addReportToShiftBatch({ header = {}, item = {}, channel = 'telegram' }) {
+  const workDay = header.date || header.work_day || workDayBKK();
+  const shift = String(header.shift || '').trim();
+  const reporter = String(header.reporter || '').trim();
+  if (!shift) throw badRequest('ไม่รู้ว่ากะไหน');
+  if (!reporter) throw badRequest('ต้องระบุชื่อผู้ลงยอด');
+
+  let bt = (await dbAll(
+    "SELECT * FROM production_batches WHERE work_day = ? AND shift = ? AND status = 'pending_review' ORDER BY id DESC",
+    [workDay, shift]
+  ))[0];
+
+  const now = nowBKK();
+  if (!bt) {
+    const batchId = 'BAT-' + Date.now();
+    const token = crypto.randomBytes(24).toString('base64url');
+    await db.exec(
+      `INSERT INTO production_batches
+        (batch_id, work_day, shift, created_by, item_count, status, verify_token, verify_expires_at, created_at, updated_at)
+       VALUES (?,?,?,?,0,'pending_review',?,?,?,?)`,
+      // อายุลิงก์นับจากตอนหัวหน้ากดส่งคลัง — ตรงนี้ใส่ไว้ก่อนแล้วเขียนทับทีหลัง
+      [batchId, workDay, shift, reporter, token, bkkPlusHours(VERIFY_TTL_HOURS), now, now]
+    );
+    bt = { batch_id: batchId, verify_token: token };
+  }
+
+  const created = await createReportRow({
+    header: { ...header, work_day: workDay, shift, reporter }, item, batchId: bt.batch_id, channel,
+  });
+  await db.exec(
+    `UPDATE production_batches
+        SET item_count = (SELECT COUNT(*) FROM production_reports WHERE batch_id = ?), updated_at = ?
+      WHERE batch_id = ?`,
+    [bt.batch_id, now, bt.batch_id]
+  );
+  await flagBatchAnomalies([created]).catch(e => console.error('[SPP] flag failed', e.message));
+  await logReportEvent(created.report_id, 'created', reporter, `ชุด ${bt.batch_id} · รอหัวหน้าตรวจ`, channel);
+  return { ...created, batch_id: bt.batch_id };
 }
 
 // แจ้งหัวหน้าว่ามียอดเข้ามารอตรวจ — ไม่มีลิงก์คลังในข้อความนี้โดยตั้งใจ
@@ -2999,25 +3053,30 @@ const sppSend = (chatId, text, keyboard) =>
     ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
   });
 
-const sppMainMenu = (draft) => {
-  const n = (draft.items || []).length;
-  return [
-    [{ text: '📋 แผนผลิตวันนี้', callback_data: 's:plan' }],
-    [{ text: '➕ ลงยอด (เลือกจากสินค้าทั้งหมด)', callback_data: 's:all:0' }],
-    ...(n ? [[{ text: `📤 ส่งทั้งกะ (${n} รายการ)`, callback_data: 's:submit' }]] : []),
-    ...(n ? [[{ text: '👀 ดูร่าง', callback_data: 's:draft' }, { text: '🗑 ล้างร่าง', callback_data: 's:clear' }]] : []),
-  ];
-};
+// ไม่มีปุ่มส่งคลังในเมนูบอทโดยตั้งใจ — ยืนยันแล้วเข้าแอปเลย หัวหน้าเป็นคนส่งคลังจากหน้า Admin
+const sppMainMenu = (draft) => [
+  [{ text: '📋 แผนผลิตวันนี้', callback_data: 's:plan' }],
+  [{ text: '➕ ลงยอด (เลือกจากสินค้าทั้งหมด)', callback_data: 's:all:0' }],
+  ...(draft?.count ? [[{ text: `👀 ที่ลงไปแล้ววันนี้ (${draft.count})`, callback_data: 's:draft' }]] : []),
+];
 
-// สรุปร่างของกะที่ยังไม่ได้ส่ง
-function sppDraftText(draft) {
-  const items = draft.items || [];
-  if (!items.length) return 'ยังไม่มีรายการในร่าง';
+// สรุปสิ่งที่คนนี้ลงไปแล้วในกะ — อ่านจาก DB จริง ไม่ใช่ร่างในบอท (ยืนยันแล้วเข้า DB ทันที)
+async function sppDraftText(draft) {
+  const day = draft.header?.date || workDayBKK();
+  const shift = draft.header?.shift || currentShiftCode();
+  const who = draft.header?.reporter || '';
+  if (!who) return 'ยังไม่ได้ลงยอดอะไรในกะนี้';
+  const rows = await dbAll(
+    'SELECT product_name, sku_keyword, prod_qty, count_unit, status FROM production_reports WHERE work_day = ? AND shift = ? AND reporter_name = ? ORDER BY id',
+    [day, shift, who]
+  ).catch(() => []);
+  if (!rows.length) return 'ยังไม่ได้ลงยอดอะไรในกะนี้';
+  const label = { pending_review: 'รอหัวหน้าตรวจ', pending_warehouse: 'ส่งคลังแล้ว', pending_approval: 'รออนุมัติ', approved: 'อนุมัติแล้ว', needs_fix: 'ถูกส่งกลับให้แก้' };
   return [
-    `📝 <b>ร่างของกะ · ${items.length} รายการ</b>`,
-    `${escapeHtml(draft.header?.date || '')} · ${escapeHtml(draft.header?.shift || '')} · ${escapeHtml(draft.header?.reporter || '')}`,
+    `📝 <b>ที่คุณลงไปแล้ว · ${rows.length} รายการ</b>`,
+    `${escapeHtml(day)} · ${escapeHtml(shift)}`,
     '',
-    ...items.map((it, i) => `${i + 1}. ${escapeHtml(it.product_name || it.sku_keyword)} — <b>${it.prod_qty} ${escapeHtml(it.count_unit || '')}</b>`),
+    ...rows.map((r, i) => `${i + 1}. ${escapeHtml(r.product_name || r.sku_keyword)} — <b>${r.prod_qty} ${escapeHtml(r.count_unit || '')}</b> <i>(${label[r.status] || r.status})</i>`),
   ].join('\n');
 }
 
@@ -3106,7 +3165,7 @@ async function sppAskNext(chatId, userId, draft) {
     `รูปค้างพาเลท: ${cur.pallet_photo ? 'แนบแล้ว ✅' : 'ไม่มี'}`,
     `ของเสีย: ${dmg.length ? dmg.map(([k, v]) => `${k} ${v}`).join(' · ') : 'ไม่มี'}`,
   ].join('\n'), [
-    [{ text: '✅ เก็บเข้าร่าง', callback_data: 's:save' }],
+    [{ text: '🔍 ส่งเพื่อตรวจสอบ', callback_data: 's:check' }],
     [{ text: '🔄 กรอกใหม่', callback_data: 's:redo' }, { text: '❌ ทิ้งรายการนี้', callback_data: 's:menu' }],
   ]);
 }
@@ -3168,8 +3227,12 @@ async function sppHandleText(chatId, userId, text, sess) {
       mustPhoto ? null : [[{ text: '⏭ ไม่มีรูป', callback_data: 's:skipphoto' }]]);
   }
   if (sess.state === 'item_confirm') {
-    return sppSend(chatId, 'กดปุ่มด้านบนเพื่อ <b>เก็บเข้าร่าง</b> หรือ <b>กรอกใหม่</b>',
-      [[{ text: '✅ เก็บเข้าร่าง', callback_data: 's:save' }, { text: '🔄 กรอกใหม่', callback_data: 's:redo' }]]);
+    return sppSend(chatId, 'กดปุ่มด้านบนเพื่อ <b>ส่งเพื่อตรวจสอบ</b> หรือ <b>กรอกใหม่</b>',
+      [[{ text: '🔍 ส่งเพื่อตรวจสอบ', callback_data: 's:check' }, { text: '🔄 กรอกใหม่', callback_data: 's:redo' }]]);
+  }
+  if (sess.state === 'item_checked') {
+    return sppSend(chatId, 'บอทตรวจให้แล้ว — กด <b>ยืนยันข้อมูลถูกต้อง</b> เพื่อส่งเข้าแอป',
+      [[{ text: '✅ ยืนยันข้อมูลถูกต้อง', callback_data: 's:confirm' }, { text: '✏️ ขอแก้', callback_data: 's:redo' }]]);
   }
   if (sess.state === 'item_machine') {
     // ผู้ใช้พิมพ์ชื่อเครื่องมาเองแทนที่จะกดปุ่ม — รับไปเลย ไม่ต้องบังคับให้กด
@@ -3181,7 +3244,7 @@ async function sppHandleText(chatId, userId, text, sess) {
   const t = text.trim();
   if (/แผนผลิตวันนี้|^\/plan/i.test(t)) return sppShowPlan(chatId, userId, draft, 0);
   if (/^\/cancel|ยกเลิก/i.test(t)) { await clearSppSession(chatId, userId); return sppSend(chatId, 'ล้างร่างแล้ว ✅', sppMainMenu({})); }
-  if (/ร่าง|^\/draft/i.test(t)) return sppSend(chatId, sppDraftText(draft), sppMainMenu(draft));
+  if (/ร่าง|ที่ลงไป|^\/draft/i.test(t)) return sppSend(chatId, await sppDraftText(draft), sppMainMenu(draft));
   return sppSend(chatId, '👋 <b>Production_SPP</b>\nเลือกเมนูด้านล่าง หรือพิมพ์ "แผนผลิตวันนี้"', sppMainMenu(draft));
 }
 
@@ -3208,11 +3271,10 @@ async function sppShowAll(chatId, userId, draft, page) {
 }
 
 // เก็บรายการปัจจุบันเข้าร่างของกะ
-async function sppSaveItem(chatId, userId, draft, user) {
-  const cur = draft.current || {};
+// แปลงร่างที่กรอกในแชท → รูปแบบ item ที่ createReportRow รับ
+const sppItemOf = (cur) => {
   const sku = cur.sku || {};
-  draft.items = draft.items || [];
-  draft.items.push({
+  return {
     sku_keyword: sku.keyword,
     product_name: sku.product_name || sku.keyword,
     count_unit: sku.count_unit || 'กล่อง',
@@ -3222,37 +3284,93 @@ async function sppSaveItem(chatId, userId, draft, user) {
     prod_qty: cur.prod_qty,
     pallet_photo: cur.pallet_photo || '',
     damaged: cur.damaged || {},
-    wastes: Object.entries(cur.damaged || {}).filter(([, v]) => v > 0).map(([type, qty]) => ({ type, qty, reason: 'ภาชนะบรรจุชำรุด' })),
-  });
-  draft.header = draft.header || {};
-  draft.header.date = draft.header.date || workDayBKK();
-  draft.header.shift = draft.header.shift || currentShiftCode();
-  draft.header.reporter = user?.name || draft.header.reporter || '';
-  draft.header.telegram_user_id = String(userId);
-  draft.header.telegram_chat_id = String(chatId);
-  delete draft.current;
-  await setSppSession(chatId, userId, '', draft);
-  return sppSend(chatId, `✅ เก็บแล้ว — ตอนนี้มี <b>${draft.items.length}</b> รายการในร่าง`, sppMainMenu(draft));
+    wastes: Object.entries(cur.damaged || {}).filter(([, v]) => v > 0)
+      .map(([type, qty]) => ({ type, qty, reason: 'ภาชนะบรรจุชำรุด' })),
+  };
+};
+
+// ── ข้อ 3: บอทตรวจให้ก่อน แล้วค่อยให้ยืนยัน ────────────────────────────────
+// ตรวจ "ก่อน" เขียน DB — จับพิมพ์ผิดตั้งแต่ต้นทาง ไม่ต้องรอหัวหน้ามาไล่แก้ทีหลัง
+async function sppCheckItem(chatId, userId, draft) {
+  const cur = draft.current || {};
+  const sku = cur.sku || {};
+  if (!sku.keyword) return sppSend(chatId, 'ไม่มีรายการที่กรอกค้างอยู่', sppMainMenu(draft));
+
+  const workDay = draft.header?.date || workDayBKK();
+  const shift = draft.header?.shift || currentShiftCode();
+  const planQty = await resolvePlanQty(workDay, shift, sku).catch(() => null);
+
+  const flags = await checkItemAnomalies({
+    sku_keyword: sku.keyword, prod_qty: cur.prod_qty, plan_qty: planQty?.plan_qty,
+    pack_factor: sku.pack_factor, counter: cur.counter, pallet_photo: cur.pallet_photo, work_day: workDay,
+  }).catch(() => []);
+
+  cur.checked = true;
+  await setSppSession(chatId, userId, 'item_checked', draft);
+
+  const unit = sku.count_unit || 'กล่อง';
+  const pcs = (Number(cur.prod_qty) || 0) * (Number(sku.pack_factor) || 0);
+  const needPhoto = flags.some(f => f.fix === 'photo');
+
+  if (!flags.length) {
+    return sppSend(chatId, [
+      '🔍 <b>ตรวจแล้ว — ไม่พบอะไรผิดปกติ</b>',
+      `${escapeHtml(sku.product_name || sku.keyword)} · <b>${cur.prod_qty} ${escapeHtml(unit)}</b>`,
+      `คิดเป็น ${pcs.toLocaleString()} ชิ้น`,
+      planQty?.plan_qty ? `เทียบแผนกะนี้ ${planQty.plan_qty} ${escapeHtml(unit)} ✓` : null,
+      cur.pallet_photo ? 'มีรูปค้างพาเลทครบ ✓' : null,
+    ].filter(Boolean).join('\n'), [
+      [{ text: '✅ ยืนยันข้อมูลถูกต้อง', callback_data: 's:confirm' }],
+      [{ text: '✏️ ขอแก้', callback_data: 's:redo' }],
+    ]);
+  }
+
+  return sppSend(chatId, [
+    `⚠️ <b>ขอเช็คก่อน ${flags.length} จุด</b>`,
+    `${escapeHtml(sku.product_name || sku.keyword)} · <b>${cur.prod_qty} ${escapeHtml(unit)}</b>`,
+    '',
+    ...flags.map((f, i) => `<b>${i + 1}. ${escapeHtml(f.text)}</b>`),
+    '',
+    '<i>ถ้าเลขถูกจริง กดยืนยันได้เลย</i>',
+  ].join('\n'), [
+    [{ text: '✅ ยืนยันข้อมูลถูกต้อง', callback_data: 's:confirm' }],
+    [{ text: '✏️ ขอแก้ยอด', callback_data: 's:fixqty' }],
+    ...(needPhoto ? [[{ text: '📸 ส่งรูปค้างพาเลท', callback_data: 's:addphoto' }]] : []),
+  ]);
 }
 
-// ส่งทั้งกะ → เส้นทางเดียวกับเว็บ
-async function sppSubmitShift(chatId, userId, draft) {
-  const items = draft.items || [];
-  if (!items.length) return sppSend(chatId, 'ยังไม่มีรายการให้ส่ง', sppMainMenu(draft));
+// ยืนยัน → เขียน DB ทันที (pending_review) หัวหน้าเห็นในหน้า Admin เลย
+// ❗บอทไม่ส่งอะไรไปคลัง — คลังได้ลิงก์ก็ต่อเมื่อหัวหน้ากดส่งจากในแอปเท่านั้น
+async function sppConfirmItem(chatId, userId, draft, user) {
+  const cur = draft.current || {};
+  if (!cur.sku?.keyword) return sppSend(chatId, 'ไม่มีรายการที่กรอกค้างอยู่', sppMainMenu(draft));
+
+  const header = {
+    date: draft.header?.date || workDayBKK(),
+    shift: draft.header?.shift || currentShiftCode(),
+    reporter: user?.name || draft.header?.reporter || '',
+    telegram_user_id: String(userId),
+    telegram_chat_id: String(chatId),
+  };
   try {
-    const out = await createProductionBatch({ header: draft.header || {}, items, channel: 'telegram' });
-    await clearSppSession(chatId, userId);
+    const out = await addReportToShiftBatch({ header, item: sppItemOf(cur), channel: 'telegram' });
+    draft.header = header;
+    draft.count = (draft.count || 0) + 1;
+    delete draft.current;
+    await setSppSession(chatId, userId, '', draft);
     return sppSend(chatId, [
-      `📤 <b>ส่งยอดทั้งกะแล้ว ${out.item_count} รายการ</b>`,
-      `ชุด: <code>${out.batch_id}</code>`,
-      out.sent_via === 'telegram' ? 'ส่งลิงก์ให้คลังตรวจนับแล้ว ✅' : '⚠️ ยังส่งลิงก์เข้ากลุ่มไม่ได้ (ยังไม่ได้ตั้งค่ากลุ่ม)',
-      '',
-      `ลิงก์ให้คลัง: ${out.verify_url}`,
-    ].join('\n'));
+      '📥 <b>เข้าแอปแล้ว — รอหัวหน้าตรวจ</b>',
+      `${escapeHtml(out.product_name || out.sku_keyword)} · <b>${out.prod_qty} ${escapeHtml(out.count_unit)}</b>`,
+      `<i>กะนี้ลงมาแล้ว ${draft.count} รายการ (ของคุณ)</i>`,
+    ].join('\n'), [
+      [{ text: '➕ ลงตัวต่อไป', callback_data: 's:plan' }],
+      [{ text: '📋 เมนูหลัก', callback_data: 's:menu' }],
+    ]);
   } catch (e) {
-    console.error('[SPP bot] submit failed', e.message);
-    // ร่างยังอยู่ครบ — ผู้ใช้กดส่งใหม่ได้โดยไม่ต้องกรอกซ้ำ
-    return sppSend(chatId, `❌ ส่งไม่สำเร็จ: ${escapeHtml(e.message)}\n\nร่างยังอยู่ กดส่งใหม่ได้`, sppMainMenu(draft));
+    console.error('[SPP bot] confirm failed', e.message);
+    // ร่างยังอยู่ครบ กดยืนยันใหม่ได้ ไม่ต้องกรอกซ้ำ
+    return sppSend(chatId, `❌ บันทึกไม่สำเร็จ: ${escapeHtml(e.message)}\n\nข้อมูลยังอยู่ กดยืนยันใหม่ได้`,
+      [[{ text: '✅ ลองยืนยันอีกครั้ง', callback_data: 's:confirm' }], [{ text: '✏️ ขอแก้', callback_data: 's:redo' }]]);
   }
 }
 
@@ -3335,10 +3453,10 @@ app.post('/api/telegram/spp-update', (req, res) => {
         if (!user) { await ack('กด /start ก่อน'); return; }
 
         if (data === 's:menu') { await ack(); await sppSend(chatId, 'เมนูหลัก', sppMainMenu(draft)); return; }
-        if (data === 's:draft') { await ack(); await sppSend(chatId, sppDraftText(draft), sppMainMenu(draft)); return; }
+        if (data === 's:draft') { await ack(); await sppSend(chatId, await sppDraftText(draft), sppMainMenu(draft)); return; }
         if (data === 's:clear') {
-          await clearSppSession(chatId, userId); await ack('ล้างร่างแล้ว');
-          await sppSend(chatId, 'ล้างร่างแล้ว ✅', sppMainMenu({})); return;
+          await clearSppSession(chatId, userId); await ack('ล้างที่กรอกค้างแล้ว');
+          await sppSend(chatId, 'ล้างที่กรอกค้างแล้ว ✅ <i>(ของที่ยืนยันไปแล้วยังอยู่ในแอป)</i>', sppMainMenu({})); return;
         }
         if (data.startsWith('s:plan')) { await ack(); await sppShowPlan(chatId, userId, draft, Number(data.split(':')[2] || 0)); return; }
         if (data.startsWith('s:all')) { await ack(); await sppShowAll(chatId, userId, draft, Number(data.split(':')[2] || 0)); return; }
@@ -3384,8 +3502,20 @@ app.post('/api/telegram/spp-update', (req, res) => {
           if (draft.current?.sku) draft.current = { sku: draft.current.sku };
           await ack('กรอกใหม่'); await sppAskNext(chatId, userId, draft); return;
         }
-        if (data === 's:save') { await ack('เก็บแล้ว'); await sppSaveItem(chatId, userId, draft, user); return; }
-        if (data === 's:submit') { await ack('กำลังส่ง…'); await sppSubmitShift(chatId, userId, draft); return; }
+        if (data === 's:check') { await ack('กำลังตรวจ…'); await sppCheckItem(chatId, userId, draft); return; }
+        if (data === 's:confirm') { await ack('กำลังบันทึก…'); await sppConfirmItem(chatId, userId, draft, user); return; }
+        // แก้ยอดหลังบอททัก — วนกลับไปถามยอดใหม่แล้วตรวจซ้ำ
+        if (data === 's:fixqty') {
+          if (!draft.current) { await ack(); return; }
+          delete draft.current.prod_qty; delete draft.current.checked;
+          await ack('พิมพ์ยอดใหม่'); await sppAskNext(chatId, userId, draft); return;
+        }
+        // ส่งรูปเพิ่มหลังบอททักว่าสินค้าสาย 2 ไม่มีรูป
+        if (data === 's:addphoto') {
+          if (!draft.current) { await ack(); return; }
+          delete draft.current.pallet_photo; delete draft.current.checked;
+          await ack('ส่งรูปมาได้เลย'); await sppAskNext(chatId, userId, draft); return;
+        }
         if (data.startsWith('s:fix:')) { await ack(); await sppStartFix(chatId, userId, draft, data.slice(6)); return; }
         await ack();
         return;
