@@ -3006,6 +3006,118 @@ const SPP_DAMAGE_KINDS = [
   { key: 'ฝา', re: /ฝา/i },
 ];
 
+// ── ข้อ 2: พิมพ์ประโยคเดียวจบ ──────────────────────────────────────────────
+// แกะข้อความไทยแบบพูดปกติเป็นฟอร์มลงยอด เช่น
+//   "Amazon 750 ได้ 120 กล่อง เครื่อง Linear#1 เลข 1440"
+//   "Icing 25 kg ได้ 200 กระสอบ เครื่อง - เลขหน้าเครื่อง 200"
+//
+// ใช้ structured outputs (json_schema) ไม่ใช่ tool use — งานนี้ไม่มี side effect
+// ต้องการแค่ JSON ที่ถูกโครงแน่นอน · json_schema การันตีรูปให้เลย ไม่ต้องกัน AI
+// ตอบเป็นข้อความปนมา
+//
+// ปิด thinking + effort low เพราะเป็นงานแกะสั้น ๆ ที่เรียกทุกครั้งที่พนักงานพิมพ์:
+// บน Opus 5 thinking เปิดเป็นค่าเริ่มต้น และ max_tokens คุมทั้ง thinking+คำตอบรวมกัน
+// ถ้าปล่อยเปิดต้องเผื่อ max_tokens เยอะขึ้นมากโดยไม่ได้อะไรกลับมา
+// (ปิด thinking ใช้ได้เมื่อ effort ไม่เกิน high — low ผ่าน)
+const SPP_PARSE_MODEL = process.env.SPP_PARSE_MODEL || 'claude-opus-5';
+
+const SPP_PARSE_FORMAT = {
+  type: 'json_schema',
+  schema: {
+    type: 'object',
+    properties: {
+      sku_keyword: { type: 'string', description: 'keyword ของสินค้า คัดลอกจากคอลัมน์แรกของรายการให้ตรงเป๊ะ · จับไม่ได้หรือไม่มั่นใจให้ใส่ ""' },
+      prod_qty: { type: 'number', description: 'จำนวนที่ผลิตได้ (ตัวเลขล้วน) · ไม่ได้บอกให้ใส่ 0' },
+      machine: { type: 'string', description: 'ชื่อเครื่องบรรจุตามที่พิมพ์มา · ถ้าเขียน "-" หรือไม่ได้บอกให้ใส่ ""' },
+      counter: { type: 'number', description: 'เลขหน้าเครื่อง หน่วยชิ้น · ไม่ได้บอกให้ใส่ 0 (และต้องใส่ "counter" ใน missing ด้วย เพราะ 0 เป็นค่าที่ใช้จริงได้)' },
+      damaged: {
+        type: 'object',
+        description: 'ภาชนะบรรจุชำรุด · ประเภทที่ไม่ได้พูดถึงให้ใส่ 0',
+        properties: {
+          'ถุง': { type: 'number' }, 'กล่อง': { type: 'number' }, 'ถุง pack': { type: 'number' },
+          'ขวด/กระปุก': { type: 'number' }, 'ฝา': { type: 'number' },
+        },
+        required: ['ถุง', 'กล่อง', 'ถุง pack', 'ขวด/กระปุก', 'ฝา'],
+        additionalProperties: false,
+      },
+      missing: {
+        type: 'array',
+        description: 'ชื่อช่องที่ข้อความไม่ได้พูดถึงเลย — บอทจะไปถามต่อเฉพาะช่องพวกนี้',
+        items: { type: 'string', enum: ['sku_keyword', 'prod_qty', 'machine', 'counter'] },
+      },
+      note: { type: 'string', description: 'ถ้าจับสินค้าไม่ได้ บอกสั้น ๆ เป็นภาษาไทยว่าเพราะอะไร · ปกติใส่ ""' },
+    },
+    required: ['sku_keyword', 'prod_qty', 'machine', 'counter', 'damaged', 'missing', 'note'],
+    additionalProperties: false,
+  },
+};
+
+// รายการ SKU สำหรับใส่ system prompt — เรียงคงที่และแคชไว้ เพราะ prompt caching เป็น
+// prefix match: ถ้าลำดับสลับแม้แต่แถวเดียว cache พังทั้งก้อน
+let _sppSkuBlock = { text: '', at: 0 };
+async function sppSkuBlock() {
+  if (_sppSkuBlock.text && Date.now() - _sppSkuBlock.at < 5 * 60 * 1000) return _sppSkuBlock.text;
+  const rows = await dbAll(
+    'SELECT keyword, product_name, count_unit, machine FROM sku_master WHERE active = 1 ORDER BY keyword'
+  ).catch(() => []);
+  const text = rows.map(s => [s.keyword, s.product_name || '', s.count_unit || 'กล่อง', s.machine || ''].join(' | ')).join('\n');
+  _sppSkuBlock = { text, at: Date.now() };
+  return text;
+}
+
+// คืน null เมื่อไม่ได้ตั้ง ANTHROPIC_API_KEY หรือ AI ล่ม → บอทถอยไปโหมดกดปุ่มเอง
+async function parseSppFreeText(text) {
+  const client = getAnthropic();
+  if (!client) return null;
+  const skuList = await sppSkuBlock();
+  if (!skuList) return null;
+
+  try {
+    const resp = await client.messages.create({
+      model: SPP_PARSE_MODEL,
+      max_tokens: 1024,
+      thinking: { type: 'disabled' },
+      output_config: { effort: 'low', format: SPP_PARSE_FORMAT },
+      system: [{
+        type: 'text',
+        // ก้อนนี้เปลี่ยนน้อยมาก → ทำ cache breakpoint ไว้ตรงนี้ ข้อความของผู้ใช้อยู่หลัง
+        // จุดนี้ทั้งหมด (render order คือ tools → system → messages)
+        text: [
+          'คุณคือตัวช่วยแกะข้อความลงยอดผลิตของโรงงาน แปลงประโยคภาษาไทยที่พนักงานพิมพ์เป็นข้อมูลตามสคีมา',
+          '',
+          'รายการสินค้าที่ใช้ได้ (keyword | ชื่อสินค้า | หน่วยนับ | เครื่องตั้งต้น):',
+          skuList,
+          '',
+          'กติกา:',
+          '- sku_keyword ต้องคัดลอกจากคอลัมน์แรกให้ตรงเป๊ะ ห้ามแต่งขึ้นเอง',
+          '- พนักงานมักพิมพ์ชื่อย่อหรือสะกดไม่ตรง เช่น "Amazon 750" → จับคู่กับตัวที่ใกล้ที่สุด',
+          '- ถ้ามีหลายตัวที่ใกล้เคียงพอ ๆ กันจนเลือกไม่ได้ ให้ใส่ "" แล้วอธิบายใน note',
+          '- ตัวเลขที่ตามด้วยหน่วยนับ (กล่อง/กระสอบ/หม้อ/ปี๊บ) คือ prod_qty',
+          '- ตัวเลขที่มาหลังคำว่า "เลข" หรือ "เลขหน้าเครื่อง" หรือ "counter" คือ counter',
+          '- อย่าเดาค่าที่ข้อความไม่ได้บอก ให้ใส่ค่าว่าง/0 แล้วระบุชื่อช่องนั้นใน missing',
+        ].join('\n'),
+        cache_control: { type: 'ephemeral' },
+      }],
+      messages: [{ role: 'user', content: String(text).slice(0, 500) }],
+    });
+
+    if (resp.stop_reason === 'refusal') { console.error('[SPP parse] refused'); return null; }
+    const block = resp.content.find(b => b.type === 'text');
+    if (!block) return null;
+    const out = JSON.parse(block.text);
+    // ป้องกันโมเดลคืน keyword ที่ไม่มีจริง — ตรวจกับ DB อีกชั้นก่อนเชื่อ
+    if (out.sku_keyword) {
+      const hit = (await dbAll('SELECT * FROM sku_master WHERE keyword = ? AND active = 1', [out.sku_keyword]))[0];
+      if (!hit) { out.note = out.note || `ไม่พบสินค้า "${out.sku_keyword}" ในระบบ`; out.sku_keyword = ''; }
+      else out.sku = hit;
+    }
+    return out;
+  } catch (e) {
+    console.error('[SPP parse] failed', e.message);
+    return null;
+  }
+}
+
 // กะปัจจุบันตามตารางโรงงาน (เดินจริง 7 วัน) → คืนรูปแบบเดียวกับฟอร์มเว็บและ shift_crew: กะ1/กะ2/กะ3
 function currentShiftCode() {
   const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
@@ -3176,8 +3288,15 @@ const sppNum = (t) => {
   return Number.isFinite(v) && v >= 0 ? v : null;
 };
 
-async function sppHandleText(chatId, userId, text, sess) {
+async function sppHandleText(chatId, userId, text, sess, user = null) {
   const draft = sess.draft || {};
+
+  // "ยกเลิก" ต้องทำงานได้ทุกจังหวะ รวมถึงตอนค้างกลางฟอร์ม — ถ้าเช็คทีหลัง state
+  // ผู้ใช้ที่ค้างรออยู่ (เช่นรอส่งรูป) จะออกไม่ได้เลย ได้แต่โดนถามซ้ำ
+  if (/^\/cancel$|^ยกเลิก/i.test(text.trim())) {
+    await clearSppSession(chatId, userId);
+    return sppSend(chatId, 'ล้างที่กรอกค้างแล้ว ✅ <i>(ของที่ยืนยันไปแล้วยังอยู่ในแอป)</i>', sppMainMenu({}));
+  }
 
   if (sess.state === 'ask_name_type') {
     const name = text.trim();
@@ -3243,9 +3362,56 @@ async function sppHandleText(chatId, userId, text, sess) {
   // ไม่ได้อยู่ในฟอร์ม — ถือเป็นคำสั่ง
   const t = text.trim();
   if (/แผนผลิตวันนี้|^\/plan/i.test(t)) return sppShowPlan(chatId, userId, draft, 0);
-  if (/^\/cancel|ยกเลิก/i.test(t)) { await clearSppSession(chatId, userId); return sppSend(chatId, 'ล้างร่างแล้ว ✅', sppMainMenu({})); }
   if (/ร่าง|ที่ลงไป|^\/draft/i.test(t)) return sppSend(chatId, await sppDraftText(draft), sppMainMenu(draft));
-  return sppSend(chatId, '👋 <b>Production_SPP</b>\nเลือกเมนูด้านล่าง หรือพิมพ์ "แผนผลิตวันนี้"', sppMainMenu(draft));
+
+  // ข้อ 2: ไม่ตรงคำสั่งไหนเลย → ลองแกะเป็นการลงยอด ก่อนจะตอบเมนู
+  // ต้องมีตัวเลขอย่างน้อย 1 ตัวถึงจะคุ้มเรียก AI (ทักทายเปล่า ๆ ไม่ต้องเสียเงิน)
+  if (/\d/.test(t) && t.length >= 6) {
+    const hit = await sppTryFreeText(chatId, userId, draft, t, user);
+    if (hit) return hit;
+  }
+  return sppSend(chatId, '👋 <b>Production_SPP</b>\nพิมพ์ยอดมาได้เลย เช่น <code>Amazon 750 ได้ 120 กล่อง เครื่อง Linear#1 เลข 1440</code>\nหรือเลือกจากเมนูด้านล่าง', sppMainMenu(draft));
+}
+
+// แกะข้อความ → เติมลงร่าง → ให้ sppAskNext ถามเฉพาะช่องที่ยังขาด
+// คืน falsy เมื่อแกะไม่ได้ ให้ผู้เรียกตอบเมนูตามปกติ (ไม่ทำให้พังถ้าไม่มี API key)
+async function sppTryFreeText(chatId, userId, draft, text, user) {
+  const parsed = await parseSppFreeText(text);
+  if (!parsed) return null;
+
+  if (!parsed.sku_keyword || !parsed.sku) {
+    return sppSend(chatId, [
+      '🤔 <b>อ่านแล้วไม่แน่ใจว่าเป็นสินค้าตัวไหน</b>',
+      parsed.note ? `<i>${escapeHtml(parsed.note)}</i>` : null,
+      '',
+      'เลือกจากรายการแทนได้เลย',
+    ].filter(Boolean).join('\n'), [
+      [{ text: '📋 แผนผลิตวันนี้', callback_data: 's:plan' }],
+      [{ text: '🗂 สินค้าทั้งหมด', callback_data: 's:all:0' }],
+    ]);
+  }
+
+  const miss = new Set(parsed.missing || []);
+  draft.current = { sku: parsed.sku, from_text: true };
+  // เติมเฉพาะช่องที่ข้อความพูดถึงจริง — ที่เหลือปล่อยว่างให้ sppAskNext ไล่ถาม
+  if (!miss.has('machine') && parsed.machine) draft.current.machine = parsed.machine;
+  if (!miss.has('prod_qty') && parsed.prod_qty > 0) draft.current.prod_qty = parsed.prod_qty;
+  if (!miss.has('counter')) draft.current.counter = Math.max(0, Math.round(parsed.counter || 0));
+  const dmg = parsed.damaged || {};
+  if (Object.values(dmg).some(v => Number(v) > 0)) {
+    draft.current.damaged = Object.fromEntries(SPP_DAMAGE_KINDS.map(d => [d.key, Math.max(0, Math.round(Number(dmg[d.key]) || 0))]));
+  }
+  draft.header = draft.header || {};
+  draft.header.reporter = user?.name || draft.header.reporter || '';
+
+  const got = [
+    `✅ อ่านได้ว่า <b>${escapeHtml(parsed.sku.product_name || parsed.sku.keyword)}</b>`,
+    draft.current.prod_qty ? `ผลิตได้ <b>${draft.current.prod_qty} ${escapeHtml(parsed.sku.count_unit || 'กล่อง')}</b>` : null,
+    draft.current.machine ? `เครื่อง ${escapeHtml(draft.current.machine)}` : null,
+    draft.current.counter !== undefined ? `เลขหน้าเครื่อง ${draft.current.counter}` : null,
+  ].filter(Boolean).join(' · ');
+  await sppSend(chatId, got);
+  return sppAskNext(chatId, userId, draft);
 }
 
 async function sppShowPlan(chatId, userId, draft, page) {
@@ -3537,7 +3703,7 @@ app.post('/api/telegram/spp-update', (req, res) => {
       const text = upd.message?.text;
       if (!text) return;
       await db.exec('UPDATE spp_tg_user SET last_seen_at = ? WHERE telegram_user_id = ?', [nowBKK(), String(userId)]).catch(() => {});
-      await sppHandleText(chatId, userId, text, { ...sess, draft });
+      await sppHandleText(chatId, userId, text, { ...sess, draft }, user);
     } catch (e) { console.error('[SPP bot] error', e); }
   })();
 });
