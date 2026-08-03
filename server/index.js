@@ -1744,7 +1744,10 @@ const logReportEvent = async (reportId, event, actor, detail, channel, role) => 
 async function resolvePlanQty(workDay, shift, sku) {
   if (!sku) return { plan_qty: null, plan_source: 'none' };
   if (sku.count_unit && sku.count_unit !== 'กล่อง') return { plan_qty: null, plan_source: 'unit_mismatch' };
-  const flavor = (sku.plan_flavor || '').trim();
+  // plan_flavor = ชื่อรสที่ใช้จับคู่กับแผน · SKU ที่ import จากชีตไม่มีค่านี้ (156 จาก 159 ตัว)
+  // จึงถอยไปใช้ชื่อ keyword ของ SKU เอง — ให้ลงแผนด้วยชื่อสินค้าตรง ๆ ได้เลย
+  // (ตัวเตือนสิ้นกะใช้ COALESCE แบบเดียวกันอยู่แล้ว — ตรงนี้แค่ทำให้สอดคล้องกัน)
+  const flavor = (sku.plan_flavor || '').trim() || (sku.keyword || '').trim();
   if (!flavor) return { plan_qty: null, plan_source: 'none' };
   const shiftN = normalizeShift(shift);
   try {
@@ -3206,8 +3209,12 @@ async function sppTodaySkus(workDay) {
   const flavors = plans.map(p => (p.flavor || '').trim()).filter(Boolean);
   if (!flavors.length) return [];
   const marks = flavors.map(() => '?').join(',');
+  // จับคู่ด้วย plan_flavor ก่อน ถ้าไม่มีค่า (SKU ที่ import จากชีต) ใช้ keyword แทน
+  // COALESCE ให้ผลเดียวกับตัวเตือนสิ้นกะ — ลงแผนด้วยชื่อสินค้าตรง ๆ ก็เจอ
   return dbAll(
-    `SELECT * FROM sku_master WHERE active = 1 AND plan_flavor IN (${marks}) ORDER BY group_name, keyword`, flavors
+    `SELECT * FROM sku_master
+      WHERE active = 1 AND COALESCE(NULLIF(TRIM(plan_flavor), ''), keyword) IN (${marks})
+      ORDER BY group_name, keyword`, flavors
   ).catch(() => []);
 }
 
@@ -3513,7 +3520,8 @@ async function sppShiftNudgeTick() {
 
     // เทียบด้วย plan_flavor เหมือนที่ sppTodaySkus ใช้ ไม่ใช่เทียบชื่อ SKU ตรง ๆ
     const done = await dbAll(
-      `SELECT DISTINCT COALESCE(m.plan_flavor, r.sku_keyword) AS flavor
+      // NULLIF กัน plan_flavor ที่เป็นสตริงว่าง (COALESCE เฉย ๆ จะได้ '' ไม่ใช่ keyword)
+      `SELECT DISTINCT COALESCE(NULLIF(TRIM(m.plan_flavor), ''), r.sku_keyword) AS flavor
          FROM production_reports r LEFT JOIN sku_master m ON m.keyword = r.sku_keyword
         WHERE r.work_day = ? AND r.shift = ?`, [workDay, shift]);
     const doneSet = new Set(done.map(d => (d.flavor || '').trim()).filter(Boolean));
