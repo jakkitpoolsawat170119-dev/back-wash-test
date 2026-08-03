@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { wakeFetch, wakeMessage } from '../lib/wakeFetch';
 
 // คิวตรวจ SKU หลังนำเข้าชีต "รายการสินค้าทั้งหมด" (~200 ตัว)
 // ชีตให้แค่รหัส/ชื่อ/เครื่อง — จำนวนชิ้นต่อหน่วยกับหน่วยนับต้องให้หน้างานยืนยัน
 // จนกว่าจะเติมครบ SKU จะ active=0 (ไม่โผล่ในฟอร์มลงยอด) เพื่อไม่ให้ยอดชิ้นเพี้ยน
 
-const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
 
 interface SkuRow {
   keyword: string;
@@ -36,13 +37,16 @@ const SkuReviewPanel: React.FC = () => {
   const [q, setQ] = useState('');
 
   const load = useCallback(async () => {
-    setLoading(true);
+    setLoading(true); setMsg('');
     try {
-      const r = await fetch(`${apiUrl}/api/sku/review`);
+      const r = await wakeFetch(`${apiUrl}/api/sku/review`, {
+        onState: s => setMsg(wakeMessage(s)),   // ขึ้น "กำลังปลุกเซิร์ฟเวอร์…" ระหว่างลองใหม่
+      });
       const d = await r.json();
       setRows(Array.isArray(d.items) ? d.items : []);
       setEdits({});
-    } catch { setMsg('โหลดรายการไม่สำเร็จ'); }
+      setMsg('');
+    } catch { setMsg(wakeMessage('error')); }
     setLoading(false);
   }, []);
 
@@ -52,7 +56,10 @@ const SkuReviewPanel: React.FC = () => {
     if (!window.confirm('ดึงรายการสินค้าทั้งหมดจากชีตเข้ามาใหม่?\n\nของที่ตั้งค่าไว้แล้ว (หน่วยนับ / จำนวนชิ้น / เครื่อง) จะไม่ถูกทับ')) return;
     setImporting(true); setMsg('');
     try {
-      const r = await fetch(`${apiUrl}/api/sku/import-all`, { method: 'POST' });
+      // ดึงชีต ~200 แถวใช้เวลานาน + อาจต้องปลุกเครื่องก่อน → ให้เวลาเยอะกว่าปกติ
+      const r = await wakeFetch(`${apiUrl}/api/sku/import-all`, {
+        method: 'POST', timeoutMs: 60000, onState: s => setMsg(wakeMessage(s)),
+      });
       const d = await r.json();
       if (!r.ok) { setMsg(`❌ ${d.error || 'นำเข้าไม่สำเร็จ'}`); }
       else {

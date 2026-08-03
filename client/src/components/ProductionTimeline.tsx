@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { wakeFetch, wakeMessage } from '../lib/wakeFetch';
 
 // ค้นยอดผลิตย้อนหลังข้ามช่วงวัน + กางไทม์ไลน์ของแต่ละใบ
 // หน้าอนุมัติดูได้ทีละวันเท่านั้น — หน้านี้ตอบคำถามแบบ "เดือนที่แล้ว Syrup800 ผลิตไปเท่าไร"
@@ -73,11 +74,13 @@ const ProductionTimeline: React.FC = () => {
       if (q.trim()) p.set('q', q.trim());
       if (shift) p.set('shift', shift);
       if (status) p.set('status', status);
-      const res = await fetch(`${apiUrl}/api/production/history?${p}`);
+      const res = await wakeFetch(`${apiUrl}/api/production/history?${p}`, {
+        onState: s => setErr(wakeMessage(s)),   // ปลุกเครื่องอยู่ ไม่ใช่พัง
+      });
       const d = await res.json();
       if (!res.ok) { setErr(d.error || 'ค้นไม่สำเร็จ'); setData(null); }
-      else setData({ items: d.items || [], summary: d.summary || [], total: d.total || 0 });
-    } catch { setErr('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้'); setData(null); }
+      else { setData({ items: d.items || [], summary: d.summary || [], total: d.total || 0 }); setErr(''); }
+    } catch { setErr(wakeMessage('error')); setData(null); }
     setLoading(false);
   }, [from, to, q, shift, status]);
 

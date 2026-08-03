@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { wakeFetch, wakeMessage } from '../lib/wakeFetch';
 
 const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
 
@@ -59,12 +60,14 @@ const ProductionApprovalBoard: React.FC<{ operator?: string }> = ({ operator }) 
   const [approver, setApprover] = useState(operator || '');
   const [photos, setPhotos] = useState<Record<string, string>>({});   // report_id → data URL | 'loading' | ''
   const [edit, setEdit] = useState<Record<string, EditDraft>>({});    // report_id → ร่างที่กำลังแก้ (มีคีย์ = กำลังแก้อยู่)
+  const [wake, setWake] = useState('');                               // ข้อความตอน Render กำลังตื่นจากหลับ
 
   const load = useCallback(() => {
-    fetch(`${apiUrl}/api/production/reports?date=${date}`)
+    // wakeFetch ลองใหม่ให้เองตอน Render ตื่นจากหลับ — คำขอแรกของวันมักช้าเกิน 50 วิ
+    wakeFetch(`${apiUrl}/api/production/reports?date=${date}`, { onState: s => setWake(wakeMessage(s)) })
       .then(r => r.json())
-      .then(d => setItems(d.items || []))
-      .catch(() => setItems([]));
+      .then(d => { setItems(d.items || []); setWake(''); })
+      .catch(() => { setItems([]); setWake(wakeMessage('error')); });
   }, [date]);
   useEffect(() => { setItems(null); load(); }, [load]);
 
@@ -489,7 +492,8 @@ const ProductionApprovalBoard: React.FC<{ operator?: string }> = ({ operator }) 
         <button onClick={load} style={{ ...btn, background: '#fff', color: '#3d2c1e', border: '1px solid #d9d2c7', alignSelf: 'flex-end' }}>🔄 รีเฟรช</button>
       </div>
 
-      {items === null && <div style={{ textAlign: 'center', color: '#8a7f72', padding: 30 }}>⏳ กำลังโหลด…</div>}
+      {wake && <div style={{ ...card, textAlign: 'center', color: '#8a5a00', background: '#fdf1de', borderColor: '#f3ddb8' }}>{wake}</div>}
+      {items === null && !wake && <div style={{ textAlign: 'center', color: '#8a7f72', padding: 30 }}>⏳ กำลังโหลด…</div>}
       {items?.length === 0 && <div style={{ ...card, textAlign: 'center', color: '#8a7f72' }}>ยังไม่มีรายงานของวันนี้</div>}
 
       {items && groups.map(([key, title]) => {
