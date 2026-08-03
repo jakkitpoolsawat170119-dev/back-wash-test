@@ -1048,6 +1048,24 @@ const sppTg = async (method, payload) => {
   catch (e) { console.error(`[SPP-TG] ${method} error`, e.response?.data || e.message); return null; }
 };
 
+// ชื่อบอท — ใช้ดูว่าในกลุ่มมีคนพิมพ์ @ชื่อบอท ไหม · ถามครั้งเดียวแล้วจำไว้
+let _sppBotUsername = null;
+const sppBotUsername = async () => {
+  if (_sppBotUsername !== null) return _sppBotUsername;
+  const r = await sppTg('getMe', {});
+  _sppBotUsername = r?.result?.username || '';
+  return _sppBotUsername;
+};
+
+// คำที่บอกว่าเป็น "คำถามย้อนหลัง" — ใช้ 2 ที่ (คัดว่าคุยกับบอทไหม + เลือกทางใน sppHandleText)
+const SPP_QUESTION_RE = /^(ถาม|สรุป)\b|[?？]\s*$|กี่|เท่าไห?ร่|เมื่อวาน|เดือน(นี้|ที่แล้ว|ก่อน)|สัปดาห์|ย้อนหลัง|เฉลี่ย|มากสุด|น้อยสุด|ใครลง/;
+
+// "ข้อความนี้เป็นเรื่องงานไหม" — ใช้เฉพาะตอนอยู่ในกลุ่ม เพื่อตัดสินว่าจะตอบหรือเงียบ
+// เข้มกว่าตอนแชทเดี่ยวตั้งใจ: ในกลุ่มมีคนคุยกันทั้งวัน แค่ "มีตัวเลข" ไม่พอ ต้องมีคำของงานด้วย
+const sppLooksLikeWork = (t) =>
+  !!t && (looksLikePlanText(t) || SPP_QUESTION_RE.test(t) || /^แผนผลิตวันนี้/.test(t)
+    || (/\d/.test(t) && /ได้|กล่อง|กระสอบ|ถุง|ปี๊บ|เครื่อง|เลข/.test(t)));
+
 // ส่งข้อความเข้ากลุ่ม SPP · คืน true เมื่อส่งสำเร็จจริง (ผู้เรียกใช้ตัดสินว่าจะบันทึกว่า "ส่งแล้ว" ไหม)
 const sendSppTelegram = async (text, extra = {}) => {
   if (!sppBotToken() || !sppChatId()) { console.error('[SPP-TG] missing token/chatId'); return false; }
@@ -3383,7 +3401,7 @@ async function sppHandleText(chatId, userId, text, sess, user = null) {
   // ข้อ 7: เป็นคำถาม → ส่งให้ผู้ช่วย AI ตอบจากฐานข้อมูล
   // แยกจาก "ลงยอด" ด้วยคำถามชัด ๆ — ถ้าเดาผิดฝั่งผู้ใช้จะงงมาก จึงคุมด้วยรายการคำ
   // ไม่ใช่ปล่อยให้ AI เดาเจตนา
-  if (/^(ถาม|สรุป)\b|[?？]\s*$|กี่|เท่าไห?ร่|เมื่อวาน|เดือน(นี้|ที่แล้ว|ก่อน)|สัปดาห์|ย้อนหลัง|เฉลี่ย|มากสุด|น้อยสุด|ใครลง/.test(t)) {
+  if (SPP_QUESTION_RE.test(t)) {
     return sppAskHistory(chatId, userId, t, user);
   }
 
@@ -3468,9 +3486,12 @@ async function sppTryPlanText(chatId, userId, draft, text, user) {
 
   let out;
   try {
+    // ⚠️ runAssistantConversation ไม่รับ "intent" — ต้องกาง hint/tool เองเหมือนที่ /api/assistant ทำ
+    //    (ส่ง intent เฉย ๆ จะถูกทิ้งเงียบ บอทจะคุยเล่นแทนที่จะแกะแผน)
+    const cfg = ASSISTANT_INTENT_HINTS.fill_plan;
     out = await runAssistantConversation({
       userMessage: text, operator: user?.name || '', persist: false, maxTurns: 3,
-      intent: 'fill_plan',
+      systemExtra: cfg.hint, forceTool: cfg.tool,
     });
   } catch (e) {
     console.error('[SPP plan] failed', e.message);
@@ -3805,6 +3826,22 @@ app.post('/api/telegram/spp-update', (req, res) => {
       const draft = sess.draft || {};
       let user = await getSppUser(userId);
 
+      // ── ในกลุ่ม บอทเห็นทุกข้อความ (ต้องปิด Privacy Mode ที่ BotFather ถึงจะเห็น)
+      //    จึงต้องคัดเองว่าอันไหน "คุยกับบอท" ไม่งั้นบอทจะแทรกทุกบทสนทนาของพนักงานทั้งกลุ่ม
+      const isGroup = msg?.chat?.type === 'group' || msg?.chat?.type === 'supergroup';
+      const rawText = upd.message?.text || '';
+      const uname = (isGroup && rawText) ? await sppBotUsername() : '';
+      const atBot = uname ? new RegExp('@' + uname + '\\b', 'i') : null;
+      // ตัด @ชื่อบอท ออกก่อน ไม่งั้นมันจะไปปนกับเนื้อความตอนแกะ
+      const text = atBot ? rawText.replace(new RegExp(atBot.source, 'gi'), ' ').replace(/\s+/g, ' ').trim() : rawText;
+      const forBot = !isGroup || !!cq
+        || (atBot && atBot.test(rawText))                        // พิมพ์ @ชื่อบอท
+        || /^\//.test(text)                                      // /คำสั่ง
+        || !!upd.message?.reply_to_message?.from?.is_bot         // กด reply ข้อความบอท
+        || !!sess.state                                          // ค้างกรอกฟอร์มอยู่ (รวมตอนส่งรูป)
+        || sppLooksLikeWork(text);                               // แผน / คำถาม / น่าจะเป็นการลงยอด
+      if (!forBot) return;                                       // คุยกันเองในกลุ่ม — เงียบไว้
+
       // ยังไม่รู้ว่าเป็นใคร → ถามก่อนเสมอ (ยกเว้นตอนกำลังตอบชื่ออยู่)
       if (!user && !cq && sess.state !== 'ask_name_type') {
         const shift = currentShiftCode();
@@ -3954,8 +3991,7 @@ app.post('/api/telegram/spp-update', (req, res) => {
         return;
       }
 
-      // ── ข้อความ ──
-      const text = upd.message?.text;
+      // ── ข้อความ ── (text ตัด @ชื่อบอท ออกแล้วตั้งแต่ต้น)
       if (!text) return;
       await db.exec('UPDATE spp_tg_user SET last_seen_at = ? WHERE telegram_user_id = ?', [nowBKK(), String(userId)]).catch(() => {});
       await sppHandleText(chatId, userId, text, { ...sess, draft }, user);
