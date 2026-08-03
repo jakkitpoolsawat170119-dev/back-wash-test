@@ -3377,8 +3377,8 @@ async function sppHandleText(chatId, userId, text, sess, user = null) {
   if (/^แผนผลิตวันนี้|^\/plan/i.test(t)) return sppShowPlan(chatId, userId, draft, 0);
   if (/ร่าง|ที่ลงไป|^\/draft/i.test(t)) return sppSend(chatId, await sppDraftText(draft), sppMainMenu(draft));
 
-  // ข้อ 1: ขึ้นต้นด้วย "ลงแผน" → เข้าโหมดลงแผนผลิต (เขียน shift_plans)
-  if (/^ลงแผน|^\/setplan/i.test(t)) return sppTryPlanText(chatId, userId, draft, t, user);
+  // ข้อ 1: ลงแผนผลิต — ต้องเช็คก่อนโหมดลงยอด ไม่งั้นแผนทั้งก้อนจะถูกอ่านเป็นการลงยอด
+  if (looksLikePlanText(t)) return sppTryPlanText(chatId, userId, draft, t, user);
 
   // ข้อ 7: เป็นคำถาม → ส่งให้ผู้ช่วย AI ตอบจากฐานข้อมูล
   // แยกจาก "ลงยอด" ด้วยคำถามชัด ๆ — ถ้าเดาผิดฝั่งผู้ใช้จะงงมาก จึงคุมด้วยรายการคำ
@@ -3413,13 +3413,58 @@ async function sppHandleText(chatId, userId, text, sess, user = null) {
 // ชั่วโมงกะไม่ต้องถาม — ระบบรู้จากวันในสัปดาห์ (จ–พฤ 3 กะ 8 ชม. · ศ–อา 2 กะ 12 ชม.)
 const SPP_SHIFT_LABEL = { 'กะเช้า': 'กะ1', 'กะบ่าย': 'กะ2', 'กะดึก': 'กะ3' };
 
+// รูปแบบแผนบรรจุที่โรงงานใช้จริง — หัวแผนตามด้วยรายการ "<สินค้า> =<Boxes>/<คน>"
+//   แผนบรรจุกะ 2
+//   วันที่ 03-08-26 (14.00-22.00)
+//   🔴 Icing 900×12 REG-CAN =206/10
+// ไม่บังคับให้ขึ้นต้นด้วย "ลงแผน" เพราะคนวางแผนจะ copy ทั้งก้อนมาวางตรง ๆ
+const PLAN_ITEM_RE = /=\s*\d+\s*\/\s*\d+/g;
+const looksLikePlanText = (t) =>
+  /^\s*(ลงแผน|\/setplan)/i.test(t)                                  // สั่งตรง ๆ
+  || (/^\s*(แผนบรรจุ|แผนผลิต)/i.test(t) && /=\s*\d/.test(t))         // หัวแผน + มีเป้าอย่างน้อย 1 รายการ
+                                                                     // (กัน "แผนผลิตวันนี้" ที่เป็นคำสั่งดูแผน ไม่ใช่ลงแผน)
+  || (t.match(PLAN_ITEM_RE) || []).length >= 2;                      // วางมาทั้งก้อนโดยไม่มีหัวแผน
+
+// อ่านวันที่+กะจากหัวแผน — เชื่อหัวแผนก่อน AI เพราะเป็นข้อความที่คนพิมพ์ไว้ตรง ๆ
+// คืน {} เมื่ออ่านไม่ได้ ให้ผู้เรียกถอยไปใช้ค่าจาก AI หรือวัน/กะปัจจุบัน
+function parsePlanHeader(text) {
+  const out = {};
+  // วันที่ DD-MM-YY หรือ DD/MM/YYYY — ปีสองหลักคือ ค.ศ. ย่อ (26 = 2026)
+  const d = text.match(/(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})/);
+  if (d) {
+    const day = Number(d[1]), mon = Number(d[2]);
+    let yr = Number(d[3]);
+    if (yr < 100) yr += 2000;
+    if (yr > 2400) yr -= 543;                       // เผื่อมีคนใส่ พ.ศ.
+    if (day >= 1 && day <= 31 && mon >= 1 && mon <= 12) {
+      out.work_day = `${yr}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+  // กะจากช่วงเวลาในหัวแผน — แม่นกว่าเลข "กะ 2" เพราะบางวันมี 2 กะ บางวันมี 3
+  const t = text.match(/(\d{1,2})[.:]\d{2}\s*[-–]\s*(\d{1,2})[.:]\d{2}/);
+  if (t) {
+    const s = Number(t[1]), e = Number(t[2]);
+    if (s === 6 && e === 14) out.shift = 'กะ1';
+    else if (s === 14) out.shift = 'กะ2';
+    else if (s === 22 || s === 18) out.shift = 'กะ3';
+    else if (s === 6) out.shift = 'กะ1';            // 06-18 = กะเช้า 12 ชม.
+  }
+  if (!out.shift) {
+    const g = text.match(/กะ\s*([123])/);           // "แผนบรรจุกะ 2"
+    if (g) out.shift = `กะ${g[1]}`;
+  }
+  return out;
+}
+
 async function sppTryPlanText(chatId, userId, draft, text, user) {
   if (!getAnthropic()) {
     return sppSend(chatId, '⚠️ ยังตั้งค่า AI ไม่เสร็จ — ลงแผนผ่านหน้าเว็บไปก่อนได้');
   }
-  // วันที่: "พรุ่งนี้" → +1 · "เมื่อวาน" → -1 · ไม่ระบุ = วันทำงานปัจจุบัน
+  // ลำดับความเชื่อถือของวันที่/กะ: หัวแผน → คำว่าพรุ่งนี้/เมื่อวาน → วันปัจจุบัน
   const base = workDayBKK();
-  const day = /พรุ่งนี้/.test(text) ? addDaysStr(base, 1) : /เมื่อวาน/.test(text) ? addDaysStr(base, -1) : base;
+  const hdr = parsePlanHeader(text);
+  const day = hdr.work_day
+    || (/พรุ่งนี้/.test(text) ? addDaysStr(base, 1) : /เมื่อวาน/.test(text) ? addDaysStr(base, -1) : base);
 
   let out;
   try {
@@ -3436,7 +3481,7 @@ async function sppTryPlanText(chatId, userId, draft, text, user) {
   if (!items.length) {
     return sppSend(chatId, '🤔 อ่านแล้วไม่เจอรายการเป้าผลิต\nพิมพ์แบบนี้ได้: <code>ลงแผนพรุ่งนี้กะเช้า Syrup800 300 กล่อง Icing900 200</code>');
   }
-  const shift = SPP_SHIFT_LABEL[out.planDraft.shift] || draft.header?.shift || currentShiftCode();
+  const shift = hdr.shift || SPP_SHIFT_LABEL[out.planDraft.shift] || draft.header?.shift || currentShiftCode();
 
   draft.plan_draft = { work_day: day, shift, items };
   await setSppSession(chatId, userId, '', draft);
@@ -7798,6 +7843,7 @@ const registerTelegramWebhook = async () => {
 module.exports = { app, initDb, shiftJustEnded, shiftsForWeekday, factoryShiftsForWeekday, rememberFact, recallFacts,
   forgetFact, memoryPromptBlock, buildAssistantSystem, runAssistantTool, getReportConfig,
   __test_sppShiftNudgeTick: sppShiftNudgeTick,
+  __test_parsePlanHeader: parsePlanHeader, __test_looksLikePlanText: looksLikePlanText,
   buildShiftCardData, runShiftAnalysis, getQualitySpecs, setQualitySpec, formatThaiDate };
 
 if (require.main === module) {
