@@ -613,6 +613,12 @@ async function initDb() {
   for (const col of ['reviewed_at', 'reviewed_by']) {
     try { await db.exec(`ALTER TABLE production_batches ADD COLUMN ${col} TEXT`); } catch { /* มีแล้ว */ }
   }
+  // เฟส 3 ข้อ 6: กันเตือนสิ้นกะซ้ำ — UNIQUE(work_day, shift) ทำให้ INSERT ชนะได้ครั้งเดียว
+  // ใช้ INSERT แทน flag เพราะ scheduler เช็คทุก 60 วิ และอาจมีหลาย instance พร้อมกัน
+  try {
+    await db.exec(`CREATE TABLE IF NOT EXISTS spp_shift_nudge (
+        id ${db.pk}, work_day TEXT, shift TEXT, sent_at TEXT, UNIQUE(work_day, shift))`);
+  } catch { /* มีแล้ว */ }
   // migration (เฟส 2): review_note = เหตุผลที่ SKU ตัวนี้ยังเปิดใช้ไม่ได้ (คิวรอตรวจหลัง import ทั้งชีต)
   try { await db.exec('ALTER TABLE sku_master ADD COLUMN review_note TEXT'); } catch { /* มีแล้ว */ }
   // pallet_route: 1/NULL = สายพาน → robot จัดเรียงพาเลท (คลังเห็นของเอง) · 2 = พนักงานบรรจุจัดเรียงเอง
@@ -3361,16 +3367,206 @@ async function sppHandleText(chatId, userId, text, sess, user = null) {
 
   // ไม่ได้อยู่ในฟอร์ม — ถือเป็นคำสั่ง
   const t = text.trim();
-  if (/แผนผลิตวันนี้|^\/plan/i.test(t)) return sppShowPlan(chatId, userId, draft, 0);
+  if (/^แผนผลิตวันนี้|^\/plan/i.test(t)) return sppShowPlan(chatId, userId, draft, 0);
   if (/ร่าง|ที่ลงไป|^\/draft/i.test(t)) return sppSend(chatId, await sppDraftText(draft), sppMainMenu(draft));
 
-  // ข้อ 2: ไม่ตรงคำสั่งไหนเลย → ลองแกะเป็นการลงยอด ก่อนจะตอบเมนู
+  // ข้อ 1: ขึ้นต้นด้วย "ลงแผน" → เข้าโหมดลงแผนผลิต (เขียน shift_plans)
+  if (/^ลงแผน|^\/setplan/i.test(t)) return sppTryPlanText(chatId, userId, draft, t, user);
+
+  // ข้อ 7: เป็นคำถาม → ส่งให้ผู้ช่วย AI ตอบจากฐานข้อมูล
+  // แยกจาก "ลงยอด" ด้วยคำถามชัด ๆ — ถ้าเดาผิดฝั่งผู้ใช้จะงงมาก จึงคุมด้วยรายการคำ
+  // ไม่ใช่ปล่อยให้ AI เดาเจตนา
+  if (/^(ถาม|สรุป)\b|[?？]\s*$|กี่|เท่าไห?ร่|เมื่อวาน|เดือน(นี้|ที่แล้ว|ก่อน)|สัปดาห์|ย้อนหลัง|เฉลี่ย|มากสุด|น้อยสุด|ใครลง/.test(t)) {
+    return sppAskHistory(chatId, userId, t, user);
+  }
+
+  // ข้อ 2: ไม่ตรงอะไรเลย → ลองแกะเป็นการลงยอด ก่อนจะตอบเมนู
   // ต้องมีตัวเลขอย่างน้อย 1 ตัวถึงจะคุ้มเรียก AI (ทักทายเปล่า ๆ ไม่ต้องเสียเงิน)
   if (/\d/.test(t) && t.length >= 6) {
     const hit = await sppTryFreeText(chatId, userId, draft, t, user);
     if (hit) return hit;
   }
-  return sppSend(chatId, '👋 <b>Production_SPP</b>\nพิมพ์ยอดมาได้เลย เช่น <code>Amazon 750 ได้ 120 กล่อง เครื่อง Linear#1 เลข 1440</code>\nหรือเลือกจากเมนูด้านล่าง', sppMainMenu(draft));
+  return sppSend(chatId, [
+    '👋 <b>Production_SPP</b>',
+    '',
+    '<b>ลงยอด</b> — พิมพ์มาได้เลย',
+    '<code>Amazon 750 ได้ 120 กล่อง เครื่อง Linear#1 เลข 1440</code>',
+    '',
+    '<b>ลงแผน</b> — ขึ้นต้นด้วยคำว่า "ลงแผน"',
+    '<code>ลงแผนพรุ่งนี้กะเช้า Syrup800 300 กล่อง</code>',
+    '',
+    '<b>ถามย้อนหลัง</b> — ถามเป็นคำถามได้เลย',
+    '<code>เมื่อวานกะดึกผลิตอะไรบ้าง</code>',
+  ].join('\n'), sppMainMenu(draft));
+}
+
+// ── ข้อ 1: ลงแผนผลิตในบอท ──────────────────────────────────────────────────
+// ใช้ intent 'fill_plan' ของผู้ช่วย AI ที่มีอยู่แล้ว (แกะข้อความแผน → รายการเป้าผลิต)
+// แล้วเขียนลง shift_plans เส้นทางเดียวกับ POST /api/shift-plan
+// ชั่วโมงกะไม่ต้องถาม — ระบบรู้จากวันในสัปดาห์ (จ–พฤ 3 กะ 8 ชม. · ศ–อา 2 กะ 12 ชม.)
+const SPP_SHIFT_LABEL = { 'กะเช้า': 'กะ1', 'กะบ่าย': 'กะ2', 'กะดึก': 'กะ3' };
+
+async function sppTryPlanText(chatId, userId, draft, text, user) {
+  if (!getAnthropic()) {
+    return sppSend(chatId, '⚠️ ยังตั้งค่า AI ไม่เสร็จ — ลงแผนผ่านหน้าเว็บไปก่อนได้');
+  }
+  // วันที่: "พรุ่งนี้" → +1 · "เมื่อวาน" → -1 · ไม่ระบุ = วันทำงานปัจจุบัน
+  const base = workDayBKK();
+  const day = /พรุ่งนี้/.test(text) ? addDaysStr(base, 1) : /เมื่อวาน/.test(text) ? addDaysStr(base, -1) : base;
+
+  let out;
+  try {
+    out = await runAssistantConversation({
+      userMessage: text, operator: user?.name || '', persist: false, maxTurns: 3,
+      intent: 'fill_plan',
+    });
+  } catch (e) {
+    console.error('[SPP plan] failed', e.message);
+    return sppSend(chatId, '❌ แกะแผนไม่สำเร็จ ลองพิมพ์ใหม่ให้ชัดขึ้น เช่น <code>ลงแผนพรุ่งนี้กะเช้า Syrup800 300 กล่อง</code>');
+  }
+
+  const items = out?.planDraft?.items || [];
+  if (!items.length) {
+    return sppSend(chatId, '🤔 อ่านแล้วไม่เจอรายการเป้าผลิต\nพิมพ์แบบนี้ได้: <code>ลงแผนพรุ่งนี้กะเช้า Syrup800 300 กล่อง Icing900 200</code>');
+  }
+  const shift = SPP_SHIFT_LABEL[out.planDraft.shift] || draft.header?.shift || currentShiftCode();
+
+  draft.plan_draft = { work_day: day, shift, items };
+  await setSppSession(chatId, userId, '', draft);
+
+  const hrs = factoryShiftsForWeekday(new Date(`${day}T12:00:00`).getDay()).length === 2 ? 12 : 8;
+  return sppSend(chatId, [
+    `📋 <b>แผนผลิต · ${escapeHtml(formatThaiDate(day))} ${escapeHtml(shift)}</b>`,
+    `<i>กะ ${hrs} ชม. (ระบบดูจากวันในสัปดาห์ให้)</i>`,
+    '',
+    ...items.map(it => `• ${escapeHtml(it.flavor)} — <b>${it.target_boxes}</b> กล่อง <i>(${it.target_batches} batch)</i>`),
+    '',
+    'ถูกต้องไหม?',
+  ].join('\n'), [
+    [{ text: '✅ บันทึกแผน', callback_data: 's:planok' }],
+    [{ text: '❌ ยกเลิก', callback_data: 's:planno' }],
+  ]);
+}
+
+async function sppSavePlan(chatId, userId, draft, user) {
+  const p = draft.plan_draft;
+  if (!p?.items?.length) return sppSend(chatId, 'ไม่มีร่างแผนค้างอยู่', sppMainMenu(draft));
+  const now = nowBKK();
+  let saved = 0;
+  try {
+    for (const it of p.items) {
+      await db.exec(
+        `INSERT INTO shift_plans (work_day, shift, flavor, target_boxes, target_batches, staff, machine_code, spec, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(work_day, shift, flavor)
+         DO UPDATE SET target_boxes=excluded.target_boxes, target_batches=excluded.target_batches,
+                       staff=excluded.staff, machine_code=excluded.machine_code, spec=excluded.spec, created_at=excluded.created_at`,
+        [p.work_day, p.shift, it.flavor, it.target_boxes, it.target_batches, it.staff, it.machine_code || '', it.spec || '', now]
+      );
+      saved++;
+    }
+  } catch (e) {
+    console.error('[SPP plan] save failed', e.message);
+    return sppSend(chatId, `❌ บันทึกไม่สำเร็จ: ${escapeHtml(e.message)}`, sppMainMenu(draft));
+  }
+  delete draft.plan_draft;
+  await setSppSession(chatId, userId, '', draft);
+  console.log(`[SPP plan] ${p.work_day} ${p.shift} saved=${saved} by=${user?.name || '-'}`);
+  return sppSend(chatId, [
+    `✅ <b>บันทึกแผนแล้ว ${saved} รายการ</b>`,
+    `${escapeHtml(formatThaiDate(p.work_day))} · ${escapeHtml(p.shift)}`,
+    '',
+    '<i>พนักงานพิมพ์ "แผนผลิตวันนี้" จะเห็นรายการนี้',
+    'และถ้าลงยอดไม่ครบ บอทจะเตือนตอนใกล้หมดกะให้เอง</i>',
+  ].join('\n'), sppMainMenu(draft));
+}
+
+// ── ข้อ 6: บอทตามงานตอนใกล้หมดกะ ───────────────────────────────────────────
+// เกาะ scheduler เดิม (เช็คทุก 60 วิ) — เตือน 15 นาทีก่อนกะจบว่ามีตัวไหนในแผน
+// ที่ยังไม่มีใครลงยอด · กันส่งซ้ำด้วยตาราง spp_shift_nudge (คีย์ = วัน+กะ)
+// ทำงานเฉพาะเมื่อมีแผนในระบบ — ไม่มีแผนก็ไม่รู้ว่าควรมีอะไร จึงเงียบไว้
+const SPP_NUDGE_MINUTES_BEFORE = 15;
+
+async function sppShiftNudgeTick() {
+  if (!sppBotToken() || !sppChatId()) return;
+  try {
+    const bkk = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' });
+    const hour = Number(bkk.slice(11, 13)), min = Number(bkk.slice(14, 16));
+    const wd = new Date(`${bkk.slice(0, 10)}T12:00:00`).getDay();
+
+    // ตรงกับนาทีที่ต้องเตือนของกะไหนไหม (จบกะ ลบ 15 นาที)
+    const hit = factoryShiftsForWeekday(wd).find(s => {
+      const endMin = (s.end * 60 + 1440 - SPP_NUDGE_MINUTES_BEFORE) % 1440;
+      return Math.floor(endMin / 60) === hour && endMin % 60 === min;
+    });
+    if (!hit) return;
+
+    const workDay = workDayBKK();
+    const shift = { 'เช้า': 'กะ1', 'บ่าย': 'กะ2', 'ดึก': 'กะ3' }[hit.key];
+    // จองสิทธิ์ส่งก่อนทำงานจริง — INSERT ชนกันได้ครั้งเดียว กันยิงซ้ำแม้มีหลาย instance
+    try {
+      await db.exec('INSERT INTO spp_shift_nudge (work_day, shift, sent_at) VALUES (?,?,?)', [workDay, shift, nowBKK()]);
+    } catch { return; }   // มีแถวแล้ว = เตือนไปแล้ว
+
+    const plans = await dbAll('SELECT flavor, target_boxes FROM shift_plans WHERE work_day = ? AND shift = ? ORDER BY flavor', [workDay, shift]);
+    if (!plans.length) return;    // ไม่มีแผน → ไม่รู้ว่าควรมีอะไร เงียบไว้
+
+    // เทียบด้วย plan_flavor เหมือนที่ sppTodaySkus ใช้ ไม่ใช่เทียบชื่อ SKU ตรง ๆ
+    const done = await dbAll(
+      `SELECT DISTINCT COALESCE(m.plan_flavor, r.sku_keyword) AS flavor
+         FROM production_reports r LEFT JOIN sku_master m ON m.keyword = r.sku_keyword
+        WHERE r.work_day = ? AND r.shift = ?`, [workDay, shift]);
+    const doneSet = new Set(done.map(d => (d.flavor || '').trim()).filter(Boolean));
+    const left = plans.filter(p => !doneSet.has((p.flavor || '').trim()));
+
+    if (!left.length) {
+      console.log(`[SPP nudge] ${workDay} ${shift} ครบแล้ว ไม่ต้องเตือน`);
+      return;
+    }
+    await sendSppTelegram([
+      `⏰ <b>ใกล้หมด${escapeHtml(shift)}แล้ว (อีก ${SPP_NUDGE_MINUTES_BEFORE} นาที)</b>`,
+      '',
+      `แผนกะนี้มี <b>${plans.length}</b> ตัว · ลงยอดมาแล้ว <b>${plans.length - left.length}</b> ตัว`,
+      '',
+      'ยังไม่ได้ลง:',
+      ...left.map(p => `• <b>${escapeHtml(p.flavor)}</b> (แผน ${p.target_boxes} กล่อง)`),
+      '',
+      '<i>พิมพ์ยอดเข้ามาในแชทได้เลย · ถ้ากะนี้ไม่ได้ผลิตก็บอกได้</i>',
+    ].join('\n'));
+    console.log(`[SPP nudge] ${workDay} ${shift} เตือน ${left.length}/${plans.length} รายการ`);
+  } catch (e) {
+    console.error('[SPP nudge] failed', e.message);
+  }
+}
+
+// ── ข้อ 7: ถามข้อมูลย้อนหลังในแชท ──────────────────────────────────────────
+// ต่อกับผู้ช่วย AI ตัวเดิมที่มี query_database / query_production_range อยู่แล้ว
+// ไม่สร้างสมองที่สอง — คำตอบจึงตรงกับที่ถามในหน้าเว็บเสมอ
+// session ผูกกับ chat เพื่อให้ถามต่อเนื่องได้ ("แล้วเดือนก่อนล่ะ")
+async function sppAskHistory(chatId, userId, text, user) {
+  if (!getAnthropic()) return sppSend(chatId, '⚠️ ยังตั้งค่า AI ไม่เสร็จ — ดูย้อนหลังที่หน้า "ประวัติยอดผลิต" ในเว็บได้');
+  await sppTg('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {});
+  try {
+    const out = await runAssistantConversation({
+      userMessage: text,
+      operator: user?.name || '',
+      session: `tg:${chatId}`,
+      maxTurns: 6,
+      systemExtra: [
+        'ตอนนี้คุณกำลังตอบในแชท Telegram ของบอทลงยอดผลิต:',
+        '- ตอบสั้น กระชับ อ่านบนมือถือได้ ไม่ต้องมีหัวข้อย่อยเยอะ',
+        '- ตอบด้วยตัวเลขจริงจากฐานข้อมูลเท่านั้น ห้ามเดา ไม่มีข้อมูลให้บอกตรง ๆ',
+        '- ห้ามใช้ Markdown ตาราง (Telegram แสดงไม่ได้) ใช้บรรทัดละรายการแทน',
+      ].join('\n'),
+    });
+    const reply = String(out?.reply || '').trim();
+    if (!reply) return sppSend(chatId, 'ไม่มีข้อมูลตอบคำถามนี้');
+    // ผู้ช่วยตอบเป็น Markdown — Telegram parse_mode=HTML จะพังถ้ามี < > ดิบ ส่งเป็น escape ไว้ก่อน
+    return sppSend(chatId, escapeHtml(reply).slice(0, 3800));
+  } catch (e) {
+    console.error('[SPP ask] failed', e.message);
+    return sppSend(chatId, `❌ ตอบไม่สำเร็จ: ${escapeHtml(e.message)}`);
+  }
 }
 
 // แกะข้อความ → เติมลงร่าง → ให้ sppAskNext ถามเฉพาะช่องที่ยังขาด
@@ -3623,6 +3819,12 @@ app.post('/api/telegram/spp-update', (req, res) => {
         if (data === 's:clear') {
           await clearSppSession(chatId, userId); await ack('ล้างที่กรอกค้างแล้ว');
           await sppSend(chatId, 'ล้างที่กรอกค้างแล้ว ✅ <i>(ของที่ยืนยันไปแล้วยังอยู่ในแอป)</i>', sppMainMenu({})); return;
+        }
+        // ⚠️ s:planok / s:planno ต้องเช็คก่อน s:plan — ไม่งั้นโดน startsWith ดักไปแสดงแผนแทน
+        if (data === 's:planok') { await ack('กำลังบันทึก…'); await sppSavePlan(chatId, userId, draft, user); return; }
+        if (data === 's:planno') {
+          delete draft.plan_draft; await setSppSession(chatId, userId, '', draft);
+          await ack('ยกเลิกแล้ว'); await sppSend(chatId, 'ยกเลิกแผนแล้ว ✅', sppMainMenu(draft)); return;
         }
         if (data.startsWith('s:plan')) { await ack(); await sppShowPlan(chatId, userId, draft, Number(data.split(':')[2] || 0)); return; }
         if (data.startsWith('s:all')) { await ack(); await sppShowAll(chatId, userId, draft, Number(data.split(':')[2] || 0)); return; }
@@ -7587,6 +7789,7 @@ const registerTelegramWebhook = async () => {
 // เผยฟังก์ชันภายในให้เทสต์ require ได้ (โดยไม่ต้องบูตเซิร์ฟเวอร์)
 module.exports = { app, initDb, shiftJustEnded, shiftsForWeekday, factoryShiftsForWeekday, rememberFact, recallFacts,
   forgetFact, memoryPromptBlock, buildAssistantSystem, runAssistantTool, getReportConfig,
+  __test_sppShiftNudgeTick: sppShiftNudgeTick,
   buildShiftCardData, runShiftAnalysis, getQualitySpecs, setQualitySpec, formatThaiDate };
 
 if (require.main === module) {
@@ -7602,7 +7805,7 @@ if (require.main === module) {
         // (แต่ต้องปิด Telegram Trigger ใน n8n v4 ก่อน เพราะใช้บอทตัวเดียวกัน)
         registerSppWebhook();
         // ตัวจับเวลาส่งรายงานอัตโนมัติ + วิเคราะห์สิ้นกะ (เฟส 1) — เช็กทุกนาที (ต้องให้เซิร์ฟเวอร์ตื่นอยู่; มี Keep-Warm ping ช่วย)
-        setInterval(() => { reportTick(); reminderTick(); shiftAnalysisTick(); kpiReportTick(); kpiAlertTick(); sheetSyncTick(); }, 60 * 1000);
+        setInterval(() => { reportTick(); reminderTick(); shiftAnalysisTick(); kpiReportTick(); kpiAlertTick(); sheetSyncTick(); sppShiftNudgeTick(); }, 60 * 1000);
         console.log('[report] scheduler started (every 60s) + shift-analysis');
       });
     })
