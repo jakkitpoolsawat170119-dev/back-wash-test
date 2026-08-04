@@ -3897,7 +3897,9 @@ app.post('/api/telegram/spp-update', (req, res) => {
       const uname = (isGroup && rawText) ? await sppBotUsername() : '';
       const atBot = uname ? new RegExp('@' + uname + '\\b', 'i') : null;
       // ตัด @ชื่อบอท ออกก่อน ไม่งั้นมันจะไปปนกับเนื้อความตอนแกะ
-      const text = atBot ? rawText.replace(new RegExp(atBot.source, 'gi'), ' ').replace(/\s+/g, ' ').trim() : rawText;
+      // ⚠️ ห้ามใช้ \s+ ยุบช่องว่าง — มันกลืน \n ไปด้วย แล้วแผนทั้งหน้าจะเหลือบรรทัดเดียว
+      //    ตัวแกะแผนอ่านทีละบรรทัด พอไม่มี \n ก็แกะไม่ออก ตกไปใช้ AI แล้วชื่อเพี้ยน/รายการหาย
+      const text = atBot ? rawText.replace(new RegExp(atBot.source, 'gi'), ' ').replace(/[^\S\n]+/g, ' ').trim() : rawText;
       const forBot = !isGroup || !!cq
         || (atBot && atBot.test(rawText))                        // พิมพ์ @ชื่อบอท
         || /^\//.test(text)                                      // /คำสั่ง
