@@ -3479,12 +3479,21 @@ function parsePlanHeader(text) {
 // ย่อชื่อจนสองรายการซ้ำกัน ("Syrup 800×12" กับ "Syrup 1.8×8" กลายเป็น "Syrup" ทั้งคู่)
 // และทำรายการหล่นหายเงียบ ๆ ("ชาเช่ ...=25/5" หายทั้งบรรทัด)
 // คืน skipped ด้วย เพื่อโชว์ให้ผู้ใช้เห็นว่าอะไรถูกข้าม จะได้ไม่มีอะไรหายแบบไม่รู้ตัว
+// คำนำหน้าที่เป็น "หมายเหตุ" ไม่ใช่ส่วนหนึ่งของชื่อสินค้า — ในแผนจริงเขียนติดกับชื่อเลย เช่น
+//   "ครบแล้วทำCaramel Señorita750×6EX=16ก."  → สินค้าคือ Caramel Señorita750×6EX
+// ตัวท้าย EX คือของลูกค้าอีกเจ้า เป็น SKU คนละตัวกับ Caramel Señorita750×6 ต้องลงยอดแยกกัน
+// จับเฉพาะคำไทยที่ลงท้ายด้วย "ทำ" (ครบแล้วทำ/เสร็จแล้วทำ) — ชื่อสินค้าไทยจริง (ชาเช่, ปี๊บ) ไม่โดน
+const PLAN_NOTE_PREFIX = /^(?:[฀-๿]{1,12}ทำ|ต่อด้วย|แล้วต่อ)\s*/;
+
 function parsePlanItems(text) {
   const items = [], skipped = [];
-  const mk = (name, boxes, staff) => {
+  const mk = (rawName, boxes, staff) => {
+    // ตัดคำนำหน้าออก แต่ถ้าตัดแล้วไม่เหลือชื่อ ให้ใช้ของเดิม — ห้ามได้ชื่อว่าง
+    const stripped = rawName.replace(PLAN_NOTE_PREFIX, '').trim();
+    const name = /[\p{L}\p{N}]/u.test(stripped) ? stripped : rawName;
     const mc = name.match(/\[([^\]]+)\]/);
     return {
-      flavor: name,                                        // ชื่อตามที่เขียนในแผนเป๊ะ ๆ ห้ามแปลง
+      flavor: name,                                        // นอกนั้นเก็บตามที่เขียนในแผนเป๊ะ ๆ ห้ามแปลง
       target_boxes: Number(String(boxes).replace(/,/g, '')),
       staff: staff == null ? null : Number(staff),
       machine_code: mc ? mc[1].trim() : '',
