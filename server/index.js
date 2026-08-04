@@ -3474,45 +3474,97 @@ function parsePlanHeader(text) {
   return out;
 }
 
-async function sppTryPlanText(chatId, userId, draft, text, user) {
-  if (!getAnthropic()) {
-    return sppSend(chatId, '⚠️ ยังตั้งค่า AI ไม่เสร็จ — ลงแผนผ่านหน้าเว็บไปก่อนได้');
+// แกะรายการในแผนบรรจุแบบ "ตรงตัว" ไม่ใช้ AI — รูปแบบของโรงงานคงที่พอที่จะอ่านเองได้
+// ทำเองเพราะปล่อยให้ AI แกะแล้วมันเปลี่ยนชื่อสินค้า ("ปี๊บ 1×20" → "Dilute W-Molass"),
+// ย่อชื่อจนสองรายการซ้ำกัน ("Syrup 800×12" กับ "Syrup 1.8×8" กลายเป็น "Syrup" ทั้งคู่)
+// และทำรายการหล่นหายเงียบ ๆ ("ชาเช่ ...=25/5" หายทั้งบรรทัด)
+// คืน skipped ด้วย เพื่อโชว์ให้ผู้ใช้เห็นว่าอะไรถูกข้าม จะได้ไม่มีอะไรหายแบบไม่รู้ตัว
+function parsePlanItems(text) {
+  const items = [], skipped = [];
+  const mk = (name, boxes, staff) => {
+    const mc = name.match(/\[([^\]]+)\]/);
+    return {
+      flavor: name,                                        // ชื่อตามที่เขียนในแผนเป๊ะ ๆ ห้ามแปลง
+      target_boxes: Number(String(boxes).replace(/,/g, '')),
+      staff: staff == null ? null : Number(staff),
+      machine_code: mc ? mc[1].trim() : '',
+      spec: '',
+    };
+  };
+  for (const rawLine of String(text || '').split('\n')) {
+    const line = rawLine.replace(/^[^\p{L}\p{N}]+/u, '').trim();   // ตัด 🔴 • - นำหน้าออก
+    if (!line.includes('=')) continue;                              // หัวแผน/หมายเหตุ ไม่มี = ข้ามหมด
+    const eq = line.lastIndexOf('=');
+    const name = line.slice(0, eq).trim().replace(/[,\s]+$/, '');
+    const rhs = line.slice(eq + 1).trim();
+    if (!name) continue;
+
+    // "=3000/9" → เป้า 3000 กล่อง ใช้คน 9
+    let m = rhs.match(/^(\d[\d,]*)\s*\/\s*(\d+)/);
+    if (m) { items.push(mk(name, m[1], m[2])); continue; }
+
+    // "=16ก." / "=16 กล่อง" → มีหน่วยกำกับ แปลว่าเป็นเป้าผลิต ไม่ใช่จำนวนคน
+    m = rhs.match(/^(\d[\d,]*)\s*(ก\.|กล่อง|ลัง|ถุง|กระสอบ|ปี๊บ)/);
+    if (m) { items.push(mk(name, m[1], null)); continue; }
+
+    // "=2" เปล่า ๆ → งานซัพพอร์ต เลขคือจำนวนคน ไม่ใช่เป้าผลิต
+    if (/^\d+\s*$/.test(rhs)) skipped.push(`${name}=${rhs}`);
   }
+  return { items, skipped };
+}
+
+async function sppTryPlanText(chatId, userId, draft, text, user) {
   // ลำดับความเชื่อถือของวันที่/กะ: หัวแผน → คำว่าพรุ่งนี้/เมื่อวาน → วันปัจจุบัน
   const base = workDayBKK();
   const hdr = parsePlanHeader(text);
   const day = hdr.work_day
     || (/พรุ่งนี้/.test(text) ? addDaysStr(base, 1) : /เมื่อวาน/.test(text) ? addDaysStr(base, -1) : base);
 
-  let out;
-  try {
-    // ⚠️ runAssistantConversation ไม่รับ "intent" — ต้องกาง hint/tool เองเหมือนที่ /api/assistant ทำ
-    //    (ส่ง intent เฉย ๆ จะถูกทิ้งเงียบ บอทจะคุยเล่นแทนที่จะแกะแผน)
-    const cfg = ASSISTANT_INTENT_HINTS.fill_plan;
-    out = await runAssistantConversation({
-      userMessage: text, operator: user?.name || '', persist: false, maxTurns: 3,
-      systemExtra: cfg.hint, forceTool: cfg.tool,
-    });
-  } catch (e) {
-    console.error('[SPP plan] failed', e.message);
-    return sppSend(chatId, '❌ แกะแผนไม่สำเร็จ ลองพิมพ์ใหม่ให้ชัดขึ้น เช่น <code>ลงแผนพรุ่งนี้กะเช้า Syrup800 300 กล่อง</code>');
+  // แกะเองก่อนเสมอ — เร็ว ฟรี และที่สำคัญคือ "ตรงตามที่เขียน" ไม่เปลี่ยนชื่อ ไม่ทำหล่น
+  // AI เป็นตัวสำรอง ใช้เฉพาะตอนพิมพ์เป็นประโยค เช่น "ลงแผนพรุ่งนี้กะเช้า Syrup800 300 กล่อง"
+  const direct = parsePlanItems(text);
+  let items = direct.items;
+  const skipped = direct.skipped;
+  let out = null;
+
+  if (!items.length) {
+    if (!getAnthropic()) {
+      return sppSend(chatId, '⚠️ ยังตั้งค่า AI ไม่เสร็จ — ลงแผนผ่านหน้าเว็บไปก่อนได้');
+    }
+    try {
+      // ⚠️ runAssistantConversation ไม่รับ "intent" — ต้องกาง hint/tool เองเหมือนที่ /api/assistant ทำ
+      //    (ส่ง intent เฉย ๆ จะถูกทิ้งเงียบ บอทจะคุยเล่นแทนที่จะแกะแผน)
+      const cfg = ASSISTANT_INTENT_HINTS.fill_plan;
+      out = await runAssistantConversation({
+        userMessage: text, operator: user?.name || '', persist: false, maxTurns: 3,
+        systemExtra: cfg.hint, forceTool: cfg.tool,
+      });
+    } catch (e) {
+      console.error('[SPP plan] failed', e.message);
+      return sppSend(chatId, '❌ แกะแผนไม่สำเร็จ ลองพิมพ์ใหม่ให้ชัดขึ้น เช่น <code>ลงแผนพรุ่งนี้กะเช้า Syrup800 300 กล่อง</code>');
+    }
+    items = out?.planDraft?.items || [];
   }
 
-  const items = out?.planDraft?.items || [];
   if (!items.length) {
     return sppSend(chatId, '🤔 อ่านแล้วไม่เจอรายการเป้าผลิต\nพิมพ์แบบนี้ได้: <code>ลงแผนพรุ่งนี้กะเช้า Syrup800 300 กล่อง Icing900 200</code>');
   }
-  const shift = hdr.shift || SPP_SHIFT_LABEL[out.planDraft.shift] || draft.header?.shift || currentShiftCode();
+  const shift = hdr.shift || SPP_SHIFT_LABEL[out?.planDraft?.shift] || draft.header?.shift || currentShiftCode();
 
   draft.plan_draft = { work_day: day, shift, items };
   await setSppSession(chatId, userId, '', draft);
 
   const hrs = factoryShiftsForWeekday(new Date(`${day}T12:00:00`).getDay()).length === 2 ? 12 : 8;
+  const total = items.reduce((s, it) => s + (Number(it.target_boxes) || 0), 0);
   return sppSend(chatId, [
     `📋 <b>แผนผลิต · ${escapeHtml(formatThaiDate(day))} ${escapeHtml(shift)}</b>`,
     `<i>กะ ${hrs} ชม. (ระบบดูจากวันในสัปดาห์ให้)</i>`,
     '',
-    ...items.map(it => `• ${escapeHtml(it.flavor)} — <b>${it.target_boxes}</b> กล่อง <i>(${it.target_batches} batch)</i>`),
+    // ไม่โชว์ batch แล้ว — 1 batch = 100 กล่อง ใช้ไม่ได้กับสินค้าทุกตัว เลขที่ได้เลยไม่มีความหมาย
+    ...items.map(it => `• ${escapeHtml(it.flavor)}\n   <b>${it.target_boxes.toLocaleString()}</b> กล่อง${it.staff ? ` · ${it.staff} คน` : ''}`),
+    '',
+    `รวม <b>${total.toLocaleString()}</b> กล่อง · ${items.length} รายการ`,
+    ...(skipped.length ? ['', `<i>ข้ามงานซัพพอร์ต ${skipped.length} รายการ: ${escapeHtml(skipped.join(', '))}</i>`] : []),
     '',
     'ถูกต้องไหม?',
   ].join('\n'), [
@@ -3534,7 +3586,10 @@ async function sppSavePlan(chatId, userId, draft, user) {
          ON CONFLICT(work_day, shift, flavor)
          DO UPDATE SET target_boxes=excluded.target_boxes, target_batches=excluded.target_batches,
                        staff=excluded.staff, machine_code=excluded.machine_code, spec=excluded.spec, created_at=excluded.created_at`,
-        [p.work_day, p.shift, it.flavor, it.target_boxes, it.target_batches, it.staff, it.machine_code || '', it.spec || '', now]
+        // target_batches คิดตอนบันทึกเอง (แกะแบบตรงตัวไม่ได้ส่งมา) · ไม่มีใครอ่านค่านี้ เก็บไว้ให้คอลัมน์ไม่ว่างเฉย ๆ
+        [p.work_day, p.shift, it.flavor, it.target_boxes,
+          isFinite(Number(it.target_batches)) ? Number(it.target_batches) : Math.round((Number(it.target_boxes) / 100) * 10) / 10,
+          it.staff ?? null, it.machine_code || '', it.spec || '', now]
       );
       saved++;
     }
@@ -7880,6 +7935,7 @@ module.exports = { app, initDb, shiftJustEnded, shiftsForWeekday, factoryShiftsF
   forgetFact, memoryPromptBlock, buildAssistantSystem, runAssistantTool, getReportConfig,
   __test_sppShiftNudgeTick: sppShiftNudgeTick,
   __test_parsePlanHeader: parsePlanHeader, __test_looksLikePlanText: looksLikePlanText,
+  __test_parsePlanItems: parsePlanItems,
   buildShiftCardData, runShiftAnalysis, getQualitySpecs, setQualitySpec, formatThaiDate };
 
 if (require.main === module) {
