@@ -17,8 +17,12 @@ interface Report {
   fix_note?: string | null; fix_count?: number | null;          // เฟส 2: ประวัติการถูกส่งกลับให้แก้
   wh_ack_at?: string | null; wh_ack_by?: string | null;         // เฟส 2: คลังกดรับทราบในการ์ด LINE
   has_pallet_photo?: boolean;                                   // รูปโหลดแยกตอนกดดู (ไม่ติดมากับลิสต์)
-  payload?: { ai_flags?: { level: string; text: string }[] };    // ป้ายเตือนจากการตรวจเชิงกฎ (ไม่ตัดสินแทนหัวหน้า)
-  counter?: number | null; machine_cycle?: number | null;        // เฟส 3: หัวหน้าแก้ได้ก่อนส่งคลัง
+  // ⚠️ counter / machine_cycle อยู่ "ใน payload" ไม่ใช่คอลัมน์ของแถว — API ส่งมาเป็น payload.counter
+  //    เคยประกาศไว้ระดับบนสุดแล้วอ่าน r.counter ตรง ๆ ได้ undefined ตลอด ช่องเลยโชว์ "—" ทั้งที่กรอกมาแล้ว
+  payload?: {
+    ai_flags?: { level: string; text: string }[];                // ป้ายเตือนจากการตรวจเชิงกฎ (ไม่ตัดสินแทนหัวหน้า)
+    counter?: number | null; machine_cycle?: number | null;      // เฟส 3: หัวหน้าแก้ได้ก่อนส่งคลัง
+  };
   reviewed_at?: string | null; reviewed_by?: string | null;      // เฟส 3: หัวหน้ากด "ตรวจแล้ว" รายตัว
   edited_by?: string | null; edit_count?: number | null;         // เฟส 3: ร่องรอยการแก้ของหัวหน้า
 }
@@ -84,8 +88,8 @@ const ProductionApprovalBoard: React.FC<{ operator?: string }> = ({ operator }) 
   const startEdit = (r: Report) => setEdit(e => ({
     ...e,
     [r.report_id]: {
-      prod_qty: String(r.prod_qty ?? ''), counter: String(r.counter ?? ''),
-      machine_cycle: String(r.machine_cycle ?? ''), machine: r.machine || '', reporter_name: r.reporter_name || '',
+      prod_qty: String(r.prod_qty ?? ''), counter: String(r.payload?.counter ?? ''),
+      machine_cycle: String(r.payload?.machine_cycle ?? ''), machine: r.machine || '', reporter_name: r.reporter_name || '',
     },
   }));
   const cancelEdit = (id: string) => setEdit(({ [id]: _drop, ...rest }) => rest);
@@ -97,8 +101,8 @@ const ProductionApprovalBoard: React.FC<{ operator?: string }> = ({ operator }) 
     // ส่งเฉพาะช่องที่เปลี่ยนจริง — server เก็บ log ทุกการแก้ ไม่อยากให้มีแถวขยะ
     const fields: Record<string, string | number> = {};
     if (Number(d.prod_qty) !== Number(r.prod_qty ?? 0)) fields.prod_qty = Number(d.prod_qty);
-    if (Number(d.counter) !== Number(r.counter ?? 0)) fields.counter = Number(d.counter);
-    if (Number(d.machine_cycle) !== Number(r.machine_cycle ?? 0)) fields.machine_cycle = Number(d.machine_cycle);
+    if (Number(d.counter) !== Number(r.payload?.counter ?? 0)) fields.counter = Number(d.counter);
+    if (Number(d.machine_cycle) !== Number(r.payload?.machine_cycle ?? 0)) fields.machine_cycle = Number(d.machine_cycle);
     if (d.machine.trim() !== (r.machine || '')) fields.machine = d.machine.trim();
     if (d.reporter_name.trim() !== (r.reporter_name || '')) fields.reporter_name = d.reporter_name.trim();
     if (!Object.keys(fields).length) { cancelEdit(r.report_id); return; }
@@ -282,9 +286,9 @@ const ProductionApprovalBoard: React.FC<{ operator?: string }> = ({ operator }) 
           {r.status === 'pending_review' ? (
             <>
               <div style={numBox('#fdfbf9', '#e5e0d8')}><div style={numL}>เลขหน้าเครื่อง</div>
-                <div style={numV}>{r.counter ?? '—'}</div><div style={numL}>ชิ้น</div></div>
+                <div style={numV}>{r.payload?.counter ?? '—'}</div><div style={numL}>ชิ้น</div></div>
               <div style={numBox('#fdfbf9', '#e5e0d8')}><div style={numL}>เดินรอบเครื่อง</div>
-                <div style={numV}>{r.machine_cycle ?? '—'}</div><div style={numL}>รอบ</div></div>
+                <div style={numV}>{r.payload?.machine_cycle ?? '—'}</div><div style={numL}>รอบ</div></div>
             </>
           ) : (
             <>

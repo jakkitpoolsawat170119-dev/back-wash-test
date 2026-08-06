@@ -2019,6 +2019,13 @@ async function decideReport(reportId, approve, actor, opts = {}) {
   if (r.status !== 'pending_approval') return { ok: false, message: `รายการนี้ถูกตัดสินไปแล้ว (${r.status})`, status: r.status };
   const source = opts.approved_source === 'production' ? 'production' : 'warehouse';
   const qty = approve ? (source === 'production' ? r.prod_qty : r.wh_qty) : null;
+  // ยึดเลขคลังทั้งที่คลังยังไม่ได้นับ = ส่งค่าว่างเข้า Google Sheet เงียบ ๆ · ต้องกันไว้ที่นี่
+  // (เกิดได้จริงตอนใบเด้งมา pending_approval โดยข้ามคลัง — ตัวเลือกในหน้าอนุมัติตั้งต้นที่ "คลังนับได้")
+  if (approve && qty == null) {
+    return { ok: false, message: source === 'warehouse'
+      ? 'คลังยังไม่ได้นับใบนี้ — เลือก "ยึดยอดฝ่ายผลิต" หรือส่งให้คลังนับก่อน'
+      : 'ใบนี้ไม่มียอดฝ่ายผลิต' , status: r.status };
+  }
   await db.exec(
     `UPDATE production_reports SET status=?, approver_name=?, approved_qty=?, approved_source=?, decision_note=?, decided_at=?, updated_at=?
      WHERE report_id=? AND status='pending_approval'`,
@@ -2628,10 +2635,16 @@ async function sendBackReport(reportId, actor, note, channel = 'web') {
     return { ok: false, message: `สถานะ "${r.status}" ส่งกลับให้แก้ไม่ได้`, status: r.status };
   }
 
+  // จำไว้ว่าถูกดึงกลับมาจากขั้นไหน — พอแก้เสร็จต้องคืนไปที่เดิมเป๊ะ ๆ ห้ามข้ามขั้น
+  // (ส่งกลับตอน pending_review = คลังยังไม่เคยเห็นใบนี้ ถ้าเด้งไป pending_approval เลยคือข้ามคลังทั้งขั้น)
+  let backPl = {};
+  try { backPl = JSON.parse(r.payload || '{}'); } catch { /* payload เสีย — เริ่มก้อนใหม่ */ }
+  backPl.sent_back_from = r.status;
+
   const upd = await db.exec(
-    `UPDATE production_reports SET status='needs_fix', fix_note=?, updated_at=?
+    `UPDATE production_reports SET status='needs_fix', fix_note=?, payload=?, updated_at=?
       WHERE report_id=? AND status=?`,
-    [note, nowBKK(), reportId, r.status]
+    [note, JSON.stringify(backPl), nowBKK(), reportId, r.status]
   );
   if (!upd.rowCount) return { ok: false, message: 'รายการนี้ถูกจัดการไปแล้ว' };
   await logReportEvent(reportId, 'sent_back', actor, note, channel, 'supervisor');
@@ -2664,7 +2677,13 @@ app.post('/api/production/report/:reportId/send-back', async (req, res) => {
 
 // ── ขั้นที่ 4: หัวหน้าตรวจก่อนส่งคลัง ────────────────────────────────────
 // ช่องที่หัวหน้าแก้ได้ตอน pending_review · นอกลิสต์นี้แก้ไม่ได้ (กันแก้ยอดคลัง/สถานะ/token)
-const REVIEW_EDITABLE = ['sku_keyword', 'product_name', 'machine', 'reporter_name', 'prod_qty', 'counter', 'machine_cycle'];
+// ⚠️ counter / machine_cycle ไม่ใช่คอลัมน์จริง — มันเป็นคีย์ใน JSON คอลัมน์ payload (ดู createReportRow)
+//    เคยรวมไว้ในลิสต์เดียวกัน UPDATE เลยยิงใส่คอลัมน์ที่ไม่มีอยู่ → 500 ทุกครั้งที่หัวหน้าแก้เลขหน้าเครื่อง
+//    (ทั้ง Postgres และ SQLite ฟ้องเหมือนกัน ที่หลุดถึงหน้างานเพราะไม่มีเทสต์ตัวไหนแตะ counter เลย)
+//    สองลิสต์นี้ห้ามเอามารวมกันอีก
+const REVIEW_EDITABLE = ['sku_keyword', 'product_name', 'machine', 'reporter_name', 'prod_qty'];
+const REVIEW_EDITABLE_PAYLOAD = ['counter', 'machine_cycle'];
+const REVIEW_NUMERIC = ['prod_qty', 'counter', 'machine_cycle'];
 
 // แก้ค่าก่อนส่งคลัง — ล็อกทันทีที่ออกจาก pending_review เพราะคลังนับเทียบกับเลขที่ส่งไป
 app.patch('/api/production/report/:reportId', async (req, res) => {
@@ -2682,9 +2701,10 @@ app.patch('/api/production/report/:reportId', async (req, res) => {
     const patch = req.body?.fields || {};
     for (const k of REVIEW_EDITABLE) {
       if (!(k in patch)) continue;
+      const isNum = REVIEW_NUMERIC.includes(k);
       const before = r[k];
-      const after = ['prod_qty', 'counter', 'machine_cycle'].includes(k) ? Math.round(Number(patch[k])) : String(patch[k]).trim();
-      if (['prod_qty', 'counter', 'machine_cycle'].includes(k) && (!Number.isFinite(after) || after < 0)) {
+      const after = isNum ? Math.round(Number(patch[k])) : String(patch[k]).trim();
+      if (isNum && (!Number.isFinite(after) || after < 0)) {
         return res.status(400).json({ error: `ค่า ${k} ไม่ถูกต้อง` });
       }
       if (String(before ?? '') === String(after)) continue;
@@ -2696,17 +2716,38 @@ app.patch('/api/production/report/:reportId', async (req, res) => {
     if ('prod_qty' in patch) {
       sets.push('prod_pcs=?'); vals.push(Math.round(Number(patch.prod_qty)) * (Number(r.pack_factor) || 0));
     }
-    // ของเสีย 5 ช่อง + รูปค้างพาเลท อยู่ใน payload
-    if (patch.damaged || 'pallet_photo' in patch) {
-      let pl = {};
-      try { pl = JSON.parse(r.payload || '{}'); } catch { /* payload เสีย — เขียนทับด้วยของใหม่ */ }
-      if (patch.damaged) { pl.damaged = patch.damaged; changes.push('ภาชนะบรรจุชำรุด'); }
-      if ('pallet_photo' in patch) {
-        if (patch.pallet_photo) pl.pallet_photo = patch.pallet_photo; else delete pl.pallet_photo;
-        changes.push(patch.pallet_photo ? 'เปลี่ยนรูปค้างพาเลท' : 'ลบรูปค้างพาเลท');
+
+    // ── ของที่อยู่ใน payload: เลขหน้าเครื่อง/รอบเดินเครื่อง + ของเสีย 5 ช่อง + รูปค้างพาเลท ──
+    // อ่านทั้งก้อนครั้งเดียว แก้ในหน่วยความจำ แล้วเขียนกลับครั้งเดียว — payload เขียนทับทั้งก้อน
+    // ถ้าแยกกันเขียนหลายรอบ ของที่ไม่ได้แก้จะหายไป
+    let pl = null;
+    let payloadDirty = false;
+    const openPayload = () => {
+      if (pl === null) {
+        try { pl = JSON.parse(r.payload || '{}'); } catch { pl = {}; }   // payload เสีย — เริ่มก้อนใหม่
       }
-      sets.push('payload=?'); vals.push(JSON.stringify(pl));
+      return pl;
+    };
+    for (const k of REVIEW_EDITABLE_PAYLOAD) {
+      if (!(k in patch)) continue;
+      const after = Math.round(Number(patch[k]));
+      if (!Number.isFinite(after) || after < 0) {
+        return res.status(400).json({ error: `ค่า ${k} ไม่ถูกต้อง` });
+      }
+      const p = openPayload();
+      const before = Number(p[k]) || 0;
+      if (before === after) continue;
+      p[k] = after; payloadDirty = true;
+      changes.push(`${k}: ${before} → ${after}`);
     }
+    if (patch.damaged) { openPayload().damaged = patch.damaged; payloadDirty = true; changes.push('ภาชนะบรรจุชำรุด'); }
+    if ('pallet_photo' in patch) {
+      const p = openPayload();
+      if (patch.pallet_photo) p.pallet_photo = patch.pallet_photo; else delete p.pallet_photo;
+      payloadDirty = true;
+      changes.push(patch.pallet_photo ? 'เปลี่ยนรูปค้างพาเลท' : 'ลบรูปค้างพาเลท');
+    }
+    if (payloadDirty) { sets.push('payload=?'); vals.push(JSON.stringify(pl)); }
     if (!sets.length) return res.json({ ok: true, changed: 0, message: 'ไม่มีอะไรเปลี่ยน' });
 
     const now = nowBKK();
@@ -3157,12 +3198,27 @@ function currentShiftCode() {
 }
 
 // ── state ของบทสนทนา ────────────────────────────────────────────────────────
+// state ค้างเกิน 2 ชม. = คนเดินจากไปแล้ว ไม่ใช่กำลังกรอกอยู่ · ทิ้ง state แต่ "เก็บร่างไว้"
+// (ร่าง = ยอดทั้งกะที่ยืนยันไปแล้ว ต้องอยู่ข้ามการหลับของ Render — คนละเรื่องกับตำแหน่งในฟอร์ม)
+// ถ้าปล่อยให้ค้าง: บอทจะถือว่าข้อความถัดไปของคนนี้ในกลุ่ม "คุยกับบอทอยู่" แล้วกลืนไปเป็นคำตอบของฟอร์ม
+const SPP_STATE_TTL_MS = 2 * 60 * 60 * 1000;
 async function getSppSession(chatId, userId) {
-  const rows = await dbAll('SELECT state, draft FROM spp_tg_session WHERE chat_id = ? AND user_id = ?', [String(chatId), String(userId)]);
+  const rows = await dbAll('SELECT state, draft, updated_at FROM spp_tg_session WHERE chat_id = ? AND user_id = ?', [String(chatId), String(userId)]);
   if (!rows[0]) return { state: '', draft: {} };
   let draft = {};
   try { draft = JSON.parse(rows[0].draft || '{}'); } catch { /* ร่างเสีย — เริ่มใหม่ดีกว่าพัง */ }
-  return { state: rows[0].state || '', draft };
+  let state = rows[0].state || '';
+  if (state && rows[0].updated_at) {
+    const age = new Date(nowBKK()).getTime() - new Date(rows[0].updated_at).getTime();
+    // เทียบสองสตริงรูปแบบเดียวกัน (nowBKK) → ผลต่างถูกเสมอไม่ว่า server อยู่โซนไหน
+    if (Number.isFinite(age) && age > SPP_STATE_TTL_MS) {
+      state = '';
+      delete draft.fix;                                        // ยอดที่รอยืนยันค้างไว้ก็หมดอายุไปด้วย
+      delete draft.current;                                    // รายการที่กรอกค้างครึ่ง ๆ — ให้เริ่มใหม่
+      await setSppSession(chatId, userId, '', draft).catch(() => {});
+    }
+  }
+  return { state, draft };
 }
 async function setSppSession(chatId, userId, state, draft) {
   await db.exec(
@@ -3313,9 +3369,17 @@ async function sppAskNext(chatId, userId, draft) {
   ]);
 }
 
-// ตัวเลขล้วน (ผู้ใช้พิมพ์ 1,200 หรือมีช่องว่างได้)
+// ตัวเลขล้วน (ผู้ใช้พิมพ์ 1,200 หรือ 1 200 ได้ — เป็นตัวคั่นหลักพัน)
+// ⚠️ ห้ามลบช่องว่างทิ้งดื้อ ๆ แล้วแปลงเป็นเลข: "36 200 40" จะกลายเป็น 3620040 ทันที
+//    คนพิมพ์เลขหลายตัวในข้อความเดียวเกิดขึ้นจริง (โดยเฉพาะในกลุ่ม) — ต้องปฏิเสธ ไม่ใช่เดา
+//    รับเฉพาะ "เลขก้อนเดียว" · คั่นหลักพันต้องเป็นกลุ่มละ 3 หลักเป๊ะเท่านั้น
+const SPP_NUM_PLAIN = /^\d+(?:\.\d+)?$/;                     // 3000 · 1440 · 12.5
+const SPP_NUM_GROUPED = /^\d{1,3}(?:[,\s]\d{3})+(?:\.\d+)?$/; // 3,000 · 1 200 · 1,234,567
 const sppNum = (t) => {
-  const v = Number(String(t || '').replace(/[,\s]/g, ''));
+  const s = String(t ?? '').trim();
+  if (!s) return null;
+  if (!SPP_NUM_PLAIN.test(s) && !SPP_NUM_GROUPED.test(s)) return null;
+  const v = Number(s.replace(/[,\s]/g, ''));
   return Number.isFinite(v) && v >= 0 ? v : null;
 };
 
@@ -3365,10 +3429,22 @@ async function sppHandleText(chatId, userId, text, sess, user = null) {
     draft.current.damaged = damaged;
     return sppAskNext(chatId, userId, draft);
   }
-  if (sess.state === 'fix_qty') {
+  // กำลังแก้ใบที่หัวหน้าส่งกลับ — รับได้ทีละช่องที่ผู้ใช้กดเลือกไว้เท่านั้น
+  // ค่าที่พิมพ์เข้ามาจะเก็บไว้ในร่างก่อน ยังไม่แตะ DB จนกว่าจะกด "ส่งกลับให้หัวหน้า"
+  if (sess.state.startsWith('fixv:')) {
+    const code = sess.state.slice(5);
+    const f = SPP_FIX_FIELDS[code];
+    if (!f) { await setSppSession(chatId, userId, '', draft); return sppSend(chatId, 'ไม่รู้จักช่องที่กำลังแก้'); }
     const v = sppNum(text);
-    if (v === null) return sppSend(chatId, '⚠️ ต้องเป็นตัวเลข');
-    return sppApplyFix(chatId, userId, draft, v);
+    if (v === null) {
+      // เดิมยอมรับข้อความที่มีเลขหลายตัวแล้วเชื่อมติดกัน — "36200 40" เคยกลายเป็น 3620040 มาแล้ว
+      return sppSend(chatId, [
+        `⚠️ <b>${escapeHtml(f.label)}</b> ต้องเป็น<b>ตัวเลขตัวเดียว</b> เช่น <code>3000</code>`,
+        'ถ้าจะแก้หลายช่อง พิมพ์ทีละช่องแล้วกดเลือกช่องถัดไป',
+        '<i>ไม่ได้ตั้งใจจะแก้ พิมพ์ "ยกเลิก"</i>',
+      ].join('\n'));
+    }
+    return sppTakeFixValue(chatId, userId, draft, code, v);
   }
   if (sess.state === 'item_photo') {
     // กำลังรอรูปอยู่ — ถ้าปล่อยข้อความหลุดเงียบ ๆ ผู้ใช้จะนึกว่าบอทค้าง
@@ -4040,6 +4116,26 @@ app.post('/api/telegram/spp-update', (req, res) => {
           delete draft.current.pallet_photo; delete draft.current.checked;
           await ack('ส่งรูปมาได้เลย'); await sppAskNext(chatId, userId, draft); return;
         }
+        // ⚠️ s:fixf / s:fixdone / s:fixcancel ต้องอยู่ก่อน s:fix: — ไม่งั้นโดน startsWith ดักไปเปิดเมนูใหม่
+        if (data.startsWith('s:fixf:')) {
+          const code = data.slice(7);
+          const f = SPP_FIX_FIELDS[code];
+          if (!f || !draft.fix?.report_id) { await ack('เลือกไม่สำเร็จ'); return; }
+          const r = (await dbAll('SELECT * FROM production_reports WHERE report_id = ?', [draft.fix.report_id]))[0];
+          if (!r) { await ack('ไม่พบรายงานนี้'); return; }
+          await setSppSession(chatId, userId, `fixv:${code}`, draft);
+          await ack();
+          await sppSend(chatId, `พิมพ์ <b>${escapeHtml(f.label)}</b> ที่ถูกต้อง (${escapeHtml(f.unit || r.count_unit)})\n<i>ตอนนี้คือ ${sppFixCurrent(r, code)}</i>`);
+          return;
+        }
+        if (data === 's:fixdone') { await ack('กำลังส่ง'); await sppApplyFix(chatId, userId, draft); return; }
+        if (data === 's:fixcancel') {
+          delete draft.fix;
+          await setSppSession(chatId, userId, '', draft);
+          await ack('ยกเลิกแล้ว');
+          await sppSend(chatId, 'ยกเลิกการแก้แล้ว ✅ <i>(ใบนี้ยังรอแก้อยู่ กดปุ่มในข้อความของหัวหน้าเพื่อเริ่มใหม่)</i>', sppMainMenu(draft));
+          return;
+        }
         if (data.startsWith('s:fix:')) { await ack(); await sppStartFix(chatId, userId, draft, data.slice(6)); return; }
         await ack();
         return;
@@ -4066,47 +4162,139 @@ app.post('/api/telegram/spp-update', (req, res) => {
 });
 
 // ── วงจร "หัวหน้าส่งกลับให้แก้" ฝั่งบอท ─────────────────────────────────────
-// กดปุ่มจากข้อความแจ้งเตือน → บอทถามยอดใหม่ → แก้ที่ "แถวเดิม" เสมอ (ห้าม insert ใหม่/ห้ามลบ)
+// กดปุ่มจากข้อความแจ้งเตือน → เลือกว่าจะแก้ช่องไหน → พิมพ์ค่า → ส่งกลับ · แก้ที่ "แถวเดิม" เสมอ
+//
+// ⚠️ บทเรียน 2026-08-04 (ใบ RPT-1785852378898-406): เดิมบอทถามได้อย่างเดียวคือ "ยอด"
+//    หัวหน้าส่งกลับมาว่า "ใส่เลขหน้าเครื่องและรอบเดินเครื่อง" พนักงานพิมพ์ "36200 40" มาตามที่ถูกขอ
+//    บอทเอาไปลงช่องยอด แล้ว sppNum เชื่อมเลขสองตัวเป็น 3620040 → ยอด 3 พันกลายเป็น 3.6 ล้าน
+//    ฉะนั้น "ช่องที่แก้ได้" ต้องครอบคลุมสิ่งที่หัวหน้าขอได้จริง และต้องให้คนเลือกช่องเอง ไม่ใช่บอทเดา
+const SPP_FIX_FIELDS = {
+  qty:     { key: 'prod_qty',      label: 'ยอดผลิต',       where: 'column'  },
+  counter: { key: 'counter',       label: 'เลขหน้าเครื่อง', where: 'payload', unit: 'ชิ้น' },
+  cycle:   { key: 'machine_cycle', label: 'รอบเดินเครื่อง', where: 'payload', unit: 'รอบ'  },
+};
+// เตือนเมื่อยอดใหม่ต่างจากของเดิม/จากแผนแบบผิดสังเกต แต่ไม่บล็อก (คนหน้างานรู้ดีกว่าระบบ)
+const SPP_FIX_ALERT_RATIO = 5;
+
+const sppFixCurrent = (r, code) => {
+  const f = SPP_FIX_FIELDS[code];
+  if (f.where === 'column') return Number(r[f.key]) || 0;
+  let pl = {};
+  try { pl = JSON.parse(r.payload || '{}'); } catch { /* payload เสีย */ }
+  return Number(pl[f.key]) || 0;
+};
+
 async function sppStartFix(chatId, userId, draft, reportId) {
   const r = (await dbAll('SELECT * FROM production_reports WHERE report_id = ?', [reportId]))[0];
   if (!r) return sppSend(chatId, 'ไม่พบรายงานนี้');
   if (r.status !== 'needs_fix') return sppSend(chatId, `รายการนี้ไม่ได้รออยู่ในสถานะแก้ไขแล้ว (${escapeHtml(r.status)})`);
-  draft.fix = { report_id: reportId };
-  await setSppSession(chatId, userId, 'fix_qty', draft);
+  draft.fix = { report_id: reportId, pending: {} };
+  return sppFixMenu(chatId, userId, draft, r);
+}
+
+// เมนูกลางของวงจรแก้ — โชว์ค่าปัจจุบัน + ค่าที่กำลังจะแก้ · ยังไม่เขียน DB จนกว่าจะกด "ส่งกลับให้หัวหน้า"
+async function sppFixMenu(chatId, userId, draft, r) {
+  const pending = draft.fix?.pending || {};
+  await setSppSession(chatId, userId, '', draft);          // ไม่ค้าง state ระหว่างอยู่หน้าเมนู
+
+  const lines = Object.entries(SPP_FIX_FIELDS).map(([code, f]) => {
+    const cur = sppFixCurrent(r, code);
+    const unit = f.unit || r.count_unit;
+    return code in pending
+      ? `• ${f.label}: <s>${cur}</s> → <b>${pending[code]} ${escapeHtml(unit)}</b>`
+      : `• ${f.label}: ${cur} ${escapeHtml(unit)}`;
+  });
+
+  const kb = Object.entries(SPP_FIX_FIELDS).map(([code, f]) =>
+    [{ text: `✏️ ${f.label}`, callback_data: `s:fixf:${code}` }]);
+  if (Object.keys(pending).length) kb.push([{ text: '📤 ส่งกลับให้หัวหน้า', callback_data: 's:fixdone' }]);
+  kb.push([{ text: '❌ ยกเลิก', callback_data: 's:fixcancel' }]);
+
   return sppSend(chatId, [
     `✏️ <b>แก้ไข: ${escapeHtml(r.product_name || r.sku_keyword)}</b>`,
     `${escapeHtml(r.work_day)} · ${escapeHtml(r.shift)}`,
-    `ยอดที่ส่งไปเดิม: <b>${r.prod_qty} ${escapeHtml(r.count_unit)}</b>`,
-    r.wh_qty != null ? `คลังนับได้: <b>${r.wh_qty} ${escapeHtml(r.count_unit)}</b>` : null,
     r.fix_note ? `\n📝 หัวหน้าแจ้ง: <i>${escapeHtml(r.fix_note)}</i>` : null,
+    r.wh_qty != null ? `คลังนับได้: <b>${r.wh_qty} ${escapeHtml(r.count_unit)}</b>` : null,
     '',
-    `พิมพ์ <b>ยอดที่ถูกต้อง</b> (${escapeHtml(r.count_unit)})`,
-  ].filter(Boolean).join('\n'));
+    ...lines,
+    '',
+    Object.keys(pending).length ? 'แก้ช่องอื่นต่อได้ หรือกดส่งกลับให้หัวหน้า' : '<b>เลือกช่องที่จะแก้</b>',
+  ].filter(Boolean).join('\n'), kb);
 }
 
-async function sppApplyFix(chatId, userId, draft, newQty) {
+// รับค่าที่พิมพ์เข้ามาของช่องที่เลือกไว้ — เก็บไว้ในร่างก่อน ยังไม่แตะ DB
+async function sppTakeFixValue(chatId, userId, draft, code, value) {
   const reportId = draft.fix?.report_id;
   if (!reportId) { await setSppSession(chatId, userId, '', draft); return sppSend(chatId, 'ไม่พบรายการที่กำลังแก้'); }
   const r = (await dbAll('SELECT * FROM production_reports WHERE report_id = ?', [reportId]))[0];
+  if (!r) { await setSppSession(chatId, userId, '', draft); return sppSend(chatId, 'ไม่พบรายงานนี้'); }
+
+  if (code === 'qty') {
+    const old = Number(r.prod_qty) || 0;
+    const plan = Number(r.plan_qty) || 0;
+    const wild = (old > 0 && (value > old * SPP_FIX_ALERT_RATIO || value * SPP_FIX_ALERT_RATIO < old))
+              || (plan > 0 && value > plan * SPP_FIX_ALERT_RATIO);
+    if (wild) await sppSend(chatId, `⚠️ <b>ยอดใหม่ต่างจากเดิมมากผิดปกติ</b> (${old} → ${value})\nดูอีกทีว่าพิมพ์ถูกช่องไหม ก่อนกดส่งกลับ`);
+  }
+  draft.fix.pending[code] = value;
+  return sppFixMenu(chatId, userId, draft, r);
+}
+
+async function sppApplyFix(chatId, userId, draft) {
+  const reportId = draft.fix?.report_id;
+  const pending = draft.fix?.pending || {};
+  if (!reportId) { await setSppSession(chatId, userId, '', draft); return sppSend(chatId, 'ไม่พบรายการที่กำลังแก้'); }
+  if (!Object.keys(pending).length) return sppSend(chatId, 'ยังไม่ได้แก้อะไรเลย');
+  const r = (await dbAll('SELECT * FROM production_reports WHERE report_id = ?', [reportId]))[0];
   if (!r) return sppSend(chatId, 'ไม่พบรายงานนี้');
 
-  const packFactor = Number(r.pack_factor) || 0;
-  const prodPcs = newQty * packFactor;
-  // คลังนับไปแล้ว → คิด variance ใหม่เทียบเลขคลังเดิม (ไม่ออกลิงก์ใหม่ กันลิงก์ท่วมกลุ่ม)
+  const sets = [], vals = [], changes = [];
+  let pl = {};
+  try { pl = JSON.parse(r.payload || '{}'); } catch { /* payload เสีย — เริ่มก้อนใหม่ */ }
+
+  // เลขหน้าเครื่อง / รอบเดินเครื่อง อยู่ใน payload ไม่ใช่คอลัมน์ (ดู createReportRow)
+  for (const code of ['counter', 'cycle']) {
+    if (!(code in pending)) continue;
+    const f = SPP_FIX_FIELDS[code];
+    changes.push(`${f.label} ${Number(pl[f.key]) || 0} → ${pending[code]}`);
+    pl[f.key] = pending[code];
+  }
+
+  // ยอดเปลี่ยน → ชิ้น/สถานะผลิต/ผลต่างกับคลัง ต้องคิดใหม่ทั้งชุด ห้ามคิดแยกส่วน
   const whQty = r.wh_qty;
-  const diff = whQty != null ? whQty - newQty : null;
-  const pct = (whQty != null && newQty) ? Math.round((diff / newQty) * 1000) / 10 : null;
-  const prodStatus = r.plan_qty > 0 && newQty < r.plan_qty ? 'ไม่ได้ยอดผลิต' : 'ได้ยอดผลิต';
+  const newQty = 'qty' in pending ? pending.qty : (Number(r.prod_qty) || 0);
+  if ('qty' in pending) {
+    const diff = whQty != null ? whQty - newQty : null;
+    const pct = (whQty != null && newQty) ? Math.round((diff / newQty) * 1000) / 10 : null;
+    sets.push('prod_qty=?', 'prod_pcs=?', 'prod_status=?', 'variance_qty=?', 'variance_pct=?', 'variance_flag=?');
+    vals.push(newQty, newQty * (Number(r.pack_factor) || 0),
+      r.plan_qty > 0 && newQty < r.plan_qty ? 'ไม่ได้ยอดผลิต' : 'ได้ยอดผลิต',
+      diff, pct, diff === null ? null : (diff === 0 ? 'match' : 'diff'));
+    changes.push(`ยอดผลิต ${r.prod_qty} → ${newQty} ${r.count_unit}`);
+  }
+
+  // ── คืนสถานะไปที่ "ขั้นเดิมที่ถูกดึงกลับมา" ห้ามข้ามขั้นเด็ดขาด ──
+  // ส่งกลับตอนหัวหน้าตรวจ → กลับไปรอหัวหน้าตรวจใหม่ (และต้องล้าง "ตรวจแล้ว" ให้ตรวจซ้ำ เพราะเลขเปลี่ยนไปแล้ว)
+  // ส่งกลับตอนรออนุมัติ (คลังนับแล้ว) → กลับไปรออนุมัติเหมือนเดิม
+  // ใบเก่าที่ถูกส่งกลับก่อนมีการจำสถานะต้นทาง: เดาจากเลขคลัง — ยังไม่มีเลขคลัง = คลังยังไม่เคยนับ
+  const backFrom = pl.sent_back_from || (whQty == null ? 'pending_review' : 'pending_approval');
+  const nextStatus = backFrom === 'pending_review' ? 'pending_review' : 'pending_approval';
+  delete pl.sent_back_from;                                   // ใช้แล้วทิ้ง ไม่ให้ค้างไปรอบหน้า
+
+  // กลับไปขั้นตรวจ = ยังไม่ผ่านการตรวจ · ห้ามให้ reviewed_at ค้างจากรอบก่อน
+  // ไม่งั้นปุ่ม "ส่งให้คลัง" จะปล่อยผ่านทั้งที่หัวหน้ายังไม่เห็นเลขใหม่
+  const clearReview = nextStatus === 'pending_review' ? ', reviewed_at=NULL, reviewed_by=NULL' : '';
 
   // conditional UPDATE + rowCount — กันสองคนกดแก้พร้อมกัน
   const upd = await db.exec(
     `UPDATE production_reports
-        SET prod_qty=?, prod_pcs=?, prod_status=?, variance_qty=?, variance_pct=?, variance_flag=?,
-            status='pending_approval', fix_count=COALESCE(fix_count,0)+1, updated_at=?
+        SET ${sets.join(', ')}${sets.length ? ',' : ''}
+            status=?, payload=?, fix_count=COALESCE(fix_count,0)+1, updated_at=?${clearReview}
       WHERE report_id=? AND status='needs_fix'`,
-    [newQty, prodPcs, prodStatus, diff, pct, diff === null ? null : (diff === 0 ? 'match' : 'diff'), nowBKK(), reportId]
+    [...vals, nextStatus, JSON.stringify(pl), nowBKK(), reportId]
   );
   if (!upd.rowCount) {
+    delete draft.fix;
     await setSppSession(chatId, userId, '', draft);
     return sppSend(chatId, '⚠️ รายการนี้ถูกจัดการไปแล้ว');
   }
@@ -4115,17 +4303,18 @@ async function sppApplyFix(chatId, userId, draft, newQty) {
   await setSppSession(chatId, userId, '', draft);
   // ร่างถูกล้างไปตอนส่งกะแล้ว → header.reporter ว่าง ต้องดึงชื่อจากทะเบียนผู้ใช้ ไม่ใช่โชว์เลข id
   const fixer = (await getSppUser(userId))?.name || draft.header?.reporter || `TG:${userId}`;
-  await logReportEvent(reportId, 'resubmitted', fixer,
-    `แก้ยอด ${r.prod_qty} → ${newQty} ${r.count_unit}`, 'telegram', 'production');
+  // เขียนสถานะปลายทางลง log ด้วย — เวลามีใบเพี้ยนจะได้ไล่ย้อนได้ว่ามันเด้งไปขั้นไหนและทำไม
+  await logReportEvent(reportId, 'resubmitted', fixer, `${changes.join(' · ')} (→ ${nextStatus})`, 'telegram', 'production');
 
+  const nextLabel = nextStatus === 'pending_review' ? 'รอหัวหน้าตรวจอีกครั้ง' : 'รออนุมัติอีกครั้ง';
   await sendSppTelegram([
-    `🔄 <b>ฝ่ายผลิตแก้ยอดแล้ว — รออนุมัติอีกครั้ง</b>`,
+    `🔄 <b>ฝ่ายผลิตแก้แล้ว — ${nextLabel}</b>`,
     `${escapeHtml(r.product_name || r.sku_keyword)} · ${escapeHtml(r.work_day)} ${escapeHtml(r.shift)}`,
-    `ยอดเดิม ${r.prod_qty} → <b>${newQty} ${escapeHtml(r.count_unit)}</b>`,
-    whQty != null ? `คลังนับได้ ${whQty} · ผลต่างใหม่ <b>${diff > 0 ? '+' : ''}${diff}</b>` : null,
+    ...changes.map(c => `• ${escapeHtml(c)}`),
+    whQty != null && 'qty' in pending ? `คลังนับได้ ${whQty} · ผลต่างใหม่ <b>${whQty - newQty > 0 ? '+' : ''}${whQty - newQty}</b>` : null,
   ].filter(Boolean).join('\n'));
 
-  return sppSend(chatId, `✅ ส่งกลับให้หัวหน้าแล้ว — ยอดใหม่ <b>${newQty} ${escapeHtml(r.count_unit)}</b>`, sppMainMenu(draft));
+  return sppSend(chatId, `✅ ส่งกลับให้หัวหน้าแล้ว\n${changes.map(c => `• ${escapeHtml(c)}`).join('\n')}\n<i>${nextLabel}</i>`, sppMainMenu(draft));
 }
 
 // getFile ของบอท SPP (บอทคนละตัวกับ duty → ใช้ token ของตัวเอง)
