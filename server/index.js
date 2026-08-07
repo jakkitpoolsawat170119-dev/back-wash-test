@@ -105,7 +105,7 @@ const SCHEMA = [
   //   + ชีต SKU ที่ n8n อ่าน) · keyword ยังเป็น join key เดิมกับโหนด Resolve SKU
   // count_unit = หน่วยที่ "นับของจริง" ต่อ SKU: กล่อง | หม้อ | กระสอบ
   //   (ฟอร์ม Google เขียน "กล่อง/หม้อ" · Icing บางตัวนับเป็นกระสอบ — แก้ผ่าน /api/sku ได้)
-  // plan_flavor = สตริงรสที่ใช้ join กับ shift_plans/production_plans เพื่อเติมแผนอัตโนมัติ
+  // plan_flavor = ของเก่า เลิกใช้จับคู่แล้ว (ย้ายไป sku_alias) · คอลัมน์ยังอยู่เพื่อไม่ต้อง migrate
   `CREATE TABLE IF NOT EXISTS sku_master (
       id ${db.pk},
       keyword TEXT UNIQUE,
@@ -119,6 +119,27 @@ const SCHEMA = [
       active INTEGER DEFAULT 1,
       sort_order INTEGER DEFAULT 0,
       updated_at TEXT
+    )`,
+  // ── พจนานุกรมชื่อเล่น → รหัส SKU ────────────────────────────────────────
+  // ชื่อสินค้าตัวเดียวกันมี 3 แบบและไม่มีทางตรงกัน: ชื่อในแผนบรรจุ · ชื่อในแผนรายอาทิตย์ · ชื่อทางการใน SKU master
+  // ตัวยึดจริงคือ "รหัส SKU" เพราะเป็นตัวที่ไหลเข้า Google Sheet — ตารางนี้คือสะพานเชื่อมชื่อเล่นเข้ารหัส
+  //
+  // ⚠️ machine_norm อยู่ในคีย์เพราะ "ชื่อเดียวกันบนคนละเครื่อง = คนละ SKU"
+  //    เช่น Syrup 800 บน Linear#3 = S76S9Z000M (MT) แต่บน Linear#4 = S76S9Z000T (TT)
+  //    ชีตจับคู่ทำมือรุ่นเก่าผูก "Syrup800" ไว้กับ TT ตัวเดียว ยอดเลยเข้าผิด SKU (บั๊กข้อ C 2026-08-06)
+  //    machine_norm = '' แปลว่าชื่อนี้ไม่กำกวม ใช้ได้ทุกเครื่อง
+  //
+  // ⚠️ กฎเหล็ก: แถวในตารางนี้เกิดจาก "คนกดเลือก" เท่านั้น ห้ามให้ AI หรือกฎเดาแล้วเขียนเอง
+  `CREATE TABLE IF NOT EXISTS sku_alias (
+      id ${db.pk},
+      alias_norm TEXT,
+      alias_raw TEXT,
+      machine_norm TEXT DEFAULT '',
+      sku_code TEXT,
+      source TEXT,
+      created_by TEXT,
+      created_at TEXT,
+      UNIQUE(alias_norm, machine_norm)
     )`,
   // ทีมงานประจำกะ (ตามฟอร์ม Google หมวด 2) — ติ๊กเลือกตอนลงยอด แล้วนับเป็น "จำนวนคนผลิต"
   `CREATE TABLE IF NOT EXISTS shift_crew (
@@ -499,28 +520,10 @@ const DEFAULT_SHIFT_CREW = [
   ['กะ3', 'พัฒน์พริศร์ อ่ำอยู่'], ['กะ3', 'ไพรวรรณ ย้อนเพชร'], ['กะ3', 'รัชพล รัตนานนท์'], ['กะ3', 'สมเจตน์ การภักดี'],
 ];
 
-// seed SKU เริ่มต้น — ย้ายมาจาก SKU_PRESETS ใน client/src/components/SppReportForm.tsx
-// [keyword, group_name, machine, pack_factor, count_unit, plan_flavor]
-// group_name ต้องตรงกับ option ในฟอร์ม Google เป๊ะ (ระวัง 'Coconut -Paste' เว้นวรรคหน้า '-' และ 'Coffee & Sachet')
-// count_unit: seed เป็น 'กล่อง' ทั้งหมด ยกเว้นต้มหัวเชื้อ = 'หม้อ' — ตัวไหนนับเป็น "กระสอบ" ให้แก้ผ่าน POST /api/sku
-const DEFAULT_SKUS = [
-  ['Amazon850', 'Amazon-NGS', 'NGS', 12, 'กล่อง', 'Amazon'],
-  ['Coffee 500g×4×10', 'Amazon-NGS', 'NGS', 40, 'กล่อง', 'Coffee'],
-  ['กาแฟ 8g×30×4×10', 'Coffee & Sachet', 'Sachet (Thai M Pack)', 1200, 'กล่อง', 'กาแฟ'],
-  ['Syrup800', 'Syrup', 'Linear#1 (Lina Pack)', 12, 'กล่อง', 'Syrup'],
-  ['Syrup 1.8', 'Syrup', 'Linear#1 (Lina Pack)', 8, 'กล่อง', 'Syrup'],
-  ['Syrup300', 'Syrup', 'Linear#1 (Lina Pack)', 24, 'กล่อง', 'Syrup'],
-  ['Easy Dissolving800', 'Syrup', 'Linear#1 (Lina Pack)', 12, 'กล่อง', 'Easy Dissolving'],
-  ['Blue Hawaii 710×3×4', 'Freshy', 'Freshy (Delmax)', 12, 'กล่อง', 'Blue Hawaii'],
-  ['Sala Freshy 710×3×4', 'Freshy', 'Freshy (Delmax)', 12, 'กล่อง', 'Sala'],
-  ['Pineapple Freshy', 'Freshy', 'Freshy (Delmax)', 12, 'กล่อง', 'Pineapple'],
-  ['Kiwi Freshy', 'Freshy', 'Freshy (Delmax)', 12, 'กล่อง', 'Kiwi'],
-  ['Icing900', 'Icing', 'ICING 10-25 Kg', 12, 'กล่อง', 'Icing'],
-  ['Caramel Senorita 1.9×4', 'Senorita', 'Freshy (Delmax)', 4, 'กล่อง', 'Senorita'],
-  ['Caramel Senorita 750×6', 'Senorita', 'Freshy (Delmax)', 6, 'กล่อง', 'Senorita'],
-  ['ชีส 1×20', 'Coconut -Paste', 'Manual', 20, 'กล่อง', 'ชีส'],
-  ['ต้มหัวเชื้อ', 'ถังน้ำเชื่อม ทำความสะอาด อื่นๆ', 'ต้มหัวเชื้อ', 0, 'หม้อ', ''],
-];
+// ⚠️ DEFAULT_SKUS ถูกถอดออก 2026-08-07 พร้อมกับชีตจับคู่ทำมือ (121Xch…)
+//    เหตุผล: มันเป็น "แหล่งความจริงที่ 3" ที่ขัดกับชีตหลัก — ชื่อไม่ตรงกัน (Syrup 1.8 vs Syrup1.8)
+//    และถูก seed ใหม่ทุกครั้งที่บูต ทำให้ลบทิ้งไม่ได้จริง
+//    รายการสินค้าตอนนี้มาจากชีตหลักทางเดียว: POST /api/sku/import-all → ตรวจในแท็บ "SKU รอตรวจสอบ"
 
 async function initDb() {
   for (const ddl of SCHEMA) await db.exec(ddl);
@@ -635,14 +638,19 @@ async function initDb() {
   ]) {
     try { await db.exec(ix); } catch (e) { console.error('[db] index failed', e.message); }
   }
-  // seed SKU + ทีมงานกะ (idempotent · DO NOTHING เพื่อไม่ทับค่าที่ผู้ใช้แก้เอง เช่น count_unit)
-  for (const [kw, grp, mc, pf, unit, flavor] of DEFAULT_SKUS) {
-    await db.exec(
-      `INSERT INTO sku_master (keyword, group_name, machine, pack_factor, count_unit, plan_flavor, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (keyword) DO NOTHING`,
-      [kw, grp, mc, pf, unit, flavor, nowBKK()]
-    );
-  }
+  // ── เลิกจับคู่ด้วย plan_flavor ถาวร (2026-08-07) ──────────────────────────
+  // plan_flavor มาจากชีตจับคู่ทำมือที่ยกเลิกไปแล้ว และเป็นตัวที่ผูก "Syrup800" ไว้กับ SKU ของ Linear#4
+  // ตอนนี้จับคู่ผ่าน sku_alias อย่างเดียว — ล้างค่าเก่าทิ้งให้เด็ดขาด ไม่งั้นมันจะแอบชนะ alias ที่คนตั้งเอง
+  // idempotent: รันซ้ำกี่รอบก็ได้ (รอบหลัง ๆ ไม่มีแถวให้แตะ)
+  try {
+    const r = await db.exec("UPDATE sku_master SET plan_flavor = '' WHERE plan_flavor IS NOT NULL AND plan_flavor <> ''");
+    if (r.rowCount) console.log(`[db] ล้าง plan_flavor เก่า ${r.rowCount} แถว (ใช้ sku_alias แทน)`);
+  } catch (e) { console.error('[db] clear plan_flavor failed', e.message); }
+  try { await db.exec('CREATE INDEX IF NOT EXISTS ix_sku_alias_norm ON sku_alias (alias_norm)'); }
+  catch (e) { console.error('[db] alias index failed', e.message); }
+
+  // ⚠️ ไม่ seed SKU ตั้งต้นอีกแล้ว — DEFAULT_SKUS 16 ตัวถูกถอดออกพร้อมชีตจับคู่ทำมือ
+  //    รายการสินค้ามาจากชีตหลักทางเดียวผ่าน POST /api/sku/import-all เท่านั้น
   for (let i = 0; i < DEFAULT_SHIFT_CREW.length; i++) {
     const [sh, nm] = DEFAULT_SHIFT_CREW[i];
     await db.exec(
@@ -1758,27 +1766,191 @@ const logReportEvent = async (reportId, event, actor, detail, channel, role) => 
   } catch (e) { console.error('[SPP] event log failed', e.message); }
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ตัวจับคู่ "ชื่อที่คนเขียน" → "รหัส SKU"  (แก้บั๊กข้อ C + F ของการทดสอบ 2026-08-06)
+//
+// ชื่อสินค้าตัวเดียวกันมี 3 แบบและไม่มีทางบังคับให้ตรงกัน:
+//   1. ชื่อในแผนบรรจุ  — คนจัดแผนตั้งเองให้คนหน้างานอ่านรู้เรื่อง ("Syrup 800×3×4", "ปี๊บ 1×20")
+//   2. ชื่อที่พนักงานพิมพ์ในแชท — ย่ออีกแบบ ("Syrup 800")
+//   3. ชื่อทางการใน SKU master — ตัวที่ไหลเข้า Google Sheet
+// จึงยึด "รหัส SKU" เป็นตัวจริง แล้วให้ sku_alias เป็นสะพานจากชื่อเล่นทุกแบบเข้าหารหัส
+//
+// ⚠️ กฎเหล็ก: กำกวมเมื่อไหร่ = ถามคน ห้ามเลือกเอง
+//    ปล่อยให้เดาแล้วพลาดมาแล้ว 2 แบบ: AI สวมชื่อจาก master ("ปี๊บ 1×20" → "Dilute W-Molass")
+//    และชีตทำมือผูก "Syrup800" ไว้กับ SKU ของ Linear#4 ทั้งที่หน้างานเดิน Linear#3
+//    ผิดตรงนี้ = ยอดเข้าผิด SKU ใน Google Sheet โดยไม่มีใครรู้
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ตัวระบุตัวตนของสินค้า 1 ตัว — ปกติคือรหัส SKU
+// แต่ชีตหลักมีสินค้า 13 ตัวที่ "ไม่มีรหัส" (ไซรัปเฟรชชี่ 20kg BIB ฯลฯ) จึงถอยไปใช้ keyword
+// ทุกที่ที่เทียบว่า "สินค้าตัวเดียวกันไหม" ต้องผ่านฟังก์ชันนี้ ห้ามเทียบ sku_code ดิบ ๆ
+const skuIdOf = (s) => String((s?.sku_code || '').trim() || (s?.keyword || '').trim());
+
+// ยุบข้อความให้เทียบกันได้: ตัวคูณทุกแบบเป็น x · ตัดอักขระที่ไม่ใช่ตัวอักษร/ตัวเลข
+// เก็บตัวเลขไว้ทุกตัวเพราะขนาดแพ็ก (800, 3, 4) คือสัญญาณแยกสินค้าที่แรงที่สุด
+const normAlias = (s) => String(s || '')
+  .toLowerCase()
+  .replace(/[×✕✖*]/g, 'x')
+  .replace(/[^\p{L}\p{N}]+/gu, '')
+  .trim();
+
+// ชื่อเครื่องมาได้หลายแบบ: "Linear#3 (Lina Pack)" · "L3" · "[L3]" · "linear 3" → l3
+// คืน '' เมื่อไม่รู้ว่าเครื่องไหน (แปลว่า "ไม่ใช้เครื่องช่วยตัดตัวเลือก")
+const normMachine = (s) => {
+  const t = String(s || '').toLowerCase();
+  const m = t.match(/linear\s*#?\s*(\d+)/) || t.match(/\bl\s*(\d+)\b/);
+  if (m) return `l${m[1]}`;
+  const a = t.match(/\ba\s*(\d+)\b/);
+  if (a) return `a${a[1]}`;
+  return '';
+};
+
+// ดึงชื่อเครื่องจากข้อความดิบ — regex ล้วน ไม่ผ่าน AI
+// ใช้ได้ทั้งกับที่พนักงานพิมพ์ ("เครื่อง Linear#3") และวงเล็บเหลี่ยมในแผน ("[L3+L4]")
+const extractMachine = (text) => {
+  const t = String(text || '');
+  const bracket = t.match(/\[([^\]]+)\]/);
+  return normMachine(bracket ? bracket[1] : t);
+};
+
+// คะแนนความใกล้เคียงแบบกฎล้วน — ไม่เรียก AI ไม่มีค่าใช้จ่าย อธิบายได้ว่าทำไมได้อันดับนี้
+// ตัวเลขสำคัญกว่าตัวอักษร: "Syrup 800×3×4" กับ "Syrup 800×12" ต่างกันที่เลขล้วน ๆ
+const skuScore = (queryNorm, qNums, sku) => {
+  const target = normAlias(`${sku.product_name || ''} ${sku.keyword || ''}`);
+  if (!target) return 0;
+  let score = 0;
+  if (target.includes(queryNorm) || queryNorm.includes(target)) score += 50;
+  const tNums = target.match(/\d+/g) || [];
+  for (const n of qNums) if (tNums.includes(n)) score += 12;
+  for (const n of tNums) if (!qNums.includes(n)) score -= 3;   // เลขที่ไม่ได้ขอ = คนละแพ็ก
+  // ตัวอักษรที่ทับกัน (ตัดตัวเลขออกแล้ว) — ช่วยแยก Syrup / Icing / Amazon
+  const qLetters = queryNorm.replace(/\d+/g, '');
+  const tLetters = target.replace(/\d+/g, '');
+  if (qLetters && tLetters.includes(qLetters)) score += 20;
+  else if (qLetters.length >= 3 && tLetters.includes(qLetters.slice(0, 3))) score += 6;
+  return score;
+};
+
+const SPP_ASK_LIMIT = 6;      // จำนวนปุ่มสูงสุดตอนถาม — มากกว่านี้คนอ่านไม่ไหวบนมือถือ
+
+// คืน { status: 'exact' | 'ask' | 'none', sku?, candidates[] }
+//   exact = มั่นใจพอจะใช้เลย (มาจากรหัสตรง / alias ที่คนเคยผูก / ชื่อตรงเป๊ะ / เหลือตัวเลือกเดียวหลังกรองเครื่อง)
+//   ask   = มีหลายตัวใกล้กัน → ผู้เรียกต้องเด้งปุ่มให้คนเลือก ห้ามหยิบตัวแรกเอง
+async function resolveSku(text, machineText = '') {
+  const raw = String(text || '').trim();
+  const q = normAlias(raw);
+  if (!q) return { status: 'none', candidates: [] };
+  const mach = normMachine(machineText) || extractMachine(raw);
+
+  const all = await dbAll('SELECT * FROM sku_master WHERE active = 1', []).catch(() => []);
+  const byCode = new Map(all.map(s => [skuIdOf(s).toUpperCase(), s]).filter(([k]) => k));
+
+  // 1) พิมพ์รหัส SKU มาตรง ๆ
+  const asCode = byCode.get(raw.toUpperCase());
+  if (asCode) return { status: 'exact', sku: asCode, candidates: [] };
+
+  // 2+3) เคยมีคนผูกไว้แล้ว — เครื่องตรงก่อน แล้วค่อยตัวที่ไม่ระบุเครื่อง
+  const aliases = await dbAll(
+    'SELECT sku_code, machine_norm FROM sku_alias WHERE alias_norm = ?', [q]).catch(() => []);
+  const pick = aliases.find(a => a.machine_norm && a.machine_norm === mach)
+            || aliases.find(a => !a.machine_norm);
+  if (pick) {
+    const hit = byCode.get(String(pick.sku_code).toUpperCase());
+    if (hit) return { status: 'exact', sku: hit, candidates: [] };
+    // alias ชี้ไปยัง SKU ที่ถูกปิด/ลบไปแล้ว → ตกไปหาใหม่ ดีกว่าคืนของที่ใช้ไม่ได้
+  }
+
+  // 4) ชื่อทางการหรือ keyword ตรงเป๊ะ
+  const exactName = all.find(s => normAlias(s.product_name) === q || normAlias(s.keyword) === q);
+  if (exactName) return { status: 'exact', sku: exactName, candidates: [] };
+
+  // 5) จัดอันดับด้วยกฎ แล้วกรองด้วยเครื่อง
+  const qNums = q.match(/\d+/g) || [];
+  let ranked = all.map(s => ({ sku: s, score: skuScore(q, qNums, s) }))
+    .filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score);
+  if (!ranked.length) return { status: 'none', candidates: [] };
+
+  // เครื่องคือตัวตัดสินที่คนหน้างานให้มา — ถ้ากรองแล้วยังเหลือ ให้เชื่อการกรอง
+  if (mach) {
+    const sameMachine = ranked.filter(x => normMachine(x.sku.machine) === mach);
+    if (sameMachine.length) ranked = sameMachine;
+  }
+
+  // เหลือตัวเดียวจริง ๆ ถึงจะรับอัตโนมัติ · คะแนนนำห่างไม่นับว่า "ชัดเจน" — เคยพลาดมาแล้ว
+  if (ranked.length === 1) return { status: 'exact', sku: ranked[0].sku, candidates: [] };
+  return { status: 'ask', candidates: ranked.slice(0, SPP_ASK_LIMIT).map(x => x.sku) };
+}
+
+// จำคู่ที่คนกดเลือก — ครั้งหน้าจะเข้าทางที่ 2 ทันที ไม่ต้องถามอีก
+// skuId = skuIdOf(sku) ไม่ใช่ sku_code ดิบ — สินค้าที่ไม่มีรหัสก็ต้องผูกชื่อเล่นได้
+async function rememberAlias(rawText, machineText, skuId, source, by) {
+  const alias = normAlias(rawText);
+  if (!alias || !skuId) return;
+  const mach = normMachine(machineText);
+  try {
+    await db.exec(
+      `INSERT INTO sku_alias (alias_norm, alias_raw, machine_norm, sku_code, source, created_by, created_at)
+       VALUES (?,?,?,?,?,?,?)
+       ON CONFLICT(alias_norm, machine_norm)
+       DO UPDATE SET sku_code=excluded.sku_code, alias_raw=excluded.alias_raw,
+                     source=excluded.source, created_by=excluded.created_by, created_at=excluded.created_at`,
+      [alias, String(rawText).trim(), mach, skuId, source || 'floor', by || '', nowBKK()]
+    );
+    console.log(`[SKU alias] "${String(rawText).trim()}"${mach ? ` (${mach})` : ''} → ${skuId} โดย ${by || '-'}`);
+  } catch (e) { console.error('[SKU alias] save failed', e.message); }
+}
+
+// แผนของวันนั้นทั้งวัน แปลงเป็นรหัส SKU แล้ว — ใช้ร่วมกัน 3 ที่: เมนู "แผนผลิตวันนี้",
+// ช่อง "แผน" ในหน้าอนุมัติ และตัวเตือนสิ้นกะ · จับคู่ครั้งเดียวแล้วทุกที่เห็นตรงกัน
+// คืนทุกแถวรวมตัวที่ยังจับคู่ไม่ได้ (sku = null) — ตัวที่จับไม่ได้ต้องโผล่ให้คนเห็นเพื่อไปผูก
+// ไม่ใช่หายเงียบ ๆ แบบเดิมที่ทำให้แผน 6 รายการกลายเป็น "ไม่มีแผนผลิตในระบบ"
+async function resolveDayPlan(workDay, shift = null) {
+  const shiftN = shift ? normalizeShift(shift) : null;
+  const rows = await dbAll(
+    'SELECT shift, flavor, target_boxes, staff, machine_code FROM shift_plans WHERE work_day = ? ORDER BY id', [workDay]
+  ).catch(() => []);
+  const wanted = shiftN ? rows.filter(r => normalizeShift(r.shift) === shiftN) : rows;
+  const use = wanted.length ? wanted : rows;      // กะนั้นไม่มีแผน → ถอยไปดูทั้งวัน (เหมือนพฤติกรรมเดิม)
+  const out = [];
+  for (const p of use) {
+    const r = await resolveSku(p.flavor, p.machine_code || '');
+    out.push({
+      plan: p,
+      sku: r.status === 'exact' ? r.sku : null,
+      status: r.status,
+      candidates: r.candidates || [],
+      exact_shift: shiftN ? normalizeShift(p.shift) === shiftN : true,
+    });
+  }
+  return out;
+}
+
 // หาแผนของ SKU นี้ในวัน+กะที่ระบุ · แผนเก็บเป็น "กล่อง" เท่านั้น จึงห้ามเติมข้ามหน่วย
 async function resolvePlanQty(workDay, shift, sku) {
   if (!sku) return { plan_qty: null, plan_source: 'none' };
   if (sku.count_unit && sku.count_unit !== 'กล่อง') return { plan_qty: null, plan_source: 'unit_mismatch' };
-  // plan_flavor = ชื่อรสที่ใช้จับคู่กับแผน · SKU ที่ import จากชีตไม่มีค่านี้ (156 จาก 159 ตัว)
-  // จึงถอยไปใช้ชื่อ keyword ของ SKU เอง — ให้ลงแผนด้วยชื่อสินค้าตรง ๆ ได้เลย
-  // (ตัวเตือนสิ้นกะใช้ COALESCE แบบเดียวกันอยู่แล้ว — ตรงนี้แค่ทำให้สอดคล้องกัน)
-  const flavor = (sku.plan_flavor || '').trim() || (sku.keyword || '').trim();
-  if (!flavor) return { plan_qty: null, plan_source: 'none' };
-  const shiftN = normalizeShift(shift);
   try {
-    const rows = await dbAll('SELECT shift, target_boxes FROM shift_plans WHERE work_day = ? AND flavor = ?', [workDay, flavor]);
-    if (rows.length) {
-      const hit = rows.find(r => normalizeShift(r.shift) === shiftN) || rows[0];
-      const exact = normalizeShift(hit.shift) === shiftN;
-      return { plan_qty: Number(hit.target_boxes) || 0, plan_source: exact ? 'shift_plans' : 'shift_plans_other_shift' };
+    // เทียบด้วยรหัส SKU ไม่ใช่ชื่อ — ชื่อในแผน ("Syrup 800×3×4") ไม่มีวันตรงกับชื่อทางการ
+    // ⚠️ ผ่าน skuIdOf เสมอ — สินค้า 13 ตัวในชีตหลักไม่มีรหัส SKU ถ้ายึดรหัสดิบจะเทียบแผนไม่ได้ตลอดกาล
+    const mineId = skuIdOf(sku);
+    const day = await resolveDayPlan(workDay, shift);
+    const mine = mineId ? day.filter(x => x.sku && skuIdOf(x.sku) === mineId) : [];
+    if (mine.length) {
+      const hit = mine.find(x => x.exact_shift) || mine[0];
+      return {
+        plan_qty: Number(hit.plan.target_boxes) || 0,
+        plan_source: hit.exact_shift ? 'shift_plans' : 'shift_plans_other_shift',
+      };
     }
-    const pp = await dbAll('SELECT planned_batches FROM production_plans WHERE plan_date = ? AND flavor = ?', [workDay, flavor]);
-    if (pp.length) {
-      const batches = pp.reduce((s, r) => s + (Number(r.planned_batches) || 0), 0);
-      return { plan_qty: batches * 100, plan_source: 'production_plans' }; // 1 batch = 100 boxes
+    // แผนผลิตรายอาทิตย์ (production_plans) ยังจับด้วยชื่อรสแบบเดิม — คนละชุดข้อมูลกับแผนบรรจุ
+    const flavor = (sku.keyword || '').trim();
+    if (flavor) {
+      const pp = await dbAll('SELECT planned_batches FROM production_plans WHERE plan_date = ? AND flavor = ?', [workDay, flavor]);
+      if (pp.length) {
+        const batches = pp.reduce((s, r) => s + (Number(r.planned_batches) || 0), 0);
+        return { plan_qty: batches * 100, plan_source: 'production_plans' }; // 1 batch = 100 boxes
+      }
     }
   } catch (e) { console.error('[SPP] plan lookup failed', e.message); }
   return { plan_qty: null, plan_source: 'none' };
@@ -2083,21 +2255,13 @@ app.post('/api/sku', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── ดึงรายการ SKU จากชีต SKU (source of truth ของ keyword ที่ n8n ใช้ resolve) ──
-// ชีตมีแค่ keyword / full_product / group → เติม sku_code + product_name + เดา pack_factor ให้
-// ของที่หน้างานตั้งเอง (count_unit, pack_factor, machine) จะ "ไม่ถูกทับ" ถ้า SKU นั้นมีอยู่แล้ว
-const SPP_N8N_SKU_URL = process.env.SPP_N8N_SKU_URL || 'https://n8n.srv1267366.hstgr.cloud/webhook/spp-sku-list';
-
-// "S77S743200 น้ำเชื่อม... 850 ml *12" → { sku_code, product_name } (ตรรกะเดียวกับโหนด Resolve SKU)
-const splitFullProduct = (full) => {
-  const s = String(full || '').trim();
-  if (!s) return { sku_code: '', product_name: '' };
-  const parts = s.split(/\s+/);
-  const looksLikeCode = /^[A-Z0-9]{6,}$/.test(parts[0]);
-  return looksLikeCode
-    ? { sku_code: parts[0], product_name: parts.slice(1).join(' ').replace(/\*/g, '×') }
-    : { sku_code: '', product_name: s.replace(/\*/g, '×') };
-};
+// ⚠️ ชีตจับคู่ทำมือ (121Xch… · keyword/full_product/group) ถูกยกเลิก 2026-08-07
+//    พร้อมกับ route POST /api/sku/sync และ webhook n8n "spp-sku-list"
+//    เหตุผล: มันผูก "Syrup800" ไว้กับ S76S9Z000T (Stand pouch TT ของ Linear#4) ทั้งที่หน้างานเดิน
+//    Linear#3 (= S76S9Z000M / MT) ยอดจึงเข้าผิด SKU ใน Google Sheet โดยไม่มีใครเห็นและแก้ไม่ได้
+//    ตอนนี้รายการสินค้ามาจากชีตหลักทางเดียว (POST /api/sku/import-all) และชื่อเล่นอยู่ในตาราง sku_alias
+//    ที่คนกดผูกเอง + ตรวจ/ลบได้จากแท็บ "SKU รอตรวจสอบ"
+//    (เส้น n8n ที่ส่งยอดอนุมัติแล้วเข้า Google Sheet — SPP_N8N_APPROVED_URL — ยังใช้งานตามปกติ)
 
 // เดาจำนวนชิ้นต่อกล่องจากตัวคูณท้ายชื่อ: "(8g*30*4*10)" → 30×4×10 = 1200 · "(800ml*12)" → 12
 // เดาไม่ได้คืน 0 แล้วให้หน้างานมาเติมเอง (แจ้งไว้ใน needsReview)
@@ -2146,55 +2310,6 @@ function parseCsv(text) {
   if (field || row.length) { row.push(field); rows.push(row); }
   return rows;
 }
-
-app.post('/api/sku/sync', async (req, res) => {
-  let rows;
-  try {
-    const r = await axios.post(SPP_N8N_SKU_URL, {}, { headers: { 'Content-Type': 'application/json' }, timeout: 25000 });
-    rows = Array.isArray(r.data) ? r.data : (r.data?.items || []);
-  } catch (e) {
-    console.error('[SKU sync] n8n error:', e.response?.data || e.message);
-    return res.status(502).json({ error: 'ดึงรายการ SKU จากชีตไม่สำเร็จ (ตรวจว่า workflow v4 เปิดใช้งานอยู่)' });
-  }
-  if (!rows.length) return res.status(502).json({ error: 'ชีต SKU ไม่มีข้อมูลกลับมา' });
-
-  const created = [], updated = [], needsReview = [];
-  try {
-    for (const row of rows) {
-      const keyword = String(row.keyword || '').trim();
-      if (!keyword) continue;
-      const { sku_code, product_name } = splitFullProduct(row.full_product);
-      const group = String(row.group || '').trim();
-      const existing = (await dbAll('SELECT keyword, pack_factor, count_unit FROM sku_master WHERE keyword = ?', [keyword]))[0];
-
-      if (existing) {
-        // อัปเดตเฉพาะข้อมูลที่ชีตเป็นเจ้าของ — ไม่แตะ count_unit / pack_factor / machine ที่หน้างานตั้งไว้
-        await db.exec(
-          `UPDATE sku_master SET sku_code = ?, product_name = ?, group_name = ?, active = 1, updated_at = ?
-             WHERE keyword = ?`,
-          [sku_code, product_name, group || '', nowBKK(), keyword]
-        );
-        updated.push(keyword);
-        if (!Number(existing.pack_factor)) needsReview.push({ keyword, reason: 'ยังไม่มีจำนวนชิ้น/กล่อง' });
-      } else {
-        const pf = guessPackFactor(row.full_product);
-        await db.exec(
-          `INSERT INTO sku_master (keyword, sku_code, product_name, group_name, machine, count_unit, pack_factor, plan_flavor, active, updated_at)
-           VALUES (?, ?, ?, ?, '', 'กล่อง', ?, '', 1, ?)`,
-          [keyword, sku_code, product_name, group || '', pf, nowBKK()]
-        );
-        created.push(keyword);
-        needsReview.push({ keyword, reason: pf ? `เดาชิ้น/กล่อง = ${pf} · ยังไม่ได้ตั้งเครื่องและหน่วยนับ` : 'ยังไม่มีจำนวนชิ้น/กล่อง และเครื่อง' });
-      }
-    }
-  } catch (e) {
-    console.error('[SKU sync] db error:', e.message);
-    return res.status(500).json({ error: e.message });
-  }
-
-  console.log(`[SKU sync] created=${created.length} updated=${updated.length} review=${needsReview.length}`);
-  res.json({ ok: true, total: rows.length, created, updated, needsReview });
-});
 
 // ── นำเข้า "รายการสินค้าทั้งหมด" จากชีตของฝ่ายผลิต (~200 SKU) ────────────────
 // ชีตเปิดสาธารณะ → ดึง CSV ตรงได้ ไม่ต้องผ่าน n8n และไม่ต้องใช้ Google credential
@@ -2292,6 +2407,41 @@ app.post('/api/sku/import-all', async (req, res) => {
 
   console.log(`[SKU import-all] parsed=${parsed.length} created=${created.length} updated=${updated.length} dup=${duplicates.length} review=${needsReview.length}`);
   res.json({ ok: true, total: parsed.length, created, updated, skipped, duplicates, needsReview });
+});
+
+// ── ชื่อเล่นที่ระบบจำไว้ (sku_alias) ────────────────────────────────────────
+// ต้องดูและลบได้เสมอ — ชีตจับคู่ทำมือรุ่นก่อนผูก "Syrup800" ผิดตัวแล้วไม่มีใครเห็น
+// ยอดเข้าผิด SKU อยู่หลายเดือนกว่าจะจับได้ · ของใหม่ห้ามซ้ำรอยนั้น
+app.get('/api/sku/alias', async (req, res) => {
+  try {
+    const rows = await dbAll(
+      `SELECT a.id, a.alias_raw, a.alias_norm, a.machine_norm, a.sku_code, a.source, a.created_by, a.created_at,
+              m.product_name, m.keyword, m.machine
+         FROM sku_alias a LEFT JOIN sku_master m ON (m.sku_code = a.sku_code OR m.keyword = a.sku_code)
+        ORDER BY a.created_at DESC`, []);
+    res.json({ items: rows, total: rows.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/sku/alias', async (req, res) => {
+  const { alias, machine, sku_code, actor } = req.body || {};
+  if (!String(alias || '').trim()) return res.status(400).json({ error: 'ต้องระบุชื่อเล่น' });
+  if (!String(sku_code || '').trim()) return res.status(400).json({ error: 'ต้องระบุรหัส SKU' });
+  try {
+    const id = String(sku_code).trim();
+    const hit = (await dbAll('SELECT keyword FROM sku_master WHERE sku_code = ? OR keyword = ?', [id, id]))[0];
+    if (!hit) return res.status(400).json({ error: `ไม่รู้จักรหัส SKU "${sku_code}"` });
+    await rememberAlias(alias, machine || '', String(sku_code).trim(), 'manual', String(actor || '').trim() || 'เว็บ');
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/sku/alias/:id', async (req, res) => {
+  try {
+    const r = await db.exec('DELETE FROM sku_alias WHERE id = ?', [req.params.id]);
+    if (!r.rowCount) return res.status(404).json({ error: 'ไม่พบคู่นี้' });
+    res.json({ ok: true });        // ลบแล้วครั้งหน้าบอทจะถามใหม่ ไม่ได้ทำให้ข้อมูลเก่าเสีย
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // รายการ SKU ที่ยังเปิดใช้ไม่ได้ / ยังไม่มี pack_factor — คิวให้หน้างานมาเติมแล้วกดเปิดใช้
@@ -3094,7 +3244,10 @@ const SPP_PARSE_FORMAT = {
   schema: {
     type: 'object',
     properties: {
-      sku_keyword: { type: 'string', description: 'keyword ของสินค้า คัดลอกจากคอลัมน์แรกของรายการให้ตรงเป๊ะ · จับไม่ได้หรือไม่มั่นใจให้ใส่ ""' },
+      // ⚠️ ให้คืน "ข้อความส่วนที่เป็นชื่อสินค้า" ตามที่พนักงานพิมพ์เท่านั้น ห้ามเลือก SKU
+      //    ตัวจับคู่ (resolveSku) เป็นคนหาเอง กำกวมเมื่อไหร่ก็ยื่นปุ่มให้คนกด
+      //    เคยให้โมเดลเลือกเองแล้วมันไปหยิบชื่อจาก SKU master มาสวม และเลือก SKU ของคนละเครื่อง
+      product_text: { type: 'string', description: 'ชื่อสินค้าตามที่พิมพ์มาเป๊ะ ๆ ไม่ต้องแปลง ไม่ต้องเทียบกับรายการใด ๆ เช่น "Syrup 800" · ไม่มีให้ใส่ ""' },
       prod_qty: { type: 'number', description: 'จำนวนที่ผลิตได้ (ตัวเลขล้วน) · ไม่ได้บอกให้ใส่ 0' },
       machine: { type: 'string', description: 'ชื่อเครื่องบรรจุตามที่พิมพ์มา · ถ้าเขียน "-" หรือไม่ได้บอกให้ใส่ ""' },
       counter: { type: 'number', description: 'เลขหน้าเครื่อง หน่วยชิ้น · ไม่ได้บอกให้ใส่ 0 (และต้องใส่ "counter" ใน missing ด้วย เพราะ 0 เป็นค่าที่ใช้จริงได้)' },
@@ -3111,34 +3264,19 @@ const SPP_PARSE_FORMAT = {
       missing: {
         type: 'array',
         description: 'ชื่อช่องที่ข้อความไม่ได้พูดถึงเลย — บอทจะไปถามต่อเฉพาะช่องพวกนี้',
-        items: { type: 'string', enum: ['sku_keyword', 'prod_qty', 'machine', 'counter'] },
+        items: { type: 'string', enum: ['product_text', 'prod_qty', 'machine', 'counter'] },
       },
-      note: { type: 'string', description: 'ถ้าจับสินค้าไม่ได้ บอกสั้น ๆ เป็นภาษาไทยว่าเพราะอะไร · ปกติใส่ ""' },
+      note: { type: 'string', description: 'อ่านไม่ออกตรงไหน บอกสั้น ๆ เป็นภาษาไทย · ปกติใส่ ""' },
     },
-    required: ['sku_keyword', 'prod_qty', 'machine', 'counter', 'damaged', 'missing', 'note'],
+    required: ['product_text', 'prod_qty', 'machine', 'counter', 'damaged', 'missing', 'note'],
     additionalProperties: false,
   },
 };
-
-// รายการ SKU สำหรับใส่ system prompt — เรียงคงที่และแคชไว้ เพราะ prompt caching เป็น
-// prefix match: ถ้าลำดับสลับแม้แต่แถวเดียว cache พังทั้งก้อน
-let _sppSkuBlock = { text: '', at: 0 };
-async function sppSkuBlock() {
-  if (_sppSkuBlock.text && Date.now() - _sppSkuBlock.at < 5 * 60 * 1000) return _sppSkuBlock.text;
-  const rows = await dbAll(
-    'SELECT keyword, product_name, count_unit, machine FROM sku_master WHERE active = 1 ORDER BY keyword'
-  ).catch(() => []);
-  const text = rows.map(s => [s.keyword, s.product_name || '', s.count_unit || 'กล่อง', s.machine || ''].join(' | ')).join('\n');
-  _sppSkuBlock = { text, at: Date.now() };
-  return text;
-}
 
 // คืน null เมื่อไม่ได้ตั้ง ANTHROPIC_API_KEY หรือ AI ล่ม → บอทถอยไปโหมดกดปุ่มเอง
 async function parseSppFreeText(text) {
   const client = getAnthropic();
   if (!client) return null;
-  const skuList = await sppSkuBlock();
-  if (!skuList) return null;
 
   try {
     const resp = await client.messages.create({
@@ -3148,20 +3286,16 @@ async function parseSppFreeText(text) {
       output_config: { effort: 'low', format: SPP_PARSE_FORMAT },
       system: [{
         type: 'text',
-        // ก้อนนี้เปลี่ยนน้อยมาก → ทำ cache breakpoint ไว้ตรงนี้ ข้อความของผู้ใช้อยู่หลัง
-        // จุดนี้ทั้งหมด (render order คือ tools → system → messages)
+        // ก้อนนี้คงที่แล้ว (ไม่มีรายการ SKU ปนอีก) → cache ได้เต็ม ๆ และไม่พังเมื่อ SKU เปลี่ยน
         text: [
           'คุณคือตัวช่วยแกะข้อความลงยอดผลิตของโรงงาน แปลงประโยคภาษาไทยที่พนักงานพิมพ์เป็นข้อมูลตามสคีมา',
           '',
-          'รายการสินค้าที่ใช้ได้ (keyword | ชื่อสินค้า | หน่วยนับ | เครื่องตั้งต้น):',
-          skuList,
-          '',
           'กติกา:',
-          '- sku_keyword ต้องคัดลอกจากคอลัมน์แรกให้ตรงเป๊ะ ห้ามแต่งขึ้นเอง',
-          '- พนักงานมักพิมพ์ชื่อย่อหรือสะกดไม่ตรง เช่น "Amazon 750" → จับคู่กับตัวที่ใกล้ที่สุด',
-          '- ถ้ามีหลายตัวที่ใกล้เคียงพอ ๆ กันจนเลือกไม่ได้ ให้ใส่ "" แล้วอธิบายใน note',
+          '- product_text = ลอกชื่อสินค้าตามที่พิมพ์มาเป๊ะ ๆ ("Syrup 800", "ปี๊บ 1×20") ห้ามแปลง ห้ามเติม ห้ามย่อ',
+          '- คุณไม่มีรายการสินค้าและไม่ต้องมี — ระบบจับคู่กับ SKU เอง หน้าที่คุณคือแยกส่วนของประโยคเท่านั้น',
           '- ตัวเลขที่ตามด้วยหน่วยนับ (กล่อง/กระสอบ/หม้อ/ปี๊บ) คือ prod_qty',
           '- ตัวเลขที่มาหลังคำว่า "เลข" หรือ "เลขหน้าเครื่อง" หรือ "counter" คือ counter',
+          '- machine = ชื่อเครื่องตามที่พิมพ์มา ("Linear#3", "L3") · เขียน "-" หรือไม่ได้บอกให้ใส่ ""',
           '- อย่าเดาค่าที่ข้อความไม่ได้บอก ให้ใส่ค่าว่าง/0 แล้วระบุชื่อช่องนั้นใน missing',
         ].join('\n'),
         cache_control: { type: 'ephemeral' },
@@ -3172,14 +3306,7 @@ async function parseSppFreeText(text) {
     if (resp.stop_reason === 'refusal') { console.error('[SPP parse] refused'); return null; }
     const block = resp.content.find(b => b.type === 'text');
     if (!block) return null;
-    const out = JSON.parse(block.text);
-    // ป้องกันโมเดลคืน keyword ที่ไม่มีจริง — ตรวจกับ DB อีกชั้นก่อนเชื่อ
-    if (out.sku_keyword) {
-      const hit = (await dbAll('SELECT * FROM sku_master WHERE keyword = ? AND active = 1', [out.sku_keyword]))[0];
-      if (!hit) { out.note = out.note || `ไม่พบสินค้า "${out.sku_keyword}" ในระบบ`; out.sku_keyword = ''; }
-      else out.sku = hit;
-    }
-    return out;
+    return JSON.parse(block.text);
   } catch (e) {
     console.error('[SPP parse] failed', e.message);
     return null;
@@ -3275,22 +3402,11 @@ async function sppDraftText(draft) {
   ].join('\n');
 }
 
-// รายการสินค้าที่มีแผนวันนี้ (shift_plans ผูกกับ sku_master ผ่าน plan_flavor)
-// รวมทุกกะของวันนั้น — คนลงยอดมักลงของกะที่เพิ่งจบ ไม่ใช่กะที่กำลังเดินอยู่
-async function sppTodaySkus(workDay) {
-  const plans = await dbAll('SELECT DISTINCT flavor FROM shift_plans WHERE work_day = ?', [workDay]).catch(() => []);
-  if (!plans.length) return [];
-  const flavors = plans.map(p => (p.flavor || '').trim()).filter(Boolean);
-  if (!flavors.length) return [];
-  const marks = flavors.map(() => '?').join(',');
-  // จับคู่ด้วย plan_flavor ก่อน ถ้าไม่มีค่า (SKU ที่ import จากชีต) ใช้ keyword แทน
-  // COALESCE ให้ผลเดียวกับตัวเตือนสิ้นกะ — ลงแผนด้วยชื่อสินค้าตรง ๆ ก็เจอ
-  return dbAll(
-    `SELECT * FROM sku_master
-      WHERE active = 1 AND COALESCE(NULLIF(TRIM(plan_flavor), ''), keyword) IN (${marks})
-      ORDER BY group_name, keyword`, flavors
-  ).catch(() => []);
-}
+// รายการสินค้าที่มีแผนวันนี้ — รวมทุกกะของวันนั้น
+// คนลงยอดมักลงของกะที่เพิ่งจบ ไม่ใช่กะที่กำลังเดินอยู่ จึงไม่กรองกะตรงนี้
+// (เดิมจับคู่ด้วยชื่อตรงเป๊ะผ่าน plan_flavor → ได้ 0 จาก 6 รายการเสมอ เพราะชื่อในแผน
+//  "Syrup 800×3×4" ไม่มีวันตรงกับชื่อทางการใน SKU master · ตอนนี้ผ่าน resolveDayPlan)
+const sppTodayPlan = (workDay) => resolveDayPlan(workDay);
 
 const SPP_PAGE = 8;
 // เก็บรายการที่กำลังโชว์ไว้ใน session แล้วให้ปุ่มอ้างด้วย index — callback_data จำกัด 64 ไบต์
@@ -3721,17 +3837,18 @@ async function sppShiftNudgeTick() {
       await db.exec('INSERT INTO spp_shift_nudge (work_day, shift, sent_at) VALUES (?,?,?)', [workDay, shift, nowBKK()]);
     } catch { return; }   // มีแถวแล้ว = เตือนไปแล้ว
 
-    const plans = await dbAll('SELECT flavor, target_boxes FROM shift_plans WHERE work_day = ? AND shift = ? ORDER BY flavor', [workDay, shift]);
-    if (!plans.length) return;    // ไม่มีแผน → ไม่รู้ว่าควรมีอะไร เงียบไว้
+    // เทียบด้วย "รหัส SKU" ทางเดียวกับเมนูแผนผลิตวันนี้ — ชื่อในแผนกับชื่อทางการไม่มีวันตรงกัน
+    const planRows = await resolveDayPlan(workDay, shift);
+    const plans = planRows.filter(x => x.exact_shift);
+    if (!plans.length) return;    // ไม่มีแผนของกะนี้ → ไม่รู้ว่าควรมีอะไร เงียบไว้
 
-    // เทียบด้วย plan_flavor เหมือนที่ sppTodaySkus ใช้ ไม่ใช่เทียบชื่อ SKU ตรง ๆ
     const done = await dbAll(
-      // NULLIF กัน plan_flavor ที่เป็นสตริงว่าง (COALESCE เฉย ๆ จะได้ '' ไม่ใช่ keyword)
-      `SELECT DISTINCT COALESCE(NULLIF(TRIM(m.plan_flavor), ''), r.sku_keyword) AS flavor
-         FROM production_reports r LEFT JOIN sku_master m ON m.keyword = r.sku_keyword
-        WHERE r.work_day = ? AND r.shift = ?`, [workDay, shift]);
-    const doneSet = new Set(done.map(d => (d.flavor || '').trim()).filter(Boolean));
-    const left = plans.filter(p => !doneSet.has((p.flavor || '').trim()));
+      'SELECT DISTINCT sku_code, sku_keyword FROM production_reports WHERE work_day = ? AND shift = ?', [workDay, shift]);
+    const doneCodes = new Set(done.map(d => (d.sku_code || '').trim()).filter(Boolean));
+    const doneKeywords = new Set(done.map(d => (d.sku_keyword || '').trim()).filter(Boolean));
+    // ตัวที่ยังผูก SKU ไม่ได้ ถือว่า "ยังไม่ได้ลง" — เตือนไว้ดีกว่าเงียบแล้วยอดหาย
+    const left = plans.filter(x =>
+      !(x.sku && (doneCodes.has(x.sku.sku_code) || doneKeywords.has(x.sku.keyword))));
 
     if (!left.length) {
       console.log(`[SPP nudge] ${workDay} ${shift} ครบแล้ว ไม่ต้องเตือน`);
@@ -3743,7 +3860,7 @@ async function sppShiftNudgeTick() {
       `แผนกะนี้มี <b>${plans.length}</b> ตัว · ลงยอดมาแล้ว <b>${plans.length - left.length}</b> ตัว`,
       '',
       'ยังไม่ได้ลง:',
-      ...left.map(p => `• <b>${escapeHtml(p.flavor)}</b> (แผน ${p.target_boxes} กล่อง)`),
+      ...left.map(x => `• <b>${escapeHtml(x.plan.flavor)}</b> (แผน ${x.plan.target_boxes} กล่อง)${x.sku ? '' : ' ⚠️ ยังไม่ผูกกับสินค้า'}`),
       '',
       '<i>พิมพ์ยอดเข้ามาในแชทได้เลย · ถ้ากะนี้ไม่ได้ผลิตก็บอกได้</i>',
     ].join('\n'));
@@ -3789,9 +3906,13 @@ async function sppTryFreeText(chatId, userId, draft, text, user) {
   const parsed = await parseSppFreeText(text);
   if (!parsed) return null;
 
-  if (!parsed.sku_keyword || !parsed.sku) {
+  const miss = new Set(parsed.missing || []);
+  // เครื่องมาจาก regex บนข้อความดิบก่อนเสมอ แล้วค่อยถอยไปใช้ที่ AI แยกมา
+  const machineText = extractMachine(text) ? text : (parsed.machine || '');
+  const productText = String(parsed.product_text || '').trim();
+  if (!productText) {
     return sppSend(chatId, [
-      '🤔 <b>อ่านแล้วไม่แน่ใจว่าเป็นสินค้าตัวไหน</b>',
+      '🤔 <b>อ่านแล้วไม่เจอชื่อสินค้า</b>',
       parsed.note ? `<i>${escapeHtml(parsed.note)}</i>` : null,
       '',
       'เลือกจากรายการแทนได้เลย',
@@ -3801,22 +3922,40 @@ async function sppTryFreeText(chatId, userId, draft, text, user) {
     ]);
   }
 
-  const miss = new Set(parsed.missing || []);
-  draft.current = { sku: parsed.sku, from_text: true };
-  // เติมเฉพาะช่องที่ข้อความพูดถึงจริง — ที่เหลือปล่อยว่างให้ sppAskNext ไล่ถาม
-  if (!miss.has('machine') && parsed.machine) draft.current.machine = parsed.machine;
-  if (!miss.has('prod_qty') && parsed.prod_qty > 0) draft.current.prod_qty = parsed.prod_qty;
-  if (!miss.has('counter')) draft.current.counter = Math.max(0, Math.round(parsed.counter || 0));
+  // ค่าที่แกะได้เก็บพักไว้ก่อน — ใช้ทั้งเส้นที่จับคู่ได้เลยและเส้นที่ต้องให้คนเลือกก่อน
+  const pending = { from_text: true };
+  if (!miss.has('machine') && parsed.machine) pending.machine = parsed.machine;
+  if (!miss.has('prod_qty') && parsed.prod_qty > 0) pending.prod_qty = parsed.prod_qty;
+  if (!miss.has('counter')) pending.counter = Math.max(0, Math.round(parsed.counter || 0));
   const dmg = parsed.damaged || {};
   if (Object.values(dmg).some(v => Number(v) > 0)) {
-    draft.current.damaged = Object.fromEntries(SPP_DAMAGE_KINDS.map(d => [d.key, Math.max(0, Math.round(Number(dmg[d.key]) || 0))]));
+    pending.damaged = Object.fromEntries(SPP_DAMAGE_KINDS.map(d => [d.key, Math.max(0, Math.round(Number(dmg[d.key]) || 0))]));
   }
   draft.header = draft.header || {};
   draft.header.reporter = user?.name || draft.header.reporter || '';
 
+  const hit = await resolveSku(productText, machineText);
+
+  // กำกวม → ยื่นปุ่มให้คนกด ห้ามหยิบตัวแรกเอง
+  // นี่คือจุดที่เคยพลาด: "Syrup 800 … Linear#3" ถูกจับเป็น SKU ของ Linear#4 แล้วยอดเข้าผิดตัวใน Sheet
+  if (hit.status !== 'exact') {
+    draft.ask = { text: productText, machine: machineText, pending, cands: hit.candidates.map(c => c.keyword) };
+    await setSppSession(chatId, userId, '', draft);
+    const kb = hit.candidates.map((s, i) => [{ text: `${s.product_name || s.keyword}`.slice(0, 60), callback_data: `s:abind:${i}` }]);
+    kb.push([{ text: '📋 แผนผลิตวันนี้', callback_data: 's:plan' }]);
+    kb.push([{ text: '🗂 สินค้าทั้งหมด', callback_data: 's:all:0' }]);
+    return sppSend(chatId, [
+      `🤔 <b>"${escapeHtml(productText)}" คือตัวไหน?</b>`,
+      normMachine(machineText) ? `<i>เครื่องที่พิมพ์มา: ${escapeHtml(String(machineText).match(/[Ll]inear\s*#?\s*\d+|\b[Ll]\s*\d+\b/)?.[0] || '')}</i>` : null,
+      '',
+      hit.candidates.length ? 'เลือกให้ถูกตัว — ระบบจะจำไว้ ครั้งหน้าไม่ถามอีก' : 'หาตัวใกล้เคียงไม่เจอ เลือกจากรายการได้เลย',
+    ].filter(Boolean).join('\n'), kb);
+  }
+
+  draft.current = { sku: hit.sku, ...pending };
   const got = [
-    `✅ อ่านได้ว่า <b>${escapeHtml(parsed.sku.product_name || parsed.sku.keyword)}</b>`,
-    draft.current.prod_qty ? `ผลิตได้ <b>${draft.current.prod_qty} ${escapeHtml(parsed.sku.count_unit || 'กล่อง')}</b>` : null,
+    `✅ อ่านได้ว่า <b>${escapeHtml(hit.sku.product_name || hit.sku.keyword)}</b>`,
+    draft.current.prod_qty ? `ผลิตได้ <b>${draft.current.prod_qty} ${escapeHtml(hit.sku.count_unit || 'กล่อง')}</b>` : null,
     draft.current.machine ? `เครื่อง ${escapeHtml(draft.current.machine)}` : null,
     draft.current.counter !== undefined ? `เลขหน้าเครื่อง ${draft.current.counter}` : null,
   ].filter(Boolean).join(' · ');
@@ -3824,18 +3963,72 @@ async function sppTryFreeText(chatId, userId, draft, text, user) {
   return sppAskNext(chatId, userId, draft);
 }
 
-async function sppShowPlan(chatId, userId, draft, page) {
+// เมนู "แผนผลิตวันนี้" — โชว์ตามแผนที่หัวหน้าวางไว้ ไม่ใช่รายการสินค้าทั้งคลัง
+// รายการที่ยังจับคู่กับ SKU ไม่ได้ก็ต้องโผล่ (ติดป้าย ⚠️) ให้คนกดผูกได้ทันที
+// ห้ามซ่อน — ของที่หายเงียบคือสาเหตุที่แผน 6 รายการเคยกลายเป็น "ไม่มีแผนผลิตในระบบ"
+async function sppShowPlan(chatId, userId, draft, page = 0) {
   const workDay = workDayBKK();
   const shift = draft.header?.shift || currentShiftCode();
-  const list = await sppTodaySkus(workDay);
-  if (!list.length) {
+  const rows = await sppTodayPlan(workDay);
+  if (!rows.length) {
     return sppSend(chatId, `📋 <b>${escapeHtml(workDay)}</b> — ยังไม่มีแผนผลิตในระบบ\nเลือกจากสินค้าทั้งหมดแทนได้`,
       [[{ text: '➕ เลือกจากสินค้าทั้งหมด', callback_data: 's:all:0' }], [{ text: '⬅️ เมนูหลัก', callback_data: 's:menu' }]]);
   }
-  draft.pick_list = list.map(s => s.keyword);
+
+  // เก็บผลจับคู่ไว้ใน session — ปุ่มอ้างด้วย index เพราะ callback_data จำกัด 64 ไบต์
+  draft.plan_list = rows.map(r => ({
+    flavor: r.plan.flavor,
+    machine_code: r.plan.machine_code || '',
+    target: r.plan.target_boxes,
+    keyword: r.sku ? r.sku.keyword : null,
+    cands: (r.candidates || []).map(c => c.keyword),
+  }));
   await setSppSession(chatId, userId, '', draft);
-  return sppSend(chatId, `📋 <b>แผนผลิตวันนี้</b> · ${escapeHtml(workDay)} ${escapeHtml(shift)}\nเลือกสินค้าที่จะลงยอด`,
-    sppSkuKeyboard(list, page, 'plan'));
+
+  const start = page * SPP_PAGE, slice = draft.plan_list.slice(start, start + SPP_PAGE);
+  const kb = slice.map((p, i) => [{
+    text: (p.keyword ? '' : '⚠️ ') + `${p.flavor}${p.target ? ` · ${p.target} กล่อง` : ''}`.slice(0, 60),
+    callback_data: p.keyword ? `s:pick:${start + i}` : `s:pmap:${start + i}`,
+  }]);
+  const nav = [];
+  if (page > 0) nav.push({ text: '◀️ ก่อนหน้า', callback_data: `s:plan:${page - 1}` });
+  if (start + SPP_PAGE < draft.plan_list.length) nav.push({ text: 'ถัดไป ▶️', callback_data: `s:plan:${page + 1}` });
+  if (nav.length) kb.push(nav);
+  kb.push([{ text: '🗂 สินค้าทั้งหมด', callback_data: 's:all:0' }]);
+  kb.push([{ text: '⬅️ เมนูหลัก', callback_data: 's:menu' }]);
+
+  const unmapped = draft.plan_list.filter(p => !p.keyword).length;
+  return sppSend(chatId, [
+    `📋 <b>แผนผลิตวันนี้</b> · ${escapeHtml(workDay)} ${escapeHtml(shift)}`,
+    `${draft.plan_list.length} รายการ — เลือกตัวที่จะลงยอด`,
+    unmapped ? `\n⚠️ <i>${unmapped} รายการยังไม่รู้ว่าเป็นสินค้าตัวไหน กดที่รายการนั้นเพื่อจับคู่ (ทำครั้งเดียว)</i>` : null,
+  ].filter(Boolean).join('\n'), kb);
+}
+
+// หน้าจับคู่ "ชื่อในแผน" → SKU · เสนอตัวเลือกให้กด ไม่เลือกให้เอง
+async function sppShowPlanMap(chatId, userId, draft, idx) {
+  const p = (draft.plan_list || [])[idx];
+  if (!p) return sppSend(chatId, 'ไม่พบรายการนี้ในแผน', sppMainMenu(draft));
+  const cands = [];
+  for (const kw of p.cands || []) {
+    const s = (await dbAll('SELECT * FROM sku_master WHERE keyword = ?', [kw]))[0];
+    if (s) cands.push(s);
+  }
+  draft.map_idx = idx;
+  await setSppSession(chatId, userId, '', draft);
+
+  const kb = cands.map((s, i) => [{
+    text: `${s.product_name || s.keyword}`.slice(0, 60), callback_data: `s:pbind:${i}`,
+  }]);
+  kb.push([{ text: '🗂 ไม่มีตัวที่ใช่ — ดูสินค้าทั้งหมด', callback_data: 's:all:0' }]);
+  kb.push([{ text: '⬅️ กลับไปที่แผน', callback_data: 's:plan:0' }]);
+
+  return sppSend(chatId, [
+    `🔗 <b>"${escapeHtml(p.flavor)}" คือสินค้าตัวไหน?</b>`,
+    p.machine_code ? `<i>แผนระบุเครื่อง ${escapeHtml(p.machine_code)}</i>` : null,
+    '',
+    cands.length ? 'เลือกให้ถูกตัว — ระบบจะจำไว้ ครั้งหน้าไม่ถามอีก' : 'ยังหาตัวใกล้เคียงไม่เจอ เลือกจากสินค้าทั้งหมดได้เลย',
+  ].filter(Boolean).join('\n'), kb);
 }
 
 async function sppShowAll(chatId, userId, draft, page) {
@@ -4057,6 +4250,54 @@ app.post('/api/telegram/spp-update', (req, res) => {
         if (data === 's:planno') {
           delete draft.plan_draft; await setSppSession(chatId, userId, '', draft);
           await ack('ยกเลิกแล้ว'); await sppSend(chatId, 'ยกเลิกแผนแล้ว ✅', sppMainMenu(draft)); return;
+        }
+        // ── เลือกจาก "แผนผลิตวันนี้" ──
+        // ⚠️ s:pick / s:pmap / s:pbind ต้องอยู่ก่อน s:plan เพราะข้างล่างใช้ startsWith('s:plan')
+        if (data.startsWith('s:pick:')) {
+          const p = (draft.plan_list || [])[Number(data.split(':')[2])];
+          const sku = p?.keyword ? (await dbAll('SELECT * FROM sku_master WHERE keyword = ?', [p.keyword]))[0] : null;
+          if (!sku) { await ack('ไม่พบสินค้านี้'); return; }
+          // ไม่ต้องส่งเป้าไปเอง — พอผูก alias แล้ว resolvePlanQty หาแผนของ SKU นี้เจอเองทุกที่
+          draft.current = { sku };
+          await ack(sku.product_name || sku.keyword);
+          await sppAskNext(chatId, userId, draft);
+          return;
+        }
+        // คนเลือกสินค้าให้กับข้อความที่พิมพ์มา (เส้นลงยอดแบบพิมพ์ประโยค)
+        if (data.startsWith('s:abind:')) {
+          const a = draft.ask;
+          const kw = (a?.cands || [])[Number(data.split(':')[2])];
+          const sku = kw ? (await dbAll('SELECT * FROM sku_master WHERE keyword = ?', [kw]))[0] : null;
+          if (!sku || !skuIdOf(sku)) { await ack('เลือกไม่สำเร็จ'); return; }
+          await rememberAlias(a.text, a.machine, skuIdOf(sku), 'floor', user?.name || `TG:${userId}`);
+          draft.current = { sku, ...(a.pending || {}) };
+          delete draft.ask;
+          await setSppSession(chatId, userId, '', draft);
+          await ack(`จำแล้ว: ${a.text} = ${sku.product_name || sku.keyword}`.slice(0, 190));
+          await sppSend(chatId, `🔗 จำไว้แล้ว — <b>${escapeHtml(a.text)}</b> = ${escapeHtml(sku.product_name || sku.keyword)}\n<i>ครั้งหน้าพิมพ์แบบเดิมได้เลย ไม่ต้องเลือกอีก</i>`);
+          await sppAskNext(chatId, userId, draft);
+          return;
+        }
+        if (data.startsWith('s:pmap:')) {
+          await ack(); await sppShowPlanMap(chatId, userId, draft, Number(data.split(':')[2]));
+          return;
+        }
+        if (data.startsWith('s:pbind:')) {
+          const idx = draft.map_idx;
+          const p = (draft.plan_list || [])[idx];
+          const kw = (p?.cands || [])[Number(data.split(':')[2])];
+          const sku = kw ? (await dbAll('SELECT * FROM sku_master WHERE keyword = ?', [kw]))[0] : null;
+          if (!sku || !skuIdOf(sku)) { await ack('เลือกไม่สำเร็จ'); return; }
+          // คนเป็นคนชี้ → จำถาวร ครั้งหน้า resolveSku จะเจอตั้งแต่ขั้น alias
+          await rememberAlias(p.flavor, p.machine_code, skuIdOf(sku), 'plan', user?.name || `TG:${userId}`);
+          p.keyword = sku.keyword;
+          delete draft.map_idx;
+          draft.current = { sku };
+          await setSppSession(chatId, userId, '', draft);
+          await ack(`จำแล้ว: ${p.flavor} = ${sku.product_name || sku.keyword}`.slice(0, 190));
+          await sppSend(chatId, `🔗 จำไว้แล้ว — <b>${escapeHtml(p.flavor)}</b> = ${escapeHtml(sku.product_name || sku.keyword)}\n<i>ครั้งหน้าไม่ต้องเลือกอีก</i>`);
+          await sppAskNext(chatId, userId, draft);
+          return;
         }
         if (data.startsWith('s:plan')) { await ack(); await sppShowPlan(chatId, userId, draft, Number(data.split(':')[2] || 0)); return; }
         if (data.startsWith('s:all')) { await ack(); await sppShowAll(chatId, userId, draft, Number(data.split(':')[2] || 0)); return; }
@@ -8136,6 +8377,7 @@ module.exports = { app, initDb, shiftJustEnded, shiftsForWeekday, factoryShiftsF
   __test_sppShiftNudgeTick: sppShiftNudgeTick,
   __test_parsePlanHeader: parsePlanHeader, __test_looksLikePlanText: looksLikePlanText,
   __test_parsePlanItems: parsePlanItems,
+  __test_resolveSku: resolveSku, __test_normAlias: normAlias, __test_normMachine: normMachine,
   buildShiftCardData, runShiftAnalysis, getQualitySpecs, setQualitySpec, formatThaiDate };
 
 if (require.main === module) {

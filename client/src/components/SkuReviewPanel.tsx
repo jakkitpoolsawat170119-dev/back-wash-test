@@ -20,6 +20,19 @@ interface SkuRow {
   review_note: string | null;
 }
 
+// ชื่อเล่นที่ระบบจำไว้ — ชื่อในแผนบรรจุ/ที่พนักงานพิมพ์ → รหัส SKU
+// ต้องมองเห็นและลบได้ เพราะชีตจับคู่ทำมือรุ่นก่อนผูกผิดตัวแล้วไม่มีใครรู้จนยอดเข้าผิด SKU
+interface AliasRow {
+  id: number;
+  alias_raw: string;
+  machine_norm: string | null;
+  sku_code: string;
+  product_name: string | null;
+  source: string | null;
+  created_by: string | null;
+  created_at: string | null;
+}
+
 const UNITS = ['กล่อง', 'กระสอบ', 'หม้อ'];
 
 const card: React.CSSProperties = { background: '#fff', border: '1px solid #ece4da', borderRadius: 12, padding: 14, marginBottom: 12 };
@@ -36,6 +49,9 @@ const SkuReviewPanel: React.FC = () => {
   const [msg, setMsg] = useState('');
   const [q, setQ] = useState('');
 
+  const [aliases, setAliases] = useState<AliasRow[]>([]);
+  const [showAlias, setShowAlias] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true); setMsg('');
     try {
@@ -50,7 +66,23 @@ const SkuReviewPanel: React.FC = () => {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const loadAliases = useCallback(async () => {
+    try {
+      const d = await fetch(`${apiUrl}/api/sku/alias`).then(r => r.json());
+      setAliases(Array.isArray(d.items) ? d.items : []);
+    } catch { /* โหลดชื่อเล่นไม่ได้ก็ยังใช้หน้านี้ตรวจ SKU ได้ */ }
+  }, []);
+
+  const removeAlias = async (a: AliasRow) => {
+    if (!window.confirm(`ลบความจำนี้?\n\n"${a.alias_raw}" → ${a.product_name || a.sku_code}\n\nครั้งหน้าที่เจอชื่อนี้ บอทจะถามใหม่`)) return;
+    try {
+      const r = await fetch(`${apiUrl}/api/sku/alias/${a.id}`, { method: 'DELETE' });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); alert(d.error || 'ลบไม่สำเร็จ'); return; }
+      await loadAliases();
+    } catch { alert('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้'); }
+  };
+
+  useEffect(() => { load(); loadAliases(); }, [load, loadAliases]);
 
   const runImport = async () => {
     if (!window.confirm('ดึงรายการสินค้าทั้งหมดจากชีตเข้ามาใหม่?\n\nของที่ตั้งค่าไว้แล้ว (หน่วยนับ / จำนวนชิ้น / เครื่อง) จะไม่ถูกทับ')) return;
@@ -130,6 +162,52 @@ const SkuReviewPanel: React.FC = () => {
             style={{ ...inp, width: 240, flex: '0 1 240px' }} />
         </div>
         {msg && <div style={{ marginTop: 10, fontSize: '0.82rem', color: msg.startsWith('❌') ? '#c62828' : '#1c8a4c' }}>{msg}</div>}
+      </div>
+
+      {/* ── ชื่อเล่นที่ระบบจำไว้ ─────────────────────────────────────────────
+          ทุกแถวเกิดจากคนกดเลือกในบอท ไม่ใช่ระบบเดา · ผิดเมื่อไหร่ลบได้ทันที
+          แล้วครั้งหน้าบอทจะถามใหม่ (ข้อมูลที่ลงไปแล้วไม่กระทบ) */}
+      <div style={card}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ fontWeight: 'bold', fontSize: '0.95rem', flex: 1 }}>
+            🔗 ชื่อเล่นที่ระบบจำไว้ <span style={{ fontWeight: 'normal', color: '#8a7f72', fontSize: '0.82rem' }}>({aliases.length})</span>
+          </div>
+          <button onClick={() => { setShowAlias(v => !v); if (!showAlias) loadAliases(); }}
+            style={{ ...btn, background: '#fff', color: '#8a7f72', border: '1px solid #e5dbcf' }}>
+            {showAlias ? 'ซ่อน' : 'ดูรายการ'}
+          </button>
+        </div>
+        <div style={{ fontSize: '0.78rem', color: '#8a7f72', marginTop: 6, lineHeight: 1.6 }}>
+          ชื่อในแผนบรรจุกับชื่อที่พนักงานพิมพ์ → ผูกกับรหัส SKU ตัวจริง<br />
+          เกิดจาก<b>คนกดเลือกในบอท</b>เท่านั้น · ถ้าผูกผิดให้ลบทิ้ง ครั้งหน้าบอทจะถามใหม่
+        </div>
+
+        {showAlias && (
+          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 7 }}>
+            {!aliases.length && <div style={{ fontSize: '0.82rem', color: '#a1968a' }}>ยังไม่มีชื่อเล่นที่จำไว้ — บอทจะถามครั้งแรกที่เจอชื่อใหม่</div>}
+            {aliases.map(a => (
+              <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+                padding: '8px 10px', background: '#fdfbf9', border: '1px solid #ece4da', borderRadius: 9 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: '0.86rem' }}>
+                    <b>{a.alias_raw}</b>
+                    {a.machine_norm ? <span style={{ color: '#c24f00', fontSize: '0.76rem' }}> · เครื่อง {a.machine_norm}</span> : null}
+                    {' → '}
+                    {a.product_name || <span style={{ color: '#c62828' }}>⚠️ ไม่พบสินค้าของรหัสนี้แล้ว</span>}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#a1968a', marginTop: 2 }}>
+                    {a.sku_code} · {a.source === 'plan' ? 'จากแผน' : a.source === 'manual' ? 'ตั้งจากเว็บ' : 'จากหน้างาน'}
+                    {a.created_by ? ` · โดย ${a.created_by}` : ''}{a.created_at ? ` · ${a.created_at.slice(0, 16).replace('T', ' ')}` : ''}
+                  </div>
+                </div>
+                <button onClick={() => removeAlias(a)}
+                  style={{ ...btn, background: '#fff', color: '#c62828', border: '1px solid #f2c9c9', padding: '6px 11px', fontSize: '0.78rem' }}>
+                  🗑 ลบ
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{ fontSize: '0.8rem', color: '#8a7f72', margin: '4px 2px 10px' }}>
