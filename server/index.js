@@ -3368,6 +3368,40 @@ async function setSppUser(userId, name, chatId) {
   );
 }
 
+// ── "คุณคือใคร" ────────────────────────────────────────────────────────────
+// ⚠️ 2026-08-04 มีใบที่บันทึกชื่อผิดคน (อนุวัตร/กะ1 แทน จักรกฤษ/กะ2) จาก 3 สาเหตุรวมกัน:
+//   1. บอทเสนอเฉพาะลูกกะของ currentShiftCode() — คนกะ2 ที่ทักตอนระบบคิดว่ากะ1 จะไม่เห็นชื่อตัวเอง
+//   2. ปุ่มส่งมาแค่ "ลำดับ" ที่ชี้เข้า draft.name_opts ซึ่งถูกเขียนทับได้ระหว่างทาง
+//   3. ลงทะเบียนผิดแล้วแก้เองไม่ได้เลย — หัวหน้าแก้ชื่อในใบได้ แต่ทะเบียนบอทยังผิด ใบถัดไปก็ผิดซ้ำ
+// แก้: เห็นได้ทุกกะ · ปุ่มอ้าง (กะ, sort_order) ที่อ่านจาก DB ตอนกด ไม่ใช่จากร่าง · ยืนยันก่อนบันทึก
+//      · เปลี่ยนทีหลังได้ · โชว์ชื่อที่ลงทะเบียนไว้ในเมนูหลักทุกครั้ง
+async function sppAskWho(chatId, userId, draft, { all = false, note = '' } = {}) {
+  const shift = currentShiftCode();
+  const crew = all
+    ? await dbAll('SELECT shift, name, sort_order FROM shift_crew WHERE active = 1 ORDER BY shift, sort_order', [])
+    : await dbAll('SELECT shift, name, sort_order FROM shift_crew WHERE shift = ? AND active = 1 ORDER BY sort_order', [shift]);
+
+  // callback_data จำกัด 64 ไบต์ · ชื่อไทยยาว ๆ ใส่ตรง ๆ ไม่พอ → อ้างด้วย (กะ, sort_order)
+  // ซึ่งคงที่ใน DB · ต่างจากเดิมที่อ้าง index ของลิสต์ในร่างที่เปลี่ยนได้
+  const kb = crew.map(c => [{
+    text: all ? `${c.name} · ${c.shift}` : c.name,
+    callback_data: `s:who:${c.shift}:${c.sort_order}`,
+  }]);
+  if (!all) kb.push([{ text: '👥 ไม่มีชื่อฉัน — ดูทุกกะ', callback_data: 's:whoall' }]);
+  kb.push([{ text: '⌨️ พิมพ์ชื่อเอง', callback_data: 's:nametype' }]);
+
+  await setSppSession(chatId, userId, 'ask_name', draft);
+  return sppSend(chatId, [
+    note || '👋 สวัสดี! ก่อนเริ่ม — <b>คุณคือใคร?</b>',
+    all ? '<i>ทีมทั้งหมดทุกกะ</i>' : `<i>ทีม ${escapeHtml(shift)} · ไม่มีชื่อคุณให้กดดูทุกกะ</i>`,
+  ].join('\n'), kb);
+}
+
+// หาคนจาก (กะ, sort_order) — อ่านสด ๆ จาก DB ตอนกดปุ่ม ไม่พึ่งอะไรที่ค้างในร่าง
+const sppCrewAt = async (shift, sortOrder) =>
+  (await dbAll('SELECT name FROM shift_crew WHERE shift = ? AND sort_order = ? AND active = 1',
+    [shift, Number(sortOrder)]))[0]?.name || '';
+
 // ── ปุ่ม / ข้อความ ──────────────────────────────────────────────────────────
 const sppSend = (chatId, text, keyboard) =>
   sppTg('sendMessage', {
@@ -3376,10 +3410,14 @@ const sppSend = (chatId, text, keyboard) =>
   });
 
 // ไม่มีปุ่มส่งคลังในเมนูบอทโดยตั้งใจ — ยืนยันแล้วเข้าแอปเลย หัวหน้าเป็นคนส่งคลังจากหน้า Admin
+// ปุ่มชื่อตัวเองอยู่ท้ายเมนูเสมอ: ลงทะเบียนผิดคนแล้วต้องเห็นทันที ไม่ใช่รู้ตอนหัวหน้าทักว่าใบนี้ใครลง
+// draft.who = ชื่อที่ลงทะเบียนไว้ (sync จากตาราง spp_tg_user ทุกครั้งที่มี update เข้ามา)
+// เก็บไว้ในร่างเพื่อให้เมนูอ่านได้โดยไม่ต้องยิง DB ซ้ำทุกจุดที่เรียกเมนู
 const sppMainMenu = (draft) => [
   [{ text: '📋 แผนผลิตวันนี้', callback_data: 's:plan' }],
   [{ text: '➕ ลงยอด (เลือกจากสินค้าทั้งหมด)', callback_data: 's:all:0' }],
   ...(draft?.count ? [[{ text: `👀 ที่ลงไปแล้ววันนี้ (${draft.count})`, callback_data: 's:draft' }]] : []),
+  [{ text: draft?.who ? `👤 คุณคือ ${draft.who}` : '👤 ตั้งชื่อผู้ลงยอด', callback_data: 's:whoami' }],
 ];
 
 // สรุปสิ่งที่คนนี้ลงไปแล้วในกะ — อ่านจาก DB จริง ไม่ใช่ร่างในบอท (ยืนยันแล้วเข้า DB ทันที)
@@ -3506,15 +3544,19 @@ async function sppHandleText(chatId, userId, text, sess, user = null) {
   // ผู้ใช้ที่ค้างรออยู่ (เช่นรอส่งรูป) จะออกไม่ได้เลย ได้แต่โดนถามซ้ำ
   if (/^\/cancel$|^ยกเลิก/i.test(text.trim())) {
     await clearSppSession(chatId, userId);
-    return sppSend(chatId, 'ล้างที่กรอกค้างแล้ว ✅ <i>(ของที่ยืนยันไปแล้วยังอยู่ในแอป)</i>', sppMainMenu({}));
+    return sppSend(chatId, 'ล้างที่กรอกค้างแล้ว ✅ <i>(ของที่ยืนยันไปแล้วยังอยู่ในแอป)</i>', sppMainMenu({ who: draft.who }));
   }
 
   if (sess.state === 'ask_name_type') {
     const name = text.trim();
     if (!name) return sppSend(chatId, 'พิมพ์ชื่อ-นามสกุลของคุณ');
+    const before = draft.who;
     await setSppUser(userId, name, chatId);
+    draft.who = name;
     await setSppSession(chatId, userId, '', draft);
-    return sppSend(chatId, `ยินดีต้อนรับ <b>${escapeHtml(name)}</b> ✅`, sppMainMenu(draft));
+    return sppSend(chatId, before && before !== name
+      ? `✅ เปลี่ยนเป็น <b>${escapeHtml(name)}</b> แล้ว\n<i>(ใบที่ลงไปก่อนหน้านี้ยังเป็นชื่อ ${escapeHtml(before)} — ให้หัวหน้าแก้ในหน้าอนุมัติ)</i>`
+      : `ยินดีต้อนรับ <b>${escapeHtml(name)}</b> ✅`, sppMainMenu(draft));
   }
   if (sess.state === 'item_machine_type') {
     draft.current.machine = text.trim();
@@ -3584,6 +3626,15 @@ async function sppHandleText(chatId, userId, text, sess, user = null) {
 
   // ไม่ได้อยู่ในฟอร์ม — ถือเป็นคำสั่ง
   const t = text.trim();
+  // ต้องมาก่อน looksLikePlanText/ลงยอด — ไม่งั้น "เปลี่ยนชื่อ" ไปโดนทางอื่นดักก่อน
+  if (/^\/whoami$|^ฉันคือใคร|^ผมคือใคร|^เปลี่ยนชื่อ|^แก้ชื่อ/i.test(t)) {
+    if (/เปลี่ยนชื่อ|แก้ชื่อ/i.test(t)) {
+      return sppAskWho(chatId, userId, draft, { all: true, note: '🔄 <b>เปลี่ยนชื่อผู้ลงยอด</b> — เลือกชื่อที่ถูกต้อง' });
+    }
+    if (!draft.who) return sppAskWho(chatId, userId, draft);
+    return sppSend(chatId, `👤 ระบบบันทึกว่าคุณคือ <b>${escapeHtml(draft.who)}</b>\n<i>ไม่ใช่? พิมพ์ "เปลี่ยนชื่อ"</i>`,
+      [[{ text: '🔄 เปลี่ยนชื่อ', callback_data: 's:whochg' }]]);
+  }
   if (/^แผนผลิตวันนี้|^\/plan/i.test(t)) return sppShowPlan(chatId, userId, draft, 0);
   if (/ร่าง|ที่ลงไป|^\/draft/i.test(t)) return sppSend(chatId, await sppDraftText(draft), sppMainMenu(draft));
 
@@ -4177,15 +4228,12 @@ app.post('/api/telegram/spp-update', (req, res) => {
         || sppLooksLikeWork(text);                               // แผน / คำถาม / น่าจะเป็นการลงยอด
       if (!forBot) return;                                       // คุยกันเองในกลุ่ม — เงียบไว้
 
+      // ชื่อที่ลงทะเบียนไว้ต้องติดมากับร่างเสมอ เพื่อให้เมนูโชว์ "คุณคือ ..." ได้ทุกจุด
+      if (user?.name && draft.who !== user.name) draft.who = user.name;
+
       // ยังไม่รู้ว่าเป็นใคร → ถามก่อนเสมอ (ยกเว้นตอนกำลังตอบชื่ออยู่)
       if (!user && !cq && sess.state !== 'ask_name_type') {
-        const shift = currentShiftCode();
-        const crew = await dbAll('SELECT name FROM shift_crew WHERE shift = ? AND active = 1 ORDER BY sort_order', [shift]);
-        draft.name_opts = crew.map(c => c.name);
-        await setSppSession(chatId, userId, 'ask_name', draft);
-        const rows = crew.map((c, i) => [{ text: c.name, callback_data: `s:name:${i}` }]);
-        rows.push([{ text: '⌨️ ไม่มีชื่อฉัน — พิมพ์เอง', callback_data: 's:nametype' }]);
-        await sppSend(chatId, `👋 สวัสดี! ก่อนเริ่ม — <b>คุณคือใคร?</b>\n<i>ทีม ${escapeHtml(shift)}</i>`, rows);
+        await sppAskWho(chatId, userId, draft);
         return;
       }
 
@@ -4196,14 +4244,51 @@ app.post('/api/telegram/spp-update', (req, res) => {
           callback_query_id: cq.id, ...(text ? { text } : {}), ...(alert ? { show_alert: true } : {}),
         });
 
-        if (data.startsWith('s:name:')) {
-          const name = (draft.name_opts || [])[Number(data.split(':')[2])];
-          if (!name) { await ack('เลือกไม่สำเร็จ'); return; }
+        // ── ตัวตนของคนลงยอด ── (ต้องอยู่ก่อน guard "ต้องลงทะเบียน" ข้างล่าง)
+        if (data === 's:whoall') { await ack(); await sppAskWho(chatId, userId, draft, { all: true }); return; }
+        if (data === 's:whoami') {
+          await ack();
+          if (!draft.who) { await sppAskWho(chatId, userId, draft); return; }
+          await sppSend(chatId, [
+            `👤 ตอนนี้ระบบบันทึกว่าคุณคือ <b>${escapeHtml(draft.who)}</b>`,
+            'ยอดที่ลงจากเครื่องนี้จะขึ้นชื่อนี้ทั้งหมด',
+            '<i>ถ้าไม่ใช่ กดเปลี่ยนได้เลย — ของที่ลงไปแล้วยังใช้ชื่อเดิม ให้หัวหน้าแก้ในหน้าอนุมัติ</i>',
+          ].join('\n'), [
+            [{ text: '🔄 เปลี่ยนชื่อ', callback_data: 's:whochg' }],
+            [{ text: '⬅️ เมนูหลัก', callback_data: 's:menu' }],
+          ]);
+          return;
+        }
+        if (data === 's:whochg') {
+          await ack();
+          await sppAskWho(chatId, userId, draft, { all: true, note: '🔄 <b>เปลี่ยนชื่อผู้ลงยอด</b> — เลือกชื่อที่ถูกต้อง' });
+          return;
+        }
+        // ปุ่มชื่อ: อ้าง (กะ, sort_order) แล้วอ่านสดจาก DB — ไม่พึ่งลิสต์ที่ค้างในร่างเหมือนเดิม
+        if (data.startsWith('s:who:')) {
+          const [, , sh, ord] = data.split(':');
+          const name = await sppCrewAt(sh, ord);
+          if (!name) { await ack('เลือกไม่สำเร็จ ลองใหม่'); return; }
+          await ack();
+          // ยืนยันก่อนบันทึกเสมอ — ลงทะเบียนผิดคนแล้วยอดทุกใบหลังจากนั้นขึ้นชื่อผิดหมด
+          await sppSend(chatId, `ยืนยันว่าคุณคือ <b>${escapeHtml(name)}</b> (${escapeHtml(sh)}) ใช่ไหม?`, [
+            [{ text: '✅ ใช่ ฉันเอง', callback_data: `s:whoy:${sh}:${ord}` }],
+            [{ text: '↩️ ไม่ใช่ เลือกใหม่', callback_data: 's:whoall' }],
+          ]);
+          return;
+        }
+        if (data.startsWith('s:whoy:')) {
+          const [, , sh, ord] = data.split(':');
+          const name = await sppCrewAt(sh, ord);
+          if (!name) { await ack('เลือกไม่สำเร็จ ลองใหม่'); return; }
+          const before = draft.who;
           await setSppUser(userId, name, chatId);
-          delete draft.name_opts;
+          draft.who = name;
           await setSppSession(chatId, userId, '', draft);
           await ack(`สวัสดี ${name}`);
-          await sppSend(chatId, `ยินดีต้อนรับ <b>${escapeHtml(name)}</b> ✅`, sppMainMenu(draft));
+          await sppSend(chatId, before && before !== name
+            ? `✅ เปลี่ยนเป็น <b>${escapeHtml(name)}</b> แล้ว\n<i>(ใบที่ลงไปก่อนหน้านี้ยังเป็นชื่อ ${escapeHtml(before)} — ให้หัวหน้าแก้ในหน้าอนุมัติ)</i>`
+            : `ยินดีต้อนรับ <b>${escapeHtml(name)}</b> ✅`, sppMainMenu(draft));
           return;
         }
         if (data === 's:nametype') {
@@ -4243,7 +4328,7 @@ app.post('/api/telegram/spp-update', (req, res) => {
         if (data === 's:draft') { await ack(); await sppSend(chatId, await sppDraftText(draft), sppMainMenu(draft)); return; }
         if (data === 's:clear') {
           await clearSppSession(chatId, userId); await ack('ล้างที่กรอกค้างแล้ว');
-          await sppSend(chatId, 'ล้างที่กรอกค้างแล้ว ✅ <i>(ของที่ยืนยันไปแล้วยังอยู่ในแอป)</i>', sppMainMenu({})); return;
+          await sppSend(chatId, 'ล้างที่กรอกค้างแล้ว ✅ <i>(ของที่ยืนยันไปแล้วยังอยู่ในแอป)</i>', sppMainMenu({ who: draft.who })); return;
         }
         // ⚠️ s:planok / s:planno ต้องเช็คก่อน s:plan — ไม่งั้นโดน startsWith ดักไปแสดงแผนแทน
         if (data === 's:planok') { await ack('กำลังบันทึก…'); await sppSavePlan(chatId, userId, draft, user); return; }
