@@ -1863,32 +1863,42 @@ async function resolveSku(text, machineText = '') {
     'SELECT sku_code, machine_norm FROM sku_alias WHERE alias_norm = ?', [q]).catch(() => []);
   const pick = aliases.find(a => a.machine_norm && a.machine_norm === mach)
             || aliases.find(a => !a.machine_norm);
+  // จัดอันดับผู้สมัครด้วยกฎ (ไม่เรียก AI) แล้วกรองด้วยเครื่องที่คนหน้างานบอกมา
+  const rankAll = () => {
+    const qNums = q.match(/\d+/g) || [];
+    let r = all.map(x => ({ sku: x, score: skuScore(q, qNums, x) }))
+      .filter(x => x.score > 0)
+      .sort((a, b) => b.score - a.score);
+    if (mach) {
+      const sameMachine = r.filter(x => normMachine(x.sku.machine) === mach);
+      if (sameMachine.length) r = sameMachine;      // เครื่องตรง = สัญญาณแรงสุด เชื่อการกรอง
+    }
+    return r.map(x => x.sku);
+  };
+
   if (pick) {
     const hit = byCode.get(String(pick.sku_code).toUpperCase());
-    if (hit) return { status: 'exact', sku: hit, candidates: [] };
+    if (hit) {
+      // ⚠️ จำได้ ≠ ใช้เลย — ผู้ใช้สั่งไว้ 2026-08-07 ว่าของที่มาจากความจำ "ต้องกดยืนยันทุกครั้ง"
+      //    เหตุผล: ชื่อในแผนอย่าง "Syrup 800×3×4" มีของจริงใกล้กัน 2 ตัว (Stand pouch / Makro)
+      //    คนละลูกค้า · ถ้าจำคำตอบเดียวไว้แล้วใช้เงียบ ๆ วันที่คนตั้งใจลงอีกตัวจะเข้าผิดโดยไม่มีใครรู้
+      //    ความจำจึงมีหน้าที่แค่ "เดาให้ก่อน + ทำให้ช่องแผนขึ้นเลขได้" ไม่ใช่ตัดสินแทนคน
+      const others = rankAll().filter(x => skuIdOf(x) !== skuIdOf(hit));
+      return { status: 'confirm', sku: hit, candidates: [hit, ...others].slice(0, SPP_ASK_LIMIT) };
+    }
     // alias ชี้ไปยัง SKU ที่ถูกปิด/ลบไปแล้ว → ตกไปหาใหม่ ดีกว่าคืนของที่ใช้ไม่ได้
   }
 
-  // 4) ชื่อทางการหรือ keyword ตรงเป๊ะ
-  const exactName = all.find(s => normAlias(s.product_name) === q || normAlias(s.keyword) === q);
+  // 4) ชื่อทางการหรือ keyword ตรงเป๊ะ — ไม่ได้พึ่งความจำ จึงใช้ได้เลย
+  const exactName = all.find(x => normAlias(x.product_name) === q || normAlias(x.keyword) === q);
   if (exactName) return { status: 'exact', sku: exactName, candidates: [] };
 
-  // 5) จัดอันดับด้วยกฎ แล้วกรองด้วยเครื่อง
-  const qNums = q.match(/\d+/g) || [];
-  let ranked = all.map(s => ({ sku: s, score: skuScore(q, qNums, s) }))
-    .filter(x => x.score > 0)
-    .sort((a, b) => b.score - a.score);
+  // 5) เดาจากกฎ · เหลือตัวเดียวจริง ๆ ถึงจะรับอัตโนมัติ
+  //    คะแนนนำห่างไม่นับว่า "ชัดเจน" — เคยพลาดมาแล้ว
+  const ranked = rankAll();
   if (!ranked.length) return { status: 'none', candidates: [] };
-
-  // เครื่องคือตัวตัดสินที่คนหน้างานให้มา — ถ้ากรองแล้วยังเหลือ ให้เชื่อการกรอง
-  if (mach) {
-    const sameMachine = ranked.filter(x => normMachine(x.sku.machine) === mach);
-    if (sameMachine.length) ranked = sameMachine;
-  }
-
-  // เหลือตัวเดียวจริง ๆ ถึงจะรับอัตโนมัติ · คะแนนนำห่างไม่นับว่า "ชัดเจน" — เคยพลาดมาแล้ว
-  if (ranked.length === 1) return { status: 'exact', sku: ranked[0].sku, candidates: [] };
-  return { status: 'ask', candidates: ranked.slice(0, SPP_ASK_LIMIT).map(x => x.sku) };
+  if (ranked.length === 1) return { status: 'exact', sku: ranked[0], candidates: [] };
+  return { status: 'ask', candidates: ranked.slice(0, SPP_ASK_LIMIT) };
 }
 
 // จำคู่ที่คนกดเลือก — ครั้งหน้าจะเข้าทางที่ 2 ทันที ไม่ต้องถามอีก
@@ -1926,7 +1936,9 @@ async function resolveDayPlan(workDay, shift = null) {
     const r = await resolveSku(p.flavor, p.machine_code || '');
     out.push({
       plan: p,
-      sku: r.status === 'exact' ? r.sku : null,
+      // 'confirm' = รู้แล้วว่าน่าจะเป็นตัวไหน (จากความจำ) แต่ยังต้องให้คนกดยืนยันก่อนลงยอด
+      // ยังใส่ sku มาด้วยเพราะช่อง "แผน" กับตัวเตือนสิ้นกะต้องรู้ว่าแผนหมายถึงสินค้าตัวไหน
+      sku: (r.status === 'exact' || r.status === 'confirm') ? r.sku : null,
       status: r.status,
       candidates: r.candidates || [],
       exact_shift: shiftN ? normalizeShift(p.shift) === shiftN : true,
@@ -3998,19 +4010,25 @@ async function sppTryFreeText(chatId, userId, draft, text, user) {
 
   const hit = await resolveSku(productText, machineText);
 
-  // กำกวม → ยื่นปุ่มให้คนกด ห้ามหยิบตัวแรกเอง
+  // กำกวม หรือมาจากความจำ → ยื่นปุ่มให้คนกด ห้ามหยิบตัวแรกเอง
   // นี่คือจุดที่เคยพลาด: "Syrup 800 … Linear#3" ถูกจับเป็น SKU ของ Linear#4 แล้วยอดเข้าผิดตัวใน Sheet
   if (hit.status !== 'exact') {
+    const remembered = hit.status === 'confirm' ? skuIdOf(hit.sku) : null;
     draft.ask = { text: productText, machine: machineText, pending, cands: hit.candidates.map(c => c.keyword) };
     await setSppSession(chatId, userId, '', draft);
-    const kb = hit.candidates.map((s, i) => [{ text: `${s.product_name || s.keyword}`.slice(0, 60), callback_data: `s:abind:${i}` }]);
+    const kb = hit.candidates.map((s, i) => [{
+      text: `${skuIdOf(s) === remembered ? '✓ ' : ''}${s.product_name || s.keyword}`.slice(0, 60),
+      callback_data: `s:abind:${i}`,
+    }]);
     kb.push([{ text: '📋 แผนผลิตวันนี้', callback_data: 's:plan' }]);
     kb.push([{ text: '🗂 สินค้าทั้งหมด', callback_data: 's:all:0' }]);
     return sppSend(chatId, [
       `🤔 <b>"${escapeHtml(productText)}" คือตัวไหน?</b>`,
       normMachine(machineText) ? `<i>เครื่องที่พิมพ์มา: ${escapeHtml(String(machineText).match(/[Ll]inear\s*#?\s*\d+|\b[Ll]\s*\d+\b/)?.[0] || '')}</i>` : null,
       '',
-      hit.candidates.length ? 'เลือกให้ถูกตัว — ระบบจะจำไว้ ครั้งหน้าไม่ถามอีก' : 'หาตัวใกล้เคียงไม่เจอ เลือกจากรายการได้เลย',
+      remembered
+        ? 'ครั้งก่อนเลือกตัวที่มี ✓ ไว้ — <b>ยืนยันอีกครั้ง</b> หรือเปลี่ยนเป็นตัวอื่นก็ได้'
+        : (hit.candidates.length ? 'เลือกให้ถูกตัว' : 'หาตัวใกล้เคียงไม่เจอ เลือกจากรายการได้เลย'),
     ].filter(Boolean).join('\n'), kb);
   }
 
@@ -4043,6 +4061,7 @@ async function sppShowPlan(chatId, userId, draft, page = 0) {
     machine_code: r.plan.machine_code || '',
     target: r.plan.target_boxes,
     keyword: r.sku ? r.sku.keyword : null,
+    need_confirm: r.status === 'confirm',        // มาจากความจำ → ต้องให้คนยืนยันก่อนใช้
     // หน่วยตามสินค้าจริง ไม่ใช่ "กล่อง" เหมาะ ๆ — ต้มหัวเชื้อนับเป็นหม้อ ไอซิ่งบางตัวเป็นกระสอบ
     // เคยขึ้น "ต้มหัวเชื้อสูตรเก่า · 8 กล่อง" ทั้งที่แผนหมายถึง 8 หม้อ
     unit: r.sku ? (r.sku.count_unit || 'กล่อง') : '',
@@ -4054,7 +4073,8 @@ async function sppShowPlan(chatId, userId, draft, page = 0) {
   const kb = slice.map((p, i) => [{
     // ยังไม่รู้ว่าเป็นสินค้าตัวไหน = ยังไม่รู้หน่วย → ไม่เดาหน่วยให้ โชว์แค่ตัวเลข
     text: (p.keyword ? '' : '⚠️ ') + `${p.flavor}${p.target ? ` · ${p.target}${p.unit ? ' ' + p.unit : ''}` : ''}`.slice(0, 60),
-    callback_data: p.keyword ? `s:pick:${start + i}` : `s:pmap:${start + i}`,
+    // ตัวที่มาจากความจำก็ต้องผ่านหน้าเลือกเหมือนกัน (ตัวที่จำไว้จะขึ้นก่อนและติ๊ก ✓)
+    callback_data: (p.keyword && !p.need_confirm) ? `s:pick:${start + i}` : `s:pmap:${start + i}`,
   }]);
   const nav = [];
   if (page > 0) nav.push({ text: '◀️ ก่อนหน้า', callback_data: `s:plan:${page - 1}` });
@@ -4067,11 +4087,13 @@ async function sppShowPlan(chatId, userId, draft, page = 0) {
   return sppSend(chatId, [
     `📋 <b>แผนผลิตวันนี้</b> · ${escapeHtml(workDay)} ${escapeHtml(shift)}`,
     `${draft.plan_list.length} รายการ — เลือกตัวที่จะลงยอด`,
-    unmapped ? `\n⚠️ <i>${unmapped} รายการยังไม่รู้ว่าเป็นสินค้าตัวไหน กดที่รายการนั้นเพื่อจับคู่ (ทำครั้งเดียว)</i>` : null,
+    unmapped ? `\n⚠️ <i>${unmapped} รายการยังไม่รู้ว่าเป็นสินค้าตัวไหน กดที่รายการนั้นเพื่อจับคู่</i>` : null,
   ].filter(Boolean).join('\n'), kb);
 }
 
-// หน้าจับคู่ "ชื่อในแผน" → SKU · เสนอตัวเลือกให้กด ไม่เลือกให้เอง
+// หน้าเลือกสินค้าให้ "ชื่อในแผน" · เสนอตัวเลือกให้กด ไม่เลือกให้เอง
+// ตัวที่เคยเลือกไว้จะขึ้นก่อนและติ๊ก ✓ — คนกดยืนยันเองทุกครั้งตามที่ตกลงไว้
+// (จำไว้เพื่อ "เดาให้ก่อน + ทำให้ช่องแผนขึ้นเลข" ไม่ใช่เพื่อตัดสินแทนคน)
 async function sppShowPlanMap(chatId, userId, draft, idx) {
   const p = (draft.plan_list || [])[idx];
   if (!p) return sppSend(chatId, 'ไม่พบรายการนี้ในแผน', sppMainMenu(draft));
@@ -4083,8 +4105,10 @@ async function sppShowPlanMap(chatId, userId, draft, idx) {
   draft.map_idx = idx;
   await setSppSession(chatId, userId, '', draft);
 
+  const remembered = p.need_confirm ? p.keyword : null;
   const kb = cands.map((s, i) => [{
-    text: `${s.product_name || s.keyword}`.slice(0, 60), callback_data: `s:pbind:${i}`,
+    text: `${s.keyword === remembered ? '✓ ' : ''}${s.product_name || s.keyword}`.slice(0, 60),
+    callback_data: `s:pbind:${i}`,
   }]);
   kb.push([{ text: '🗂 ไม่มีตัวที่ใช่ — ดูสินค้าทั้งหมด', callback_data: 's:all:0' }]);
   kb.push([{ text: '⬅️ กลับไปที่แผน', callback_data: 's:plan:0' }]);
@@ -4093,7 +4117,9 @@ async function sppShowPlanMap(chatId, userId, draft, idx) {
     `🔗 <b>"${escapeHtml(p.flavor)}" คือสินค้าตัวไหน?</b>`,
     p.machine_code ? `<i>แผนระบุเครื่อง ${escapeHtml(p.machine_code)}</i>` : null,
     '',
-    cands.length ? 'เลือกให้ถูกตัว — ระบบจะจำไว้ ครั้งหน้าไม่ถามอีก' : 'ยังหาตัวใกล้เคียงไม่เจอ เลือกจากสินค้าทั้งหมดได้เลย',
+    remembered
+      ? 'ครั้งก่อนเลือกตัวที่มี ✓ ไว้ — <b>ยืนยันอีกครั้ง</b> หรือเปลี่ยนเป็นตัวอื่นก็ได้'
+      : (cands.length ? 'เลือกให้ถูกตัว' : 'ยังหาตัวใกล้เคียงไม่เจอ เลือกจากสินค้าทั้งหมดได้เลย'),
   ].filter(Boolean).join('\n'), kb);
 }
 
@@ -4394,7 +4420,7 @@ app.post('/api/telegram/spp-update', (req, res) => {
           delete draft.ask;
           await setSppSession(chatId, userId, '', draft);
           await ack(`จำแล้ว: ${a.text} = ${sku.product_name || sku.keyword}`.slice(0, 190));
-          await sppSend(chatId, `🔗 จำไว้แล้ว — <b>${escapeHtml(a.text)}</b> = ${escapeHtml(sku.product_name || sku.keyword)}\n<i>ครั้งหน้าพิมพ์แบบเดิมได้เลย ไม่ต้องเลือกอีก</i>`);
+          await sppSend(chatId, `🔗 <b>${escapeHtml(a.text)}</b> = ${escapeHtml(sku.product_name || sku.keyword)}\n<i>ครั้งหน้าจะขึ้นตัวนี้ให้ก่อน แต่ยังต้องกดยืนยันทุกครั้ง</i>`);
           await sppAskNext(chatId, userId, draft);
           return;
         }
@@ -4415,7 +4441,7 @@ app.post('/api/telegram/spp-update', (req, res) => {
           draft.current = { sku };
           await setSppSession(chatId, userId, '', draft);
           await ack(`จำแล้ว: ${p.flavor} = ${sku.product_name || sku.keyword}`.slice(0, 190));
-          await sppSend(chatId, `🔗 จำไว้แล้ว — <b>${escapeHtml(p.flavor)}</b> = ${escapeHtml(sku.product_name || sku.keyword)}\n<i>ครั้งหน้าไม่ต้องเลือกอีก</i>`);
+          await sppSend(chatId, `🔗 <b>${escapeHtml(p.flavor)}</b> = ${escapeHtml(sku.product_name || sku.keyword)}\n<i>ครั้งหน้าจะขึ้นตัวนี้ให้ก่อน แต่ยังต้องกดยืนยันทุกครั้ง</i>`);
           await sppAskNext(chatId, userId, draft);
           return;
         }
