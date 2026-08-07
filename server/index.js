@@ -3422,8 +3422,8 @@ const sppMainMenu = (draft) => [
 
 // สรุปสิ่งที่คนนี้ลงไปแล้วในกะ — อ่านจาก DB จริง ไม่ใช่ร่างในบอท (ยืนยันแล้วเข้า DB ทันที)
 async function sppDraftText(draft) {
-  const day = draft.header?.date || workDayBKK();
-  const shift = draft.header?.shift || currentShiftCode();
+  const day = workDayBKK();
+  const shift = currentShiftCode();
   const who = draft.header?.reporter || '';
   if (!who) return 'ยังไม่ได้ลงยอดอะไรในกะนี้';
   const rows = await dbAll(
@@ -3801,7 +3801,7 @@ async function sppTryPlanText(chatId, userId, draft, text, user) {
   if (!items.length) {
     return sppSend(chatId, '🤔 อ่านแล้วไม่เจอรายการเป้าผลิต\nพิมพ์แบบนี้ได้: <code>ลงแผนพรุ่งนี้กะเช้า Syrup800 300 กล่อง Icing900 200</code>');
   }
-  const shift = hdr.shift || SPP_SHIFT_LABEL[out?.planDraft?.shift] || draft.header?.shift || currentShiftCode();
+  const shift = hdr.shift || SPP_SHIFT_LABEL[out?.planDraft?.shift] || currentShiftCode();
 
   draft.plan_draft = { work_day: day, shift, items };
   await setSppSession(chatId, userId, '', draft);
@@ -4019,7 +4019,7 @@ async function sppTryFreeText(chatId, userId, draft, text, user) {
 // ห้ามซ่อน — ของที่หายเงียบคือสาเหตุที่แผน 6 รายการเคยกลายเป็น "ไม่มีแผนผลิตในระบบ"
 async function sppShowPlan(chatId, userId, draft, page = 0) {
   const workDay = workDayBKK();
-  const shift = draft.header?.shift || currentShiftCode();
+  const shift = currentShiftCode();
   const rows = await sppTodayPlan(workDay);
   if (!rows.length) {
     return sppSend(chatId, `📋 <b>${escapeHtml(workDay)}</b> — ยังไม่มีแผนผลิตในระบบ\nเลือกจากสินค้าทั้งหมดแทนได้`,
@@ -4116,8 +4116,8 @@ async function sppCheckItem(chatId, userId, draft) {
   const sku = cur.sku || {};
   if (!sku.keyword) return sppSend(chatId, 'ไม่มีรายการที่กรอกค้างอยู่', sppMainMenu(draft));
 
-  const workDay = draft.header?.date || workDayBKK();
-  const shift = draft.header?.shift || currentShiftCode();
+  const workDay = workDayBKK();
+  const shift = currentShiftCode();
   const planQty = await resolvePlanQty(workDay, shift, sku).catch(() => null);
 
   const flags = await checkItemAnomalies({
@@ -4166,8 +4166,10 @@ async function sppConfirmItem(chatId, userId, draft, user) {
   if (!cur.sku?.keyword) return sppSend(chatId, 'ไม่มีรายการที่กรอกค้างอยู่', sppMainMenu(draft));
 
   const header = {
-    date: draft.header?.date || workDayBKK(),
-    shift: draft.header?.shift || currentShiftCode(),
+    // ⚠️ ต้องคำนวณสดทุกครั้ง ห้ามอ่านจาก draft.header ที่ค้างอยู่ในร่าง
+    //    ร่างอยู่ใน DB ข้ามวันได้ — เคยทำให้ยอดที่ลงวันที่ 7 ไปโผล่เป็นของวันที่ 4 (หน้า Admin หาไม่เจอ)
+    date: workDayBKK(),
+    shift: currentShiftCode(),
     reporter: user?.name || draft.header?.reporter || '',
     telegram_user_id: String(userId),
     telegram_chat_id: String(chatId),
@@ -4230,6 +4232,22 @@ app.post('/api/telegram/spp-update', (req, res) => {
 
       // ชื่อที่ลงทะเบียนไว้ต้องติดมากับร่างเสมอ เพื่อให้เมนูโชว์ "คุณคือ ..." ได้ทุกจุด
       if (user?.name && draft.who !== user.name) draft.who = user.name;
+
+      // ── ขึ้นวันทำงานใหม่ → ล้างของที่เป็น "ของเมื่อวาน" ทิ้ง ──
+      // ร่างอยู่ใน DB และอยู่ข้ามวันได้ (จงใจ เพราะ Render หลับกลางกะ) แต่ของที่ผูกกับวัน
+      // ต้องไม่ข้ามวันตามไปด้วย · draft.count ที่ค้างทำให้ขึ้น "กะนี้ลงมาแล้ว 3 รายการ"
+      // ทั้งที่วันนี้ยังไม่ได้ลงอะไร และ header เก่าเคยลากยอดไปลงเป็นของวันก่อนหน้า
+      const today = workDayBKK();
+      if (draft.day !== today) {
+        draft.day = today;
+        delete draft.header;
+        delete draft.count;
+        delete draft.plan_list;
+        delete draft.pick_list;
+        // ต้องเขียนกลับทันที — ทางเดินหลายเส้น (เช่นตอบเมนูช่วยเหลือ) ไม่ได้เรียก setSppSession
+        // ถ้าไม่เขียนตรงนี้ ของเมื่อวานจะยังค้างอยู่ใน DB แล้วกลับมาหลอกอีกในข้อความถัดไป
+        await setSppSession(chatId, userId, sess.state, draft);
+      }
 
       // ยังไม่รู้ว่าเป็นใคร → ถามก่อนเสมอ (ยกเว้นตอนกำลังตอบชื่ออยู่)
       if (!user && !cq && sess.state !== 'ask_name_type') {
