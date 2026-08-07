@@ -300,8 +300,11 @@ const ProductionApprovalBoard: React.FC<{ operator?: string }> = ({ operator }) 
               </div>
             </>
           )}
+          {/* pack_factor = 0 แปลว่าสินค้าตัวนี้ไม่ได้นับเป็นชิ้น (เช่นต้มหัวเชื้อนับเป็นหม้อ)
+              โชว์ "0 ชิ้น" จะดูเหมือนข้อมูลหาย ทั้งที่ไม่มีตัวเลขนี้ตั้งแต่ต้น */}
           <div style={numBox('#fdfbf9', '#e5e0d8')}><div style={numL}>คิดเป็นชิ้น</div>
-            <div style={numV}>{((r.wh_qty ?? r.prod_qty ?? 0) * (r.pack_factor || 0)).toLocaleString()}</div><div style={numL}>ชิ้น</div></div>
+            <div style={numV}>{r.pack_factor ? ((r.wh_qty ?? r.prod_qty ?? 0) * r.pack_factor).toLocaleString() : '—'}</div>
+            <div style={numL}>{r.pack_factor ? 'ชิ้น' : 'ไม่นับเป็นชิ้น'}</div></div>
         </div>
 
         <div style={{ fontSize: '0.8rem', color: '#6d6259', marginBottom: 10 }}>

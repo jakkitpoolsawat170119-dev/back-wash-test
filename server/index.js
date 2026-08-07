@@ -1938,7 +1938,6 @@ async function resolveDayPlan(workDay, shift = null) {
 // หาแผนของ SKU นี้ในวัน+กะที่ระบุ · แผนเก็บเป็น "กล่อง" เท่านั้น จึงห้ามเติมข้ามหน่วย
 async function resolvePlanQty(workDay, shift, sku) {
   if (!sku) return { plan_qty: null, plan_source: 'none' };
-  if (sku.count_unit && sku.count_unit !== 'กล่อง') return { plan_qty: null, plan_source: 'unit_mismatch' };
   try {
     // เทียบด้วยรหัส SKU ไม่ใช่ชื่อ — ชื่อในแผน ("Syrup 800×3×4") ไม่มีวันตรงกับชื่อทางการ
     // ⚠️ ผ่าน skuIdOf เสมอ — สินค้า 13 ตัวในชีตหลักไม่มีรหัส SKU ถ้ายึดรหัสดิบจะเทียบแผนไม่ได้ตลอดกาล
@@ -1953,6 +1952,9 @@ async function resolvePlanQty(workDay, shift, sku) {
       };
     }
     // แผนผลิตรายอาทิตย์ (production_plans) ยังจับด้วยชื่อรสแบบเดิม — คนละชุดข้อมูลกับแผนบรรจุ
+    // เส้นนี้คิดเป็น "batch × 100 กล่อง" จึงใช้ได้เฉพาะสินค้าที่นับเป็นกล่องจริง ๆ
+    // (ต่างจากแผนบรรจุข้างบนที่เลขในแผนคือเป้าของสินค้าตัวนั้นตรง ๆ ไม่ว่านับหน่วยอะไร)
+    if (sku.count_unit && sku.count_unit !== 'กล่อง') return { plan_qty: null, plan_source: 'unit_mismatch' };
     const flavor = (sku.keyword || '').trim();
     if (flavor) {
       const pp = await dbAll('SELECT planned_batches FROM production_plans WHERE plan_date = ? AND flavor = ?', [workDay, flavor]);
@@ -4041,13 +4043,17 @@ async function sppShowPlan(chatId, userId, draft, page = 0) {
     machine_code: r.plan.machine_code || '',
     target: r.plan.target_boxes,
     keyword: r.sku ? r.sku.keyword : null,
+    // หน่วยตามสินค้าจริง ไม่ใช่ "กล่อง" เหมาะ ๆ — ต้มหัวเชื้อนับเป็นหม้อ ไอซิ่งบางตัวเป็นกระสอบ
+    // เคยขึ้น "ต้มหัวเชื้อสูตรเก่า · 8 กล่อง" ทั้งที่แผนหมายถึง 8 หม้อ
+    unit: r.sku ? (r.sku.count_unit || 'กล่อง') : '',
     cands: (r.candidates || []).map(c => c.keyword),
   }));
   await setSppSession(chatId, userId, '', draft);
 
   const start = page * SPP_PAGE, slice = draft.plan_list.slice(start, start + SPP_PAGE);
   const kb = slice.map((p, i) => [{
-    text: (p.keyword ? '' : '⚠️ ') + `${p.flavor}${p.target ? ` · ${p.target} กล่อง` : ''}`.slice(0, 60),
+    // ยังไม่รู้ว่าเป็นสินค้าตัวไหน = ยังไม่รู้หน่วย → ไม่เดาหน่วยให้ โชว์แค่ตัวเลข
+    text: (p.keyword ? '' : '⚠️ ') + `${p.flavor}${p.target ? ` · ${p.target}${p.unit ? ' ' + p.unit : ''}` : ''}`.slice(0, 60),
     callback_data: p.keyword ? `s:pick:${start + i}` : `s:pmap:${start + i}`,
   }]);
   const nav = [];
@@ -4145,7 +4151,8 @@ async function sppCheckItem(chatId, userId, draft) {
     return sppSend(chatId, [
       '🔍 <b>ตรวจแล้ว — ไม่พบอะไรผิดปกติ</b>',
       `${escapeHtml(sku.product_name || sku.keyword)} · <b>${cur.prod_qty} ${escapeHtml(unit)}</b>`,
-      `คิดเป็น ${pcs.toLocaleString()} ชิ้น`,
+      // สินค้าที่ไม่มี "ชิ้นต่อหน่วย" (ต้มหัวเชื้อนับเป็นหม้อ) ไม่ต้องโชว์ "คิดเป็น 0 ชิ้น" ให้สับสน
+      pcs ? `คิดเป็น ${pcs.toLocaleString()} ชิ้น` : null,
       planQty?.plan_qty ? `เทียบแผนกะนี้ ${planQty.plan_qty} ${escapeHtml(unit)} ✓` : null,
       cur.pallet_photo ? 'มีรูปค้างพาเลทครบ ✓' : null,
     ].filter(Boolean).join('\n'), [
