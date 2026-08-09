@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useAppRoute, pickRouteValue } from './hooks/useAppRoute';
 import Login from './components/Login';
 import Splash from './components/Splash';
 import ProductionRecord from './components/ProductionRecord';
@@ -10,9 +11,14 @@ import CipHub from './components/CipHub';
 import AdminShell from './components/AdminShell';
 import styles from './App.module.css';
 
+const VIEWS: AppView[] = ['home', 'production', 'cip', 'stickerchat', 'admin'];
+
 const App: React.FC = () => {
   const [operator, setOperator] = useState<string | null>(null);
-  const [view, setView] = useState<AppView>('home');
+  // หน้าที่เปิดอยู่เก็บใน URL (?page=...) รีเฟรชแล้วจึงยังอยู่หน้าเดิม
+  const [route, navigate] = useAppRoute();
+  const view = pickRouteValue<AppView>(route.page, VIEWS, 'home');
+  const setView = useCallback((v: AppView) => navigate({ page: v, tab: null }), [navigate]);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === '1');
   const [showSplash, setShowSplash] = useState(true);
   const [splashFadeOut, setSplashFadeOut] = useState(false);
@@ -34,7 +40,7 @@ const App: React.FC = () => {
   };
 
   const toggleDark = () => setDarkMode(d => !d);
-  const goHome = () => setView('home');
+  const goHome = useCallback(() => setView('home'), [setView]);
 
   return (
     <div className={darkMode && view !== 'admin' ? 'app-dark-mode' : undefined}>

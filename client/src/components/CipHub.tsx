@@ -1,4 +1,5 @@
-import React, { useState, useCallback } from 'react';
+import React, { useCallback } from 'react';
+import { useAppRoute, pickRouteValue } from '../hooks/useAppRoute';
 import CipLine1Form from './CipLine1Form';
 import CipLine2Form from './CipLine2Form';
 import Logbook from './Logbook';
@@ -18,13 +19,18 @@ const SEG: { key: CipTab; label: string; dot: string }[] = [
   { key: 'x', label: '⚗️ ทดลอง', dot: 'var(--cipx)' },
 ];
 
+const CIP_TABS: CipTab[] = SEG.map(s => s.key);
+
 /**
  * Unified CIP page. The four original forms stay mounted at once (toggled with
  * display:none) so their draft state and page-locks survive tab switches —
  * same behaviour as the old App.tsx multi-mode layout.
  */
 const CipHub: React.FC<Props> = ({ operatorName, onBackToMain }) => {
-  const [tab, setTab] = useState<CipTab>('1');
+  // แท็บ Line เก็บใน URL (?page=cip&tab=2) รีเฟรชแล้วยังอยู่ Line เดิม
+  const [route, navigate] = useAppRoute();
+  const tab = pickRouteValue<CipTab>(route.tab, CIP_TABS, '1');
+  const setTab = (t: CipTab) => navigate({ tab: t });
   const noop = useCallback(() => {}, []);
 
   return (

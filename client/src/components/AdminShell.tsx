@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useAppRoute, pickRouteValue } from '../hooks/useAppRoute';
 import BrandLogo from './BrandLogo';
 import AdminGate, { isAdminAuthed } from './AdminGate';
 import AdminOverview from './AdminOverview';
@@ -34,6 +35,8 @@ const MENU: { pane: Pane; ic: string; label: string; sub?: boolean }[] = [
   { pane: 'specs', ic: '📐', label: 'สเปคคุณภาพ', sub: true },
 ];
 
+const PANES: Pane[] = MENU.map(m => m.pane);
+
 interface Props {
   operator: string;
   onExit: () => void;                                    // ออกจาก Admin → หน้าหลัก
@@ -42,7 +45,9 @@ interface Props {
 
 const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
   const [authed, setAuthed] = useState(isAdminAuthed);
-  const [pane, setPane] = useState<Pane>('overview');
+  // เมนูที่เปิดอยู่เก็บใน URL (?page=admin&tab=timeline) รีเฟรชแล้วยังอยู่เมนูเดิม
+  const [route, navigate] = useAppRoute();
+  const pane = pickRouteValue<Pane>(route.tab, PANES, 'overview');
   const [menuOpen, setMenuOpen] = useState(false);
   const menuWrapRef = useRef<HTMLDivElement>(null);
   const ddRef = useRef<HTMLDivElement>(null);
@@ -59,7 +64,7 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
 
   if (!authed) return <AdminGate onExit={onExit} onAuthed={() => setAuthed(true)} />;
 
-  const go = (p: Pane) => { setPane(p); setMenuOpen(false); window.scrollTo({ top: 0 }); };
+  const go = (p: Pane) => { navigate({ tab: p }); setMenuOpen(false); window.scrollTo({ top: 0 }); };
 
   const toggleMenu = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -129,7 +134,7 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
                 onGoToProduction={() => onNavOut('production')}
                 hideChrome
                 externalTab={isTodo ? (pane as TodoTab) : undefined}
-                onTabChange={(t) => setPane(prev => (TODO_TABS.includes(prev) ? t : prev))}
+                onTabChange={(t) => { if (isTodo) navigate({ tab: t }); }}
               />
             </ErrorBoundary>
           </div>
