@@ -1,0 +1,1988 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockup — Editor เขียนบทความเทคนิค + เชื่อม Obsidian (SPP-MP)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@500;600;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --brand:#ff6b00;
+    --brand-deep:#c24f00;
+    --brand-soft:#fff3ea;
+    --ink:#2b2119;
+    --ink-soft:#6d6259;
+    --paper:#faf7f4;
+    --card:#ffffff;
+    --line:#eee3d9;
+    --ok:#1c8a4c;
+    --warn:#c77700;
+    --danger:#c62828;
+    --info:#1565c0;
+    --cip1:#1565c0;
+    --cip2:#01579b;
+    --cip3:#006064;
+    --cipx:#6a1b9a;
+    --radius:16px;
+    --shadow-card:0 1px 2px rgba(63,37,10,.06),0 6px 18px -6px rgba(63,37,10,.12);
+    --shadow-float:0 2px 4px rgba(63,37,10,.08),0 16px 40px -12px rgba(63,37,10,.22);
+    --font-head:'Kanit',sans-serif;
+    --font-body:'Sarabun',sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:var(--font-body);color:var(--ink);background:#fff;line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3,h4{font-family:var(--font-head);letter-spacing:-.02em;line-height:1.3;color:var(--ink);margin:0}
+  p,ul,ol,li,figure{margin:0;padding:0}
+  button{font-family:inherit;cursor:pointer}
+  input,textarea,select{font-family:inherit}
+  button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,[contenteditable]:focus-visible{
+    outline:3px solid rgba(255,107,0,.5);outline-offset:2px
+  }
+
+  /* ============ banner บอกว่านี่คือ mockup ============ */
+  .mockbar{
+    background:linear-gradient(90deg,#2b2119,#3d2f24);color:#f6efe8;font-size:12.5px;
+    padding:7px 18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  }
+  .mockbar b{font-family:var(--font-head);color:var(--brand);font-weight:700}
+  .mockbar .hint{color:#b7a99b}
+  .mockbar kbd{
+    background:#4a3a2c;border:1px solid #614d3b;border-radius:5px;padding:1px 6px;
+    font-family:ui-monospace,monospace;font-size:11px;color:#ffd9b8
+  }
+
+  /* ============ Admin chrome (ยกจาก redesign.css) ============ */
+  .atop{
+    position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:8px;
+    background:rgba(248,245,240,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:10px 18px;
+  }
+  .atop .logo{margin-right:auto;background:none;border:none;padding:0;display:flex;align-items:center;gap:8px}
+  .lg-mark{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,var(--brand),#ff9142);
+    display:grid;place-items:center;color:#fff;font-family:var(--font-head);font-weight:700;font-size:13px}
+  .lg-word{font-family:var(--font-head);font-weight:700;font-size:17px;letter-spacing:-.02em;color:var(--brand)}
+  .abtn{
+    border:1px solid var(--line);background:var(--card);color:var(--ink);
+    padding:7px 13px;border-radius:10px;font-size:13.5px;font-weight:600;white-space:nowrap;font-family:var(--font-head);
+    display:flex;align-items:center;gap:6px;
+    transition:background-color .15s ease,color .15s ease,transform .12s ease;
+  }
+  .abtn:hover{background:var(--brand-soft);color:var(--brand-deep)}
+  .abtn:active{transform:scale(.96)}
+  .abtn.ghost{background:transparent}
+  .search{
+    flex:1;min-width:150px;max-width:300px;display:flex;align-items:center;gap:8px;background:var(--card);
+    border:1px solid var(--line);border-radius:10px;padding:7px 12px;color:var(--ink-soft);font-size:13px;
+  }
+  .sys{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ok);font-weight:600;white-space:nowrap}
+  .sys .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px rgba(28,138,76,.5)}
+  .achip{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;background:var(--card);
+    border:1px solid var(--line);border-radius:999px;padding:5px 12px;white-space:nowrap}
+  .achip .av{width:22px;height:22px;border-radius:50%;background:var(--brand);display:grid;place-items:center;font-size:11px;color:#fff}
+  .amain{display:flex;align-items:stretch;max-width:1440px;margin:0 auto}
+  .aside-r{
+    width:210px;flex:none;border-right:1px solid var(--line);
+    padding:16px 12px 40px;display:flex;flex-direction:column;gap:2px;
+    position:sticky;top:57px;align-self:flex-start;background:#fff;max-height:calc(100vh - 57px);overflow-y:auto;
+  }
+  .rsbtn{
+    display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:none;background:transparent;
+    color:var(--ink);font-size:14.5px;font-weight:600;padding:8px 10px;border-radius:10px;font-family:var(--font-head);
+    transition:background-color .15s ease,color .15s ease;
+  }
+  .rsbtn:hover{background:var(--brand-soft);color:var(--brand-deep)}
+  .rsbtn.on{background:var(--brand-soft);color:var(--brand-deep)}
+  .rsbtn .ic{width:20px;text-align:left;font-size:14px}
+  .rsbtn .tag{margin-left:auto;font-size:10px;background:var(--brand);color:#fff;border-radius:999px;padding:1px 7px;font-weight:700}
+  .rsbtn.sub{padding-left:34px;font-size:12.5px;color:var(--ink-soft)}
+  .menuwrap{position:relative}
+  .menu-dd{
+    position:absolute;top:calc(100% + 8px);left:0;min-width:230px;max-width:min(260px,calc(100vw - 32px));
+    background:#fff;border:1px solid var(--line);border-radius:14px;padding:6px;box-shadow:var(--shadow-float);
+    display:none;flex-direction:column;gap:1px;z-index:60;max-height:70vh;overflow-y:auto;
+  }
+  .menu-dd.open{display:flex}
+  .menu-dd button{
+    display:flex;align-items:center;gap:9px;width:100%;text-align:left;border:none;background:transparent;
+    color:var(--ink);font-size:13.5px;font-weight:600;padding:9px 10px;border-radius:9px;font-family:var(--font-head);
+  }
+  .menu-dd button:hover{background:var(--brand-soft);color:var(--brand-deep)}
+  .menu-dd button.on{background:var(--brand-soft);color:var(--brand-deep)}
+  @media(min-width:1021px){.menuwrap{display:none}}
+  @media(max-width:1020px){.aside-r{display:none}}
+  .abody{flex:1;min-width:0;background:#fff;display:flex;flex-direction:column}
+
+  /* ============ แถบเครื่องมือ editor ============ */
+  .ed-toolbar{
+    position:sticky;top:57px;z-index:25;display:flex;align-items:center;gap:4px;flex-wrap:wrap;row-gap:6px;
+    background:#fff;border-bottom:1px solid var(--line);padding:8px 14px;
+  }
+  .tbtn{
+    border:none;background:transparent;color:var(--ink);width:34px;height:34px;border-radius:9px;
+    display:grid;place-items:center;font-size:15px;flex:none;
+    transition:background-color .14s ease,transform .1s ease;
+  }
+  .tbtn:hover:not(:disabled){background:var(--brand-soft);color:var(--brand-deep)}
+  .tbtn:active:not(:disabled){transform:scale(.92)}
+  .tbtn:disabled{opacity:.32;cursor:not-allowed}
+  .tbtn.primary{background:var(--brand);color:#fff;width:auto;padding:0 14px;font-family:var(--font-head);
+    font-weight:700;font-size:13.5px;gap:6px}
+  .tbtn.primary:hover{background:var(--brand-deep);color:#fff}
+  .tbtn.add{background:var(--brand);color:#fff;font-size:19px;font-weight:400;line-height:1}
+  .tbtn.add:hover{background:var(--brand-deep);color:#fff}
+  .tbtn.on{background:var(--brand-soft);color:var(--brand-deep)}
+  .tsep{width:1px;height:22px;background:var(--line);margin:0 5px;flex:none}
+  .tspace{margin-left:auto}
+  .tlink{border:none;background:transparent;color:var(--info);font-size:13.5px;font-weight:600;
+    font-family:var(--font-head);padding:7px 10px;border-radius:9px;white-space:nowrap}
+  .tlink:hover{background:#e8f1fb}
+  .saved-note{font-size:12px;color:var(--ink-soft);white-space:nowrap;padding-right:4px}
+
+  /* ============ พื้นที่เขียน + sidebar ============ */
+  .ed-main{display:flex;align-items:flex-start;flex:1;min-height:0}
+  .ed-scroll{flex:1;min-width:0;padding:0 0 60px}
+  .ed-canvas{max-width:760px;margin:0 auto;padding:36px 22px 10px}
+
+  .doc-title{
+    font-family:var(--font-head);font-size:clamp(28px,4.6vw,38px);font-weight:700;letter-spacing:-.03em;
+    line-height:1.25;color:var(--ink);outline:none;margin-bottom:6px;
+  }
+  .doc-title:empty::before{content:attr(data-ph);color:#c9bcae}
+
+  .blocks{display:flex;flex-direction:column;gap:2px}
+  .blk{position:relative;border-radius:10px;padding:4px 6px;border:1.5px solid transparent;transition:border-color .14s ease}
+  .blk:hover{border-color:#f0e5da}
+  .blk.sel{border-color:var(--brand);background:rgba(255,107,0,.03)}
+  .blk-tools{
+    position:absolute;top:-14px;right:6px;display:none;gap:2px;background:#fff;border:1px solid var(--line);
+    border-radius:9px;padding:2px;box-shadow:var(--shadow-card);z-index:8;
+  }
+  .blk:hover .blk-tools,.blk.sel .blk-tools{display:flex}
+  .blk-tools button{
+    border:none;background:transparent;width:26px;height:24px;border-radius:6px;font-size:12px;
+    display:grid;place-items:center;color:var(--ink-soft)
+  }
+  .blk-tools button:hover{background:var(--brand-soft);color:var(--brand-deep)}
+  .blk-tools button.del:hover{background:#fdecec;color:var(--danger)}
+  .blk-kind{
+    position:absolute;top:-11px;left:8px;display:none;font-size:10px;font-weight:700;font-family:var(--font-head);
+    background:var(--brand);color:#fff;border-radius:5px;padding:1px 7px;letter-spacing:.02em;z-index:8;
+  }
+  .blk.sel .blk-kind{display:block}
+
+  .ed-p{outline:none;font-size:16.5px;line-height:1.85;min-height:1.85em;color:var(--ink)}
+  .ed-p:empty::before{content:attr(data-ph);color:#bdb0a3}
+  .ed-h2{outline:none;font-size:25px;font-weight:700;padding:8px 0 2px}
+  .ed-h3{outline:none;font-size:20px;font-weight:600;padding:6px 0 2px}
+  .ed-list{outline:none;font-size:16.5px;line-height:1.9;padding-left:24px}
+  .ed-list li{margin-bottom:2px}
+  .ed-quote{outline:none;border-left:4px solid var(--brand);padding:4px 0 4px 16px;font-size:16.5px;color:var(--ink-soft);font-style:italic}
+  .ed-code{
+    outline:none;background:#2b2119;color:#ffd9b8;border-radius:10px;padding:14px 16px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13.5px;line-height:1.7;white-space:pre-wrap;overflow-x:auto
+  }
+  code.inl{background:#f4ede6;border:1px solid var(--line);border-radius:5px;padding:1px 5px;
+    font-family:ui-monospace,monospace;font-size:.88em;color:var(--brand-deep)}
+
+  /* รูป */
+  .ed-fig img{width:100%;border-radius:12px;display:block;border:1px solid var(--line)}
+  .ed-cap{outline:none;text-align:center;font-size:13px;color:var(--ink-soft);padding:8px 10px 2px}
+  .ed-cap:empty::before{content:attr(data-ph);color:#c9bcae}
+
+  /* PDF */
+  .ed-pdf-btn{
+    display:flex;align-items:center;gap:12px;border:1.5px solid #f6d6d6;background:#fff8f8;border-radius:12px;padding:13px 15px
+  }
+  .ed-pdf-btn .ic{width:38px;height:38px;border-radius:9px;background:#fdecec;display:grid;place-items:center;font-size:19px;flex:none}
+  .ed-pdf-btn .nm{font-weight:700;font-size:14.5px;font-family:var(--font-head);word-break:break-word}
+  .ed-pdf-btn .mt{font-size:11.5px;color:var(--ink-soft)}
+  .ed-pdf-btn .dl{margin-left:auto;background:var(--danger);color:#fff;border:none;border-radius:9px;
+    padding:7px 13px;font-size:12.5px;font-weight:700;font-family:var(--font-head);white-space:nowrap;flex:none}
+  .ed-pdf-emb{border:1.5px solid var(--line);border-radius:12px;overflow:hidden;background:#f6f2ee}
+  .ed-pdf-emb .bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#fff;border-bottom:1px solid var(--line);font-size:12.5px;font-weight:600}
+  .ed-pdf-emb .page{height:300px;display:grid;place-items:center;color:var(--ink-soft);font-size:13px;text-align:center;padding:20px}
+
+  /* ---- Custom block: Process Flow / P&ID ---- */
+  .pflow{border:1.5px solid var(--line);border-radius:14px;padding:14px;background:#fcfaf8}
+  .pflow-hd{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .pflow-hd .t{font-family:var(--font-head);font-weight:700;font-size:14px;outline:none}
+  .pflow-hd .b{font-size:10.5px;font-weight:700;background:#e8f1fb;color:var(--info);border-radius:999px;padding:2px 9px;font-family:var(--font-head)}
+  .pflow-chain{display:flex;align-items:center;gap:0;overflow-x:auto;padding-bottom:6px}
+  .pstep{
+    flex:0 0 auto;text-align:center;color:#fff;border-radius:9px;padding:9px 11px;min-width:78px;
+    font-size:11.5px;font-weight:700;line-height:1.4;white-space:pre-line;outline:none;font-family:var(--font-head)
+  }
+  .parrow{color:#c3b5a7;font-size:16px;flex:0 0 auto;padding:0 4px}
+  .pflow-img{
+    margin-top:12px;border:1.5px dashed #dccfc2;border-radius:11px;background:#fff;
+    padding:22px 14px;text-align:center;color:var(--ink-soft);font-size:12.5px
+  }
+  .pflow-img img{width:100%;border-radius:9px;display:block}
+
+  /* ---- Custom block: Parameter Table ---- */
+  .ptbl-wrap{border:1.5px solid var(--line);border-radius:14px;overflow:hidden}
+  .ptbl-hd{display:flex;align-items:center;gap:8px;padding:10px 13px;background:#fcfaf8;border-bottom:1px solid var(--line)}
+  .ptbl-hd .t{font-family:var(--font-head);font-weight:700;font-size:14px;outline:none;flex:1}
+  .ptbl-scroll{overflow-x:auto}
+  table.ptbl{border-collapse:collapse;width:100%;min-width:560px;font-size:13.5px}
+  table.ptbl th{
+    background:#f6f2ee;text-align:left;padding:9px 12px;font-family:var(--font-head);font-weight:600;
+    font-size:12px;color:var(--ink-soft);border-bottom:1px solid var(--line);white-space:nowrap
+  }
+  table.ptbl td{padding:9px 12px;border-bottom:1px solid #f4ede6;outline:none}
+  table.ptbl tr:last-child td{border-bottom:none}
+  table.ptbl tr.oor td{background:#fdf3f3}
+  table.ptbl tr.oor td:first-child{box-shadow:inset 3px 0 0 var(--danger)}
+  table.ptbl .num{font-variant-numeric:tabular-nums;font-weight:600}
+  .oor-flag{font-size:10.5px;font-weight:700;color:var(--danger);background:#fdecec;border-radius:999px;padding:1px 7px;margin-left:6px;white-space:nowrap}
+
+  /* ---- Custom block: Alert / Warning ---- */
+  .alertb{display:flex;gap:12px;border-radius:12px;padding:13px 15px;border-left:5px solid}
+  .alertb .ic{font-size:19px;flex:none;line-height:1.4}
+  .alertb .t{font-family:var(--font-head);font-weight:700;font-size:14.5px;outline:none;margin-bottom:2px}
+  .alertb .d{font-size:14px;line-height:1.75;outline:none}
+  .alertb.danger{background:#fdecec;border-color:var(--danger);color:#7d1f1f}
+  .alertb.warn{background:#fff6e6;border-color:var(--warn);color:#7a4d00}
+  .alertb.info{background:#e8f1fb;border-color:var(--info);color:#12406e}
+
+  /* ============ Sidebar ตั้งค่า ============ */
+  .ed-side{
+    width:288px;flex:none;border-left:1px solid var(--line);background:#fff;
+    position:sticky;top:106px;align-self:flex-start;max-height:calc(100vh - 106px);overflow-y:auto
+  }
+  .ed-side.hide{display:none}
+  .side-tabs{display:flex;border-bottom:1px solid var(--line);position:sticky;top:0;background:#fff;z-index:2}
+  .side-tabs button{
+    flex:1;border:none;background:transparent;padding:13px 8px;font-family:var(--font-head);font-weight:600;
+    font-size:14px;color:var(--ink-soft);border-bottom:2.5px solid transparent
+  }
+  .side-tabs button.on{color:var(--brand-deep);border-bottom-color:var(--brand)}
+  .side-tabs .x{flex:0 0 44px;font-size:16px}
+  .spanel{display:none;padding:4px 0 40px}
+  .spanel.on{display:block}
+  .sgrp{border-bottom:1px solid var(--line);padding:14px 16px}
+  .sgrp>h4{font-size:13.5px;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+  .sgrp>h4 .exp{margin-left:auto;color:var(--ink-soft);font-size:15px;font-weight:400}
+  .sgrp.blkinfo{display:flex;gap:11px;align-items:flex-start}
+  .sgrp.blkinfo .bi-ic{width:30px;height:30px;border-radius:8px;background:var(--brand-soft);display:grid;place-items:center;font-size:15px;flex:none}
+  .sgrp.blkinfo .bi-t{font-family:var(--font-head);font-weight:600;font-size:14.5px}
+  .sgrp.blkinfo .bi-d{font-size:12px;color:var(--ink-soft);line-height:1.6}
+  .srow{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+  .srow:last-child{margin-bottom:0}
+  .srow label{font-size:12.5px;color:var(--ink-soft);flex:0 0 82px}
+  .sinput,.sselect,.starea{
+    flex:1;min-width:0;border:1px solid var(--line);border-radius:9px;padding:7px 10px;font-size:13px;
+    background:#fff;color:var(--ink)
+  }
+  .starea{width:100%;resize:vertical;line-height:1.6;font-size:12.5px}
+  .swcolor{width:46px;height:30px;padding:2px;border:1px solid var(--line);border-radius:9px;background:#fff;flex:none;cursor:pointer}
+  .side-bd{display:none;position:fixed;inset:0;background:rgba(43,33,25,.4);z-index:85}
+  .swatches{display:flex;gap:6px;flex-wrap:wrap}
+  .sw{width:24px;height:24px;border-radius:7px;border:1.5px solid var(--line);flex:none;position:relative}
+  .sw.on{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--brand)}
+  .sw.none{background:
+    linear-gradient(45deg,transparent 45%,#d64b4b 45%,#d64b4b 55%,transparent 55%),#fff}
+  .colorline{display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:10px;padding:8px 11px;margin-bottom:8px}
+  .colorline .dot{width:22px;height:22px;border-radius:50%;border:1.5px solid var(--line);flex:none}
+  .colorline .lb{font-size:13px}
+  .fsizes{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .fsizes button{
+    flex:1;border:none;background:#fff;padding:8px 2px;font-size:12px;font-weight:600;font-family:var(--font-head);
+    color:var(--ink-soft);border-right:1px solid var(--line)
+  }
+  .fsizes button:last-child{border-right:none}
+  .fsizes button.on{background:var(--brand-soft);color:var(--brand-deep)}
+  .fsizes.col{flex-direction:column}
+  .fsizes.col button{border-right:none;border-bottom:1px solid var(--line);text-align:left;padding:8px 11px}
+  .fsizes.col button:last-child{border-bottom:none}
+  .oorlist{display:flex;flex-direction:column;gap:5px;margin-bottom:9px}
+  .oorlist label{display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer;line-height:1.4}
+  .oorlist input{accent-color:var(--danger);flex:none}
+  .minibtns{display:flex;gap:6px;flex-wrap:wrap}
+  .minibtns button{
+    border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 10px;font-size:12px;
+    font-weight:600;font-family:var(--font-head);color:var(--ink)
+  }
+  .minibtns button:hover{background:var(--brand-soft);color:var(--brand-deep)}
+  .rng{width:100%;accent-color:var(--brand)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{
+    font-size:12px;font-weight:600;background:var(--brand-soft);color:var(--brand-deep);border:1px solid #f3d8bf;
+    border-radius:999px;padding:3px 10px;display:flex;align-items:center;gap:5px
+  }
+  .chip button{border:none;background:transparent;color:inherit;padding:0;font-size:13px;line-height:1}
+  .hintx{font-size:11.5px;color:var(--ink-soft);line-height:1.6;margin-top:7px}
+  .cover-ph{
+    border:1.5px dashed #dccfc2;border-radius:11px;padding:20px 12px;text-align:center;
+    color:var(--ink-soft);font-size:12.5px;background:#fcfaf8;width:100%
+  }
+
+  /* ============ Meta boxes ล่างเนื้อหา ============ */
+  .metas{max-width:760px;margin:26px auto 0;padding:0 22px}
+  .metabox{border:1px solid var(--line);border-radius:14px;margin-bottom:12px;overflow:hidden;background:#fff}
+  .metabox>summary{
+    list-style:none;cursor:pointer;display:flex;align-items:center;gap:9px;padding:13px 16px;
+    font-family:var(--font-head);font-weight:600;font-size:14.5px;background:#fcfaf8
+  }
+  .metabox>summary::-webkit-details-marker{display:none}
+  .metabox>summary .ar{margin-left:auto;color:var(--ink-soft);font-size:12px;transition:transform .2s ease}
+  .metabox[open]>summary .ar{transform:rotate(180deg)}
+  .metabox>summary .pill{
+    font-size:10.5px;font-weight:700;border-radius:999px;padding:2px 9px;background:var(--brand-soft);color:var(--brand-deep)
+  }
+  .metabody{padding:15px 16px 17px;border-top:1px solid var(--line)}
+  .mrow{margin-bottom:13px}
+  .mrow:last-child{margin-bottom:0}
+  .mrow>label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-soft);margin-bottom:5px}
+  .minput,.mtarea,.mselect{
+    width:100%;border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:13.5px;background:#fff;color:var(--ink)
+  }
+  .mtarea{resize:vertical;line-height:1.7;font-size:13px}
+  .mtarea.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+  .counter{font-size:11.5px;color:var(--ink-soft);text-align:right;margin-top:4px}
+  .counter.over{color:var(--danger);font-weight:700}
+  .meter{height:8px;border-radius:99px;background:#f0e8e0;overflow:hidden;margin-top:7px}
+  .meter i{display:block;height:100%;border-radius:99px;transition:width .3s ease,background-color .3s ease}
+  .scorerow{display:flex;align-items:center;gap:9px;font-size:12.5px}
+  .dotscore{width:11px;height:11px;border-radius:50%;flex:none}
+  .serp{border:1px solid var(--line);border-radius:11px;padding:12px 14px;background:#fcfaf8}
+  .serp .u{font-size:11.5px;color:#1c8a4c}
+  .serp .t{font-size:16px;color:#1a0dab;font-family:var(--font-head);font-weight:600;line-height:1.4}
+  .serp .d{font-size:12.5px;color:var(--ink-soft);line-height:1.6}
+
+  /* Obsidian box */
+  .obs-grid{display:grid;grid-template-columns:1fr;gap:12px}
+  @media(min-width:640px){.obs-grid{grid-template-columns:1fr 1fr}}
+  .obs-path{
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:#2b2119;color:#ffd9b8;
+    border-radius:9px;padding:9px 12px;word-break:break-all;line-height:1.6
+  }
+  .obs-sync{
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid var(--line);border-radius:11px;
+    padding:11px 13px;background:#fcfaf8;margin-top:13px
+  }
+  .obs-sync .st{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--ok)}
+  .obs-sync .meta{font-size:12px;color:var(--ink-soft)}
+  .btn-o{
+    border:1px solid var(--line);background:#fff;border-radius:9px;padding:7px 13px;font-size:12.5px;
+    font-weight:700;font-family:var(--font-head);color:var(--ink);white-space:nowrap
+  }
+  .btn-o:hover{background:var(--brand-soft);color:var(--brand-deep)}
+  .btn-o.fill{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .btn-o.fill:hover{background:var(--brand-deep);color:#fff}
+  .maptbl{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:4px}
+  .maptbl th{text-align:left;padding:7px 9px;background:#f6f2ee;font-family:var(--font-head);font-weight:600;
+    font-size:11.5px;color:var(--ink-soft);border-bottom:1px solid var(--line)}
+  .maptbl td{padding:7px 9px;border-bottom:1px solid #f4ede6}
+  .maptbl code{font-family:ui-monospace,monospace;font-size:11.5px;background:#f4ede6;border-radius:4px;padding:1px 5px}
+  .maptbl .dir{font-size:14px;text-align:center;white-space:nowrap}
+
+  /* กล่องขาเข้าจาก Obsidian */
+  .inbox{border:1px solid var(--line);border-radius:12px;margin-top:13px;overflow:hidden}
+  .inbox-hd{display:flex;align-items:center;gap:8px;padding:10px 13px;background:#fcfaf8;
+    border-bottom:1px solid var(--line);font-family:var(--font-head);font-weight:600;font-size:13.5px}
+  .inbox-hd .cnt{margin-left:auto;font-size:10.5px;font-weight:700;background:var(--brand);color:#fff;border-radius:999px;padding:2px 9px}
+  .inb-sec{padding:10px 13px;border-bottom:1px solid #f4ede6}
+  .inb-sec:last-child{border-bottom:none}
+  .inb-lb{font-size:10.5px;font-weight:700;color:var(--ink-soft);letter-spacing:.05em;margin-bottom:7px;text-transform:uppercase}
+  .inb-item{display:flex;gap:9px;align-items:flex-start;padding:8px 0;border-bottom:1px dashed #f0e8e0;flex-wrap:wrap}
+  .inb-item:last-child{border-bottom:none}
+  .bdg{font-size:10.5px;font-weight:700;border-radius:5px;padding:2px 7px;flex:none;font-family:var(--font-head);white-space:nowrap}
+  .bdg.done{background:#e9f7ee;color:#1c8a4c}
+  .bdg.reopen{background:#fff6e6;color:#c77700}
+  .bdg.new{background:#e8f1fb;color:#1565c0}
+  .bdg.edit{background:#f4ede6;color:#6d6259}
+  .inb-item .tx{flex:1;min-width:150px;font-size:13px;line-height:1.55}
+  .inb-item .who{font-size:11.5px;color:var(--ink-soft);line-height:1.5}
+  .inb-item .acts{display:flex;gap:5px;flex:none;flex-wrap:wrap;align-items:center}
+  .inb-item .acts button{border:1px solid var(--line);background:#fff;border-radius:7px;padding:4px 10px;
+    font-size:11.5px;font-weight:700;font-family:var(--font-head);color:var(--ink)}
+  .inb-item .acts button:hover{background:var(--brand-soft);color:var(--brand-deep)}
+  .inb-item .acts button.ok{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .inb-item .acts button.ok:hover{background:var(--brand-deep);color:#fff}
+  .inb-empty{font-size:12.5px;color:var(--ink-soft);padding:6px 0}
+
+  /* ============ Slash menu ============ */
+  .slash{
+    position:absolute;z-index:70;width:min(330px,calc(100vw - 28px));background:#fff;border:1px solid var(--line);
+    border-radius:14px;box-shadow:var(--shadow-float);padding:6px;display:none;max-height:330px;overflow-y:auto
+  }
+  .slash.open{display:block}
+  .slash .sh{font-size:10.5px;font-weight:700;color:var(--ink-soft);padding:7px 10px 4px;letter-spacing:.06em;text-transform:uppercase}
+  .slash button{
+    display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:none;background:transparent;
+    padding:8px 10px;border-radius:9px;color:var(--ink)
+  }
+  .slash button:hover,.slash button.cur{background:var(--brand-soft)}
+  .slash .bic{width:30px;height:30px;border-radius:8px;background:#f6f2ee;display:grid;place-items:center;font-size:15px;flex:none}
+  .slash button:hover .bic,.slash button.cur .bic{background:#fff}
+  .slash .bt{font-family:var(--font-head);font-weight:600;font-size:13.5px;line-height:1.35}
+  .slash .bd{font-size:11.5px;color:var(--ink-soft);line-height:1.4}
+  .slash .bk{margin-left:auto;font-size:10.5px;color:var(--ink-soft);font-family:ui-monospace,monospace;flex:none}
+  .slash .empty{padding:16px 12px;text-align:center;color:var(--ink-soft);font-size:12.5px}
+
+  /* ============ Modal ============ */
+  .ov{position:fixed;inset:0;background:rgba(43,33,25,.55);backdrop-filter:blur(2px);z-index:100;display:none}
+  .ov.open{display:block}
+  .modal{
+    position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:101;background:#fff;border-radius:18px;
+    box-shadow:0 24px 70px -18px rgba(43,33,25,.5);display:none;flex-direction:column;overflow:hidden
+  }
+  .modal.open{display:flex}
+  .modal-hd{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line);flex:none}
+  .modal-hd h3{font-size:16px;font-weight:700}
+  .modal-hd .x{margin-left:auto;border:none;background:transparent;font-size:17px;color:var(--ink-soft);
+    width:32px;height:32px;border-radius:8px;display:grid;place-items:center}
+  .modal-hd .x:hover{background:#f6f2ee}
+  .modal-ft{display:flex;align-items:center;gap:9px;padding:12px 18px;border-top:1px solid var(--line);flex:none;flex-wrap:wrap}
+  .modal-ft .sp{margin-left:auto}
+
+  /* Media library */
+  #mMedia{width:min(1000px,calc(100vw - 28px));height:min(660px,calc(100vh - 60px))}
+  .ml-body{display:flex;flex:1;min-height:0}
+  .ml-side{width:190px;flex:none;border-right:1px solid var(--line);padding:12px 10px;overflow-y:auto;background:#fcfaf8}
+  .ml-side .gl{font-size:10.5px;font-weight:700;color:var(--ink-soft);letter-spacing:.06em;padding:8px 8px 5px;text-transform:uppercase}
+  .ml-side button{
+    display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:none;background:transparent;
+    padding:7px 9px;border-radius:8px;font-size:13px;font-weight:600;color:var(--ink);font-family:var(--font-head)
+  }
+  .ml-side button:hover{background:var(--brand-soft);color:var(--brand-deep)}
+  .ml-side button.on{background:var(--brand-soft);color:var(--brand-deep)}
+  .ml-side button .n{margin-left:auto;font-size:11px;color:var(--ink-soft);font-weight:600}
+  .ml-mid{flex:1;min-width:0;display:flex;flex-direction:column}
+  .ml-search{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line)}
+  .ml-search input{flex:1;min-width:0;border:1px solid var(--line);border-radius:9px;padding:8px 11px;font-size:13px}
+  .ml-grid{flex:1;overflow-y:auto;padding:14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:11px;align-content:start}
+  .mcard{border:1.5px solid var(--line);border-radius:11px;overflow:hidden;background:#fff;padding:0;text-align:left}
+  .mcard.on{border-color:var(--brand);box-shadow:0 0 0 3px rgba(255,107,0,.13)}
+  .mcard .th{height:88px;background:#f6f2ee;display:grid;place-items:center;overflow:hidden}
+  .mcard .th img{width:100%;height:100%;object-fit:cover;display:block}
+  .mcard .th .fic{font-size:27px}
+  .mcard .nm{font-size:11.5px;font-weight:600;padding:7px 8px 3px;line-height:1.35;overflow-wrap:anywhere}
+  .mcard .mt{font-size:10.5px;color:var(--ink-soft);padding:0 8px 8px}
+  .ml-det{width:212px;flex:none;border-left:1px solid var(--line);padding:14px 13px;overflow-y:auto}
+  .ml-det .ph{color:var(--ink-soft);font-size:12.5px;text-align:center;padding-top:36px;line-height:1.7}
+  .ml-det h5{font-family:var(--font-head);font-size:13.5px;font-weight:600;line-height:1.4;word-break:break-word;margin-bottom:3px}
+  .ml-det .sub{font-size:11.5px;color:var(--ink-soft);margin-bottom:11px}
+  .ml-det .lb{font-size:11.5px;font-weight:700;color:var(--ink-soft);margin:11px 0 5px;display:block}
+  .radios{display:flex;flex-direction:column;gap:6px}
+  .radios label{display:flex;align-items:flex-start;gap:7px;font-size:12.5px;line-height:1.5;cursor:pointer}
+  .radios input{margin-top:3px;accent-color:var(--brand);flex:none}
+  .drop-hint{
+    border:2px dashed #dccfc2;border-radius:11px;padding:13px;text-align:center;color:var(--ink-soft);
+    font-size:12px;margin:0 14px 14px;line-height:1.6
+  }
+
+  /* Markdown preview */
+  #mMd{width:min(760px,calc(100vw - 28px));height:min(640px,calc(100vh - 60px))}
+  .mdview{
+    flex:1;overflow:auto;margin:0;padding:18px 20px;background:#2b2119;color:#f2e7dc;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.8px;line-height:1.75;white-space:pre-wrap;word-break:break-word
+  }
+  .mdview .fm{color:#ffb87a}
+  .mdview .hd{color:#8fd3ff;font-weight:700}
+  .mdview .tk{color:#a5e8a5}
+  .mdview .cm{color:#9d8a78;font-style:italic}
+  .mdview .id{color:#ff9b57;font-weight:700}
+
+  /* Toast */
+  .toasts{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;
+    gap:8px;align-items:center;pointer-events:none;width:92%;max-width:360px}
+  .toast{
+    width:100%;background:#1b5e20;color:#fff;border-radius:13px;padding:11px 15px;font-size:13px;font-weight:600;
+    box-shadow:0 8px 28px rgba(0,0,0,.3);display:flex;align-items:center;gap:9px;
+    animation:tin .32s cubic-bezier(.34,1.56,.64,1)
+  }
+  .toast.info{background:#1a237e}
+  .toast.warn{background:#8d3b00}
+  @keyframes tin{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:none}}
+
+  /* จอแคบ */
+  @media(max-width:900px){
+    .ed-side{position:fixed;right:0;top:0;bottom:0;width:min(300px,88vw);max-height:100vh;z-index:90;
+      box-shadow:-8px 0 30px rgba(43,33,25,.18)}
+    body.side-open .side-bd{display:block}
+    .ed-canvas{padding:26px 16px 10px}
+    .metas{padding:0 16px}
+    .ml-side,.ml-det{display:none}
+  }
+  @media(max-width:520px){
+    .search,.sys{display:none}
+    .ed-canvas{padding:20px 13px 10px}
+  }
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <b>MOCKUP</b>
+  <span class="hint">กดเล่นได้จริง — พิมพ์ <kbd>/</kbd> ในย่อหน้าว่างเพื่อเปิดเมนูบล็อก · คลิกบล็อกเพื่อตั้งค่าทางขวา · ลากไฟล์มาวางบนหน้าได้</span>
+</div>
+
+<div class="atop">
+  <button class="logo"><span class="lg-mark">S</span><span class="lg-word">SPP-MP</span></button>
+
+  <div class="menuwrap">
+    <button class="abtn" id="btnMenu"><span>☰</span><span>เมนู</span></button>
+    <div class="menu-dd" id="menuDD"></div>
+  </div>
+
+  <div class="search">🔎 ค้นหางาน, batch, คู่มือ…</div>
+  <span class="sys"><span class="dot"></span>ระบบปกติ</span>
+  <span class="achip"><span class="av">ม</span>ม้ำ</span>
+  <button class="abtn ghost">↩ ออกจาก Admin</button>
+</div>
+
+<div class="amain">
+  <aside class="aside-r" id="sideNav"></aside>
+
+  <div class="abody">
+
+    <!-- ============ แถบเครื่องมือ ============ -->
+    <div class="ed-toolbar">
+      <button class="tbtn add" id="tbAdd" title="เพิ่มบล็อก">+</button>
+      <button class="tbtn" id="tbUndo" title="ย้อนกลับ" disabled>↶</button>
+      <button class="tbtn" id="tbRedo" title="ทำซ้ำ" disabled>↷</button>
+      <button class="tbtn" id="tbList" title="มุมมองรายการบล็อก">☰</button>
+      <span class="tsep"></span>
+      <button class="tbtn" data-cmd="bold" title="ตัวหนา"><b>B</b></button>
+      <button class="tbtn" data-cmd="italic" title="ตัวเอียง"><i>I</i></button>
+      <button class="tbtn" id="tbLink" title="ลิงก์">🔗</button>
+      <button class="tbtn" id="tbCode" title="โค้ดในบรรทัด">&lt;/&gt;</button>
+      <button class="tbtn" id="tbMedia" title="คลังไฟล์">🖼</button>
+      <span class="tspace"></span>
+      <span class="saved-note" id="savedNote">ยังไม่ได้บันทึก</span>
+      <button class="tlink" id="tbDraft">บันทึกร่าง</button>
+      <button class="tbtn primary" id="tbPublish">เผยแพร่</button>
+      <button class="tbtn" id="tbSide" title="เปิด/ปิดแถบตั้งค่า">▤</button>
+    </div>
+
+    <!-- ============ canvas + sidebar ============ -->
+    <div class="ed-main">
+      <div class="ed-scroll" id="edScroll">
+        <div class="ed-canvas" id="canvas">
+          <h1 class="doc-title" id="docTitle" contenteditable="true" data-ph="เพิ่มหัวข้อบทความ"></h1>
+          <div class="blocks" id="blocks"></div>
+        </div>
+
+        <!-- ============ meta boxes ============ -->
+        <div class="metas">
+
+          <details class="metabox" open>
+            <summary>🔍 SEO / อ่านง่ายแค่ไหน <span class="pill" id="seoPill">ยังไม่ประเมิน</span><span class="ar">▾</span></summary>
+            <div class="metabody">
+              <div class="mrow">
+                <label for="fkw">Focus keyword — ชื่อระบบ / กระบวนการ</label>
+                <input class="minput" id="fkw" placeholder="เช่น CIP Line 2, Evaporator, ค่า Brix">
+              </div>
+              <div class="mrow">
+                <label for="mdesc">Meta description</label>
+                <textarea class="mtarea" id="mdesc" rows="3" placeholder="สรุปสั้น ๆ ว่าบทความนี้อธิบายอะไร ให้ทีมเห็นแล้วรู้ว่าใช่เรื่องที่กำลังหา"></textarea>
+                <div class="counter" id="mdescCount">0 / 155 ตัวอักษร</div>
+              </div>
+              <div class="mrow">
+                <label>ความง่ายในการอ่าน (Readability)</label>
+                <div class="scorerow"><span class="dotscore" id="rdDot" style="background:#ccc"></span><span id="rdText">ยังไม่มีเนื้อหา</span></div>
+                <div class="meter"><i id="rdBar" style="width:0%;background:#ccc"></i></div>
+                <div class="hintx" id="rdHint">ประเมินจากความยาวประโยคเฉลี่ยและสัดส่วนย่อหน้ายาว — ตัวเลขในหน้านี้คำนวณคร่าว ๆ พอให้เห็นหน้าตา</div>
+              </div>
+              <div class="mrow">
+                <label>ตัวอย่างตอนคนอื่นเห็นลิงก์</label>
+                <div class="serp">
+                  <div class="u" id="serpU">spp-mp.app › บทความ › …</div>
+                  <div class="t" id="serpT">เพิ่มหัวข้อบทความ</div>
+                  <div class="d" id="serpD">ยังไม่ได้ใส่ meta description</div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="metabox">
+            <summary>🧩 สคริปต์เฉพาะหน้านี้ <span class="ar">▾</span></summary>
+            <div class="metabody">
+              <div class="mrow">
+                <label for="scHead">แทรกใน &lt;head&gt;</label>
+                <textarea class="mtarea mono" id="scHead" rows="3" placeholder="<!-- เช่น สคริปต์ตัวนับ หรือ style เฉพาะหน้า -->"></textarea>
+              </div>
+              <div class="mrow">
+                <label for="scBody">แทรกก่อนปิด &lt;/body&gt;</label>
+                <textarea class="mtarea mono" id="scBody" rows="3" placeholder="<!-- เช่น สคริปต์วาดกราฟจากข้อมูลจริง -->"></textarea>
+              </div>
+              <div class="hintx">⚠️ สคริปต์รันเฉพาะหน้าบทความนี้ — ใส่เฉพาะของที่รู้ที่มา</div>
+            </div>
+          </details>
+
+          <details class="metabox" open>
+            <summary>🪨 Obsidian <span class="pill" id="obsPill">สองทาง — ติ๊กปิดใน Obsidian ได้</span><span class="ar">▾</span></summary>
+            <div class="metabody">
+              <div class="obs-grid">
+                <div>
+                  <div class="mrow">
+                    <label for="obsFolder">โฟลเดอร์ปลายทางใน vault</label>
+                    <select class="mselect" id="obsFolder">
+                      <option>บทความ</option>
+                      <option>คู่มือ</option>
+                      <option>ส่งกะ</option>
+                    </select>
+                  </div>
+                  <div class="mrow">
+                    <label for="obsMachine">เชื่อมกับเครื่องจักร (wikilink)</label>
+                    <select class="mselect" id="obsMachine">
+                      <option>CIP Line 2</option>
+                      <option>CIP Line 1</option>
+                      <option>CIP Line 3</option>
+                      <option>Boiler</option>
+                      <option>Evaporator</option>
+                      <option>Mixing Station</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <div class="mrow">
+                    <label>ไฟล์ที่จะถูกเขียน</label>
+                    <div class="obs-path" id="obsPath">บทความ/2026-08-10-untitled.md</div>
+                  </div>
+                  <div class="mrow">
+                    <label>แท็กที่จะติดไปกับไฟล์</label>
+                    <div class="chips" id="obsTags"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="obs-sync">
+                <span class="st"><span class="sys"><span class="dot"></span></span>ต่อ repo แล้ว</span>
+                <span class="meta">ขาออก 09:42 น. · ขาเข้า webhook พร้อม · <code>spp-mp/knowledge-vault</code> @ main</span>
+                <button class="btn-o" id="btnMd">ดู markdown ที่จะถูกเขียน</button>
+                <button class="btn-o fill" id="btnSync">sync เดี๋ยวนี้</button>
+              </div>
+
+              <!-- ขาเข้า: คนแก้ใน Obsidian แล้วส่งกลับมา -->
+              <div class="inbox">
+                <div class="inbox-hd">📥 ขาเข้าจาก Obsidian <span class="cnt" id="inbCnt">0</span></div>
+                <div id="inbBody"></div>
+              </div>
+
+              <details style="margin-top:13px">
+                <summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--ink-soft)">ตั้งค่า vault และการ map โฟลเดอร์</summary>
+                <table class="maptbl">
+                  <thead><tr><th>ข้อมูลในแอป</th><th class="dir">ทิศทาง</th><th>ไฟล์ใน vault</th><th>เมื่อ</th></tr></thead>
+                  <tbody>
+                    <tr><td>บทความจาก editor นี้</td><td class="dir">→</td><td><code>บทความ/&lt;slug&gt;.md</code></td><td>กดเผยแพร่</td></tr>
+                    <tr><td>งานค้าง + งานที่ทำแล้ว</td><td class="dir">⇄</td><td><code>บันทึกประจำวัน/&lt;วันที่&gt;.md</code></td><td>งานเปลี่ยน + webhook</td></tr>
+                    <tr><td>บันทึกส่งกะ</td><td class="dir">→</td><td><code>ส่งกะ/&lt;วันที่&gt;-&lt;กะ&gt;.md</code></td><td>กดส่งกะ</td></tr>
+                    <tr><td>คู่มือ knowledge/ เดิม</td><td class="dir">→</td><td><code>คู่มือ/*.md</code></td><td>รอบกลางคืน</td></tr>
+                  </tbody>
+                </table>
+                <div class="hintx">
+                  <b>ขาออก</b> — server เขียนผ่าน GitHub Contents API เฉพาะในเขต
+                  <code style="font-family:ui-monospace,monospace;font-size:11px">&lt;!-- spp:start --&gt;…&lt;!-- spp:end --&gt;</code>
+                  ข้อความที่คนเขียนเองนอกเขตนี้ไม่ถูกแตะ<br>
+                  <b>ขาเข้า</b> — Obsidian Git push → GitHub ยิง webhook → server อ่านเฉพาะบรรทัดที่มี
+                  <code style="font-family:ui-monospace,monospace;font-size:11px">^spp-&lt;id&gt;</code> ต่อท้าย
+                  จึงรู้ว่าตรงกับงานไหนแม้คนจะแก้ข้อความไปแล้ว<br>
+                  <b>กันเขียนทับ</b> — ก่อนเขียนทุกครั้ง server เทียบ <code style="font-family:ui-monospace,monospace;font-size:11px">sha</code>
+                  ของไฟล์ ถ้ามีคน push แทรกเข้ามาก่อน จะอ่านของใหม่มารวมก่อนแล้วค่อยเขียน
+                </div>
+              </details>
+            </div>
+          </details>
+
+        </div>
+      </div>
+
+      <!-- ============ sidebar ============ -->
+      <aside class="ed-side" id="edSide">
+        <div class="side-tabs">
+          <button class="on" data-tab="post">บทความ</button>
+          <button data-tab="block">บล็อก</button>
+          <button class="x" id="sideClose">✕</button>
+        </div>
+
+        <!-- Post -->
+        <div class="spanel on" id="panPost">
+          <div class="sgrp">
+            <h4>สถานะและการเผยแพร่</h4>
+            <div class="srow"><label>สถานะ</label>
+              <select class="sselect" id="pStatus"><option>ร่าง</option><option>รอตรวจ</option><option>เผยแพร่</option></select>
+            </div>
+            <div class="srow"><label>ผู้เขียน</label><input class="sinput" id="pAuthor" value="ม้ำ"></div>
+            <div class="srow"><label>วันที่</label><input class="sinput" id="pDate" type="date"></div>
+            <div class="srow"><label>เห็นได้โดย</label>
+              <select class="sselect"><option>ทีมผลิตทั้งหมด</option><option>เฉพาะหัวหน้ากะ</option><option>เฉพาะผู้ดูแล</option></select>
+            </div>
+          </div>
+          <div class="sgrp">
+            <h4>ลิงก์ถาวร</h4>
+            <input class="sinput" id="pSlug" style="width:100%" placeholder="untitled">
+            <div class="hintx" id="pSlugHint">spp-mp.app/บทความ/untitled</div>
+          </div>
+          <div class="sgrp">
+            <h4>หมวดหมู่</h4>
+            <select class="sselect" id="pCat" style="width:100%">
+              <option>ระบบ CIP</option><option>Boiler</option><option>Evaporator</option>
+              <option>Mixing / Syrup</option><option>บรรจุ</option><option>ความปลอดภัย</option>
+            </select>
+          </div>
+          <div class="sgrp">
+            <h4>แท็ก</h4>
+            <div class="chips" id="pTags" style="margin-bottom:8px"></div>
+            <input class="sinput" id="pTagIn" style="width:100%" placeholder="พิมพ์แล้วกด Enter">
+          </div>
+          <div class="sgrp">
+            <h4>ภาพหน้าปก</h4>
+            <button class="cover-ph" id="pCover">＋ เลือกจากคลังไฟล์</button>
+          </div>
+          <div class="sgrp">
+            <h4>สรุปย่อ</h4>
+            <textarea class="starea" id="pExcerpt" rows="3" placeholder="สรุป 1-2 บรรทัด ใช้โชว์ในรายการบทความ"></textarea>
+          </div>
+        </div>
+
+        <!-- Block -->
+        <div class="spanel" id="panBlock">
+          <div class="sgrp blkinfo">
+            <div class="bi-ic" id="biIc">¶</div>
+            <div>
+              <div class="bi-t" id="biT">ย่อหน้า</div>
+              <div class="bi-d" id="biD">บล็อกพื้นฐานสำหรับเขียนเนื้อหา</div>
+            </div>
+          </div>
+
+          <div class="sgrp" id="sgrpSpec" style="display:none">
+            <h4 id="specT">ตั้งค่าเฉพาะบล็อกนี้</h4>
+            <div id="specBody"></div>
+          </div>
+
+          <div class="sgrp">
+            <h4>สี</h4>
+            <div class="colorline"><span class="dot" id="dotText"></span><span class="lb">ตัวอักษร</span></div>
+            <div class="swatches" data-for="text">
+              <button class="sw none on" data-c="" title="ไม่กำหนด"></button>
+              <button class="sw" data-c="#2b2119" style="background:#2b2119"></button>
+              <button class="sw" data-c="#c62828" style="background:#c62828"></button>
+              <button class="sw" data-c="#c77700" style="background:#c77700"></button>
+              <button class="sw" data-c="#1c8a4c" style="background:#1c8a4c"></button>
+              <button class="sw" data-c="#1565c0" style="background:#1565c0"></button>
+              <button class="sw" data-c="#6a1b9a" style="background:#6a1b9a"></button>
+            </div>
+            <div class="colorline" style="margin-top:12px"><span class="dot" id="dotBg"></span><span class="lb">พื้นหลัง</span></div>
+            <div class="swatches" data-for="bg">
+              <button class="sw none on" data-c="" title="ไม่กำหนด"></button>
+              <button class="sw" data-c="#fff3ea" style="background:#fff3ea"></button>
+              <button class="sw" data-c="#fdecec" style="background:#fdecec"></button>
+              <button class="sw" data-c="#fff6e6" style="background:#fff6e6"></button>
+              <button class="sw" data-c="#e9f7ee" style="background:#e9f7ee"></button>
+              <button class="sw" data-c="#e8f1fb" style="background:#e8f1fb"></button>
+              <button class="sw" data-c="#f4ede6" style="background:#f4ede6"></button>
+            </div>
+            <div class="hintx">ใช้ไฮไลต์จุดวิกฤตของระบบ เช่น ค่าที่ห้ามเกิน หรือขั้นตอนที่ข้ามไม่ได้</div>
+          </div>
+
+          <div class="sgrp">
+            <h4>ตัวอักษร</h4>
+            <div class="fsizes" id="fsizes">
+              <button data-s="">ปกติ</button><button data-s="14">S</button><button data-s="16.5">M</button>
+              <button data-s="19">L</button><button data-s="23">XL</button><button data-s="28">XXL</button>
+            </div>
+          </div>
+
+          <div class="sgrp">
+            <h4>ระยะขอบ</h4>
+            <div class="srow"><label>ระยะใน</label><input class="rng" type="range" id="rPad" min="0" max="40" value="4"><span style="font-size:12px;width:34px;text-align:right" id="vPad">4px</span></div>
+            <div class="srow"><label>ระยะนอก</label><input class="rng" type="range" id="rMar" min="0" max="48" value="0"><span style="font-size:12px;width:34px;text-align:right" id="vMar">0px</span></div>
+          </div>
+
+          <div class="sgrp">
+            <h4>เส้นขอบ</h4>
+            <div class="srow"><label>ความหนา</label><input class="rng" type="range" id="rBw" min="0" max="6" value="0"><span style="font-size:12px;width:34px;text-align:right" id="vBw">0px</span></div>
+            <div class="srow"><label>ความมน</label><input class="rng" type="range" id="rBr" min="0" max="28" value="10"><span style="font-size:12px;width:34px;text-align:right" id="vBr">10px</span></div>
+            <div class="srow"><label>สีเส้น</label><input type="color" class="swcolor" id="cBd" value="#eee3d9"><span style="font-size:12px;color:var(--ink-soft)" id="vBd">#eee3d9</span></div>
+          </div>
+
+          <div class="sgrp">
+            <h4>ขั้นสูง</h4>
+            <div class="srow"><label>CSS class</label><input class="sinput" id="bCls" placeholder="เช่น critical-note"></div>
+            <div class="srow"><label>HTML anchor</label><input class="sinput" id="bAnchor" placeholder="เช่น cip-step-3"></div>
+            <div class="hintx">anchor ใช้ทำลิงก์ตรงมาที่บล็อกนี้ได้ เช่น <code style="font-family:ui-monospace,monospace;font-size:11px">…#cip-step-3</code></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<!-- slash menu -->
+<div class="slash" id="slash"></div>
+
+<!-- ฉากหลังของแถบตั้งค่าตอนจอแคบ -->
+<div class="side-bd" id="sideBd"></div>
+
+<!-- overlay + modals -->
+<div class="ov" id="ov"></div>
+
+<div class="modal" id="mMedia">
+  <div class="modal-hd">
+    <h3>🗂 คลังไฟล์</h3>
+    <button class="x" data-close>✕</button>
+  </div>
+  <div class="ml-body">
+    <div class="ml-side" id="mlSide"></div>
+    <div class="ml-mid">
+      <div class="ml-search">
+        <input id="mlQ" placeholder="ค้นหาจากชื่อไฟล์ หรือแท็ก…">
+        <span style="font-size:12px;color:var(--ink-soft);white-space:nowrap" id="mlCount"></span>
+      </div>
+      <div class="ml-grid" id="mlGrid"></div>
+      <div class="drop-hint">ลากไฟล์มาวางตรงนี้เพื่ออัปโหลด — รองรับ PNG/JPG ความละเอียดสูง (ภาพจอ SCADA/HMI) และ PDF (SOP, คู่มือเครื่อง, รายงาน)</div>
+    </div>
+    <div class="ml-det" id="mlDet"><div class="ph">เลือกไฟล์ทางซ้าย<br>เพื่อดูรายละเอียด</div></div>
+  </div>
+  <div class="modal-ft">
+    <span style="font-size:12px;color:var(--ink-soft)" id="mlSel">ยังไม่ได้เลือกไฟล์</span>
+    <span class="sp"></span>
+    <button class="btn-o" data-close>ยกเลิก</button>
+    <button class="btn-o fill" id="mlInsert">แทรกลงบทความ</button>
+  </div>
+</div>
+
+<div class="modal" id="mMd">
+  <div class="modal-hd">
+    <h3>📄 markdown ที่จะถูกเขียนลง vault</h3>
+    <button class="x" data-close>✕</button>
+  </div>
+  <pre class="mdview" id="mdView"></pre>
+  <div class="modal-ft">
+    <span style="font-size:12px;color:var(--ink-soft)" id="mdPath"></span>
+    <span class="sp"></span>
+    <button class="btn-o" id="mdCopy">คัดลอก</button>
+    <button class="btn-o fill" data-close>ปิด</button>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+(function(){
+'use strict';
+
+/* ══════════════ ข้อมูลตั้งต้น ══════════════ */
+
+const ADMIN_MENU = [
+  {ic:'📊', t:'ภาพรวม'},
+  {ic:'🕒', t:'Timeline รับ-ส่งกะ'},
+  {ic:'✍️', t:'บทความ / คู่มือระบบ', on:true, tag:'ใหม่'},
+  {ic:'🏭', t:'ลงยอดผลิต'},
+  {ic:'✔️', t:'อนุมัติยอดผลิต', sub:true},
+  {ic:'🕘', t:'ประวัติยอดผลิต', sub:true},
+  {ic:'✅', t:'งานวันนี้'},
+  {ic:'🧭', t:'พื้นที่รับผิดชอบ'},
+  {ic:'📅', t:'ปฏิทิน'},
+  {ic:'📈', t:'รายงาน'},
+  {ic:'🔁', t:'งานประจำ'},
+  {ic:'🤖', t:'AI ผู้ช่วย'},
+  {ic:'📋', t:'คู่มือ Line 4'},
+  {ic:'🗂️', t:'QC Record'},
+];
+
+// ประเภทบล็อกในเมนู /
+const BLOCK_TYPES = [
+  {id:'p',      ic:'¶',  t:'ย่อหน้า',            d:'เนื้อหาทั่วไป',                  k:'/p',      grp:'พื้นฐาน'},
+  {id:'h2',     ic:'H₂', t:'หัวข้อใหญ่',          d:'แบ่งบทเป็นตอน ๆ',               k:'/h2',     grp:'พื้นฐาน'},
+  {id:'h3',     ic:'H₃', t:'หัวข้อย่อย',          d:'หัวข้อระดับรอง',                k:'/h3',     grp:'พื้นฐาน'},
+  {id:'list',   ic:'•',  t:'รายการ',              d:'ลำดับขั้นตอนแบบข้อ ๆ',          k:'/list',   grp:'พื้นฐาน'},
+  {id:'quote',  ic:'❝',  t:'ยกข้อความ',           d:'อ้างคู่มือหรือมาตรฐาน',          k:'/quote',  grp:'พื้นฐาน'},
+  {id:'code',   ic:'{}', t:'บล็อกโค้ด',           d:'สคริปต์ / ค่า config / log',     k:'/code',   grp:'พื้นฐาน'},
+  {id:'image',  ic:'🖼', t:'รูปภาพ',              d:'ภาพจอ SCADA/HMI พร้อมคำบรรยาย',  k:'/image',  grp:'สื่อ'},
+  {id:'pdf',    ic:'📕', t:'เอกสาร PDF',          d:'SOP, คู่มือเครื่อง, รายงาน',     k:'/pdf',    grp:'สื่อ'},
+  {id:'flow',   ic:'🔀', t:'Process Flow / P&ID', d:'ลำดับการไหลของกระบวนการ',        k:'/flow',   grp:'งานผลิต'},
+  {id:'params', ic:'⊞',  t:'ตารางพารามิเตอร์',    d:'ค่าตั้ง / ช่วงปกติ / จุดวัด',    k:'/param',  grp:'งานผลิต'},
+  {id:'alert',  ic:'⚠️', t:'กล่องแจ้งเตือน',      d:'อันตราย / ระวัง / ข้อมูล',       k:'/alert',  grp:'งานผลิต'},
+];
+const BT = Object.fromEntries(BLOCK_TYPES.map(b => [b.id, b]));
+
+// ไฟล์ตัวอย่างในคลัง (จำลอง — ของจริงดึงจาก Supabase)
+const FOLDERS = ['ทั้งหมด','ระบบ CIP','Boiler','Evaporator','SCADA / HMI','SOP','รายงาน'];
+const MEDIA = [
+  {n:'HMI-CIP-Line2-หน้าหลัก.png',      t:'image', f:'SCADA / HMI', tags:['CIP','HMI'],        sz:'1.8 MB', dim:'2560×1440'},
+  {n:'HMI-CIP-แจ้งเตือนอุณหภูมิสูง.png', t:'image', f:'SCADA / HMI', tags:['CIP','alarm'],      sz:'1.4 MB', dim:'2560×1440'},
+  {n:'P&ID-CIP-Station.png',            t:'image', f:'ระบบ CIP',    tags:['CIP','P&ID'],       sz:'3.2 MB', dim:'3508×2480'},
+  {n:'SOP-CIP-Line2-rev4.pdf',          t:'pdf',   f:'SOP',         tags:['CIP','SOP'],        sz:'820 KB', dim:'12 หน้า'},
+  {n:'คู่มือปั๊ม-Grundfos-CR15.pdf',     t:'pdf',   f:'SOP',         tags:['ปั๊ม','คู่มือ'],     sz:'4.1 MB', dim:'48 หน้า'},
+  {n:'Boiler-ตารางค่าควบคุม.pdf',        t:'pdf',   f:'Boiler',      tags:['Boiler','SOP'],     sz:'310 KB', dim:'3 หน้า'},
+  {n:'HMI-Boiler-Trend.png',            t:'image', f:'SCADA / HMI', tags:['Boiler','HMI'],     sz:'1.1 MB', dim:'1920×1080'},
+  {n:'Evaporator-Effect1-สภาวะปกติ.png', t:'image', f:'Evaporator',  tags:['Evap','HMI'],       sz:'1.6 MB', dim:'2560×1440'},
+  {n:'รายงานผลิตประจำเดือน-ก.ค.pdf',     t:'pdf',   f:'รายงาน',      tags:['รายงาน'],           sz:'1.2 MB', dim:'8 หน้า'},
+  {n:'CIP-ถัง3-เปลี่ยน-gasket.jpg',      t:'image', f:'ระบบ CIP',    tags:['CIP','ซ่อมบำรุง'],  sz:'2.4 MB', dim:'4032×3024'},
+];
+
+const TODAY = new Date();
+const ISO = TODAY.toISOString().slice(0,10);
+
+/* ══════════════ helper ══════════════ */
+
+const $  = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let uid = 0;
+const nid = () => 'b' + (++uid);
+
+function toast(msg, kind){
+  const el = document.createElement('div');
+  el.className = 'toast' + (kind ? ' ' + kind : '');
+  el.innerHTML = '<span>' + (kind === 'warn' ? '⚠️' : kind === 'info' ? '🔔' : '✅') + '</span><span>' + esc(msg) + '</span>';
+  $('#toasts').appendChild(el);
+  setTimeout(() => el.remove(), 2600);
+}
+
+// รูปแทนของจริง วาดเป็น SVG ในตัว จะได้ไม่ต้องต่อเน็ต
+function ph(label, w, h, bg, fg){
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '">' +
+    '<rect width="100%" height="100%" fill="' + bg + '"/>' +
+    '<g fill="none" stroke="' + fg + '" stroke-width="1.5" opacity=".38">' +
+      '<rect x="12" y="12" width="' + (w-24) + '" height="' + (h-24) + '" rx="8"/>' +
+      '<line x1="12" y1="' + (h*0.33) + '" x2="' + (w-12) + '" y2="' + (h*0.33) + '"/>' +
+      '<circle cx="' + (w*0.28) + '" cy="' + (h*0.64) + '" r="' + (h*0.17) + '"/>' +
+      '<rect x="' + (w*0.52) + '" y="' + (h*0.48) + '" width="' + (w*0.34) + '" height="' + (h*0.32) + '" rx="5"/>' +
+    '</g>' +
+    '<text x="50%" y="' + (h*0.24) + '" text-anchor="middle" font-family="Sarabun,sans-serif" font-size="' +
+      Math.round(h/11) + '" fill="' + fg + '">' + esc(label) + '</text></svg>';
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
+const thumbOf = m => m.t === 'image' ? ph(m.f, 260, 176, '#e7edf3', '#41627f') : '';
+
+/* ══════════════ เมนู Admin ══════════════ */
+
+function renderMenu(){
+  const html = ADMIN_MENU.map(m =>
+    '<button class="rsbtn' + (m.sub ? ' sub' : '') + (m.on ? ' on' : '') + '">' +
+      '<span class="ic">' + m.ic + '</span>' + esc(m.t) +
+      (m.tag ? '<span class="tag">' + m.tag + '</span>' : '') +
+    '</button>').join('');
+  $('#sideNav').innerHTML = html;
+  $('#menuDD').innerHTML = html.replace(/class="rsbtn/g, 'class="');
+}
+
+/* ══════════════ โมเดลบล็อก ══════════════ */
+
+let blocks = [];
+let selId = null;
+const history = { past: [], future: [] };
+
+function snapshot(){ return JSON.stringify(blocks); }
+function pushHistory(){
+  history.past.push(snapshot());
+  if (history.past.length > 60) history.past.shift();
+  history.future.length = 0;
+  refreshHistoryBtns();
+}
+function refreshHistoryBtns(){
+  $('#tbUndo').disabled = history.past.length === 0;
+  $('#tbRedo').disabled = history.future.length === 0;
+}
+function undo(){
+  if (!history.past.length) return;
+  history.future.push(snapshot());
+  blocks = JSON.parse(history.past.pop());
+  render(); refreshHistoryBtns(); markDirty();
+}
+function redo(){
+  if (!history.future.length) return;
+  history.past.push(snapshot());
+  blocks = JSON.parse(history.future.pop());
+  render(); refreshHistoryBtns(); markDirty();
+}
+
+function newBlock(type, extra){
+  const b = { id: nid(), type: type, style: {}, cls: '', anchor: '' };
+  if (type === 'p')     b.html = '';
+  if (type === 'h2')    b.html = 'หัวข้อใหม่';
+  if (type === 'h3')    b.html = 'หัวข้อย่อย';
+  if (type === 'list')  b.items = ['ขั้นตอนแรก', 'ขั้นตอนถัดไป'];
+  if (type === 'quote') b.html = 'ข้อความที่ยกมาจากคู่มือ';
+  if (type === 'code')  b.html = '# ค่าที่ตั้งไว้บน HMI\nsupply_temp = 80\nreturn_temp  = 75';
+  if (type === 'image') { b.src = ph('ภาพจอ SCADA / HMI', 720, 400, '#e7edf3', '#41627f'); b.cap = ''; b.name = 'ภาพตัวอย่าง.png'; }
+  if (type === 'pdf')   { b.name = 'SOP-CIP-Line2-rev4.pdf'; b.meta = '820 KB · 12 หน้า'; b.mode = 'button'; }
+  if (type === 'flow')  {
+    b.title = 'ลำดับการไหล — ระบบ CIP Line 2';
+    b.steps = [
+      {t:'ถังน้ำยา\nCaustic', c:'#01579b'},
+      {t:'ปั๊มจ่าย\nCR15',    c:'#1565c0'},
+      {t:'Heat\nExchanger',  c:'#b71c1c'},
+      {t:'ไลน์ผลิต\nLine 2',  c:'#006064'},
+      {t:'ถังรับกลับ\nReturn', c:'#4a7c59'},
+    ];
+  }
+  if (type === 'params'){
+    b.title = 'ค่าควบคุม — CIP Line 2';
+    b.rows = [
+      {p:'อุณหภูมิน้ำยาจ่าย', set:'80',  rng:'78 – 82',   u:'°C',    pt:'TT-201', oor:false},
+      {p:'อุณหภูมิน้ำยากลับ', set:'75',  rng:'72 – 78',   u:'°C',    pt:'TT-202', oor:false},
+      {p:'ความเข้มข้น Caustic', set:'2.0', rng:'1.8 – 2.2', u:'%',   pt:'CT-201', oor:false},
+      {p:'อัตราการไหล',       set:'18',  rng:'16 – 20',   u:'m³/h',  pt:'FT-201', oor:false},
+      {p:'แรงดันหัวจ่าย',     set:'3.4', rng:'2.0 – 3.0', u:'bar',   pt:'PT-201', oor:true},
+      {p:'เวลาเวียนน้ำยา',    set:'20',  rng:'20 – 25',   u:'นาที',  pt:'—',      oor:false},
+    ];
+  }
+  if (type === 'alert') { b.level = 'warn'; b.title = 'ข้อควรระวัง'; b.body = 'ห้ามเปิดวาล์วจ่ายน้ำยาก่อนยืนยันว่าไลน์ผลิตว่างและปิดวาล์วเข้าถังเก็บแล้ว'; }
+  if (extra) Object.assign(b, extra);
+  return b;
+}
+
+/* ══════════════ วาดบล็อก ══════════════ */
+
+const TOOLS =
+  '<div class="blk-tools">' +
+    '<button data-act="up"  title="เลื่อนขึ้น">▲</button>' +
+    '<button data-act="dn"  title="เลื่อนลง">▼</button>' +
+    '<button data-act="dup" title="ทำซ้ำ">⧉</button>' +
+    '<button data-act="del" class="del" title="ลบ">🗑</button>' +
+  '</div>';
+
+function inner(b){
+  switch (b.type){
+    case 'p':
+      return '<div class="ed-p" contenteditable="true" data-ph="พิมพ์ / เพื่อเลือกบล็อก" data-f="html">' + b.html + '</div>';
+    case 'h2':
+      return '<h2 class="ed-h2" contenteditable="true" data-f="html">' + b.html + '</h2>';
+    case 'h3':
+      return '<h3 class="ed-h3" contenteditable="true" data-f="html">' + b.html + '</h3>';
+    case 'quote':
+      return '<div class="ed-quote" contenteditable="true" data-f="html">' + b.html + '</div>';
+    case 'code':
+      return '<div class="ed-code" contenteditable="true" data-f="html">' + esc(b.html) + '</div>';
+    case 'list':
+      return '<ul class="ed-list" contenteditable="true" data-f="items">' +
+        b.items.map(i => '<li>' + i + '</li>').join('') + '</ul>';
+    case 'image':
+      return '<figure class="ed-fig"><img src="' + b.src + '" alt=""></figure>' +
+        '<div class="ed-cap" contenteditable="true" data-ph="ใส่คำบรรยายภาพ เช่น จอแสดงค่า X ตอนสภาวะผิดปกติ" data-f="cap">' + b.cap + '</div>';
+    case 'pdf':
+      if (b.mode === 'embed'){
+        return '<div class="ed-pdf-emb">' +
+          '<div class="bar"><span>📕</span><span>' + esc(b.name) + '</span>' +
+          '<span style="margin-left:auto;color:var(--ink-soft);font-weight:400">' + esc(b.meta) + '</span></div>' +
+          '<div class="page">ตัวอ่าน PDF ฝังในบทความ<br><span style="font-size:11.5px">เลื่อนอ่านได้ทั้งเล่มโดยไม่ต้องออกจากหน้านี้</span></div></div>';
+      }
+      return '<div class="ed-pdf-btn"><div class="ic">📕</div><div style="min-width:0">' +
+        '<div class="nm">' + esc(b.name) + '</div><div class="mt">' + esc(b.meta) + '</div></div>' +
+        '<button class="dl">ดาวน์โหลด</button></div>';
+    case 'flow':
+      return '<div class="pflow">' +
+        '<div class="pflow-hd"><span class="b">PROCESS FLOW</span>' +
+        '<span class="t" contenteditable="true" data-f="title">' + esc(b.title) + '</span></div>' +
+        '<div class="pflow-chain">' +
+          b.steps.map((s,i) =>
+            '<div class="pstep" contenteditable="true" style="background:' + s.c + '">' + esc(s.t) + '</div>' +
+            (i < b.steps.length - 1 ? '<span class="parrow">›</span>' : '')
+          ).join('') +
+        '</div>' +
+        (b.pid ? '<div class="pflow-img"><img src="' + b.pid + '" alt=""></div>'
+               : '<div class="pflow-img">🖼 แนบภาพ P&amp;ID ของช่วงนี้ — ลากไฟล์มาวาง หรือเลือกจากคลังไฟล์</div>') +
+        '</div>';
+    case 'params':
+      return '<div class="ptbl-wrap">' +
+        '<div class="ptbl-hd"><span>⊞</span><span class="t" contenteditable="true" data-f="title">' + esc(b.title) + '</span></div>' +
+        '<div class="ptbl-scroll"><table class="ptbl"><thead><tr>' +
+        '<th>พารามิเตอร์</th><th>ค่าตั้ง</th><th>ช่วงปกติ</th><th>หน่วย</th><th>จุดวัด</th></tr></thead><tbody>' +
+        b.rows.map(r =>
+          '<tr class="' + (r.oor ? 'oor' : '') + '">' +
+          '<td contenteditable="true">' + esc(r.p) + (r.oor ? '<span class="oor-flag">หลุดช่วง</span>' : '') + '</td>' +
+          '<td contenteditable="true" class="num">' + esc(r.set) + '</td>' +
+          '<td contenteditable="true">' + esc(r.rng) + '</td>' +
+          '<td contenteditable="true">' + esc(r.u) + '</td>' +
+          '<td contenteditable="true">' + esc(r.pt) + '</td></tr>').join('') +
+        '</tbody></table></div></div>';
+    case 'alert': {
+      const ic = b.level === 'danger' ? '🛑' : b.level === 'warn' ? '⚠️' : 'ℹ️';
+      return '<div class="alertb ' + b.level + '"><span class="ic">' + ic + '</span><div style="min-width:0;flex:1">' +
+        '<div class="t" contenteditable="true" data-f="title">' + esc(b.title) + '</div>' +
+        '<div class="d" contenteditable="true" data-f="body">' + esc(b.body) + '</div></div></div>';
+    }
+    default: return '';
+  }
+}
+
+function applyStyle(el, b){
+  const s = b.style || {};
+  el.style.color           = s.text || '';
+  el.style.background      = s.bg   || '';
+  el.style.fontSize        = s.fs ? s.fs + 'px' : '';
+  el.style.padding         = s.pad !== undefined ? s.pad + 'px' : '';
+  el.style.marginTop       = s.mar !== undefined ? s.mar + 'px' : '';
+  el.style.marginBottom    = s.mar !== undefined ? s.mar + 'px' : '';
+  el.style.borderWidth     = s.bw !== undefined ? s.bw + 'px' : '';
+  el.style.borderStyle     = s.bw ? 'solid' : '';
+  el.style.borderColor     = s.bw ? (s.bd || '#eee3d9') : '';
+  el.style.borderRadius    = s.br !== undefined ? s.br + 'px' : '';
+}
+
+function render(){
+  const wrap = $('#blocks');
+  wrap.innerHTML = blocks.map(b =>
+    '<div class="blk' + (b.id === selId ? ' sel' : '') + '" data-id="' + b.id + '">' +
+      '<span class="blk-kind">' + esc(BT[b.type].t) + '</span>' + TOOLS + inner(b) +
+    '</div>').join('');
+  blocks.forEach(b => {
+    const el = wrap.querySelector('[data-id="' + b.id + '"]');
+    if (el){ applyStyle(el, b); if (b.cls) el.classList.add(b.cls); if (b.anchor) el.id = b.anchor; }
+  });
+  syncSidebar();
+  updateSeo();
+}
+
+/* ── เก็บค่ากลับเข้าโมเดลตอนคนพิมพ์ ── */
+$('#blocks').addEventListener('input', e => {
+  const holder = e.target.closest('[data-id]');
+  if (!holder) return;
+  const b = blocks.find(x => x.id === holder.dataset.id);
+  if (!b) return;
+  const f = e.target.dataset.f;
+  if (f === 'items')      b.items = Array.from(e.target.querySelectorAll('li')).map(li => li.innerHTML);
+  else if (f === 'html')  b.html  = b.type === 'code' ? e.target.innerText : e.target.innerHTML;
+  else if (f === 'cap')   b.cap   = e.target.innerHTML;
+  else if (f === 'title') b.title = e.target.innerText;
+  else if (f === 'body')  b.body  = e.target.innerText;
+  else if (e.target.closest('.pflow-chain')){
+    const chain = Array.from(holder.querySelectorAll('.pstep'));
+    b.steps = chain.map((el, i) => ({ t: el.innerText, c: b.steps[i] ? b.steps[i].c : '#1565c0' }));
+  } else if (e.target.closest('table.ptbl')){
+    b.rows = Array.from(holder.querySelectorAll('tbody tr')).map(tr => {
+      const td = tr.querySelectorAll('td');
+      return { p: td[0].innerText.replace('หลุดช่วง','').trim(), set: td[1].innerText.trim(),
+               rng: td[2].innerText.trim(), u: td[3].innerText.trim(), pt: td[4].innerText.trim(),
+               oor: tr.classList.contains('oor') };
+    });
+  }
+  markDirty(); updateSeo();
+});
+
+/* ── เลือกบล็อก / ปุ่มบนบล็อก ── */
+$('#blocks').addEventListener('click', e => {
+  const holder = e.target.closest('[data-id]');
+  if (!holder) return;
+  const id = holder.dataset.id;
+  const act = e.target.closest('[data-act]');
+  if (act){
+    const i = blocks.findIndex(b => b.id === id);
+    const a = act.dataset.act;
+    pushHistory();
+    if (a === 'up'  && i > 0)                  [blocks[i-1], blocks[i]] = [blocks[i], blocks[i-1]];
+    if (a === 'dn'  && i < blocks.length - 1)  [blocks[i+1], blocks[i]] = [blocks[i], blocks[i+1]];
+    if (a === 'dup'){ const c = JSON.parse(JSON.stringify(blocks[i])); c.id = nid(); blocks.splice(i+1, 0, c); }
+    if (a === 'del'){
+      blocks.splice(i, 1);
+      if (!blocks.length) blocks.push(newBlock('p'));
+      selId = null;
+    }
+    markDirty(); render();
+    return;
+  }
+  selId = id;
+  $$('.blk').forEach(el => el.classList.toggle('sel', el.dataset.id === id));
+  syncSidebar();
+});
+
+/* ══════════════ แทรกบล็อก ══════════════ */
+
+function insertAfterSelected(type, extra){
+  pushHistory();
+  const b = newBlock(type, extra);
+  const i = blocks.findIndex(x => x.id === selId);
+  if (i >= 0) blocks.splice(i + 1, 0, b); else blocks.push(b);
+  selId = b.id;
+  markDirty(); render();
+  focusBlock(b.id);
+  return b;
+}
+
+// แทรกทับย่อหน้าที่ว่างอยู่ (กรณีพิมพ์ / ในย่อหน้าเปล่า)
+function replaceBlock(id, type, extra){
+  pushHistory();
+  const i = blocks.findIndex(x => x.id === id);
+  const b = newBlock(type, extra);
+  if (i >= 0) blocks.splice(i, 1, b); else blocks.push(b);
+  selId = b.id;
+  // บล็อกงานผลิตควรมีย่อหน้าต่อท้ายให้พิมพ์ต่อได้เลย
+  if (['flow','params','alert','image','pdf','code'].includes(type) && i === blocks.length - 1)
+    blocks.push(newBlock('p'));
+  markDirty(); render();
+  focusBlock(b.id);
+  return b;
+}
+
+function focusBlock(id){
+  const el = $('#blocks').querySelector('[data-id="' + id + '"] [contenteditable]');
+  if (!el) return;
+  el.focus();
+  const r = document.createRange();
+  r.selectNodeContents(el); r.collapse(false);
+  const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+}
+
+/* ══════════════ เมนู / (slash) ══════════════ */
+
+const slash = $('#slash');
+let slashFor = null, slashQ = '', slashCur = 0;
+
+function slashList(){
+  const q = slashQ.toLowerCase().replace(/^\//, '');
+  return BLOCK_TYPES.filter(b =>
+    !q || b.t.toLowerCase().includes(q) || b.k.toLowerCase().includes(q) || b.d.toLowerCase().includes(q));
+}
+function drawSlash(){
+  const list = slashList();
+  if (!list.length){ slash.innerHTML = '<div class="empty">ไม่พบบล็อกที่ตรงกับ "' + esc(slashQ) + '"</div>'; return; }
+  if (slashCur >= list.length) slashCur = 0;
+  let html = '', grp = '';
+  list.forEach((b, i) => {
+    if (b.grp !== grp){ grp = b.grp; html += '<div class="sh">' + esc(grp) + '</div>'; }
+    html += '<button data-b="' + b.id + '" class="' + (i === slashCur ? 'cur' : '') + '">' +
+      '<span class="bic">' + b.ic + '</span><span style="min-width:0">' +
+      '<span class="bt">' + esc(b.t) + '</span><br><span class="bd">' + esc(b.d) + '</span></span>' +
+      '<span class="bk">' + b.k + '</span></button>';
+  });
+  slash.innerHTML = html;
+}
+function openSlash(blockId, rect){
+  slashFor = blockId; slashQ = ''; slashCur = 0;
+  drawSlash();
+  slash.classList.add('open');
+  const top = Math.min(rect.bottom + window.scrollY + 6, window.scrollY + innerHeight - 340);
+  slash.style.top  = top + 'px';
+  slash.style.left = Math.min(rect.left + window.scrollX, innerWidth - 344) + 'px';
+}
+function closeSlash(){ slash.classList.remove('open'); slashFor = null; slashQ = ''; }
+
+function pickSlash(typeId){
+  const target = slashFor;
+  closeSlash();
+  if (!target) return;
+  const b = blocks.find(x => x.id === target);
+  // ลบตัว "/" ที่พิมพ์ค้างไว้ก่อน
+  if (b && b.type === 'p') b.html = '';
+  replaceBlock(target, typeId);
+  toast('แทรก "' + BT[typeId].t + '" แล้ว');
+}
+
+slash.addEventListener('mousedown', e => e.preventDefault());
+slash.addEventListener('click', e => {
+  const btn = e.target.closest('[data-b]');
+  if (btn) pickSlash(btn.dataset.b);
+});
+
+$('#blocks').addEventListener('keydown', e => {
+  const holder = e.target.closest('[data-id]');
+
+  if (slash.classList.contains('open')){
+    const list = slashList();
+    if (e.key === 'ArrowDown'){ e.preventDefault(); slashCur = (slashCur + 1) % list.length; drawSlash(); return; }
+    if (e.key === 'ArrowUp'){   e.preventDefault(); slashCur = (slashCur - 1 + list.length) % list.length; drawSlash(); return; }
+    if (e.key === 'Enter'){     e.preventDefault(); if (list[slashCur]) pickSlash(list[slashCur].id); return; }
+    if (e.key === 'Escape'){    e.preventDefault(); closeSlash(); return; }
+    if (e.key === 'Backspace' && slashQ.length <= 1){ closeSlash(); return; }
+    if (e.key.length === 1){ slashQ += e.key; slashCur = 0; setTimeout(drawSlash, 0); return; }
+    return;
+  }
+
+  // "/" ในย่อหน้าที่ยังว่าง → เปิดเมนู
+  if (e.key === '/' && holder){
+    const b = blocks.find(x => x.id === holder.dataset.id);
+    if (b && b.type === 'p' && !e.target.innerText.trim()){
+      e.preventDefault();
+      selId = b.id;
+      openSlash(b.id, e.target.getBoundingClientRect());
+      return;
+    }
+  }
+
+  // Enter ท้ายย่อหน้า → ย่อหน้าใหม่
+  if (e.key === 'Enter' && !e.shiftKey && holder){
+    const b = blocks.find(x => x.id === holder.dataset.id);
+    if (b && ['p','h2','h3','quote'].includes(b.type)){
+      e.preventDefault();
+      selId = b.id;
+      insertAfterSelected('p');
+    }
+  }
+
+  // Backspace ในบล็อกว่าง → ลบบล็อก
+  if (e.key === 'Backspace' && holder){
+    const b = blocks.find(x => x.id === holder.dataset.id);
+    if (b && b.type === 'p' && !e.target.innerText.trim() && blocks.length > 1){
+      e.preventDefault();
+      const i = blocks.findIndex(x => x.id === b.id);
+      pushHistory();
+      blocks.splice(i, 1);
+      selId = blocks[Math.max(0, i-1)].id;
+      render(); focusBlock(selId);
+    }
+  }
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('#slash') && !e.target.closest('#blocks')) closeSlash();
+});
+
+/* ══════════════ แถบเครื่องมือ ══════════════ */
+
+$$('.tbtn[data-cmd]').forEach(btn => {
+  btn.addEventListener('mousedown', e => e.preventDefault());
+  btn.addEventListener('click', () => { document.execCommand(btn.dataset.cmd); markDirty(); });
+});
+$('#tbLink').addEventListener('mousedown', e => e.preventDefault());
+$('#tbLink').addEventListener('click', () => {
+  const url = prompt('ใส่ลิงก์', 'https://');
+  if (url) document.execCommand('createLink', false, url);
+  markDirty();
+});
+$('#tbCode').addEventListener('mousedown', e => e.preventDefault());
+$('#tbCode').addEventListener('click', () => {
+  const sel = window.getSelection();
+  if (!sel.rangeCount || sel.isCollapsed){ toast('เลือกข้อความที่จะทำเป็นโค้ดก่อน', 'warn'); return; }
+  document.execCommand('insertHTML', false, '<code class="inl">' + esc(sel.toString()) + '</code>');
+  markDirty();
+});
+$('#tbAdd').addEventListener('click', () => {
+  const anchor = $('#blocks').querySelector('[data-id="' + selId + '"]') || $('#blocks').lastElementChild;
+  if (!anchor) return;
+  selId = anchor.dataset.id;
+  openSlash(selId, anchor.getBoundingClientRect());
+});
+$('#tbUndo').addEventListener('click', undo);
+$('#tbRedo').addEventListener('click', redo);
+$('#tbList').addEventListener('click', () => {
+  toast(blocks.length + ' บล็อกในบทความนี้: ' + blocks.map(b => BT[b.type].t).join(' → '), 'info');
+});
+function setSide(open){
+  $('#edSide').classList.toggle('hide', !open);
+  document.body.classList.toggle('side-open', open);
+}
+$('#tbSide').addEventListener('click', () => setSide($('#edSide').classList.contains('hide')));
+$('#sideClose').addEventListener('click', () => setSide(false));
+$('#sideBd').addEventListener('click', () => setSide(false));
+$('#tbMedia').addEventListener('click', () => openMedia());
+$('#tbDraft').addEventListener('click', () => { $('#savedNote').textContent = 'บันทึกร่างแล้ว ' + hhmm(); toast('บันทึกร่างแล้ว'); });
+$('#tbPublish').addEventListener('click', () => {
+  $('#pStatus').value = 'เผยแพร่';
+  $('#savedNote').textContent = 'เผยแพร่แล้ว ' + hhmm();
+  toast('เผยแพร่ + เขียนลง ' + obsPath() + ' แล้ว');
+});
+function hhmm(){ const d = new Date(); return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0') + ' น.'; }
+function markDirty(){ $('#savedNote').textContent = 'ยังไม่ได้บันทึก'; }
+
+/* ══════════════ sidebar ══════════════ */
+
+$$('.side-tabs button[data-tab]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    $$('.side-tabs button[data-tab]').forEach(b => b.classList.toggle('on', b === btn));
+    $('#panPost').classList.toggle('on', btn.dataset.tab === 'post');
+    $('#panBlock').classList.toggle('on', btn.dataset.tab === 'block');
+  });
+});
+
+function sel(){ return blocks.find(b => b.id === selId) || null; }
+
+function syncSidebar(){
+  const b = sel();
+  const t = b ? BT[b.type] : null;
+  $('#biIc').textContent = t ? t.ic : '¶';
+  $('#biT').textContent  = t ? t.t : 'ยังไม่ได้เลือกบล็อก';
+  $('#biD').textContent  = t ? t.d : 'คลิกบล็อกในหน้าเพื่อตั้งค่าเฉพาะบล็อกนั้น';
+  const s = (b && b.style) || {};
+  $('#dotText').style.background = s.text || 'transparent';
+  $('#dotBg').style.background   = s.bg   || 'transparent';
+  $$('.swatches[data-for="text"] .sw').forEach(x => x.classList.toggle('on', (x.dataset.c || '') === (s.text || '')));
+  $$('.swatches[data-for="bg"] .sw').forEach(x   => x.classList.toggle('on', (x.dataset.c || '') === (s.bg   || '')));
+  $$('#fsizes button').forEach(x => x.classList.toggle('on', (x.dataset.s || '') === (s.fs ? String(s.fs) : '')));
+  setRange('#rPad', '#vPad', s.pad !== undefined ? s.pad : 4);
+  setRange('#rMar', '#vMar', s.mar !== undefined ? s.mar : 0);
+  setRange('#rBw',  '#vBw',  s.bw  !== undefined ? s.bw  : 0);
+  setRange('#rBr',  '#vBr',  s.br  !== undefined ? s.br  : 10);
+  $('#cBd').value    = s.bd || '#eee3d9';
+  $('#vBd').textContent = s.bd || '#eee3d9';
+  $('#bCls').value   = b ? (b.cls || '') : '';
+  $('#bAnchor').value= b ? (b.anchor || '') : '';
+  drawSpec(b);
+}
+
+/* ── ตั้งค่าที่มีเฉพาะบล็อกบางชนิด ── */
+function drawSpec(b){
+  const wrap = $('#sgrpSpec'), body = $('#specBody');
+  if (!b || !['alert','pdf','params','flow','image'].includes(b.type)){ wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  $('#specT').textContent = 'ตั้งค่า' + BT[b.type].t;
+
+  if (b.type === 'alert'){
+    body.innerHTML = '<div class="fsizes col">' +
+      [['danger','🛑 อันตราย — ห้ามพลาด'],['warn','⚠️ ระวัง — ควรรู้ก่อนทำ'],['info','ℹ️ ข้อมูล — อธิบายเพิ่ม']]
+        .map(([v,l]) => '<button data-v="' + v + '" class="' + (b.level === v ? 'on' : '') + '">' + l + '</button>').join('') +
+      '</div><div class="hintx">ทั้ง 3 ระดับแปลงเป็น callout ของ Obsidian ได้ตรง ๆ</div>';
+  }
+  else if (b.type === 'pdf'){
+    body.innerHTML = '<div class="fsizes col">' +
+      [['button','📎 ปุ่มดาวน์โหลด'],['embed','📖 ฝังตัวอ่านในหน้า']]
+        .map(([v,l]) => '<button data-v="' + v + '" class="' + (b.mode === v ? 'on' : '') + '">' + l + '</button>').join('') +
+      '</div><div class="hintx">' + esc(b.name) + ' · ' + esc(b.meta) + '</div>';
+  }
+  else if (b.type === 'params'){
+    body.innerHTML = '<div class="oorlist">' +
+      b.rows.map((r,i) => '<label><input type="checkbox" data-oor="' + i + '"' + (r.oor ? ' checked' : '') + '>' +
+        esc(r.p || 'แถวที่ ' + (i+1)) + '</label>').join('') +
+      '</div><div class="minibtns"><button data-act2="rowAdd">＋ เพิ่มแถว</button></div>' +
+      '<div class="hintx">ติ๊กแถวที่ค่าหลุดช่วง — แถวนั้นจะถูกไฮไลต์แดงและติด ⚠️ ไปใน markdown ด้วย</div>';
+  }
+  else if (b.type === 'flow'){
+    body.innerHTML = '<div class="minibtns">' +
+      '<button data-act2="stepAdd">＋ เพิ่มขั้นตอน</button>' +
+      '<button data-act2="stepDel">− ลบขั้นตอนท้าย</button>' +
+      '<button data-act2="pid">🖼 แนบภาพ P&amp;ID</button></div>' +
+      '<div class="hintx">' + b.steps.length + ' ขั้นตอน · แก้ชื่อได้โดยคลิกที่กล่องในหน้าตรง ๆ · ส่งออกเป็น mermaid</div>';
+  }
+  else if (b.type === 'image'){
+    body.innerHTML = '<div class="minibtns"><button data-act2="reimg">🖼 เปลี่ยนรูปจากคลังไฟล์</button></div>' +
+      '<div class="hintx">' + esc(b.name || 'ยังไม่ตั้งชื่อไฟล์') + '</div>';
+  }
+}
+
+$('#specBody').addEventListener('click', e => {
+  const b = sel(); if (!b) return;
+  const t = e.target.closest('[data-v],[data-act2],[data-oor]');
+  if (!t) return;
+  if (t.dataset.v){
+    pushHistory();
+    if (b.type === 'alert') b.level = t.dataset.v;
+    if (b.type === 'pdf')   b.mode  = t.dataset.v;
+    markDirty(); render(); return;
+  }
+  if (t.dataset.oor !== undefined && t.dataset.oor !== ''){
+    pushHistory();
+    const i = Number(t.dataset.oor);
+    b.rows[i].oor = !b.rows[i].oor;
+    markDirty(); render(); return;
+  }
+  const a = t.dataset.act2;
+  if (a === 'pid' || a === 'reimg'){ openMedia(a === 'pid' ? 'pid' : 'img'); return; }
+  pushHistory();
+  if (a === 'rowAdd')  b.rows.push({ p:'พารามิเตอร์ใหม่', set:'', rng:'', u:'', pt:'', oor:false });
+  if (a === 'stepAdd') b.steps.push({ t:'ขั้นตอนใหม่', c:'#6a1b9a' });
+  if (a === 'stepDel' && b.steps.length > 2) b.steps.pop();
+  markDirty(); render();
+});
+function setRange(r, v, val){ $(r).value = val; $(v).textContent = val + 'px'; }
+
+function styleSel(key, val){
+  const b = sel();
+  if (!b){ toast('เลือกบล็อกก่อน แล้วค่อยปรับตรงนี้', 'warn'); return; }
+  b.style = b.style || {};
+  if (val === '' || val === null) delete b.style[key]; else b.style[key] = val;
+  const el = $('#blocks').querySelector('[data-id="' + b.id + '"]');
+  if (el) applyStyle(el, b);
+  syncSidebar(); markDirty();
+}
+
+$$('.swatches').forEach(row => {
+  row.addEventListener('click', e => {
+    const sw = e.target.closest('.sw');
+    if (!sw) return;
+    styleSel(row.dataset.for === 'text' ? 'text' : 'bg', sw.dataset.c || '');
+  });
+});
+$('#fsizes').addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if (btn) styleSel('fs', btn.dataset.s ? Number(btn.dataset.s) : '');
+});
+[['#rPad','pad','#vPad'],['#rMar','mar','#vMar'],['#rBw','bw','#vBw'],['#rBr','br','#vBr']].forEach(([r,k,v]) => {
+  $(r).addEventListener('input', () => { $(v).textContent = $(r).value + 'px'; styleSel(k, Number($(r).value)); });
+});
+$('#cBd').addEventListener('input', () => { $('#vBd').textContent = $('#cBd').value; styleSel('bd', $('#cBd').value); });
+$('#bCls').addEventListener('input', () => { const b = sel(); if (b){ b.cls = $('#bCls').value.trim(); render(); } });
+$('#bAnchor').addEventListener('input', () => { const b = sel(); if (b){ b.anchor = $('#bAnchor').value.trim(); render(); } });
+
+/* ── แท็กบทความ ── */
+let tags = ['CIP', 'Line2', 'process-control'];
+function drawTags(){
+  const html = tags.map((t,i) =>
+    '<span class="chip">#' + esc(t) + '<button data-i="' + i + '" title="เอาออก">×</button></span>').join('');
+  $('#pTags').innerHTML = html || '<span style="font-size:12px;color:var(--ink-soft)">ยังไม่มีแท็ก</span>';
+  $('#obsTags').innerHTML = html.replace(/<button[^>]*>×<\/button>/g, '');
+}
+$('#pTags').addEventListener('click', e => {
+  const b = e.target.closest('[data-i]');
+  if (b){ tags.splice(Number(b.dataset.i), 1); drawTags(); updateMd(); }
+});
+$('#pTagIn').addEventListener('keydown', e => {
+  if (e.key === 'Enter'){
+    e.preventDefault();
+    const v = e.target.value.trim().replace(/^#/, '');
+    if (v && !tags.includes(v)){ tags.push(v); drawTags(); updateMd(); }
+    e.target.value = '';
+  }
+});
+$('#pCover').addEventListener('click', () => openMedia('cover'));
+
+/* ══════════════ หัวข้อ / slug / SEO ══════════════ */
+
+function slugify(s){
+  return (s || '').trim().toLowerCase()
+    .replace(/[\s_/]+/g, '-')
+    .replace(/[^฀-๿a-z0-9-]/g, '')
+    .replace(/-+/g, '-').replace(/^-|-$/g, '') || 'untitled';
+}
+function titleText(){ return $('#docTitle').innerText.trim(); }
+function obsPath(){ return $('#obsFolder').value + '/' + ISO + '-' + slugify(titleText()) + '.md'; }
+
+$('#docTitle').addEventListener('input', () => {
+  const s = slugify(titleText());
+  $('#pSlug').value = s;
+  $('#pSlugHint').textContent = 'spp-mp.app/บทความ/' + s;
+  updateSeo(); updateObs(); markDirty();
+});
+$('#pSlug').addEventListener('input', () => {
+  $('#pSlugHint').textContent = 'spp-mp.app/บทความ/' + ($('#pSlug').value || 'untitled');
+  updateSeo();
+});
+$('#obsFolder').addEventListener('change', updateObs);
+$('#obsMachine').addEventListener('change', updateMd);
+
+function updateObs(){ $('#obsPath').textContent = obsPath(); }
+
+$('#mdesc').addEventListener('input', updateSeo);
+$('#fkw').addEventListener('input', updateSeo);
+
+function plainText(){
+  return blocks.map(b => {
+    if (['p','h2','h3','quote'].includes(b.type)) return stripHtml(b.html);
+    if (b.type === 'list')  return b.items.map(stripHtml).join(' ');
+    if (b.type === 'alert') return b.title + ' ' + b.body;
+    return '';
+  }).join(' ');
+}
+function stripHtml(h){ const d = document.createElement('div'); d.innerHTML = h || ''; return d.innerText; }
+
+function updateSeo(){
+  // meta description + ตัวนับ
+  const md = $('#mdesc').value;
+  const c = $('#mdescCount');
+  c.textContent = md.length + ' / 155 ตัวอักษร';
+  c.classList.toggle('over', md.length > 155);
+
+  // ตัวอย่างลิงก์
+  $('#serpU').textContent = 'spp-mp.app › บทความ › ' + ($('#pSlug').value || 'untitled');
+  $('#serpT').textContent = titleText() || 'เพิ่มหัวข้อบทความ';
+  $('#serpD').textContent = md || 'ยังไม่ได้ใส่ meta description';
+
+  // readability คร่าว ๆ จากความยาวประโยคเฉลี่ย
+  const txt = plainText().trim();
+  const words = txt ? txt.split(/\s+/).length : 0;
+  const sents = txt ? (txt.match(/[.!?。ๆ]|\n/g) || []).length + 1 : 0;
+  const avg = sents ? words / sents : 0;
+  let score, label, color;
+  if (!words){ score = 0; label = 'ยังไม่มีเนื้อหา'; color = '#ccc'; }
+  else if (avg <= 14){ score = 92; label = 'อ่านง่ายมาก — ประโยคสั้น กระชับ'; color = '#1c8a4c'; }
+  else if (avg <= 22){ score = 72; label = 'อ่านง่าย — พอดีกับเอกสารงานผลิต'; color = '#1c8a4c'; }
+  else if (avg <= 32){ score = 48; label = 'ประโยคเริ่มยาว — ลองตัดเป็นข้อ ๆ'; color = '#c77700'; }
+  else { score = 24; label = 'ประโยคยาวมาก — คนอ่านหน้างานจะจับใจความยาก'; color = '#c62828'; }
+
+  $('#rdBar').style.width = score + '%';
+  $('#rdBar').style.background = color;
+  $('#rdDot').style.background = color;
+  $('#rdText').textContent = label;
+  $('#rdHint').textContent = words
+    ? words + ' คำ · ' + blocks.length + ' บล็อก · ประโยคเฉลี่ย ~' + avg.toFixed(0) + ' คำ'
+    : 'ประเมินจากความยาวประโยคเฉลี่ย — ตัวเลขในหน้านี้คำนวณคร่าว ๆ พอให้เห็นหน้าตา';
+
+  const kw = $('#fkw').value.trim();
+  const pill = $('#seoPill');
+  if (!kw) { pill.textContent = 'ยังไม่ใส่ focus keyword'; pill.style.background = '#f4ede6'; pill.style.color = '#6d6259'; }
+  else if ((titleText() + ' ' + txt).toLowerCase().includes(kw.toLowerCase())){
+    pill.textContent = 'พบ "' + kw + '" ในเนื้อหา'; pill.style.background = '#e9f7ee'; pill.style.color = '#1c8a4c';
+  } else {
+    pill.textContent = 'ยังไม่พบ "' + kw + '" ในเนื้อหา'; pill.style.background = '#fff6e6'; pill.style.color = '#c77700';
+  }
+  updateMd();
+}
+
+/* ══════════════ แปลงเป็น markdown สำหรับ Obsidian ══════════════ */
+
+function mdInline(html){
+  let s = (html || '')
+    .replace(/<code[^>]*>(.*?)<\/code>/gi, '`$1`')
+    .replace(/<(b|strong)>(.*?)<\/\1>/gi, '**$2**')
+    .replace(/<(i|em)>(.*?)<\/\1>/gi, '*$2*')
+    .replace(/<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gi, '[$2]($1)')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '');
+  const d = document.createElement('textarea'); d.innerHTML = s;
+  return d.value.trim();
+}
+
+function toMarkdown(){
+  const machine = $('#obsMachine').value;
+  const lines = [
+    '---',
+    'title: ' + (titleText() || 'ยังไม่ตั้งชื่อ'),
+    'date: ' + ISO,
+    'tags: [' + tags.join(', ') + ']',
+    'หมวดหมู่: ' + $('#pCat').value,
+    'สถานะ: ' + $('#pStatus').value,
+    'ผู้เขียน: ' + $('#pAuthor').value,
+    'เครื่องจักร: "[[' + machine + ']]"',
+    'ที่มา: SPP-MP editor',
+    '---',
+    '',
+    '# ' + (titleText() || 'ยังไม่ตั้งชื่อ'),
+    ''
+  ];
+
+  blocks.forEach(b => {
+    switch (b.type){
+      case 'p':     { const t = mdInline(b.html); if (t) lines.push(t, ''); break; }
+      case 'h2':    lines.push('## '  + mdInline(b.html), ''); break;
+      case 'h3':    lines.push('### ' + mdInline(b.html), ''); break;
+      case 'quote': lines.push('> ' + mdInline(b.html), ''); break;
+      case 'list':  b.items.forEach(i => lines.push('- ' + mdInline(i))); lines.push(''); break;
+      case 'code':  lines.push('```', b.html, '```', ''); break;
+      case 'image':
+        lines.push('![[' + (b.name || 'ภาพ.png') + ']]');
+        if (stripHtml(b.cap)) lines.push('*' + stripHtml(b.cap) + '*');
+        lines.push('');
+        break;
+      case 'pdf':
+        lines.push(b.mode === 'embed' ? '![[' + b.name + ']]' : '[[' + b.name + ']] — ' + b.meta, '');
+        break;
+      case 'alert': {
+        // callout ของ Obsidian รองรับตรง ๆ
+        const kind = b.level === 'danger' ? 'danger' : b.level === 'warn' ? 'warning' : 'info';
+        lines.push('> [!' + kind + '] ' + b.title);
+        String(b.body).split('\n').forEach(l => lines.push('> ' + l));
+        lines.push('');
+        break;
+      }
+      case 'params':
+        lines.push('### ' + b.title);
+        lines.push('| พารามิเตอร์ | ค่าตั้ง | ช่วงปกติ | หน่วย | จุดวัด |');
+        lines.push('| --- | --- | --- | --- | --- |');
+        b.rows.forEach(r => lines.push('| ' + (r.oor ? '⚠️ ' : '') + r.p + ' | ' + r.set + ' | ' + r.rng + ' | ' + r.u + ' | ' + r.pt + ' |'));
+        lines.push('');
+        break;
+      case 'flow':
+        // mermaid — Obsidian วาดให้เองได้เลย
+        lines.push('### ' + b.title);
+        lines.push('```mermaid');
+        lines.push('graph LR');
+        b.steps.forEach((s, i) => {
+          const id = 'S' + i;
+          const label = s.t.replace(/\n/g, ' ');
+          lines.push('  ' + id + '["' + label + '"]' + (i < b.steps.length - 1 ? ' --> S' + (i+1) : ''));
+        });
+        lines.push('```', '');
+        break;
+    }
+  });
+
+  lines.push('---', '');
+  lines.push('> [!note] ส่วนนี้ระบบเขียนอัตโนมัติ — ติ๊กในนี้ได้เลย แอปจะปิดงานตาม');
+  lines.push('> <!-- spp:start:งานค้างที่เกี่ยวข้อง -->');
+  lines.push('> - [ ] ตรวจ gasket ถัง 3 หลัง CIP รอบถัดไป #CIP [[' + machine + ']] 📅 ' + ISO + ' ^spp-8842');
+  lines.push('> - [x] อัปเดตค่าแรงดันหัวจ่ายในคู่มือ ✅ ' + ISO + ' ^spp-8843');
+  lines.push('> <!-- spp:end:งานค้างที่เกี่ยวข้อง -->');
+  lines.push('');
+  lines.push('<!-- ^spp-<id> คือรหัสงานในแอป ห้ามลบ — เป็นตัวจับคู่ตอนติ๊กแล้วส่งกลับ');
+  lines.push('     ข้อความหน้ารหัสแก้ได้ตามสบาย แอปยังรู้ว่าเป็นงานเดิม -->');
+  lines.push('');
+  return lines.join('\n');
+}
+
+function highlightMd(md){
+  return esc(md)
+    .replace(/^(---)$/gm, '<span class="fm">$1</span>')
+    .replace(/^(#{1,6} .*)$/gm, '<span class="hd">$1</span>')
+    .replace(/^(&gt; \[!\w+\].*)$/gm, '<span class="tk">$1</span>')
+    .replace(/(\^spp-\d+)/g, '<span class="id">$1</span>')
+    .replace(/(&lt;!--[\s\S]*?--&gt;)/g, '<span class="cm">$1</span>');
+}
+function updateMd(){
+  if (!$('#mMd').classList.contains('open')) return;
+  $('#mdView').innerHTML = highlightMd(toMarkdown());
+}
+
+$('#btnMd').addEventListener('click', () => {
+  $('#mdView').innerHTML = highlightMd(toMarkdown());
+  $('#mdPath').textContent = obsPath();
+  openModal('#mMd');
+});
+$('#mdCopy').addEventListener('click', () => {
+  navigator.clipboard.writeText(toMarkdown()).then(
+    () => toast('คัดลอก markdown แล้ว'),
+    () => toast('คัดลอกไม่สำเร็จ', 'warn'));
+});
+$('#btnSync').addEventListener('click', () => {
+  toast('sync แล้ว — เขียน 4 ไฟล์: บทความ, บันทึกประจำวัน, ส่งกะ, คู่มือ', 'info');
+});
+
+/* ══════════════ ขาเข้าจาก Obsidian ══════════════
+   นโยบาย: ติ๊กปิด = ทำให้เลย (เป็นการกดของคน และปิดแล้วปิดเลย ไม่มีทางพัง)
+   นอกนั้น (ปลดติ๊ก / แก้ข้อความ / งานใหม่) = ขึ้นรอให้คนกดยืนยันในแอปก่อน       */
+
+const INBOX = [
+  { id:'spp-8830', kind:'done',   t:'ล้าง strainer Line 1 ก่อนเริ่มกะ',
+    who:'ม้ำ', at:'09:38 น.', note:'ติ๊กปิดใน Obsidian — แอปปิดงานให้แล้วอัตโนมัติ' },
+  { id:'spp-8842', kind:'reopen', t:'เปลี่ยน gasket ถัง 3',
+    who:'นาย', at:'10:02 น.', note:'งานนี้ปิดไปแล้ว แต่มีคนปลดติ๊กใน Obsidian',
+    yes:'เปิดงานใหม่', no:'คงปิดไว้' },
+  { id:'—',       kind:'new',    t:'เช็คซีลปั๊ม P-201 ก่อนเข้ากะดึก',
+    who:'พลุ๊ก', at:'08:15 น.', note:'จดเพิ่มเองใน Obsidian ยังไม่มีในแอป',
+    yes:'รับเข้าแอป', no:'ไม่เอา' },
+  { id:'spp-8851', kind:'edit',  t:'ตรวจ gasket ถัง 3 <b>และถัง 4</b> หลัง CIP',
+    who:'นาย', at:'10:04 น.', note:'ของเดิม: ตรวจ gasket ถัง 3 หลัง CIP รอบถัดไป',
+    yes:'ใช้ข้อความใหม่', no:'คงข้อความเดิม' },
+];
+const KIND = {
+  done:   { lb:'ปิดให้แล้ว',  cls:'done' },
+  reopen: { lb:'ขอเปิดใหม่',  cls:'reopen' },
+  new:    { lb:'งานใหม่',     cls:'new' },
+  edit:   { lb:'แก้ข้อความ',  cls:'edit' },
+};
+
+function drawInbox(){
+  const auto = INBOX.filter(i => i.kind === 'done');
+  const wait = INBOX.filter(i => i.kind !== 'done');
+  $('#inbCnt').textContent = wait.length + ' รอยืนยัน';
+  $('#inbCnt').style.background = wait.length ? 'var(--brand)' : 'var(--ok)';
+  if (!wait.length) $('#inbCnt').textContent = 'เคลียร์หมดแล้ว';
+
+  const item = (i, withActs) =>
+    '<div class="inb-item" data-i="' + esc(i.id) + '|' + i.kind + '">' +
+      '<span class="bdg ' + KIND[i.kind].cls + '">' + KIND[i.kind].lb + '</span>' +
+      '<span class="tx">' + i.t +
+        '<div class="who">' + esc(i.note) + ' · ' + esc(i.who) + ' · ' + esc(i.at) +
+        (i.id !== '—' ? ' · <code style="font-family:ui-monospace,monospace;font-size:11px">^' + esc(i.id) + '</code>' : '') +
+        '</div></span>' +
+      (withActs
+        ? '<span class="acts"><button class="ok" data-yes>' + esc(i.yes) + '</button>' +
+          '<button data-no>' + esc(i.no) + '</button></span>'
+        : '<span class="acts" style="font-size:11.5px;color:var(--ok);font-weight:700">✓ ไม่ต้องทำอะไร</span>') +
+    '</div>';
+
+  $('#inbBody').innerHTML =
+    '<div class="inb-sec"><div class="inb-lb">ทำให้แล้วอัตโนมัติ</div>' +
+      (auto.length ? auto.map(i => item(i, false)).join('') : '<div class="inb-empty">ยังไม่มีใครติ๊กปิดจาก Obsidian วันนี้</div>') +
+    '</div>' +
+    '<div class="inb-sec"><div class="inb-lb">รอคุณยืนยัน</div>' +
+      (wait.length ? wait.map(i => item(i, true)).join('') : '<div class="inb-empty">เคลียร์หมดแล้ว 🎉</div>') +
+    '</div>';
+}
+
+$('#inbBody').addEventListener('click', e => {
+  const btn = e.target.closest('[data-yes],[data-no]');
+  if (!btn) return;
+  const row = btn.closest('[data-i]');
+  const [id, kind] = row.dataset.i.split('|');
+  const i = INBOX.findIndex(x => x.id === id && x.kind === kind);
+  if (i < 0) return;
+  const it = INBOX[i];
+  const ok = btn.hasAttribute('data-yes');
+  INBOX.splice(i, 1);
+  drawInbox();
+  const name = stripHtml(it.t);
+  const msg = {
+    reopen: ok ? 'เปิดงาน "' + name + '" ใหม่แล้ว' : 'คงปิดไว้ — เขียน [x] กลับลง Obsidian',
+    new:    ok ? 'รับ "' + name + '" เข้าแอปแล้ว — ระบบจะเติม ^id กลับให้ในไฟล์' : 'ไม่รับ — ลบบรรทัดออกจากบันทึกประจำวัน',
+    edit:   ok ? 'ใช้ข้อความใหม่: "' + name + '"' : 'คงข้อความเดิม — เขียนทับกลับลง Obsidian',
+  }[kind];
+  toast(msg, ok ? undefined : 'info');
+});
+
+/* ══════════════ modal ══════════════ */
+
+function openModal(sel2){ $('#ov').classList.add('open'); $(sel2).classList.add('open'); }
+function closeModals(){ $('#ov').classList.remove('open'); $$('.modal').forEach(m => m.classList.remove('open')); }
+$('#ov').addEventListener('click', closeModals);
+$$('[data-close]').forEach(b => b.addEventListener('click', closeModals));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModals(); });
+
+/* ══════════════ คลังไฟล์ ══════════════ */
+
+let mlFolder = 'ทั้งหมด', mlPick = null, mlMode = 'insert', mlPdfMode = 'button';
+
+function openMedia(mode){ mlMode = mode || 'insert'; mlPick = null; drawMl(); drawMlDet(); openModal('#mMedia'); }
+
+function drawMlSide(){
+  $('#mlSide').innerHTML =
+    '<div class="gl">โฟลเดอร์ / พื้นที่ผลิต</div>' +
+    FOLDERS.map(f => {
+      const n = f === 'ทั้งหมด' ? MEDIA.length : MEDIA.filter(m => m.f === f).length;
+      return '<button data-f="' + esc(f) + '" class="' + (f === mlFolder ? 'on' : '') + '">' +
+        '<span>' + (f === 'ทั้งหมด' ? '🗂' : f === 'SOP' ? '📘' : f === 'รายงาน' ? '📊' : '📁') + '</span>' +
+        esc(f) + '<span class="n">' + n + '</span></button>';
+    }).join('');
+}
+$('#mlSide').addEventListener('click', e => {
+  const b = e.target.closest('[data-f]');
+  if (b){ mlFolder = b.dataset.f; drawMl(); }
+});
+
+function mlFiltered(){
+  const q = $('#mlQ').value.trim().toLowerCase();
+  return MEDIA.filter(m =>
+    (mlFolder === 'ทั้งหมด' || m.f === mlFolder) &&
+    (!q || m.n.toLowerCase().includes(q) || m.tags.some(t => t.toLowerCase().includes(q))));
+}
+function drawMl(){
+  drawMlSide();
+  const list = mlFiltered();
+  $('#mlCount').textContent = list.length + ' ไฟล์';
+  $('#mlGrid').innerHTML = list.length ? list.map(m => {
+    const th = m.t === 'image'
+      ? '<img src="' + thumbOf(m) + '" alt="">'
+      : '<span class="fic">📕</span>';
+    return '<button class="mcard' + (mlPick === m.n ? ' on' : '') + '" data-n="' + esc(m.n) + '">' +
+      '<div class="th">' + th + '</div><div class="nm">' + esc(m.n) + '</div>' +
+      '<div class="mt">' + esc(m.sz) + ' · ' + esc(m.dim) + '</div></button>';
+  }).join('') : '<div style="grid-column:1/-1;text-align:center;color:var(--ink-soft);font-size:13px;padding:30px">ไม่พบไฟล์ที่ตรงกับที่ค้น</div>';
+}
+$('#mlQ').addEventListener('input', drawMl);
+$('#mlGrid').addEventListener('click', e => {
+  const c = e.target.closest('[data-n]');
+  if (!c) return;
+  mlPick = c.dataset.n;
+  drawMl(); drawMlDet();
+});
+
+function drawMlDet(){
+  const m = MEDIA.find(x => x.n === mlPick);
+  const det = $('#mlDet');
+  if (!m){
+    det.innerHTML = '<div class="ph">เลือกไฟล์ทางซ้าย<br>เพื่อดูรายละเอียด</div>';
+    $('#mlSel').textContent = 'ยังไม่ได้เลือกไฟล์';
+    return;
+  }
+  $('#mlSel').textContent = 'เลือก: ' + m.n;
+  det.innerHTML =
+    '<h5>' + esc(m.n) + '</h5>' +
+    '<div class="sub">' + esc(m.sz) + ' · ' + esc(m.dim) + ' · ' + esc(m.f) + '</div>' +
+    '<div class="chips">' + m.tags.map(t => '<span class="chip">#' + esc(t) + '</span>').join('') + '</div>' +
+    (m.t === 'pdf'
+      ? '<span class="lb">แสดงในบทความแบบ</span><div class="radios">' +
+        '<label><input type="radio" name="pm" value="button"' + (mlPdfMode === 'button' ? ' checked' : '') + '>' +
+        '<span>ปุ่มดาวน์โหลด — เหมาะกับ SOP ที่ให้เอาไปเปิดเอง</span></label>' +
+        '<label><input type="radio" name="pm" value="embed"' + (mlPdfMode === 'embed' ? ' checked' : '') + '>' +
+        '<span>ฝังตัวอ่าน — อ่านทั้งเล่มได้ในหน้านี้เลย</span></label></div>'
+      : '<span class="lb">ขนาดที่จะแทรก</span>' +
+        '<select class="sselect" style="width:100%" id="mlSize">' +
+        '<option>เต็มความกว้าง</option><option>ใหญ่ 70%</option><option>กลาง 50%</option></select>' +
+        '<span class="lb">คำบรรยายใต้ภาพ</span>' +
+        '<textarea class="starea" id="mlCap" rows="3" placeholder="เช่น จอแสดงค่าแรงดันตอนสภาวะผิดปกติ"></textarea>');
+}
+$('#mlDet').addEventListener('change', e => {
+  if (e.target.name === 'pm') mlPdfMode = e.target.value;
+});
+
+$('#mlInsert').addEventListener('click', () => {
+  const m = MEDIA.find(x => x.n === mlPick);
+  if (!m){ toast('เลือกไฟล์ก่อน', 'warn'); return; }
+  if (mlMode === 'pid' || mlMode === 'img'){
+    if (m.t !== 'image'){ toast('ช่องนี้รับเฉพาะรูปภาพ', 'warn'); return; }
+    const b = sel();
+    if (b && mlMode === 'pid' && b.type === 'flow'){ pushHistory(); b.pid = thumbOf(m); }
+    if (b && mlMode === 'img' && b.type === 'image'){ pushHistory(); b.src = thumbOf(m); b.name = m.n; }
+    markDirty(); render(); closeModals();
+    toast(mlMode === 'pid' ? 'แนบภาพ P&ID แล้ว' : 'เปลี่ยนรูปแล้ว');
+    return;
+  }
+  if (mlMode === 'cover'){
+    $('#pCover').innerHTML = '<img src="' + thumbOf(m) + '" style="width:100%;border-radius:9px;display:block">' +
+      '<div style="font-size:11.5px;margin-top:6px">' + esc(m.n) + '</div>';
+    closeModals(); toast('ตั้งเป็นภาพหน้าปกแล้ว');
+    return;
+  }
+  if (m.t === 'image'){
+    const cap = ($('#mlCap') && $('#mlCap').value) || '';
+    insertAfterSelected('image', { src: thumbOf(m), name: m.n, cap: cap });
+  } else {
+    insertAfterSelected('pdf', { name: m.n, meta: m.sz + ' · ' + m.dim, mode: mlPdfMode });
+  }
+  closeModals();
+  toast('แทรก ' + m.n + ' แล้ว');
+});
+
+/* ══════════════ ลากไฟล์มาวาง ══════════════ */
+
+const scroll = $('#edScroll');
+['dragenter','dragover'].forEach(ev => scroll.addEventListener(ev, e => {
+  e.preventDefault();
+  scroll.style.background = 'rgba(255,107,0,.045)';
+}));
+['dragleave','drop'].forEach(ev => scroll.addEventListener(ev, e => {
+  e.preventDefault();
+  scroll.style.background = '';
+}));
+scroll.addEventListener('drop', e => {
+  const files = Array.from(e.dataTransfer.files || []);
+  if (!files.length) return;
+  files.forEach(f => {
+    const kb = f.size > 1048576 ? (f.size/1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(f.size/1024)) + ' KB';
+    if (f.type.startsWith('image/')){
+      insertAfterSelected('image', { src: URL.createObjectURL(f), name: f.name, cap: '' });
+    } else if (f.type === 'application/pdf'){
+      insertAfterSelected('pdf', { name: f.name, meta: kb, mode: 'button' });
+    } else {
+      toast('รองรับเฉพาะรูปภาพและ PDF — ' + f.name + ' ยังแทรกไม่ได้', 'warn');
+      return;
+    }
+    toast('อัปโหลด ' + f.name + ' แล้ว (' + kb + ')');
+  });
+});
+
+/* ══════════════ เนื้อหาตัวอย่างตอนเปิดหน้า ══════════════ */
+
+function seed(){
+  $('#docTitle').innerText = 'ระบบ CIP Line 2 — ขั้นตอนและค่าควบคุม';
+  $('#pDate').value = ISO;
+  $('#pSlug').value = slugify(titleText());
+  $('#pSlugHint').textContent = 'spp-mp.app/บทความ/' + $('#pSlug').value;
+  $('#fkw').value = 'CIP Line 2';
+  $('#mdesc').value = 'อธิบายลำดับการล้าง CIP ของ Line 2 ค่าควบคุมที่ต้องเฝ้า และจุดที่พลาดบ่อยตอนเดินระบบ';
+
+  blocks = [
+    newBlock('p', { html: 'บทความนี้สรุปการเดินระบบ CIP ของ Line 2 ตั้งแต่เตรียมน้ำยาจนถึงล้างกลับ ' +
+      'เขียนจากค่าที่ใช้จริงบนหน้าจอ HMI เพื่อให้คนเข้ากะใหม่อ่านแล้วเดินตามได้เลย' }),
+    newBlock('alert', { level: 'danger', title: 'ก่อนเริ่มทุกครั้ง',
+      body: 'ยืนยันว่าไลน์ผลิตว่างจริง และปิดวาล์วเข้าถังเก็บผลิตภัณฑ์แล้ว — น้ำยา Caustic เข้าถังผลิตภัณฑ์ = ทิ้งทั้งถัง' }),
+    newBlock('h2', { html: 'ลำดับการไหลของระบบ' }),
+    newBlock('flow'),
+    newBlock('h2', { html: 'ค่าที่ต้องเฝ้าระหว่างเดินระบบ' }),
+    newBlock('params'),
+    newBlock('p', { html: 'ถ้าค่าใดหลุดช่วงเกิน 5 นาที ให้หยุดรอบล้างแล้วแจ้งหัวหน้ากะ ' +
+      'อย่าปล่อยให้จบรอบไปเฉย ๆ เพราะผลการล้างจะไม่ผ่านการตรวจ' }),
+    newBlock('alert', { level: 'warn', title: 'จุดที่พลาดบ่อย',
+      body: 'ลืมเปิดวาล์วน้ำกลับก่อนเริ่มปั๊ม ทำให้แรงดันหัวจ่ายขึ้นเกิน 3 bar และตัดการทำงานเอง' }),
+    newBlock('p', { html: '' }),
+  ];
+  selId = blocks[0].id;
+  drawTags();
+  drawInbox();
+  render();
+  updateObs();
+  refreshHistoryBtns();
+  $('#savedNote').textContent = 'บันทึกร่างล่าสุด ' + hhmm();
+  // จอแคบให้แถบตั้งค่าปิดไว้ก่อน ไม่งั้นมันบังเนื้อหาตั้งแต่เปิดหน้า
+  setSide(window.innerWidth > 900);
+}
+
+/* ══════════════ เริ่ม ══════════════ */
+
+renderMenu();
+$('#btnMenu').addEventListener('click', e => { e.stopPropagation(); $('#menuDD').classList.toggle('open'); });
+document.addEventListener('click', e => { if (!e.target.closest('.menuwrap')) $('#menuDD').classList.remove('open'); });
+seed();
+
+})();
+</script>
+</body>
+</html>
