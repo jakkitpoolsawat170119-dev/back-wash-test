@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { useAppRoute, routeHref } from '../hooks/useAppRoute';
 
 interface Props {
   operatorName: string;
@@ -1918,7 +1919,13 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
   const [syncing, setSyncing] = useState(false);
   const [editForm, setEditForm] = useState<{ stepId: number | null; block: LearningBlock | null } | null>(null);
   const [showGlobal, setShowGlobal] = useState(true);
-  const [openGlobalBlockId, setOpenGlobalBlockId] = useState<string | null>(null);
+
+  // หน้าที่เปิดอยู่เก็บใน URL (?page=admin&tab=line4&item=<id>) — แชร์ลิงก์แล้วเปิดได้ตรงหน้านั้นเลย
+  const [route, navigate] = useAppRoute();
+  const openGlobalBlockId = route.item;
+  const openBlockPage = (id: string) => navigate({ item: id });
+  // ปิดแบบ replace เพื่อไม่ให้กด back แล้วหน้าเด้งกลับมาเปิดใหม่
+  const closeBlockPage = () => navigate({ item: null }, true);
 
   // New feature states
   const [dark, setDark] = useState(() => localStorage.getItem('l4-dark') === '1');
@@ -1966,7 +1973,8 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
   };
 
   const handleShare = (block: LearningBlock) => {
-    const url = `${window.location.href.split('#')[0]}#block-${block.id}`;
+    // ลิงก์ของหน้านั้นโดยตรง เปิดมาแล้วเจอหน้านั้นเลย ไม่ต้องไล่หาเอง
+    const url = routeHref({ page: 'admin', tab: 'line4', item: block.id });
     if (navigator.share) {
       navigator.share({ title: block.title || 'เนื้อหาการเรียนรู้', url }).catch(() => null);
     } else {
@@ -2039,14 +2047,30 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
     return () => { supabase!.removeChannel(channel); };
   }, []);
 
-  // Scroll to block from URL hash
+  // ลิงก์รุ่นเก่า #block-<id> → แปลงเป็น ?item=<id> ให้ครั้งเดียวแล้วตัด hash ทิ้ง
+  // (ต้องตัด hash ก่อนเรียก navigate ไม่งั้นมันจะถูกพ่วงต่อท้าย URL ใหม่)
   useEffect(() => {
     const hash = window.location.hash;
-    if (hash.startsWith('#block-')) {
-      const id = hash.slice(7);
-      setTimeout(() => document.getElementById(`block-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 600);
-    }
-  }, []);
+    if (!hash.startsWith('#block-')) return;
+    const id = hash.slice(7);
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    navigate({ item: id }, true);
+  }, [navigate]);
+
+  // เปิดจากลิงก์: บล็อกที่ผูกกับขั้นตอน ให้กางขั้นตอนนั้นแล้วเลื่อนไปหา
+  // (บล็อกใน "แหล่งเรียนรู้เพิ่มเติม" เปิดเป็นหน้าเต็มอยู่แล้ว ไม่ต้องเลื่อน)
+  // blocks โหลดมาจาก Supabase ทีหลัง จึงต้องรอให้มีข้อมูลก่อน
+  useEffect(() => {
+    const id = route.item;
+    if (!id || blocks.length === 0) return;
+    const target = blocks.find(b => b.id === id);
+    if (!target || target.stepId === null) return;
+    const stepId = target.stepId;
+    // กางขั้นตอนก่อน แล้วค่อยเลื่อนตอนที่มันถูก render ออกมาแล้ว
+    const openStep = setTimeout(() => setExpanded(stepId), 0);
+    const scrollTo = setTimeout(() => document.getElementById(`block-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);
+    return () => { clearTimeout(openStep); clearTimeout(scrollTo); };
+  }, [route.item, blocks]);
 
   const saveBlock = async (block: LearningBlock) => {
     localIds.current.add(block.id);
@@ -2077,6 +2101,7 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
   const deleteBlock = async (id: string) => {
     if (!window.confirm('ลบเนื้อหานี้?')) return;
     const removed = blocks.find(b => b.id === id);
+    if (route.item === id) closeBlockPage(); // ลบหน้าที่เปิดอยู่ → อย่าให้ id ค้างใน URL
     setBlocks(prev => {
       const next = prev.filter(b => b.id !== id);
       if (!supabase) localStorage.setItem('line4-blocks', JSON.stringify(next));
@@ -2435,7 +2460,7 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
                         dark={dark}
                         emoji={blockEmojis[block.id]}
                         reactionTotal={Object.values(reactions[block.id] ?? {}).reduce((a, b) => a + b, 0)}
-                        onOpen={() => setOpenGlobalBlockId(block.id)}
+                        onOpen={() => openBlockPage(block.id)}
                       />
                     ))}
                   </div>
@@ -2456,7 +2481,7 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
             if (!block) return null;
             return (
               <>
-                <div onClick={() => setOpenGlobalBlockId(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 150, backdropFilter: 'blur(2px)' }} />
+                <div onClick={closeBlockPage} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 150, backdropFilter: 'blur(2px)' }} />
                 <div style={{
                   position: 'fixed', left: '50%', top: '50%', zIndex: 151,
                   transform: 'translate(-50%, -50%)',
@@ -2465,7 +2490,7 @@ const Line4Manual: React.FC<Props> = ({ operatorName, onBackToMain }) => {
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px', flexShrink: 0 }}>
                     <button
-                      onClick={() => setOpenGlobalBlockId(null)}
+                      onClick={closeBlockPage}
                       style={{ width: '34px', height: '34px', borderRadius: '50%', background: 'white', border: 'none', boxShadow: '0 2px 10px rgba(0,0,0,0.25)', cursor: 'pointer', fontSize: '1rem', color: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                     >✕</button>
                   </div>

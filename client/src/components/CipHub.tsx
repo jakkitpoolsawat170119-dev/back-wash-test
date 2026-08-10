@@ -30,7 +30,7 @@ const CipHub: React.FC<Props> = ({ operatorName, onBackToMain }) => {
   // แท็บ Line เก็บใน URL (?page=cip&tab=2) รีเฟรชแล้วยังอยู่ Line เดิม
   const [route, navigate] = useAppRoute();
   const tab = pickRouteValue<CipTab>(route.tab, CIP_TABS, '1');
-  const setTab = (t: CipTab) => navigate({ tab: t });
+  const setTab = (t: CipTab) => navigate({ tab: t, item: null });
   const noop = useCallback(() => {}, []);
 
   return (

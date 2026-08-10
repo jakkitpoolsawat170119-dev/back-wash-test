@@ -64,7 +64,7 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
 
   if (!authed) return <AdminGate onExit={onExit} onAuthed={() => setAuthed(true)} />;
 
-  const go = (p: Pane) => { navigate({ tab: p }); setMenuOpen(false); window.scrollTo({ top: 0 }); };
+  const go = (p: Pane) => { navigate({ tab: p, item: null }); setMenuOpen(false); window.scrollTo({ top: 0 }); };
 
   const toggleMenu = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -134,7 +134,7 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
                 onGoToProduction={() => onNavOut('production')}
                 hideChrome
                 externalTab={isTodo ? (pane as TodoTab) : undefined}
-                onTabChange={(t) => { if (isTodo) navigate({ tab: t }); }}
+                onTabChange={(t) => { if (isTodo) navigate({ tab: t, item: null }); }}
               />
             </ErrorBoundary>
           </div>

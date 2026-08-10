@@ -18,7 +18,7 @@ const App: React.FC = () => {
   // หน้าที่เปิดอยู่เก็บใน URL (?page=...) รีเฟรชแล้วจึงยังอยู่หน้าเดิม
   const [route, navigate] = useAppRoute();
   const view = pickRouteValue<AppView>(route.page, VIEWS, 'home');
-  const setView = useCallback((v: AppView) => navigate({ page: v, tab: null }), [navigate]);
+  const setView = useCallback((v: AppView) => navigate({ page: v, tab: null, item: null }), [navigate]);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === '1');
   const [showSplash, setShowSplash] = useState(true);
   const [splashFadeOut, setSplashFadeOut] = useState(false);
