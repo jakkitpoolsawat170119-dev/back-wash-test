@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { uploadToStorage } from '../lib/uploadFile';
 import { useAppRoute, routeHref } from '../hooks/useAppRoute';
 
 interface Props {
@@ -75,14 +76,7 @@ function toDb(block: LearningBlock): Record<string, unknown> {
   };
 }
 
-async function uploadToStorage(file: File): Promise<string | null> {
-  if (!supabase) return null;
-  const ext = file.name.split('.').pop()?.toLowerCase() ?? 'bin';
-  const path = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
-  const { error } = await supabase.storage.from('learning-images').upload(path, file, { cacheControl: '3600', upsert: false });
-  if (error) { console.error('Upload error:', error); return null; }
-  return supabase.storage.from('learning-images').getPublicUrl(path).data.publicUrl;
-}
+// ย้ายไป lib/uploadFile.ts แล้ว เพราะ editor บทความใช้ตัวเดียวกัน
 
 const STEPS = [
   {

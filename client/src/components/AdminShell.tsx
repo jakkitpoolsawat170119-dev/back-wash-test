@@ -10,10 +10,11 @@ import SppReportForm from './SppReportForm';
 import ProductionApprovalBoard from './ProductionApprovalBoard';
 import SkuReviewPanel from './SkuReviewPanel';
 import ProductionTimeline from './ProductionTimeline';
+import BlogEditor from './BlogEditor';
 import ErrorBoundary from './ErrorBoundary';
 
 type TodoTab = 'today' | 'audit' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs';
-type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline';
+type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline' | 'blog';
 
 const TODO_TABS: string[] = ['today', 'audit', 'calendar', 'report', 'timeline', 'recurring', 'ai', 'specs'];
 
@@ -30,6 +31,7 @@ const MENU: { pane: Pane; ic: string; label: string; sub?: boolean }[] = [
   { pane: 'report', ic: '📈', label: 'รายงาน' },
   { pane: 'recurring', ic: '🔁', label: 'งานประจำ' },
   { pane: 'ai', ic: '🤖', label: 'AI ผู้ช่วย' },
+  { pane: 'blog', ic: '✍️', label: 'บทความ / คู่มือระบบ' },
   { pane: 'line4', ic: '📋', label: 'คู่มือ Line 4' },
   { pane: 'stickeradmin', ic: '🗂️', label: 'QC Record' },
   { pane: 'specs', ic: '📐', label: 'สเปคคุณภาพ', sub: true },
@@ -138,6 +140,10 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
               />
             </ErrorBoundary>
           </div>
+
+          {pane === 'blog' && (
+            <ErrorBoundary label="admin-blog"><BlogEditor operatorName={operator} /></ErrorBoundary>
+          )}
 
           {pane === 'line4' && (
             <div className="rd-legacy">

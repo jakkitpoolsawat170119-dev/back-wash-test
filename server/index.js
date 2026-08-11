@@ -505,6 +505,30 @@ const SCHEMA = [
       active INTEGER DEFAULT 1,
       created_at TEXT
     )`,
+  // ── บทความเทคนิค (เขียนจาก editor ในหน้า Admin) ────────────────────────────
+  // blocks/tags เก็บเป็น JSON string เพราะต้องใช้ได้ทั้ง SQLite และ Postgres
+  // (ไม่ใช้ชนิด jsonb ของ Postgres เพราะฝั่ง SQLite ไม่มี)
+  `CREATE TABLE IF NOT EXISTS posts (
+      id ${db.pk},
+      slug TEXT,
+      title TEXT,
+      blocks TEXT,                    -- JSON: [{id,type,...}]
+      status TEXT DEFAULT 'draft',    -- draft | review | published
+      author TEXT,
+      category TEXT,
+      tags TEXT,                      -- JSON: ["CIP","Line2"]
+      machine TEXT,                   -- เครื่องจักรที่เกี่ยว → [[wikilink]] ใน Obsidian
+      excerpt TEXT,
+      cover_url TEXT,
+      seo_keyword TEXT,
+      seo_desc TEXT,
+      script_head TEXT,
+      script_body TEXT,
+      obs_folder TEXT DEFAULT 'บทความ',
+      created_at TEXT,
+      updated_at TEXT,
+      published_at TEXT
+    )`,
 ];
 
 const DEFAULT_OPERATORS = [
@@ -1192,6 +1216,11 @@ const sendPhotoToChat = async (chatId, image, caption) => {
 
 const dbAll = (sql, params = []) => new Promise((resolve, reject) => {
   db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows || []));
+});
+
+// คู่กับ dbAll แต่เอาแถวเดียว — undefined ถ้าไม่เจอ
+const dbGet = (sql, params = []) => new Promise((resolve, reject) => {
+  db.get(sql, params, (err, row) => err ? reject(err) : resolve(row));
 });
 
 // หาว่าข้อความระบุ Line ใดไว้หรือไม่ เช่น "สรุป CIP Line2" / "สรุป cip ไลน์ 3" / "สรุป cip ทดลอง"
@@ -8505,6 +8534,117 @@ app.post('/api/batches/reset', (req, res) => {
       res.json({ success: true });
     });
   });
+});
+
+// ═══ บทความเทคนิค (posts) ══════════════════════════════════════════════════
+// ใช้กับ editor ในหน้า Admin → เมนู "บทความ / คู่มือระบบ"
+// blocks/tags เก็บเป็น JSON string ในคอลัมน์ TEXT (ดูเหตุผลที่ SCHEMA)
+
+const POST_FIELDS = ['slug','title','blocks','status','author','category','tags','machine','excerpt',
+  'cover_url','seo_keyword','seo_desc','script_head','script_body','obs_folder'];
+
+// แปลงแถวจาก DB → รูปที่ฝั่งหน้าเว็บใช้ (คลาย JSON ให้เรียบร้อย ไม่ให้หน้าเว็บต้อง parse เอง)
+function postFromRow(r) {
+  if (!r) return null;
+  const safe = (s, fallback) => { try { return JSON.parse(s); } catch { return fallback; } };
+  return {
+    id: r.id,
+    slug: r.slug || '',
+    title: r.title || '',
+    blocks: safe(r.blocks, []),
+    status: r.status || 'draft',
+    author: r.author || '',
+    category: r.category || '',
+    tags: safe(r.tags, []),
+    machine: r.machine || '',
+    excerpt: r.excerpt || '',
+    coverUrl: r.cover_url || '',
+    seoKeyword: r.seo_keyword || '',
+    seoDesc: r.seo_desc || '',
+    scriptHead: r.script_head || '',
+    scriptBody: r.script_body || '',
+    obsFolder: r.obs_folder || 'บทความ',
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    publishedAt: r.published_at,
+  };
+}
+
+// รายการบทความ — ไม่ส่ง blocks กลับไป (หนักและหน้ารายการไม่ได้ใช้)
+app.get('/api/posts', async (req, res) => {
+  try {
+    const rows = await dbAll(
+      `SELECT id, slug, title, status, author, category, tags, machine, excerpt, cover_url,
+              created_at, updated_at, published_at
+         FROM posts ORDER BY updated_at DESC`, []);
+    res.json({ items: rows.map(r => ({ ...postFromRow({ ...r, blocks: '[]' }), blocks: undefined })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/posts/:id', async (req, res) => {
+  try {
+    const row = await dbGet('SELECT * FROM posts WHERE id = ?', [req.params.id]);
+    if (!row) return res.status(404).json({ error: 'ไม่พบบทความนี้' });
+    res.json({ item: postFromRow(row) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// สร้างใหม่ (ไม่ส่ง id มา) หรือแก้ของเดิม (ส่ง id มา) — คืน id กลับไปเสมอ
+app.post('/api/posts', async (req, res) => {
+  const b = req.body || {};
+  const title = String(b.title || '').trim();
+  if (!title) return res.status(400).json({ error: 'ต้องมีหัวข้อบทความ' });
+  const now = nowBKK();
+  const vals = {
+    slug: String(b.slug || '').trim(),
+    title,
+    blocks: JSON.stringify(Array.isArray(b.blocks) ? b.blocks : []),
+    status: ['draft', 'review', 'published'].includes(b.status) ? b.status : 'draft',
+    author: String(b.author || ''),
+    category: String(b.category || ''),
+    tags: JSON.stringify(Array.isArray(b.tags) ? b.tags : []),
+    machine: String(b.machine || ''),
+    excerpt: String(b.excerpt || ''),
+    cover_url: String(b.coverUrl || ''),
+    seo_keyword: String(b.seoKeyword || ''),
+    seo_desc: String(b.seoDesc || ''),
+    script_head: String(b.scriptHead || ''),
+    script_body: String(b.scriptBody || ''),
+    obs_folder: String(b.obsFolder || 'บทความ'),
+  };
+  try {
+    if (b.id) {
+      // published_at ตั้งครั้งแรกที่เผยแพร่เท่านั้น เผยแพร่ซ้ำไม่รีเซ็ตวันที่เดิม
+      const cur = await dbGet('SELECT published_at, status FROM posts WHERE id = ?', [b.id]);
+      if (!cur) return res.status(404).json({ error: 'ไม่พบบทความนี้' });
+      const publishedAt = vals.status === 'published' ? (cur.published_at || now) : cur.published_at;
+      await db.exec(
+        `UPDATE posts SET ${POST_FIELDS.map(f => `${f} = ?`).join(', ')}, updated_at = ?, published_at = ? WHERE id = ?`,
+        [...POST_FIELDS.map(f => vals[f]), now, publishedAt, b.id]);
+      return res.json({ id: Number(b.id), updatedAt: now });
+    }
+    const publishedAt = vals.status === 'published' ? now : null;
+    const r = await db.exec(
+      `INSERT INTO posts (${POST_FIELDS.join(', ')}, created_at, updated_at, published_at)
+       VALUES (${POST_FIELDS.map(() => '?').join(', ')}, ?, ?, ?)`,
+      [...POST_FIELDS.map(f => vals[f]), now, now, publishedAt]);
+    // Postgres คืนแถวที่เพิ่งเขียนมาให้ ส่วน SQLite ต้องถามหา id ที่เพิ่งได้
+    let id = r && r.rows && r.rows[0] ? r.rows[0].id : undefined;
+    if (id === undefined) {
+      const row = await dbGet('SELECT id FROM posts ORDER BY id DESC LIMIT 1', []);
+      id = row && row.id;
+    }
+    res.json({ id, updatedAt: now });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/posts/delete', async (req, res) => {
+  const id = req.body?.id;
+  if (!id) return res.status(400).json({ error: 'ต้องระบุ id' });
+  try {
+    await db.exec('DELETE FROM posts WHERE id = ?', [id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 const PUBLIC_URL = 'https://back-wash-test.onrender.com';
