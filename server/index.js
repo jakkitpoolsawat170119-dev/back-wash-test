@@ -10,6 +10,7 @@ const axios = require('axios');
 const FormData = require('form-data');
 const Anthropic = require('@anthropic-ai/sdk');
 const { renderShiftCardPNG, renderKpiCardPNG, canRenderCard, renderBeforeAfterCardPNG } = require('./shiftCard');
+const vault = require('./vault');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -529,6 +530,32 @@ const SCHEMA = [
       updated_at TEXT,
       published_at TEXT
     )`,
+  // ── sha ของไฟล์ที่ระบบเป็นคนเขียนเข้า vault ล่าสุด ─────────────────────────
+  // ใช้แยกว่า push ที่เข้ามาเป็นฝีมือระบบเองหรือคน — ถ้า sha ตรงกับที่จดไว้ = ของเราเอง ข้ามไป
+  // (ไม่งั้นจะวนลูป: ระบบเขียน → webhook → reconcile → เขียนอีก)
+  `CREATE TABLE IF NOT EXISTS vault_files (
+      path TEXT PRIMARY KEY,
+      sha TEXT,
+      updated_at TEXT
+    )`,
+  // ── กล่องรอยืนยันจาก Obsidian ─────────────────────────────────────────────
+  // ติ๊กปิดงานทำให้เลย ส่วนที่เหลือ (ขอเปิดใหม่ / แก้ข้อความ / งานใหม่) ต้องให้คนกดรับก่อน
+  // task_id = 0 สำหรับงานใหม่ที่ยังไม่มีในระบบ (ใช้ 0 ไม่ใช่ NULL เพราะ UNIQUE ไม่กัน NULL ซ้ำ)
+  `CREATE TABLE IF NOT EXISTS vault_inbox (
+      id ${db.pk},
+      kind TEXT,                      -- reopen | edit | new
+      task_id INTEGER DEFAULT 0,
+      file_path TEXT,
+      line_text TEXT,                 -- บรรทัดดิบในไฟล์ ใช้ตามไปลบตอนกดรับงานใหม่
+      proposed_title TEXT,
+      task_date TEXT,
+      author TEXT,                    -- คนที่ push (จาก commit)
+      status TEXT DEFAULT 'pending',  -- pending | accepted | rejected
+      created_at TEXT,
+      decided_at TEXT,
+      decided_by TEXT,
+      UNIQUE(kind, task_id, line_text)
+    )`,
 ];
 
 const DEFAULT_OPERATORS = [
@@ -646,6 +673,12 @@ async function initDb() {
     await db.exec(`CREATE TABLE IF NOT EXISTS spp_shift_nudge (
         id ${db.pk}, work_day TEXT, shift TEXT, sent_at TEXT, UNIQUE(work_day, shift))`);
   } catch { /* มีแล้ว */ }
+  // migration: ผล sync บทความเข้า Obsidian vault
+  //   vault_path = ที่อยู่ไฟล์ล่าสุดที่เขียนสำเร็จ — ใช้ตามไปลบ/ย้ายตอนเปลี่ยน slug หรือถอนเผยแพร่
+  //   vault_error = เหตุผลที่ sync ไม่ผ่านครั้งล่าสุด (NULL = ผ่าน) เอาไว้โชว์ในกล่อง Obsidian
+  for (const col of ['vault_path', 'vault_synced_at', 'vault_error']) {
+    try { await db.exec(`ALTER TABLE posts ADD COLUMN ${col} TEXT`); } catch { /* มีแล้ว */ }
+  }
   // migration (เฟส 2): review_note = เหตุผลที่ SKU ตัวนี้ยังเปิดใช้ไม่ได้ (คิวรอตรวจหลัง import ทั้งชีต)
   try { await db.exec('ALTER TABLE sku_master ADD COLUMN review_note TEXT'); } catch { /* มีแล้ว */ }
   // pallet_route: 1/NULL = สายพาน → robot จัดเรียงพาเลท (คลังเห็นของเอง) · 2 = พนักงานบรรจุจัดเรียงเอง
@@ -5244,6 +5277,7 @@ app.post('/api/tasks', (req, res) => {
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ success: true, id: this.lastID });
+      scheduleVaultTaskSync(d);
     });
 });
 
@@ -5267,6 +5301,7 @@ app.post('/api/tasks/update', (req, res) => {
     (err) => {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ success: true });
+      scheduleVaultSyncForTask(id);
     });
 });
 
@@ -5294,10 +5329,14 @@ app.post('/api/tasks/reassign', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/tasks/delete-one', (req, res) => {
+app.post('/api/tasks/delete-one', async (req, res) => {
+  // อ่านวันที่ก่อนลบ ไม่งั้นไม่เหลืออะไรให้รู้ว่าต้องเขียนบันทึกวันไหนใหม่
+  let date = null;
+  try { date = (await dbGet('SELECT task_date FROM daily_tasks WHERE id = ?', [req.body.id]))?.task_date; } catch { /* ช่างมัน */ }
   db.run('DELETE FROM daily_tasks WHERE id = ?', [req.body.id], (err) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true });
+    if (date) scheduleVaultTaskSync(date);
   });
 });
 
@@ -6597,6 +6636,7 @@ app.post('/api/report/tick', async (req, res) => {
   await kpiReportTick();
   await kpiAlertTick();
   await sheetSyncTick(); // ให้ tick ที่ n8n ยิงครบเท่า setInterval (สำคัญเมื่อ Render หลับนอกช่วง window)
+  await vaultTick();     // ตาข่ายกันพลาดของ Obsidian — ทำงานจริงชั่วโมงละครั้ง
   res.json({ ok: true, at: new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }) });
 });
 
@@ -8567,7 +8607,42 @@ function postFromRow(r) {
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     publishedAt: r.published_at,
+    vaultPath: r.vault_path || '',
+    vaultSyncedAt: r.vault_synced_at || '',
+    vaultError: r.vault_error || '',
   };
+}
+
+// เขียนบทความลง Obsidian vault แล้วจดผลไว้ที่แถวนั้น
+// ⚠️ ห้าม throw ออกไป — บทความต้องบันทึกลง DB สำเร็จได้แม้ GitHub ล่ม (sync เป็นผลพลอยได้)
+// คืนสถานะกลับให้หน้าเว็บโชว์ในกล่อง Obsidian
+async function syncPostToVault(id) {
+  if (!vault.vaultEnabled()) return { enabled: false };
+  const row = await dbGet('SELECT * FROM posts WHERE id = ?', [id]);
+  if (!row) return { enabled: true, ok: false, error: 'ไม่พบบทความนี้' };
+  const post = postFromRow(row);
+  const at = nowBKK();
+  try {
+    // ยังไม่เผยแพร่ = ไม่ควรอยู่ใน vault — ถอนไฟล์เก่าออกถ้าเคยเผยแพร่ไว้
+    if (post.status !== 'published') {
+      if (post.vaultPath) await vault.unsyncPost(post.vaultPath, 'กลับเป็นร่าง');
+      await db.exec('UPDATE posts SET vault_path = ?, vault_synced_at = ?, vault_error = ? WHERE id = ?',
+        ['', at, '', id]);
+      return { enabled: true, ok: true, removed: !!post.vaultPath, at };
+    }
+    const r = await vault.syncPost(post, post.vaultPath);
+    await vaultRemember(r.path, r.sha);
+    await db.exec('UPDATE posts SET vault_path = ?, vault_synced_at = ?, vault_error = ? WHERE id = ?',
+      [r.path, at, '', id]);
+    return { enabled: true, ok: true, path: r.path, skipped: !!r.skipped, at };
+  } catch (e) {
+    const msg = String(e.message || e).slice(0, 400);
+    console.error('[vault] sync บทความ', id, 'ไม่สำเร็จ —', msg);
+    try {
+      await db.exec('UPDATE posts SET vault_synced_at = ?, vault_error = ? WHERE id = ?', [at, msg, id]);
+    } catch { /* จดผลไม่ได้ก็ช่าง อย่าให้ล้มซ้อน */ }
+    return { enabled: true, ok: false, error: msg, at };
+  }
 }
 
 // รายการบทความ — ไม่ส่ง blocks กลับไป (หนักและหน้ารายการไม่ได้ใช้)
@@ -8621,7 +8696,10 @@ app.post('/api/posts', async (req, res) => {
       await db.exec(
         `UPDATE posts SET ${POST_FIELDS.map(f => `${f} = ?`).join(', ')}, updated_at = ?, published_at = ? WHERE id = ?`,
         [...POST_FIELDS.map(f => vals[f]), now, publishedAt, b.id]);
-      return res.json({ id: Number(b.id), updatedAt: now });
+      // sync หลังบันทึกสำเร็จเท่านั้น — เคยเผยแพร่แล้วก็ sync ต่อ (แก้แล้วไฟล์ใน vault ต้องตามด้วย)
+      const vaultRes = (vals.status === 'published' || cur.status === 'published')
+        ? await syncPostToVault(b.id) : undefined;
+      return res.json({ id: Number(b.id), updatedAt: now, vault: vaultRes });
     }
     const publishedAt = vals.status === 'published' ? now : null;
     const r = await db.exec(
@@ -8634,18 +8712,287 @@ app.post('/api/posts', async (req, res) => {
       const row = await dbGet('SELECT id FROM posts ORDER BY id DESC LIMIT 1', []);
       id = row && row.id;
     }
-    res.json({ id, updatedAt: now });
+    const vaultRes = vals.status === 'published' && id ? await syncPostToVault(id) : undefined;
+    res.json({ id, updatedAt: now, vault: vaultRes });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ปุ่ม "sync เดี๋ยวนี้" — เขียนไฟล์ใหม่จากข้อมูลที่อยู่ใน DB ตอนนี้
+app.post('/api/posts/:id/sync', async (req, res) => {
+  try {
+    if (!vault.vaultEnabled()) return res.status(400).json({ error: 'ยังไม่ได้ตั้งค่า vault บนเซิร์ฟเวอร์' });
+    const row = await dbGet('SELECT id FROM posts WHERE id = ?', [req.params.id]);
+    if (!row) return res.status(404).json({ error: 'ไม่พบบทความนี้' });
+    const r = await syncPostToVault(req.params.id);
+    res.json({ vault: r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// markdown ที่จะถูกเขียนจริง (ฝั่ง server เป็นตัวตัดสิน) — ใช้เทียบกับ preview ในหน้าเว็บ
+app.get('/api/posts/:id/markdown', async (req, res) => {
+  try {
+    const row = await dbGet('SELECT * FROM posts WHERE id = ?', [req.params.id]);
+    if (!row) return res.status(404).json({ error: 'ไม่พบบทความนี้' });
+    const post = postFromRow(row);
+    res.json({ path: vault.postPath(post), markdown: vault.postToMarkdown(post) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/vault/status', (req, res) => {
+  const c = vault.vaultConfig();
+  res.json({ enabled: vault.vaultEnabled(), repo: c.repo, branch: c.branch });
 });
 
 app.post('/api/posts/delete', async (req, res) => {
   const id = req.body?.id;
   if (!id) return res.status(400).json({ error: 'ต้องระบุ id' });
   try {
+    // ลบไฟล์ใน vault ก่อน แล้วค่อยลบแถว — ไม่งั้นไม่เหลือ path ให้ตามไปลบ
+    const row = await dbGet('SELECT vault_path FROM posts WHERE id = ?', [id]);
+    if (row && row.vault_path && vault.vaultEnabled()) {
+      try { await vault.unsyncPost(row.vault_path, 'ลบบทความ'); }
+      catch (e) { console.error('[vault] ลบไฟล์บทความไม่สำเร็จ', row.vault_path, e.message); }
+    }
     await db.exec('DELETE FROM posts WHERE id = ?', [id]);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// ═══ Obsidian สองทาง: งานค้าง ↔ บันทึกประจำวันใน vault ════════════════════════
+// ขาออก — งานเปลี่ยนในแอป → เขียนลงเขต marker ในบันทึกประจำวัน (หน่วงรวมก่อนเขียน)
+// ขาเข้า — คนติ๊กใน Obsidian → Obsidian Git push → GitHub webhook → ปิดงานตาม
+// นโยบาย: ติ๊กปิด = ทำเลย · ปลดติ๊ก / แก้ข้อความ / งานใหม่ = เข้ากล่องรอคนยืนยัน
+//   เหตุผล: เผลอปัดโดนบนมือถือแล้วงานที่ปิดไปแล้วกลับมา เป็นความเสียหายที่มองไม่เห็น
+
+// จำ sha ของไฟล์ที่เราเขียนเอง — ใช้กันวนลูปตอน webhook เด้งกลับมาจาก push ของเราเอง
+async function vaultRemember(path, sha) {
+  if (!path || !sha) return;
+  try {
+    await db.exec(
+      `INSERT INTO vault_files (path, sha, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(path) DO UPDATE SET sha = excluded.sha, updated_at = excluded.updated_at`,
+      [path, sha, nowBKK()]);
+  } catch (e) { console.error('[vault] จด sha ไม่สำเร็จ', path, e.message); }
+}
+async function vaultIsOurs(path, sha) {
+  if (!sha) return false;
+  const row = await dbGet('SELECT sha FROM vault_files WHERE path = ?', [path]);
+  return !!row && row.sha === sha;
+}
+
+const tasksOfDate = (date) => dbAll(
+  `SELECT id, title, status, category, machine, location, line_name, task_date, completed_at
+     FROM daily_tasks WHERE task_date = ? ORDER BY id`, [date]);
+
+// เขียนงานของวันนั้นลง vault — แตะเฉพาะในเขต marker ข้อความที่คนเขียนเองไม่หาย
+async function syncTasksToVault(date) {
+  if (!vault.vaultEnabled() || !date) return { enabled: false };
+  const path = vault.dailyNotePath(date);
+  try {
+    const tasks = await tasksOfDate(date);
+    const cur = await vault.vaultRead(path);
+    // วันที่ยังไม่มีงานเลยและยังไม่เคยมีไฟล์ = ไม่ต้องสร้างไฟล์เปล่าทิ้งไว้ให้รก
+    // (ถ้ามีไฟล์อยู่แล้วยังต้องเขียน เพราะงานอาจเพิ่งถูกลบออกหมด)
+    if (!tasks.length && !cur) return { enabled: true, ok: true, path, count: 0, skipped: true };
+    const content = vault.buildDailyNote(cur ? cur.text : '', date, tasks);
+    const r = await vault.vaultWrite(path, content, `งานค้าง: ${date}`);
+    await vaultRemember(path, r.sha);
+    return { enabled: true, ok: true, path, count: tasks.length, skipped: !!r.skipped };
+  } catch (e) {
+    console.error('[vault] เขียนงานค้างไม่สำเร็จ', date, e.message);
+    return { enabled: true, ok: false, path, error: String(e.message || e).slice(0, 300) };
+  }
+}
+
+// หน่วงก่อนเขียน — ติ๊กงานรัวๆ ในแอปไม่ควรกลายเป็น commit ละครั้ง
+const vaultTaskTimers = new Map();
+function scheduleVaultTaskSync(date, delayMs = 45000) {
+  if (!vault.vaultEnabled() || !date) return;
+  clearTimeout(vaultTaskTimers.get(date));
+  vaultTaskTimers.set(date, setTimeout(() => {
+    vaultTaskTimers.delete(date);
+    syncTasksToVault(date).catch(e => console.error('[vault] task sync', e.message));
+  }, delayMs));
+}
+// เรียกจาก endpoint ที่รู้แค่ id ของงาน
+async function scheduleVaultSyncForTask(id) {
+  if (!vault.vaultEnabled() || !id) return;
+  try {
+    const row = await dbGet('SELECT task_date FROM daily_tasks WHERE id = ?', [id]);
+    if (row) scheduleVaultTaskSync(row.task_date);
+  } catch { /* ไม่ใช่เรื่องคอขาดบาดตาย */ }
+}
+
+const normTitle = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+
+// เพิ่มรายการเข้ากล่องรอยืนยัน — ซ้ำของเดิม (คนยังไม่แตะไฟล์) จะถูก UNIQUE กันไว้เอง
+async function inboxAdd(kind, taskId, filePath, line, title, date, author) {
+  try {
+    await db.exec(
+      `INSERT INTO vault_inbox (kind, task_id, file_path, line_text, proposed_title, task_date, author, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+       ON CONFLICT (kind, task_id, line_text) DO NOTHING`,
+      [kind, taskId || 0, filePath, line, title || '', date || '', author || '', nowBKK()]);
+  } catch (e) { console.error('[vault] inbox add', e.message); }
+}
+
+// อ่านไฟล์บันทึกประจำวันที่คนแก้มา แล้วเทียบกับงานใน DB ทีละบรรทัด
+async function reconcileNote(path, text, author) {
+  const date = (path.match(/(\d{4}-\d{2}-\d{2})\.md$/) || [])[1] || todayBKK();
+  const closed = [];
+  let pending = 0;
+  for (const raw of String(text || '').split('\n')) {
+    const p = vault.parseTaskLine(raw);
+    if (!p) continue;
+    if (!p.id) {
+      // บรรทัดที่คนจดเองในมือถือ — ยังไม่มีในระบบ (ที่ติ๊กแล้วถือว่าจบไปแล้ว ไม่ต้องรับเข้ามา)
+      if (!p.done && p.title) { await inboxAdd('new', 0, path, raw.trim(), p.title, date, author); pending++; }
+      continue;
+    }
+    const t = await dbGet('SELECT id, title, status FROM daily_tasks WHERE id = ?', [p.id]);
+    if (!t) continue;                                   // งานถูกลบในแอปไปแล้ว
+    const isDone = t.status === 'done';
+    if (p.done && !isDone) {
+      // ติ๊กปิด = การกดของคน ปิดแล้วปิดเลย ไม่มีทางพัง → ทำให้เลย
+      await db.exec('UPDATE daily_tasks SET status = ?, completed_at = ?, done_by = COALESCE(done_by, ?) WHERE id = ?',
+        ['done', nowBKK(), author || 'Obsidian', p.id]);
+      closed.push({ id: p.id, title: t.title });
+    } else if (!p.done && isDone) {
+      await inboxAdd('reopen', p.id, path, raw.trim(), t.title, date, author); pending++;
+    }
+    if (p.title && normTitle(p.title) !== normTitle(t.title)) {
+      await inboxAdd('edit', p.id, path, raw.trim(), p.title, date, author); pending++;
+    }
+  }
+  return { date, closed, pending };
+}
+
+// ดึงไฟล์จาก vault มา reconcile เอง — ใช้เป็นตาข่ายกันพลาดตอน webhook หลุด
+async function reconcileFromVault(date) {
+  if (!vault.vaultEnabled()) return { enabled: false };
+  const path = vault.dailyNotePath(date);
+  const cur = await vault.vaultRead(path);
+  if (!cur) return { enabled: true, missing: true, path };
+  if (await vaultIsOurs(path, cur.sha)) return { enabled: true, path, unchanged: true };
+  const r = await reconcileNote(path, cur.text, 'Obsidian');
+  await vaultRemember(path, cur.sha);
+  if (r.closed.length) scheduleVaultTaskSync(date, 5000);
+  return { enabled: true, path, ...r };
+}
+
+// ── ขาเข้าจาก GitHub ────────────────────────────────────────────────────────
+// GitHub ไม่ retry ให้อัตโนมัติ ถ้าพลาดต้องพึ่ง reconcile รอบชั่วโมงข้างล่าง
+app.post('/api/obsidian/webhook', async (req, res) => {
+  const secret = process.env.VAULT_WEBHOOK_SECRET || '';
+  if (!secret) return res.status(503).json({ error: 'ยังไม่ได้ตั้ง VAULT_WEBHOOK_SECRET' });
+  // ลายเซ็นคิดจาก "ไบต์ดิบ" ของ body — เอา JSON ที่ parse แล้วมา stringify ใหม่ลายเซ็นจะไม่ตรง
+  const sig = req.get('X-Hub-Signature-256') || '';
+  const mine = 'sha256=' + crypto.createHmac('sha256', secret).update(req.rawBody || Buffer.from('')).digest('hex');
+  const ok = sig.length === mine.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(mine));
+  if (!ok) return res.status(401).json({ error: 'ลายเซ็นไม่ถูกต้อง' });
+  if (req.get('X-GitHub-Event') === 'ping') return res.json({ ok: true, pong: true });
+
+  const body = req.body || {};
+  const branch = vault.vaultConfig().branch;
+  if (body.ref && body.ref !== `refs/heads/${branch}`) return res.json({ ok: true, ignored: 'คนละ branch' });
+  res.json({ ok: true });                       // ตอบ GitHub ก่อน แล้วค่อยทำงานต่อ (กัน timeout)
+
+  try {
+    const author = (body.head_commit && body.head_commit.author && body.head_commit.author.name)
+      || (body.pusher && body.pusher.name) || 'Obsidian';
+    const paths = new Set();
+    for (const c of body.commits || []) {
+      for (const p of [...(c.added || []), ...(c.modified || [])]) {
+        if (p.startsWith('บันทึกประจำวัน/') && p.endsWith('.md')) paths.add(p);
+      }
+    }
+    for (const path of paths) {
+      const cur = await vault.vaultRead(path);
+      if (!cur) continue;
+      if (await vaultIsOurs(path, cur.sha)) continue;   // push ของระบบเอง — ไม่ต้องอ่านซ้ำ
+      const r = await reconcileNote(path, cur.text, author);
+      await vaultRemember(path, cur.sha);
+      console.log(`[vault] webhook ${path} — ปิดงาน ${r.closed.length} รอยืนยัน ${r.pending}`);
+      if (r.closed.length) scheduleVaultTaskSync(r.date, 5000);
+    }
+  } catch (e) { console.error('[vault] webhook error', e.message); }
+});
+
+// ── กล่องรอยืนยัน ───────────────────────────────────────────────────────────
+app.get('/api/obsidian/inbox', async (req, res) => {
+  try {
+    const items = await dbAll(
+      `SELECT * FROM vault_inbox WHERE status = 'pending' ORDER BY created_at DESC, id DESC LIMIT 100`, []);
+    const done = await dbAll(
+      `SELECT id, title, completed_at, done_by FROM daily_tasks
+        WHERE status = 'done' AND done_by IS NOT NULL AND task_date >= ?
+        ORDER BY completed_at DESC LIMIT 20`, [todayBKK()]);
+    res.json({ enabled: vault.vaultEnabled(), items, closedFromVault: done });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/obsidian/inbox/decide', async (req, res) => {
+  const { id, accept, operator } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'ต้องระบุ id' });
+  try {
+    const it = await dbGet('SELECT * FROM vault_inbox WHERE id = ?', [id]);
+    if (!it) return res.status(404).json({ error: 'ไม่พบรายการนี้' });
+    if (it.status !== 'pending') return res.status(409).json({ error: 'รายการนี้ตัดสินไปแล้ว' });
+
+    if (accept) {
+      if (it.kind === 'reopen') {
+        await db.exec("UPDATE daily_tasks SET status = 'pending', completed_at = NULL WHERE id = ?", [it.task_id]);
+      } else if (it.kind === 'edit') {
+        await db.exec('UPDATE daily_tasks SET title = ? WHERE id = ?', [it.proposed_title, it.task_id]);
+      } else if (it.kind === 'new') {
+        await db.exec(
+          `INSERT INTO daily_tasks (task_date, line_name, category, title, status, source, created_by, created_at)
+           VALUES (?, '', 'manual', ?, 'pending', 'obsidian', ?, ?)`,
+          [it.task_date || todayBKK(), it.proposed_title, it.author || 'Obsidian', nowBKK()]);
+        // ลบบรรทัดที่คนจดเองออก — เดี๋ยวงานนี้จะไปโผล่ในเขตที่ระบบดูแลพร้อมรหัส ^spp- แทน
+        try {
+          const cur = await vault.vaultRead(it.file_path);
+          if (cur) {
+            const next = vault.removeLine(cur.text, it.line_text);
+            if (next !== cur.text) {
+              const w = await vault.vaultWrite(it.file_path, next, `รับงานจาก Obsidian เข้าระบบ: ${it.proposed_title}`);
+              await vaultRemember(it.file_path, w.sha);
+            }
+          }
+        } catch (e) { console.error('[vault] ลบบรรทัดงานใหม่ไม่สำเร็จ', e.message); }
+      }
+    }
+    await db.exec('UPDATE vault_inbox SET status = ?, decided_at = ?, decided_by = ? WHERE id = ?',
+      [accept ? 'accepted' : 'rejected', nowBKK(), operator || '', id]);
+    scheduleVaultTaskSync(it.task_date || todayBKK(), 5000);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ปุ่ม "sync เดี๋ยวนี้" ของงานค้าง — อ่านของใน vault ก่อน แล้วค่อยเขียนทับ
+app.post('/api/obsidian/sync-tasks', async (req, res) => {
+  const date = req.body?.date || todayBKK();
+  try {
+    const inbound = await reconcileFromVault(date);
+    const outbound = await syncTasksToVault(date);
+    res.json({ date, inbound, outbound });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ตาข่ายกันพลาด: reconcile + เขียนทับชั่วโมงละครั้ง เกาะ tick เดิมที่มีอยู่แล้ว
+// (ห้ามเพิ่ม polling ใหม่ — เคยชน Render 750 instance-hours มาแล้ว)
+let lastVaultTickHour = '';
+async function vaultTick() {
+  if (!vault.vaultEnabled()) return;
+  const hour = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 13);
+  if (hour === lastVaultTickHour) return;
+  lastVaultTickHour = hour;
+  try {
+    const date = todayBKK();
+    await reconcileFromVault(date);
+    await syncTasksToVault(date);
+  } catch (e) { console.error('[vault] tick error', e.message); }
+}
 
 const PUBLIC_URL = 'https://back-wash-test.onrender.com';
 const registerTelegramWebhook = async () => {
@@ -8679,7 +9026,7 @@ if (require.main === module) {
         // (แต่ต้องปิด Telegram Trigger ใน n8n v4 ก่อน เพราะใช้บอทตัวเดียวกัน)
         registerSppWebhook();
         // ตัวจับเวลาส่งรายงานอัตโนมัติ + วิเคราะห์สิ้นกะ (เฟส 1) — เช็กทุกนาที (ต้องให้เซิร์ฟเวอร์ตื่นอยู่; มี Keep-Warm ping ช่วย)
-        setInterval(() => { reportTick(); reminderTick(); shiftAnalysisTick(); kpiReportTick(); kpiAlertTick(); sheetSyncTick(); sppShiftNudgeTick(); }, 60 * 1000);
+        setInterval(() => { reportTick(); reminderTick(); shiftAnalysisTick(); kpiReportTick(); kpiAlertTick(); sheetSyncTick(); sppShiftNudgeTick(); vaultTick(); }, 60 * 1000);
         console.log('[report] scheduler started (every 60s) + shift-analysis');
       });
     })

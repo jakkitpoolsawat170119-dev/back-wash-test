@@ -55,6 +55,20 @@ interface Post {
   obsFolder: string;
   updatedAt?: string;
   publishedAt?: string | null;
+  vaultPath?: string;
+  vaultSyncedAt?: string;
+  vaultError?: string;
+}
+
+// ผล sync ที่ server ส่งกลับมาหลังบันทึก — enabled=false คือเซิร์ฟเวอร์ยังไม่ได้ตั้ง token
+interface VaultResult {
+  enabled: boolean;
+  ok?: boolean;
+  path?: string;
+  error?: string;
+  at?: string;
+  skipped?: boolean;
+  removed?: boolean;
 }
 
 interface PostSummary {
@@ -99,7 +113,16 @@ function stripHtml(h?: string): string {
   d.innerHTML = h || '';
   return d.innerText;
 }
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+
+// ค่าใน frontmatter ที่มี : หรือ # จะทำให้ YAML พัง → ใส่ quote ให้เมื่อจำเป็น
+// (ต้องให้ผลตรงกับ yamlStr() ใน server/vault.js ซึ่งเป็นตัวเขียนไฟล์จริง)
+function yamlStr(v: string): string {
+  const s = String(v || '');
+  if (!s) return '""';
+  if (/^[-?:,[\]{}#&*!|>'"%@`]|[:#]\s|\s#|: |^\s|\s$/.test(s)) return '"' + s.replace(/(["\\])/g, '\\$1') + '"';
+  return s;
+}
 
 function newBlock(type: BlockType, extra?: Partial<Block>): Block {
   const b: Block = { id: nid(), type, style: {}, cls: '', anchor: '' };
@@ -273,6 +296,8 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
   const [showMd, setShowMd] = useState(false);
   const [tagIn, setTagIn] = useState('');
   const [uploading, setUploading] = useState('');
+  const [vaultOn, setVaultOn] = useState<boolean | null>(null);   // null = ยังไม่รู้ (กำลังถาม server)
+  const [syncing, setSyncing] = useState(false);
   const past = useRef<string[]>([]);
   const future = useRef<string[]>([]);
   const [, forceTick] = useState(0);
@@ -296,6 +321,16 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
     s?.removeAllRanges();
     s?.addRange(r);
   });
+
+  /* ── เซิร์ฟเวอร์ต่อกับ vault อยู่หรือเปล่า ── */
+  useEffect(() => {
+    let alive = true;
+    wakeFetch(`${apiUrl}/api/vault/status`)
+      .then(r => r.json())
+      .then(j => { if (alive) setVaultOn(!!j.enabled); })
+      .catch(() => { if (alive) setVaultOn(false); });
+    return () => { alive = false; };
+  }, []);
 
   /* ── โหลดบทความ ── */
   useEffect(() => {
@@ -473,6 +508,31 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
   };
 
   /* ── บันทึก ── */
+  // เอาผล sync ที่ server ส่งมาลงในบทความที่ถืออยู่ (ไม่ต้องโหลดใหม่ทั้งก้อน)
+  const vaultFields = (p: Post, v?: VaultResult): Partial<Post> => {
+    if (!v || !v.enabled) return {};
+    return {
+      vaultPath: v.ok ? (v.path || '') : (p.vaultPath || ''),
+      vaultSyncedAt: v.at || '',
+      vaultError: v.ok ? '' : (v.error || ''),
+    };
+  };
+
+  const syncNow = async () => {
+    if (!post?.id) { alert('บันทึกบทความก่อนถึงจะ sync ได้'); return; }
+    setSyncing(true);
+    try {
+      const r = await wakeFetch(`${apiUrl}/api/posts/${post.id}/sync`, { method: 'POST' });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      const v: VaultResult = j.vault;
+      setPost(p => (p ? { ...p, ...vaultFields(p, v) } : p));
+      setNote(v.ok ? (v.removed ? 'ถอนไฟล์ออกจาก vault แล้ว' : 'sync เข้า vault แล้ว') : 'sync ไม่ผ่าน — ' + (v.error || ''));
+    } catch (e) {
+      alert('sync ไม่สำเร็จ — ' + (e instanceof Error ? e.message : ''));
+    } finally { setSyncing(false); }
+  };
+
   const save = async (status?: Post['status']) => {
     if (!post) return;
     const title = post.title.trim();
@@ -492,9 +552,14 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-      setPost(p => (p ? { ...p, id: j.id, status: body.status, slug: body.slug } : p));
+      const v: VaultResult | undefined = j.vault;
+      setPost(p => (p ? { ...p, id: j.id, status: body.status, slug: body.slug, ...vaultFields(p, v) } : p));
       setDirty(false);
-      setNote(status === 'published' ? 'เผยแพร่แล้ว' : 'บันทึกร่างแล้ว');
+      // บันทึกลง DB สำเร็จแล้วเสมอถึงจะมาถึงบรรทัดนี้ — sync ที่ล้มเป็นเรื่องแยก บอกต่อท้ายพอ
+      const base = status === 'published' ? 'เผยแพร่แล้ว' : 'บันทึกร่างแล้ว';
+      setNote(base + (!v || !v.enabled ? ''
+        : v.ok ? (v.removed ? ' · ถอนไฟล์ออกจาก vault แล้ว' : v.skipped ? ' · ไฟล์ใน vault เหมือนเดิม' : ' · เขียนลง vault แล้ว')
+          : ' · แต่ sync เข้า vault ไม่ผ่าน'));
       if (isNew && j.id) onSaved(j.id);
     } catch (e) {
       alert('บันทึกไม่สำเร็จ — ' + (e instanceof Error ? e.message : ''));
@@ -527,21 +592,19 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
       d.innerHTML = s;
       return d.value.trim();
     };
+    const title = post.title || 'ยังไม่ตั้งชื่อ';
     const L: string[] = [
       '---',
-      `title: ${post.title || 'ยังไม่ตั้งชื่อ'}`,
-      `date: ${todayISO()}`,
+      `title: ${yamlStr(title)}`,
+      // วันที่ยึดจากวันเผยแพร่ครั้งแรก — เผยแพร่ซ้ำแล้ววันที่ในไฟล์ต้องไม่เลื่อนตามวันนี้
+      `date: ${String(post.publishedAt || post.updatedAt || '').slice(0, 10) || todayISO()}`,
       `tags: [${post.tags.join(', ')}]`,
-      `หมวดหมู่: ${post.category}`,
+      `หมวดหมู่: ${yamlStr(post.category)}`,
       `สถานะ: ${STATUS_LABEL[post.status]}`,
-      `ผู้เขียน: ${post.author}`,
-      `เครื่องจักร: "[[${post.machine}]]"`,
-      'ที่มา: SPP-MP editor',
-      '---',
-      '',
-      `# ${post.title || 'ยังไม่ตั้งชื่อ'}`,
-      '',
+      `ผู้เขียน: ${yamlStr(post.author)}`,
     ];
+    if (post.machine) L.push(`เครื่องจักร: "[[${post.machine}]]"`);
+    L.push('ที่มา: SPP-MP editor', '---', '', `# ${title}`, '');
     blocks.forEach(b => {
       switch (b.type) {
         case 'p': { const t = mdInline(b.html); if (t) L.push(t, ''); break; }
@@ -550,11 +613,14 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
         case 'quote': L.push('> ' + mdInline(b.html), ''); break;
         case 'list': (b.items || []).forEach(i => L.push('- ' + mdInline(i))); L.push(''); break;
         case 'code': L.push('```', b.html || '', '```', ''); break;
-        case 'image':
-          L.push(`![${stripHtml(b.cap) || b.name || 'ภาพ'}](${b.src || ''})`);
-          if (stripHtml(b.cap)) L.push('*' + stripHtml(b.cap) + '*');
+        case 'image': {
+          // ยุบขึ้นบรรทัดในคำบรรยายให้เหลือเว้นวรรค ไม่งั้น ![alt](url) ขาดกลาง
+          const cap = stripHtml(b.cap).replace(/\s+/g, ' ').trim();
+          L.push(`![${cap || b.name || 'ภาพ'}](${b.src || ''})`);
+          if (cap) L.push('*' + cap + '*');
           L.push('');
           break;
+        }
         case 'pdf':
           L.push(`[📕 ${b.name || 'เอกสาร'}](${b.url || ''})${b.meta ? ' — ' + b.meta : ''}`, '');
           break;
@@ -585,7 +651,8 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
     });
     return L.join('\n');
   };
-  const obsPath = () => `${post?.obsFolder || 'บทความ'}/${todayISO()}-${slugify(post?.title || '')}.md`;
+  // ต้องตรงกับ postPath() ใน server/vault.js — ใช้ slug ล้วน ชื่อไฟล์จะได้คงที่ตอนแก้บทความซ้ำ
+  const obsPath = () => `${post?.obsFolder || 'บทความ'}/${slugify(post?.slug || post?.title || '')}.md`;
 
   /* ── ตัวเลขอ่านง่าย (readability) ── */
   const plain = blocks.map(b => {
@@ -766,11 +833,26 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
                     </div>
                   </div>
                 </div>
-                <div className="hintx">
-                  ยังไม่ได้ต่อกับ vault จริง — เฟสนี้ดูได้ว่าไฟล์ที่จะเขียนหน้าตาเป็นยังไง
+                <div className={`obs-status${post.vaultError ? ' bad' : post.vaultPath ? ' ok' : ''}`}>
+                  {vaultOn === false ? (
+                    <>⚪ เซิร์ฟเวอร์ยังไม่ได้ต่อกับ vault — ตั้ง <code>VAULT_GITHUB_TOKEN</code> ก่อนถึงจะเขียนไฟล์จริงได้</>
+                  ) : post.vaultError ? (
+                    <>🔴 sync ล่าสุดไม่ผ่าน — {post.vaultError}</>
+                  ) : post.vaultPath ? (
+                    <>🟢 อยู่ใน vault แล้ว: <b>{post.vaultPath}</b>
+                      {post.vaultSyncedAt && <> · เมื่อ {String(post.vaultSyncedAt).slice(0, 16).replace('T', ' ')}</>}</>
+                  ) : post.status === 'published' ? (
+                    <>🟡 เผยแพร่แล้วแต่ยังไม่ได้เขียนลง vault — กด sync เดี๋ยวนี้</>
+                  ) : (
+                    <>⚪ ไฟล์จะถูกเขียนตอนกด "เผยแพร่"</>
+                  )}
                 </div>
                 <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <button className="btn-o" onClick={() => setShowMd(true)}>ดู markdown ที่จะถูกเขียน</button>
+                  <button className="btn-o" onClick={syncNow}
+                    disabled={syncing || !post.id || vaultOn === false}>
+                    {syncing ? 'กำลัง sync…' : 'sync เดี๋ยวนี้'}
+                  </button>
                   <button className="btn-o danger" onClick={removePost}>ลบบทความนี้</button>
                 </div>
               </div>

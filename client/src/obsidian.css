@@ -1,0 +1,58 @@
+/* กล่องขาเข้าจาก Obsidian — ใช้โทเคนสีเดียวกับทั้งแอป (redesign.css) */
+
+.obsx { padding: 4px 0 40px; }
+
+.obsx .ohead { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.obsx .ohead h2 { font-family: var(--font-head); font-size: 20px; margin: 0 0 4px; color: var(--ink); }
+.obsx .ohead p { margin: 0; font-size: 13px; color: var(--ink-soft); line-height: 1.7; }
+.obsx .ohead .spacer { margin-left: auto; }
+
+.obsx .obtn {
+  border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 8px 14px;
+  font-size: 13px; font-weight: 700; font-family: var(--font-head); color: var(--ink); white-space: nowrap;
+  transition: background .15s ease, transform .15s ease;
+}
+.obsx .obtn:hover { background: var(--brand-soft); color: var(--brand-deep); }
+.obsx .obtn:active { transform: translateY(1px); }
+.obsx .obtn:disabled { opacity: .5; }
+.obsx .obtn.yes { border-color: #bfe0c6; background: #eef8f0; color: #2c5c38; }
+.obsx .obtn.no { border-color: var(--line); color: var(--ink-soft); }
+
+.obsx .obanner {
+  border: 1px solid var(--line); background: #faf6f2; border-radius: 12px;
+  padding: 11px 14px; font-size: 13px; line-height: 1.7; color: var(--ink-soft); margin-bottom: 18px;
+}
+.obsx .obanner.warn { background: #fff8ec; border-color: #f0dcb6; color: #7a5300; }
+.obsx .obanner code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+
+.obsx .osec { margin-bottom: 26px; }
+.obsx .osec > h3 {
+  font-family: var(--font-head); font-size: 14px; margin: 0 0 10px; color: var(--ink);
+  display: flex; align-items: center; gap: 8px;
+}
+.obsx .ocount {
+  background: var(--brand-soft); color: var(--brand-deep); border-radius: 999px;
+  padding: 1px 9px; font-size: 12px; font-weight: 700;
+}
+.obsx .oempty { font-size: 13px; color: var(--ink-soft); padding: 14px; background: var(--card);
+  border: 1px dashed var(--line); border-radius: 12px; }
+
+.obsx .ocard {
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 14px; margin-bottom: 10px; box-shadow: var(--shadow-card);
+  display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap;
+}
+.obsx .ocard .grow { flex: 1 1 260px; min-width: 0; }
+.obsx .ocard .otitle { font-weight: 700; color: var(--ink); font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.obsx .ocard .ometa { font-size: 12px; color: var(--ink-soft); margin-top: 3px; line-height: 1.7; overflow-wrap: anywhere; }
+.obsx .ocard .oacts { display: flex; gap: 8px; align-items: center; }
+
+.obsx .obadge {
+  display: inline-block; border-radius: 999px; padding: 2px 10px; font-size: 11.5px; font-weight: 700;
+  font-family: var(--font-head); margin-bottom: 5px;
+}
+.obsx .obadge.reopen { background: #fff8ec; color: #7a5300; border: 1px solid #f0dcb6; }
+.obsx .obadge.edit { background: #eef4ff; color: #24467e; border: 1px solid #c3d4f2; }
+.obsx .obadge.new { background: #eef8f0; color: #2c5c38; border: 1px solid #bfe0c6; }
+
+.obsx .odone { border-left: 3px solid var(--ok); }
