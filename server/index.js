@@ -8883,13 +8883,17 @@ async function reconcileFromVault(date) {
 // ── ขาเข้าจาก GitHub ────────────────────────────────────────────────────────
 // GitHub ไม่ retry ให้อัตโนมัติ ถ้าพลาดต้องพึ่ง reconcile รอบชั่วโมงข้างล่าง
 app.post('/api/obsidian/webhook', async (req, res) => {
-  const secret = process.env.VAULT_WEBHOOK_SECRET || '';
+  const secret = vault.vaultConfig().webhookSecret;
   if (!secret) return res.status(503).json({ error: 'ยังไม่ได้ตั้ง VAULT_WEBHOOK_SECRET' });
   // ลายเซ็นคิดจาก "ไบต์ดิบ" ของ body — เอา JSON ที่ parse แล้วมา stringify ใหม่ลายเซ็นจะไม่ตรง
   const sig = req.get('X-Hub-Signature-256') || '';
   const mine = 'sha256=' + crypto.createHmac('sha256', secret).update(req.rawBody || Buffer.from('')).digest('hex');
   const ok = sig.length === mine.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(mine));
-  if (!ok) return res.status(401).json({ error: 'ลายเซ็นไม่ถูกต้อง' });
+  if (!ok) {
+    // ไม่บอกค่าจริงออกไป แต่บอกความยาวไว้ใน log — ไล่หาสาเหตุ "รหัสสองฝั่งไม่ตรง" ได้เร็วขึ้นมาก
+    console.warn(`[vault] ลายเซ็น webhook ไม่ตรง — รหัสที่ตั้งไว้ยาว ${secret.length} ตัวอักษร`);
+    return res.status(401).json({ error: 'ลายเซ็นไม่ถูกต้อง' });
+  }
   if (req.get('X-GitHub-Event') === 'ping') return res.json({ ok: true, pong: true });
 
   const body = req.body || {};

@@ -9,10 +9,14 @@
 
 const axios = require('axios');
 
+// .trim() ทุกตัว — ช่องกรอกบนแดชบอร์ด (Render/Vercel) ติด enter หรือช่องว่างท้ายมาง่ายมาก
+// ค่าที่ดูด้วยตาเหมือนถูกทุกอย่างแต่ใช้ไม่ได้ ส่วนใหญ่เป็นเพราะเรื่องนี้
+const envStr = (k, dflt = '') => String(process.env[k] || dflt).trim();
 const cfg = () => ({
-  token: process.env.VAULT_GITHUB_TOKEN || '',
-  repo: process.env.VAULT_REPO || 'jakkitpoolsawat170119-dev/knowledge-vault',
-  branch: process.env.VAULT_BRANCH || 'main',
+  token: envStr('VAULT_GITHUB_TOKEN'),
+  repo: envStr('VAULT_REPO', 'jakkitpoolsawat170119-dev/knowledge-vault'),
+  branch: envStr('VAULT_BRANCH', 'main'),
+  webhookSecret: envStr('VAULT_WEBHOOK_SECRET'),
 });
 const vaultEnabled = () => !!cfg().token;
 
