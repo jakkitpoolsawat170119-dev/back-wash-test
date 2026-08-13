@@ -180,10 +180,33 @@ function postToMarkdown(post) {
   (p.blocks || []).forEach((b) => {
     switch (b.type) {
       case 'p': { const t = mdInline(b.html); if (t) L.push(t, ''); break; }
+      case 'h1': L.push('# ' + mdInline(b.html), ''); break;
       case 'h2': L.push('## ' + mdInline(b.html), ''); break;
       case 'h3': L.push('### ' + mdInline(b.html), ''); break;
+      case 'h4': L.push('#### ' + mdInline(b.html), ''); break;
       case 'quote': L.push('> ' + mdInline(b.html), ''); break;
       case 'list': (b.items || []).forEach(i => L.push('- ' + mdInline(i))); L.push(''); break;
+      case 'olist': (b.items || []).forEach((i, n) => L.push(`${n + 1}. ` + mdInline(i))); L.push(''); break;
+      case 'todo':
+        (b.items || []).forEach((i, n) => L.push(`- [${(b.checks || [])[n] ? 'x' : ' '}] ` + mdInline(i)));
+        L.push('');
+        break;
+      case 'divider': L.push('---', ''); break;
+      case 'toggle':
+        // callout แบบพับได้ของ Obsidian — เครื่องหมาย - ท้าย [!note] คือ "เริ่มมาแบบพับอยู่"
+        L.push(`> [!note]- ${mdInline(b.title)}`);
+        String(b.body || '').split('\n').forEach(l => L.push('> ' + l));
+        L.push('');
+        break;
+      case 'table': {
+        const cells = b.cells || [];
+        if (!cells.length) break;
+        L.push('| ' + cells[0].map(c => mdInline(c) || ' ').join(' | ') + ' |');
+        L.push('| ' + cells[0].map(() => '---').join(' | ') + ' |');
+        cells.slice(1).forEach(r => L.push('| ' + r.map(c => mdInline(c) || ' ').join(' | ') + ' |'));
+        L.push('');
+        break;
+      }
       case 'code': L.push('```', b.html || '', '```', ''); break;
       case 'image':
         L.push(`![${stripHtml(b.cap) || b.name || 'ภาพ'}](${b.src || ''})`);

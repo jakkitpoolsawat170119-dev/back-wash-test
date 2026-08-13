@@ -44,16 +44,57 @@ const thaiDate = (iso) => {
 
 /* ══════════════ บล็อก → HTML ══════════════ */
 
+// สี/ขนาด/กรอบที่คนเขียนตั้งไว้ในแถบขวาของ editor — ต้องเอามาใช้ที่หน้าอ่านด้วย
+// ไม่งั้นสิ่งที่เห็นตอนเขียนกับสิ่งที่คนอ่านเห็นจะคนละอย่าง (ตรงกับ styleOf() ใน BlogEditor.tsx)
+const CSS_COLOR = /^#[0-9a-f]{3,8}$/i;
+function styleAttr(b) {
+  const s = (b && b.style) || {};
+  const out = [];
+  if (CSS_COLOR.test(String(s.text || ''))) out.push(`color:${s.text}`);
+  if (CSS_COLOR.test(String(s.bg || ''))) out.push(`background:${s.bg}`);
+  if (Number.isFinite(s.fs)) out.push(`font-size:${Math.min(Math.max(s.fs, 8), 96)}px`);
+  if (Number.isFinite(s.pad)) out.push(`padding:${Math.min(Math.max(s.pad, 0), 80)}px`);
+  if (Number.isFinite(s.mar)) out.push(`margin:${Math.min(Math.max(s.mar, 0), 80)}px 0`);
+  if (Number.isFinite(s.bw) && s.bw > 0) {
+    out.push(`border:${Math.min(s.bw, 20)}px solid ${CSS_COLOR.test(String(s.bd || '')) ? s.bd : '#eee3d9'}`);
+  }
+  if (Number.isFinite(s.br)) out.push(`border-radius:${Math.min(Math.max(s.br, 0), 60)}px`);
+  const cls = String((b && b.cls) || '').replace(/[^a-zA-Z0-9 _-]/g, '').trim();
+  const id = String((b && b.anchor) || '').replace(/[^a-zA-Z0-9_-]/g, '').trim();
+  return (out.length ? ` style="${out.join(';')}"` : '')
+    + (cls ? ` class="${esc(cls)}"` : '') + (id ? ` id="${esc(id)}"` : '');
+}
+
 function renderBlock(b) {
+  const at = styleAttr(b);
   switch (b.type) {
-    case 'p': { const t = safeInline(b.html); return t.trim() ? `<p>${t}</p>` : ''; }
-    case 'h2': return `<h2>${safeInline(b.html)}</h2>`;
-    case 'h3': return `<h3>${safeInline(b.html)}</h3>`;
-    case 'quote': return `<blockquote>${safeInline(b.html)}</blockquote>`;
+    case 'p': { const t = safeInline(b.html); return t.trim() ? `<p${at}>${t}</p>` : ''; }
+    case 'h1': return `<h2 class="lv1"${at}>${safeInline(b.html)}</h2>`;
+    case 'h2': return `<h2${at}>${safeInline(b.html)}</h2>`;
+    case 'h3': return `<h3${at}>${safeInline(b.html)}</h3>`;
+    case 'h4': return `<h4${at}>${safeInline(b.html)}</h4>`;
+    case 'divider': return '<hr>';
+    case 'quote': return `<blockquote${at}>${safeInline(b.html)}</blockquote>`;
     case 'list':
-      return `<ul>${(b.items || []).map(i => `<li>${safeInline(i)}</li>`).join('')}</ul>`;
+      return `<ul${at}>${(b.items || []).map(i => `<li>${safeInline(i)}</li>`).join('')}</ul>`;
+    case 'olist':
+      return `<ol${at}>${(b.items || []).map(i => `<li>${safeInline(i)}</li>`).join('')}</ol>`;
+    case 'todo':
+      return `<ul class="todo"${at}>${(b.items || []).map((i, n) =>
+        `<li>${(b.checks || [])[n] ? '<span class="bx on">✓</span>' : '<span class="bx"></span>'}`
+        + `<span>${safeInline(i)}</span></li>`).join('')}</ul>`;
+    case 'toggle':
+      return `<details class="fold"${at}><summary>${safeInline(b.title)}</summary>`
+        + `<div>${String(b.body || '').split('\n').map(l => esc(l)).join('<br>')}</div></details>`;
+    case 'table': {
+      const cells = b.cells || [];
+      if (!cells.length) return '';
+      const head = `<thead><tr>${cells[0].map(c => `<th>${safeInline(c)}</th>`).join('')}</tr></thead>`;
+      const rows = cells.slice(1).map(r => `<tr>${r.map(c => `<td>${safeInline(c)}</td>`).join('')}</tr>`).join('');
+      return `<div class="tbl-wrap"${at}><table>${head}<tbody>${rows}</tbody></table></div>`;
+    }
     case 'code':
-      return `<pre><code>${esc(b.html || '')}</code></pre>`;
+      return `<pre${at}><code>${esc(b.html || '')}</code></pre>`;
     case 'image': {
       if (!b.src) return '';
       const cap = plain(b.cap);
@@ -102,7 +143,7 @@ const CSS = `
 :root{
   --brand:${BRAND};--brand-deep:#c24f00;--brand-soft:#fff3ea;
   --ink:#2b2119;--ink-soft:#6d6259;--paper:#faf7f4;--card:#fff;--line:#eee3d9;
-  --danger:#c62828;--warn:#c77700;--info:#1565c0;
+  --danger:#c62828;--warn:#c77700;--info:#1565c0;--ok:#1c8a4c;
   --shadow:0 1px 2px rgba(63,37,10,.05),0 8px 24px -10px rgba(63,37,10,.16);
 }
 *{box-sizing:border-box}
@@ -123,9 +164,27 @@ h1{font-family:'Kanit',sans-serif;font-size:clamp(27px,5.4vw,40px);line-height:1
   letter-spacing:-.03em;margin:16px 0 12px}
 h2{font-family:'Kanit',sans-serif;font-size:clamp(21px,3.6vw,27px);letter-spacing:-.02em;
   line-height:1.35;margin:44px 0 12px}
+h2.lv1{font-size:clamp(24px,4.4vw,32px);margin-top:52px}
 h3{font-family:'Kanit',sans-serif;font-size:19px;letter-spacing:-.01em;margin:32px 0 10px}
+h4{font-family:'Kanit',sans-serif;font-size:16.5px;letter-spacing:-.01em;margin:26px 0 8px;
+  color:var(--ink-soft)}
 p{margin:0 0 18px}
-ul{margin:0 0 18px;padding-left:22px}li{margin-bottom:7px}
+ul,ol{margin:0 0 18px;padding-left:22px}li{margin-bottom:7px}
+ol li::marker{font-family:'Kanit',sans-serif;color:var(--brand-deep);font-weight:600}
+hr{border:0;border-top:1px solid var(--line);margin:38px 0}
+ul.todo{list-style:none;padding-left:0}
+ul.todo li{display:flex;gap:10px;align-items:flex-start}
+ul.todo .bx{flex:none;width:19px;height:19px;border:2px solid var(--line);border-radius:6px;
+  margin-top:5px;display:flex;align-items:center;justify-content:center;font-size:13px;line-height:1}
+ul.todo .bx.on{background:var(--ok);border-color:var(--ok);color:#fff}
+details.fold{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:12px 16px;margin:0 0 20px;box-shadow:var(--shadow)}
+details.fold summary{font-family:'Kanit',sans-serif;cursor:pointer;list-style:none}
+details.fold summary::-webkit-details-marker{display:none}
+details.fold summary::before{content:'▸';color:var(--brand);display:inline-block;
+  margin-right:8px;transition:transform .18s ease}
+details.fold[open] summary::before{transform:rotate(90deg)}
+details.fold>div{padding-top:10px;color:var(--ink-soft);font-size:16px}
 .meta{color:var(--ink-soft);font-size:14.5px;border-bottom:1px solid var(--line);
   padding-bottom:20px;margin-bottom:30px}
 .meta .dot{opacity:.5;margin:0 7px}
@@ -152,6 +211,15 @@ figcaption{font-size:14px;color:var(--ink-soft);margin-top:9px;text-align:center
 .callout.danger{border-color:#f0c2b6;background:#fdefec;color:#8c2f18}
 .callout.warn{border-color:#f0dcb6;background:#fff8ec;color:#7a5300}
 .callout.info{border-color:#c3d4f2;background:#eef4ff;color:#24467e}
+.toc{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--brand);
+  border-radius:12px;padding:14px 20px 14px 22px;margin:0 0 32px;box-shadow:var(--shadow)}
+.toc b{font-family:'Kanit',sans-serif;font-size:14px;color:var(--ink-soft)}
+.toc ol{margin:8px 0 0;padding-left:20px}
+.toc li{margin-bottom:4px;font-size:15.5px}
+.toc a{text-decoration:none}
+.toc a:hover{text-decoration:underline}
+html{scroll-behavior:smooth}
+h2[id],h3[id]{scroll-margin-top:20px}
 .pblock{margin:0 0 26px}
 .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--card);
   box-shadow:var(--shadow)}
@@ -221,7 +289,15 @@ function shell({ title, desc, image, url, body, noindex = true }) {
 /* ══════════════ หน้าต่าง ๆ ══════════════ */
 
 function renderArticle(post, baseUrl) {
-  const blocks = (post.blocks || []).map(renderBlock).join('\n');
+  // ติดจุดยึดให้หัวข้อทุกอันก่อน แล้วค่อยทำสารบัญชี้มา (คนเขียนตั้ง anchor เองไว้ก็ใช้ของเขา)
+  const src = (post.blocks || []).map((b, i) =>
+    (['h1', 'h2', 'h3'].includes(b.type) && !b.anchor) ? { ...b, anchor: `sec-${i}` } : b);
+  const heads = src.filter(b => b.type === 'h1' || b.type === 'h2');
+  const toc = heads.length >= 3
+    ? `<nav class="toc"><b>ในบทความนี้</b><ol>${heads.map(h =>
+      `<li><a href="#${esc(String(h.anchor).replace(/[^a-zA-Z0-9_-]/g, ''))}">${esc(plain(h.html))}</a></li>`).join('')}</ol></nav>`
+    : '';
+  const blocks = toc + '\n' + src.map(renderBlock).join('\n');
   const firstImg = (post.blocks || []).find(b => b.type === 'image' && b.src);
   const desc = post.excerpt || plain((post.blocks || []).find(b => b.type === 'p')?.html).slice(0, 180);
   const when = thaiDate(post.publishedAt || post.updatedAt);

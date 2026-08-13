@@ -109,10 +109,39 @@
 
 .blogx .ed-p { outline: none; font-size: 16.5px; line-height: 1.85; min-height: 1.85em; }
 .blogx .ed-p:empty::before { content: attr(data-ph); color: #bdb0a3; }
+.blogx .ed-h1 { outline: none; font-size: 30px; font-weight: 700; padding: 10px 0 2px; letter-spacing: -.02em; }
 .blogx .ed-h2 { outline: none; font-size: 25px; font-weight: 700; padding: 8px 0 2px; }
 .blogx .ed-h3 { outline: none; font-size: 20px; font-weight: 600; padding: 6px 0 2px; }
-.blogx .ed-list { outline: none; font-size: 16.5px; line-height: 1.9; padding-left: 24px; }
-.blogx .ed-list li { margin-bottom: 2px; }
+.blogx .ed-h4 { outline: none; font-size: 17px; font-weight: 600; padding: 5px 0 2px; color: var(--ink-soft); }
+.blogx .ed-list, .blogx .ed-olist { outline: none; font-size: 16.5px; line-height: 1.9; padding-left: 24px; }
+.blogx .ed-list li, .blogx .ed-olist li { margin-bottom: 2px; }
+.blogx .ed-olist li::marker { font-weight: 700; color: var(--brand-deep); }
+
+/* เส้นคั่น / เช็กลิสต์ / กล่องพับเก็บ / ตารางอิสระ */
+.blogx .ed-hr { border: 0; border-top: 2px solid var(--line); margin: 14px 0; }
+.blogx .ed-todo { list-style: none; padding-left: 2px; margin: 0; font-size: 16.5px; line-height: 1.9; }
+.blogx .ed-todo li { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 2px; }
+.blogx .ed-todo input { margin-top: 9px; width: 17px; height: 17px; accent-color: var(--brand); flex: none; }
+.blogx .ed-todo li > div { flex: 1; }
+.blogx .ed-toggle { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; background: #fdfbf9; }
+.blogx .ed-toggle summary { cursor: pointer; list-style: none; }
+.blogx .ed-toggle summary::-webkit-details-marker { display: none; }
+.blogx .ed-toggle summary::before { content: '▸'; color: var(--brand); margin-right: 8px; display: inline-block; }
+.blogx .ed-toggle[open] summary::before { transform: rotate(90deg); }
+.blogx .ed-toggle-hd { outline: none; font-weight: 700; display: inline-block; min-width: 60px; }
+.blogx .ed-toggle-bd { outline: none; font-size: 16px; color: var(--ink-soft); padding-top: 8px; white-space: pre-wrap; }
+.blogx .ed-tablewrap { overflow-x: auto; }
+.blogx .ed-table { border-collapse: collapse; width: 100%; font-size: 15.5px; }
+.blogx .ed-table td { border: 1px solid var(--line); padding: 8px 11px; vertical-align: top; min-width: 90px; }
+.blogx .ed-table tr.hd td { background: var(--brand-soft); font-weight: 700; }
+.blogx .ed-table td > div { outline: none; min-height: 22px; }
+.blogx .ed-tbtns { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.blogx .ed-tbtns button {
+  border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 4px 10px;
+  font-size: 12px; font-family: var(--font-head); color: var(--ink-soft);
+}
+.blogx .ed-tbtns button:hover:not(:disabled) { background: var(--brand-soft); color: var(--brand-deep); }
+.blogx .ed-tbtns button:disabled { opacity: .4; }
 .blogx .ed-quote {
   outline: none; border-left: 4px solid var(--brand); padding: 4px 0 4px 16px;
   font-size: 16.5px; color: var(--ink-soft); font-style: italic;

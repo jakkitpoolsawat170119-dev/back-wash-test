@@ -8,7 +8,10 @@ const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-t
 
 /* ══════════════ ชนิดข้อมูล ══════════════ */
 
-export type BlockType = 'p' | 'h2' | 'h3' | 'list' | 'quote' | 'code' | 'image' | 'pdf' | 'flow' | 'params' | 'alert';
+export type BlockType =
+  | 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'list' | 'olist' | 'todo' | 'quote' | 'code'
+  | 'table' | 'divider' | 'toggle'
+  | 'image' | 'pdf' | 'flow' | 'params' | 'alert';
 
 interface FlowStep { t: string; c: string }
 interface ParamRow { p: string; set: string; rng: string; u: string; pt: string; oor: boolean }
@@ -30,6 +33,8 @@ export interface Block {
   level?: 'danger' | 'warn' | 'info';
   steps?: FlowStep[];
   rows?: ParamRow[];
+  cells?: string[][];        // ตารางอิสระ — แถวแรกคือหัวตาราง
+  checks?: boolean[];        // เช็กลิสต์ — ติ๊กคู่กับ items ทีละช่อง
   pid?: string;
   style?: BlockStyle;
   cls?: string;
@@ -80,10 +85,17 @@ interface PostSummary {
 
 const BLOCK_TYPES: { id: BlockType; ic: string; t: string; d: string; k: string; grp: string }[] = [
   { id: 'p',      ic: '¶',  t: 'ย่อหน้า',            d: 'เนื้อหาทั่วไป',                 k: '/p',     grp: 'พื้นฐาน' },
-  { id: 'h2',     ic: 'H₂', t: 'หัวข้อใหญ่',          d: 'แบ่งบทเป็นตอน ๆ',              k: '/h2',    grp: 'พื้นฐาน' },
-  { id: 'h3',     ic: 'H₃', t: 'หัวข้อย่อย',          d: 'หัวข้อระดับรอง',               k: '/h3',    grp: 'พื้นฐาน' },
-  { id: 'list',   ic: '•',  t: 'รายการ',              d: 'ลำดับขั้นตอนแบบข้อ ๆ',         k: '/list',  grp: 'พื้นฐาน' },
+  { id: 'h1',     ic: 'H₁', t: 'หัวข้อใหญ่สุด',       d: 'แบ่งบทความเป็นตอนใหญ่',         k: '/h1',    grp: 'หัวข้อ' },
+  { id: 'h2',     ic: 'H₂', t: 'หัวข้อใหญ่',          d: 'แบ่งบทเป็นตอน ๆ',              k: '/h2',    grp: 'หัวข้อ' },
+  { id: 'h3',     ic: 'H₃', t: 'หัวข้อย่อย',          d: 'หัวข้อระดับรอง',               k: '/h3',    grp: 'หัวข้อ' },
+  { id: 'h4',     ic: 'H₄', t: 'หัวข้อย่อยเล็ก',      d: 'ระดับล่างสุด',                 k: '/h4',    grp: 'หัวข้อ' },
+  { id: 'list',   ic: '•',  t: 'รายการ',              d: 'ข้อ ๆ ไม่เรียงลำดับ',           k: '/list',  grp: 'พื้นฐาน' },
+  { id: 'olist',  ic: '1.', t: 'รายการมีเลข',         d: 'ขั้นตอนที่ต้องทำตามลำดับ',      k: '/ol',    grp: 'พื้นฐาน' },
+  { id: 'todo',   ic: '☑',  t: 'เช็กลิสต์',           d: 'รายการที่ติ๊กได้ตอนทำจริง',     k: '/todo',  grp: 'พื้นฐาน' },
+  { id: 'table',  ic: '▦',  t: 'ตาราง',               d: 'ตารางอิสระ กำหนดหัวเอง',        k: '/table', grp: 'พื้นฐาน' },
   { id: 'quote',  ic: '❝',  t: 'ยกข้อความ',           d: 'อ้างคู่มือหรือมาตรฐาน',         k: '/quote', grp: 'พื้นฐาน' },
+  { id: 'toggle', ic: '▸',  t: 'กล่องพับเก็บ',        d: 'ซ่อนรายละเอียดยาว ๆ กดแล้วกาง', k: '/toggle', grp: 'พื้นฐาน' },
+  { id: 'divider',ic: '—',  t: 'เส้นคั่น',            d: 'คั่นระหว่างตอน',               k: '/hr',    grp: 'พื้นฐาน' },
   { id: 'code',   ic: '{}', t: 'บล็อกโค้ด',           d: 'สคริปต์ / ค่า config / log',    k: '/code',  grp: 'พื้นฐาน' },
   { id: 'image',  ic: '🖼', t: 'รูปภาพ',              d: 'ภาพจอ SCADA/HMI พร้อมคำบรรยาย', k: '/image', grp: 'สื่อ' },
   { id: 'pdf',    ic: '📕', t: 'เอกสาร PDF',          d: 'SOP, คู่มือเครื่อง, รายงาน',    k: '/pdf',   grp: 'สื่อ' },
@@ -127,9 +139,15 @@ function yamlStr(v: string): string {
 function newBlock(type: BlockType, extra?: Partial<Block>): Block {
   const b: Block = { id: nid(), type, style: {}, cls: '', anchor: '' };
   if (type === 'p') b.html = '';
+  if (type === 'h1') b.html = 'หัวข้อใหญ่สุด';
   if (type === 'h2') b.html = 'หัวข้อใหม่';
   if (type === 'h3') b.html = 'หัวข้อย่อย';
+  if (type === 'h4') b.html = 'หัวข้อย่อยเล็ก';
   if (type === 'list') b.items = ['ขั้นตอนแรก', 'ขั้นตอนถัดไป'];
+  if (type === 'olist') b.items = ['ขั้นตอนที่หนึ่ง', 'ขั้นตอนที่สอง'];
+  if (type === 'todo') { b.items = ['สิ่งที่ต้องตรวจ', 'สิ่งที่ต้องตรวจถัดไป']; b.checks = [false, false]; }
+  if (type === 'table') b.cells = [['หัวข้อ', 'รายละเอียด'], ['', ''], ['', '']];
+  if (type === 'toggle') { b.title = 'กดเพื่อดูรายละเอียด'; b.body = 'เนื้อหาที่ซ่อนไว้'; }
   if (type === 'quote') b.html = 'ข้อความที่ยกมาจากคู่มือ';
   if (type === 'code') b.html = '# ค่าที่ตั้งไว้บน HMI\nsupply_temp = 80';
   if (type === 'image') { b.src = ''; b.cap = ''; b.name = ''; }
@@ -611,10 +629,33 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
     blocks.forEach(b => {
       switch (b.type) {
         case 'p': { const t = mdInline(b.html); if (t) L.push(t, ''); break; }
+        case 'h1': L.push('# ' + mdInline(b.html), ''); break;
         case 'h2': L.push('## ' + mdInline(b.html), ''); break;
         case 'h3': L.push('### ' + mdInline(b.html), ''); break;
+        case 'h4': L.push('#### ' + mdInline(b.html), ''); break;
         case 'quote': L.push('> ' + mdInline(b.html), ''); break;
         case 'list': (b.items || []).forEach(i => L.push('- ' + mdInline(i))); L.push(''); break;
+        case 'olist': (b.items || []).forEach((i, n) => L.push(`${n + 1}. ` + mdInline(i))); L.push(''); break;
+        case 'todo':
+          (b.items || []).forEach((i, n) => L.push(`- [${(b.checks || [])[n] ? 'x' : ' '}] ` + mdInline(i)));
+          L.push('');
+          break;
+        case 'divider': L.push('---', ''); break;
+        case 'toggle':
+          // callout แบบพับได้ของ Obsidian — เครื่องหมาย - ท้าย [!note] คือ "เริ่มมาแบบพับอยู่"
+          L.push(`> [!note]- ${mdInline(b.title)}`);
+          String(b.body || '').split('\n').forEach(l => L.push('> ' + l));
+          L.push('');
+          break;
+        case 'table': {
+          const cells = b.cells || [];
+          if (!cells.length) break;
+          L.push('| ' + cells[0].map(c => mdInline(c) || ' ').join(' | ') + ' |');
+          L.push('| ' + cells[0].map(() => '---').join(' | ') + ' |');
+          cells.slice(1).forEach(r => L.push('| ' + r.map(c => mdInline(c) || ' ').join(' | ') + ' |'));
+          L.push('');
+          break;
+        }
         case 'code': L.push('```', b.html || '', '```', ''); break;
         case 'image': {
           // ยุบขึ้นบรรทัดในคำบรรยายให้เหลือเว้นวรรค ไม่งั้น ![alt](url) ขาดกลาง
@@ -671,9 +712,10 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
 
   /* ── ตัวเลขอ่านง่าย (readability) ── */
   const plain = blocks.map(b => {
-    if (['p', 'h2', 'h3', 'quote'].includes(b.type)) return stripHtml(b.html);
-    if (b.type === 'list') return (b.items || []).map(stripHtml).join(' ');
-    if (b.type === 'alert') return `${b.title} ${b.body}`;
+    if (['p', 'h1', 'h2', 'h3', 'h4', 'quote'].includes(b.type)) return stripHtml(b.html);
+    if (['list', 'olist', 'todo'].includes(b.type)) return (b.items || []).map(stripHtml).join(' ');
+    if (b.type === 'table') return (b.cells || []).flat().map(stripHtml).join(' ');
+    if (b.type === 'alert' || b.type === 'toggle') return `${b.title} ${b.body}`;
     return '';
   }).join(' ').trim();
   const words = plain ? plain.split(/\s+/).length : 0;
@@ -1218,17 +1260,35 @@ const BlockBody: React.FC<{
     case 'p':
       return <Rich className="ed-p" ph="พิมพ์ / เพื่อเลือกบล็อก" html={b.html || ''}
         onChange={v => set({ html: v })} onKeyDown={onKeyDown} />;
+    case 'h1':
+      return <Rich tag="h2" className="ed-h1" html={b.html || ''} onChange={v => set({ html: v })} onKeyDown={onKeyDown} />;
     case 'h2':
       return <Rich tag="h2" className="ed-h2" html={b.html || ''} onChange={v => set({ html: v })} onKeyDown={onKeyDown} />;
     case 'h3':
       return <Rich tag="h3" className="ed-h3" html={b.html || ''} onChange={v => set({ html: v })} onKeyDown={onKeyDown} />;
+    case 'h4':
+      return <Rich tag="h3" className="ed-h4" html={b.html || ''} onChange={v => set({ html: v })} onKeyDown={onKeyDown} />;
+    case 'divider':
+      return <hr className="ed-hr" />;
+    case 'toggle':
+      return (
+        <details className="ed-toggle" open>
+          <summary>
+            <Rich className="ed-toggle-hd" html={b.title || ''} onChange={v => set({ title: v })} />
+          </summary>
+          <Rich className="ed-toggle-bd" plain ph="รายละเอียดที่ซ่อนไว้"
+            html={b.body || ''} onChange={v => set({ body: v })} />
+        </details>
+      );
     case 'quote':
       return <Rich className="ed-quote" html={b.html || ''} onChange={v => set({ html: v })} onKeyDown={onKeyDown} />;
     case 'code':
       return <Rich className="ed-code" plain html={b.html || ''} onChange={v => set({ html: v })} />;
     case 'list':
+    case 'olist': {
+      const Tag = b.type === 'olist' ? 'ol' : 'ul';
       return (
-        <ul className="ed-list">
+        <Tag className={b.type === 'olist' ? 'ed-olist' : 'ed-list'}>
           {(b.items || []).map((it, i) => (
             <li key={i}>
               <Rich className="" html={it} onChange={v => {
@@ -1243,8 +1303,71 @@ const BlockBody: React.FC<{
               }} />
             </li>
           ))}
+        </Tag>
+      );
+    }
+    case 'todo':
+      return (
+        <ul className="ed-todo">
+          {(b.items || []).map((it, i) => (
+            <li key={i}>
+              <input type="checkbox" checked={!!(b.checks || [])[i]}
+                onChange={e => {
+                  const next = [...(b.checks || [])];
+                  while (next.length < (b.items || []).length) next.push(false);
+                  next[i] = e.target.checked;
+                  set({ checks: next });
+                }} />
+              <Rich className="" html={it} onChange={v => {
+                const next = [...(b.items || [])]; next[i] = v; set({ items: next });
+              }} onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  const items = [...(b.items || [])];
+                  const checks = [...(b.checks || [])];
+                  items.splice(i + 1, 0, '');
+                  checks.splice(i + 1, 0, false);
+                  set({ items, checks });
+                }
+              }} />
+            </li>
+          ))}
         </ul>
       );
+    case 'table': {
+      const cells = b.cells || [['', '']];
+      const setCell = (r: number, c: number, v: string) => {
+        const next = cells.map(row => [...row]);
+        next[r][c] = v;
+        set({ cells: next });
+      };
+      const cols = cells[0]?.length || 2;
+      return (
+        <div className="ed-tablewrap">
+          <table className="ed-table">
+            <tbody>
+              {cells.map((row, r) => (
+                <tr key={r} className={r === 0 ? 'hd' : ''}>
+                  {row.map((cel, c) => (
+                    <td key={c}>
+                      <Rich className="" html={cel} onChange={v => setCell(r, c, v)} />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="ed-tbtns">
+            <button onClick={() => set({ cells: [...cells.map(r => [...r]), Array(cols).fill('')] })}>＋ แถว</button>
+            <button onClick={() => set({ cells: cells.map(r => [...r, '']) })}>＋ คอลัมน์</button>
+            <button disabled={cells.length <= 1}
+              onClick={() => set({ cells: cells.slice(0, -1) })}>− แถว</button>
+            <button disabled={cols <= 1}
+              onClick={() => set({ cells: cells.map(r => r.slice(0, -1)) })}>− คอลัมน์</button>
+          </div>
+        </div>
+      );
+    }
     case 'image':
       return (
         <>
