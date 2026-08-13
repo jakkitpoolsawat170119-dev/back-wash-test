@@ -11,6 +11,7 @@ const FormData = require('form-data');
 const Anthropic = require('@anthropic-ai/sdk');
 const { renderShiftCardPNG, renderKpiCardPNG, canRenderCard, renderBeforeAfterCardPNG } = require('./shiftCard');
 const vault = require('./vault');
+const articlePage = require('./articlePage');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -8736,6 +8737,36 @@ app.get('/api/posts/:id/markdown', async (req, res) => {
     const post = postFromRow(row);
     res.json({ path: vault.postPath(post), markdown: vault.postToMarkdown(post) });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── หน้าอ่านบทความสาธารณะ (เฟส 5) ──────────────────────────────────────────
+// /บทความ            → รายชื่อบทความที่เผยแพร่แล้ว
+// /บทความ/<slug>     → ตัวบทความ
+// ใช้ middleware แทน app.get('/บทความ') เพราะ path ภาษาไทยที่เบราว์เซอร์ส่งมาเป็น
+// percent-encoded ตัว router จับคู่กับสตริงไทยตรง ๆ ไม่ติด — decode เองก่อนแล้วค่อยแยกทาง
+const ARTICLE_BASE = '/บทความ';
+app.use(async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+  let path;
+  try { path = decodeURIComponent(req.path || ''); } catch { return next(); }
+  if (path !== ARTICLE_BASE && !path.startsWith(ARTICLE_BASE + '/')) return next();
+  const slug = path.slice(ARTICLE_BASE.length + 1).replace(/\/+$/, '');
+  const send = (html, code = 200) => res.status(code).type('html').send(html);
+  try {
+    if (!slug) {
+      const rows = await dbAll(
+        `SELECT id, slug, title, excerpt, author, category, updated_at, published_at
+           FROM posts WHERE status = 'published'
+          ORDER BY COALESCE(published_at, updated_at) DESC`, []);
+      return send(articlePage.renderIndex(rows.map(postFromRow), PUBLIC_URL));
+    }
+    const row = await dbGet("SELECT * FROM posts WHERE slug = ? AND status = 'published'", [slug]);
+    if (!row) return send(articlePage.renderNotFound(), 404);
+    return send(articlePage.renderArticle(postFromRow(row), PUBLIC_URL));
+  } catch (e) {
+    console.error('[บทความ] เปิดหน้าไม่สำเร็จ', e.message);
+    return send(articlePage.renderNotFound(), 500);
+  }
 });
 
 app.get('/api/vault/status', (req, res) => {

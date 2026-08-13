@@ -240,6 +240,9 @@ const PostList: React.FC<{ onOpen: (id: number | 'new') => void }> = ({ onOpen }
           🔎<input value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหาจากหัวข้อ หมวดหมู่ หรือแท็ก…" />
         </div>
         <span className="grow" />
+        <a className="btn-o" href={`${apiUrl}/บทความ`} target="_blank" rel="noopener noreferrer">
+          หน้าที่คนอ่านเห็น ↗
+        </a>
         <button className="btn-o fill" onClick={() => onOpen('new')}>＋ เขียนบทความใหม่</button>
       </div>
 
@@ -654,6 +657,18 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
   // ต้องตรงกับ postPath() ใน server/vault.js — ใช้ slug ล้วน ชื่อไฟล์จะได้คงที่ตอนแก้บทความซ้ำ
   const obsPath = () => `${post?.obsFolder || 'บทความ'}/${slugify(post?.slug || post?.title || '')}.md`;
 
+  /* ── ลิงก์หน้าอ่านสาธารณะ ── */
+  // หน้าอ่านเสิร์ฟจากเซิร์ฟเวอร์ (ไม่ใช่ Vercel) เพราะต้องมี og: meta ให้ LINE ทำการ์ดพรีวิว
+  // ไม่ encode ตอนโชว์/คัดลอก — ลิงก์ภาษาไทยอ่านออกและแปะใน LINE/Telegram ได้ตรง ๆ
+  // (เบราว์เซอร์แปลงเป็น %E0%B8… ให้เองตอนเปิด ฝั่งเซิร์ฟเวอร์ decode กลับอยู่แล้ว)
+  const readerUrl = `${apiUrl}/บทความ/${slugify(post?.slug || post?.title || '')}`;
+  const [copied, setCopied] = useState(false);
+  const copyLink = () => {
+    navigator.clipboard.writeText(readerUrl)
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })
+      .catch(() => window.prompt('คัดลอกลิงก์นี้', readerUrl));
+  };
+
   /* ── ตัวเลขอ่านง่าย (readability) ── */
   const plain = blocks.map(b => {
     if (['p', 'h2', 'h3', 'quote'].includes(b.type)) return stripHtml(b.html);
@@ -893,7 +908,18 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
                 <input className="sinput" style={{ width: '100%' }} value={post.slug}
                   placeholder={slugify(post.title)}
                   onChange={e => setField('slug', e.target.value)} />
-                <div className="hintx">spp-mp.app/บทความ/{post.slug || slugify(post.title)}</div>
+                <div className="obs-path" style={{ marginTop: 8 }}>{readerUrl}</div>
+                {post.status === 'published' ? (
+                  <>
+                    <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button className="btn-o" onClick={copyLink}>{copied ? '✓ คัดลอกแล้ว' : 'คัดลอกลิงก์'}</button>
+                      <a className="btn-o" href={readerUrl} target="_blank" rel="noopener noreferrer">เปิดหน้าอ่าน ↗</a>
+                    </div>
+                    <div className="hintx">ส่งลิงก์นี้ให้ใครก็ได้ เปิดอ่านได้เลยไม่ต้องล็อกอิน</div>
+                  </>
+                ) : (
+                  <div className="hintx">ลิงก์นี้จะเปิดได้หลังกด "เผยแพร่" — ตอนนี้ยังเป็น{STATUS_LABEL[post.status]}</div>
+                )}
               </div>
               <div className="sgrp">
                 <h4>หมวดหมู่</h4>

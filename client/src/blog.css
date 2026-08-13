@@ -306,6 +306,8 @@
   font-size: 12.5px; font-weight: 700; font-family: var(--font-head); color: var(--ink); white-space: nowrap;
 }
 .blogx .btn-o:disabled { opacity: .5; }
+/* ปุ่มที่เป็นลิงก์ออกไปหน้าอ่านสาธารณะ — ให้สูงเท่าปุ่มปกติ ไม่มีขีดเส้นใต้ */
+.blogx a.btn-o { text-decoration: none; display: inline-flex; align-items: center; }
 .blogx .btn-o:hover { background: var(--brand-soft); color: var(--brand-deep); }
 .blogx .btn-o.fill { background: var(--brand); color: #fff; border-color: var(--brand); }
 .blogx .btn-o.fill:hover { background: var(--brand-deep); color: #fff; }
