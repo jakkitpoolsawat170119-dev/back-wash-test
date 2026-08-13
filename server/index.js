@@ -8856,6 +8856,8 @@ async function reconcileNote(path, text, author) {
       // ติ๊กปิด = การกดของคน ปิดแล้วปิดเลย ไม่มีทางพัง → ทำให้เลย
       await db.exec('UPDATE daily_tasks SET status = ?, completed_at = ?, done_by = COALESCE(done_by, ?) WHERE id = ?',
         ['done', nowBKK(), author || 'Obsidian', p.id]);
+      // จดไว้ว่างานนี้ปิดเพราะติ๊กใน Obsidian — done_by อย่างเดียวแยกไม่ออกจากงานที่ปิดในแอปเอง
+      await inboxAdd('closed', p.id, path, raw.trim(), t.title, date, author);
       closed.push({ id: p.id, title: t.title });
     } else if (!p.done && isDone) {
       await inboxAdd('reopen', p.id, path, raw.trim(), t.title, date, author); pending++;
@@ -8926,12 +8928,19 @@ app.post('/api/obsidian/webhook', async (req, res) => {
 app.get('/api/obsidian/inbox', async (req, res) => {
   try {
     const items = await dbAll(
-      `SELECT * FROM vault_inbox WHERE status = 'pending' ORDER BY created_at DESC, id DESC LIMIT 100`, []);
+      `SELECT * FROM vault_inbox WHERE status = 'pending' AND kind <> 'closed'
+        ORDER BY created_at DESC, id DESC LIMIT 100`, []);
+    // เอาเฉพาะที่ปิดเพราะติ๊กใน Obsidian จริง ๆ — งานที่ปิดในแอปเองไม่ควรมาโผล่ในนี้
     const done = await dbAll(
-      `SELECT id, title, completed_at, done_by FROM daily_tasks
-        WHERE status = 'done' AND done_by IS NOT NULL AND task_date >= ?
-        ORDER BY completed_at DESC LIMIT 20`, [todayBKK()]);
-    res.json({ enabled: vault.vaultEnabled(), items, closedFromVault: done });
+      `SELECT id, task_id, proposed_title, author, created_at FROM vault_inbox
+        WHERE kind = 'closed' ORDER BY id DESC LIMIT 20`, []);
+    res.json({
+      enabled: vault.vaultEnabled(),
+      items,
+      closedFromVault: done.map(r => ({
+        id: r.task_id || r.id, title: r.proposed_title, done_by: r.author, completed_at: r.created_at,
+      })),
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
