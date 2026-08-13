@@ -120,6 +120,32 @@ function replaceMarked(existing, name, body, opts = {}) {
 
 const STATUS_LABEL = { draft: 'ร่าง', review: 'รอตรวจ', published: 'เผยแพร่' };
 
+// ลิงก์รูปกราฟกับตัวอ่านลิงก์วิดีโอ — ต้องให้ผลตรงกับฝั่ง client (BlogEditor.tsx)
+const PUBLIC_BASE = (process.env.PUBLIC_URL || 'https://back-wash-test.onrender.com').replace(/\/+$/, '');
+
+function videoEmbed(raw) {
+  const url = String(raw || '').trim();
+  if (!url) return null;
+  const yt = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([\w-]{6,20})/);
+  if (yt) return { src: `https://www.youtube-nocookie.com/embed/${yt[1]}`, kind: 'youtube' };
+  const gd = url.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=)([\w-]{10,})/);
+  if (gd) return { src: `https://drive.google.com/file/d/${gd[1]}/preview`, kind: 'drive' };
+  if (/^https?:\/\/[^\s]+\.(mp4|webm|ogg)(\?[^\s]*)?$/i.test(url)) return { src: url, kind: 'file' };
+  return null;
+}
+
+function chartUrl(b, base = PUBLIC_BASE) {
+  const q = new URLSearchParams();
+  q.set('k', b.chartKind || 'bar');
+  q.set('s', b.chartSrc || 'manual');
+  if (b.days) q.set('d', String(b.days));
+  if (b.title) q.set('t', b.title);
+  if ((b.chartSrc || 'manual') === 'manual') {
+    q.set('m', Buffer.from(JSON.stringify(b.cells || []), 'utf8').toString('base64'));
+  }
+  return `${base}/api/chart.svg?${q.toString()}`;
+}
+
 function slugify(s) {
   return String(s || '').trim().toLowerCase()
     .replace(/[\s_/]+/g, '-')
@@ -215,6 +241,23 @@ function postToMarkdown(post) {
         break;
       case 'pdf':
         L.push(`[📕 ${b.name || 'เอกสาร'}](${b.url || ''})${b.meta ? ' — ' + b.meta : ''}`, '');
+        break;
+      case 'cols':
+        // markdown ไม่มีคอลัมน์ — วางต่อกันลงมาแทน เนื้อหาไม่หาย
+        (b.items || []).forEach(c => { const t = mdInline(c); if (t) L.push(t, ''); });
+        break;
+      case 'video': {
+        const emb = videoEmbed(b.url || '');
+        // Obsidian ฝัง YouTube ให้เองถ้าเขียนเป็น ![](ลิงก์) — อย่างอื่นใส่เป็นลิงก์ธรรมดา
+        if (emb && emb.kind === 'youtube') L.push(`![](${b.url})`);
+        else if (b.url) L.push(`[▶️ ${stripHtml(b.cap) || 'ดูวิดีโอ'}](${b.url})`);
+        if (stripHtml(b.cap)) L.push('*' + stripHtml(b.cap) + '*');
+        L.push('');
+        break;
+      }
+      case 'chart':
+        // รูปกราฟดึงจากเซิร์ฟเวอร์ — เปิดใน Obsidian แล้วเห็นกราฟจริง และอัปเดตตามข้อมูลล่าสุด
+        L.push(`![${b.title || 'กราฟ'}](${chartUrl(b)})`, '');
         break;
       case 'alert': {
         const kind = b.level === 'danger' ? 'danger' : b.level === 'warn' ? 'warning' : 'info';
@@ -380,7 +423,7 @@ module.exports = {
   vaultEnabled, vaultConfig: cfg,
   vaultRead, vaultWrite, vaultDelete,
   replaceMarked, hasMarker,
-  postToMarkdown, postPath, slugify,
+  postToMarkdown, postPath, slugify, videoEmbed, chartUrl,
   syncPost, unsyncPost,
   TASK_MARK, dailyNotePath, taskLine, parseTaskLine, buildDailyNote, removeLine,
 };

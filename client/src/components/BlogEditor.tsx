@@ -10,8 +10,8 @@ const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-t
 
 export type BlockType =
   | 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'list' | 'olist' | 'todo' | 'quote' | 'code'
-  | 'table' | 'divider' | 'toggle'
-  | 'image' | 'pdf' | 'flow' | 'params' | 'alert';
+  | 'table' | 'divider' | 'toggle' | 'cols'
+  | 'image' | 'pdf' | 'video' | 'flow' | 'params' | 'alert' | 'chart';
 
 interface FlowStep { t: string; c: string }
 interface ParamRow { p: string; set: string; rng: string; u: string; pt: string; oor: boolean }
@@ -33,8 +33,11 @@ export interface Block {
   level?: 'danger' | 'warn' | 'info';
   steps?: FlowStep[];
   rows?: ParamRow[];
-  cells?: string[][];        // ตารางอิสระ — แถวแรกคือหัวตาราง
+  cells?: string[][];        // ตารางอิสระ / ข้อมูลกราฟแบบพิมพ์เอง — แถวแรกคือหัวตาราง
   checks?: boolean[];        // เช็กลิสต์ — ติ๊กคู่กับ items ทีละช่อง
+  chartKind?: 'bar' | 'line';
+  chartSrc?: string;         // manual | production-daily | production-machine | tasks-daily
+  days?: number;             // ย้อนหลังกี่วัน (เฉพาะกราฟที่ดึงข้อมูลจากระบบ)
   pid?: string;
   style?: BlockStyle;
   cls?: string;
@@ -97,8 +100,11 @@ const BLOCK_TYPES: { id: BlockType; ic: string; t: string; d: string; k: string;
   { id: 'toggle', ic: '▸',  t: 'กล่องพับเก็บ',        d: 'ซ่อนรายละเอียดยาว ๆ กดแล้วกาง', k: '/toggle', grp: 'พื้นฐาน' },
   { id: 'divider',ic: '—',  t: 'เส้นคั่น',            d: 'คั่นระหว่างตอน',               k: '/hr',    grp: 'พื้นฐาน' },
   { id: 'code',   ic: '{}', t: 'บล็อกโค้ด',           d: 'สคริปต์ / ค่า config / log',    k: '/code',  grp: 'พื้นฐาน' },
+  { id: 'cols',   ic: '◫',  t: 'แบ่งคอลัมน์',         d: 'วางเนื้อหาคู่กัน จอแคบยุบเป็นแถวเดียว', k: '/cols', grp: 'พื้นฐาน' },
   { id: 'image',  ic: '🖼', t: 'รูปภาพ',              d: 'ภาพจอ SCADA/HMI พร้อมคำบรรยาย', k: '/image', grp: 'สื่อ' },
+  { id: 'video',  ic: '▶',  t: 'วิดีโอ',              d: 'YouTube / Google Drive / ไฟล์วิดีโอ', k: '/video', grp: 'สื่อ' },
   { id: 'pdf',    ic: '📕', t: 'เอกสาร PDF',          d: 'SOP, คู่มือเครื่อง, รายงาน',    k: '/pdf',   grp: 'สื่อ' },
+  { id: 'chart',  ic: '📊', t: 'กราฟ',                d: 'ดึงยอดผลิตจริงมาวาด หรือพิมพ์เอง', k: '/chart', grp: 'งานผลิต' },
   { id: 'flow',   ic: '🔀', t: 'Process Flow / P&ID', d: 'ลำดับการไหลของกระบวนการ',       k: '/flow',  grp: 'งานผลิต' },
   { id: 'params', ic: '⊞',  t: 'ตารางพารามิเตอร์',    d: 'ค่าตั้ง / ช่วงปกติ / จุดวัด',   k: '/param', grp: 'งานผลิต' },
   { id: 'alert',  ic: '⚠️', t: 'กล่องแจ้งเตือน',      d: 'อันตราย / ระวัง / ข้อมูล',      k: '/alert', grp: 'งานผลิต' },
@@ -127,6 +133,44 @@ function stripHtml(h?: string): string {
 }
 const todayISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
 
+/* ── วิดีโอ: อ่านลิงก์ที่วางมาแล้วแปลงเป็นที่อยู่สำหรับฝัง ──
+   รับเฉพาะ YouTube / Google Drive / ไฟล์วิดีโอตรง ๆ — ลิงก์อื่นไม่ฝังให้ (กันฝังของแปลกปลอม)
+   ตรรกะเดียวกันกับ videoEmbed() ใน server/articlePage.js ต้องแก้คู่กัน */
+export function videoEmbed(raw: string): { src: string; kind: 'youtube' | 'drive' | 'file' } | null {
+  const url = String(raw || '').trim();
+  if (!url) return null;
+  const yt = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([\w-]{6,20})/);
+  if (yt) return { src: `https://www.youtube-nocookie.com/embed/${yt[1]}`, kind: 'youtube' };
+  const gd = url.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=)([\w-]{10,})/);
+  if (gd) return { src: `https://drive.google.com/file/d/${gd[1]}/preview`, kind: 'drive' };
+  if (/^https?:\/\/[^\s]+\.(mp4|webm|ogg)(\?[^\s]*)?$/i.test(url)) return { src: url, kind: 'file' };
+  return null;
+}
+
+const CHART_SOURCES: { id: string; t: string }[] = [
+  { id: 'production-daily', t: 'ยอดผลิตรายวัน (ดึงจากระบบ)' },
+  { id: 'production-machine', t: 'ยอดผลิตแยกตามเครื่อง (ดึงจากระบบ)' },
+  { id: 'tasks-daily', t: 'งานที่ทำเสร็จรายวัน (ดึงจากระบบ)' },
+  { id: 'manual', t: 'พิมพ์ตัวเลขเอง' },
+];
+
+const b64utf8 = (s: string): string => {
+  const bytes = new TextEncoder().encode(s);
+  let bin = '';
+  bytes.forEach(x => { bin += String.fromCharCode(x); });
+  return btoa(bin);
+};
+
+export function chartUrl(b: Block, base: string): string {
+  const q = new URLSearchParams();
+  q.set('k', b.chartKind || 'bar');
+  q.set('s', b.chartSrc || 'manual');
+  if (b.days) q.set('d', String(b.days));
+  if (b.title) q.set('t', b.title);
+  if ((b.chartSrc || 'manual') === 'manual') q.set('m', b64utf8(JSON.stringify(b.cells || [])));
+  return `${base}/api/chart.svg?${q.toString()}`;
+}
+
 // ค่าใน frontmatter ที่มี : หรือ # จะทำให้ YAML พัง → ใส่ quote ให้เมื่อจำเป็น
 // (ต้องให้ผลตรงกับ yamlStr() ใน server/vault.js ซึ่งเป็นตัวเขียนไฟล์จริง)
 function yamlStr(v: string): string {
@@ -150,7 +194,16 @@ function newBlock(type: BlockType, extra?: Partial<Block>): Block {
   if (type === 'toggle') { b.title = 'กดเพื่อดูรายละเอียด'; b.body = 'เนื้อหาที่ซ่อนไว้'; }
   if (type === 'quote') b.html = 'ข้อความที่ยกมาจากคู่มือ';
   if (type === 'code') b.html = '# ค่าที่ตั้งไว้บน HMI\nsupply_temp = 80';
+  if (type === 'cols') b.items = ['เนื้อหาคอลัมน์ซ้าย', 'เนื้อหาคอลัมน์ขวา'];
   if (type === 'image') { b.src = ''; b.cap = ''; b.name = ''; }
+  if (type === 'video') { b.url = ''; b.cap = ''; }
+  if (type === 'chart') {
+    b.title = 'ยอดผลิตรายวัน';
+    b.chartKind = 'bar';
+    b.chartSrc = 'production-daily';
+    b.days = 14;
+    b.cells = [['เดือน', 'ยอดผลิต'], ['ม.ค.', '1200'], ['ก.พ.', '1450']];
+  }
   if (type === 'pdf') { b.name = ''; b.meta = ''; b.url = ''; b.mode = 'button'; }
   if (type === 'flow') {
     b.title = 'ลำดับการไหล';
@@ -667,6 +720,23 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
         }
         case 'pdf':
           L.push(`[📕 ${b.name || 'เอกสาร'}](${b.url || ''})${b.meta ? ' — ' + b.meta : ''}`, '');
+          break;
+        case 'cols':
+          // markdown ไม่มีคอลัมน์ — วางต่อกันลงมาแทน เนื้อหาไม่หาย
+          (b.items || []).forEach(c => { const t = mdInline(c); if (t) L.push(t, ''); });
+          break;
+        case 'video': {
+          const emb = videoEmbed(b.url || '');
+          // Obsidian ฝัง YouTube ให้เองถ้าเขียนเป็น ![](ลิงก์) — อย่างอื่นใส่เป็นลิงก์ธรรมดา
+          if (emb && emb.kind === 'youtube') L.push(`![](${b.url})`);
+          else if (b.url) L.push(`[▶️ ${stripHtml(b.cap) || 'ดูวิดีโอ'}](${b.url})`);
+          if (stripHtml(b.cap)) L.push('*' + stripHtml(b.cap) + '*');
+          L.push('');
+          break;
+        }
+        case 'chart':
+          // รูปกราฟดึงจากเซิร์ฟเวอร์ — เปิดใน Obsidian แล้วเห็นกราฟจริง และอัปเดตตามข้อมูลล่าสุด
+          L.push(`![${b.title || 'กราฟ'}](${chartUrl(b, apiUrl)})`, '');
           break;
         case 'alert': {
           const kind = b.level === 'danger' ? 'danger' : b.level === 'warn' ? 'warning' : 'info';
@@ -1365,6 +1435,103 @@ const BlockBody: React.FC<{
             <button disabled={cols <= 1}
               onClick={() => set({ cells: cells.map(r => r.slice(0, -1)) })}>− คอลัมน์</button>
           </div>
+        </div>
+      );
+    }
+    case 'cols': {
+      const cols = b.items || ['', ''];
+      return (
+        <div>
+          <div className={`ed-cols c${cols.length}`}>
+            {cols.map((it, i) => (
+              <div key={i} className="col">
+                <Rich className="ed-p" ph={`คอลัมน์ที่ ${i + 1}`} html={it}
+                  onChange={v => { const n = [...cols]; n[i] = v; set({ items: n }); }} />
+              </div>
+            ))}
+          </div>
+          <div className="ed-tbtns">
+            <button disabled={cols.length >= 3} onClick={() => set({ items: [...cols, ''] })}>＋ คอลัมน์</button>
+            <button disabled={cols.length <= 2} onClick={() => set({ items: cols.slice(0, -1) })}>− คอลัมน์</button>
+          </div>
+        </div>
+      );
+    }
+    case 'video': {
+      const emb = videoEmbed(b.url || '');
+      return (
+        <>
+          <input className="sinput" style={{ width: '100%' }} value={b.url || ''}
+            placeholder="วางลิงก์ YouTube หรือ Google Drive ตรงนี้"
+            onChange={e => set({ url: e.target.value })} />
+          {emb && (
+            <div className="ed-video">
+              {emb.kind === 'file'
+                ? <video src={emb.src} controls />
+                : <iframe src={emb.src} title="วิดีโอ" allowFullScreen
+                  allow="accelerometer; encrypted-media; gyroscope; picture-in-picture" />}
+            </div>
+          )}
+          {!emb && b.url && (
+            <div className="hintx">ลิงก์นี้ยังอ่านไม่ออก — รองรับ YouTube, Google Drive และไฟล์ .mp4/.webm</div>
+          )}
+          <Rich className="ed-cap" ph="คำบรรยายวิดีโอ" html={b.cap || ''} onChange={v => set({ cap: v })} />
+        </>
+      );
+    }
+    case 'chart': {
+      const manual = (b.chartSrc || 'manual') === 'manual';
+      const cells = b.cells || [['', '']];
+      const setCell = (r: number, c: number, v: string) => {
+        const next = cells.map(row => [...row]);
+        next[r][c] = v;
+        set({ cells: next });
+      };
+      return (
+        <div className="ed-chart">
+          <div className="ed-chartbar">
+            <select className="sselect" value={b.chartSrc || 'manual'} onChange={e => set({ chartSrc: e.target.value })}>
+              {CHART_SOURCES.map(s => <option key={s.id} value={s.id}>{s.t}</option>)}
+            </select>
+            <select className="sselect" value={b.chartKind || 'bar'}
+              onChange={e => set({ chartKind: e.target.value as 'bar' | 'line' })}>
+              <option value="bar">แท่ง</option>
+              <option value="line">เส้น</option>
+            </select>
+            {!manual && (
+              <select className="sselect" value={b.days || 14} onChange={e => set({ days: Number(e.target.value) })}>
+                {[7, 14, 30, 90].map(d => <option key={d} value={d}>ย้อนหลัง {d} วัน</option>)}
+              </select>
+            )}
+            <input className="sinput" style={{ flex: 1, minWidth: 140 }} value={b.title || ''}
+              placeholder="ชื่อกราฟ" onChange={e => set({ title: e.target.value })} />
+          </div>
+          <img className="ed-chartimg" src={chartUrl(b, apiUrl)} alt={b.title || 'กราฟ'} />
+          {manual && (
+            <div className="ed-tablewrap">
+              <table className="ed-table">
+                <tbody>
+                  {cells.map((row, r) => (
+                    <tr key={r} className={r === 0 ? 'hd' : ''}>
+                      {row.map((cel, c) => (
+                        <td key={c}>
+                          <Rich className="" html={cel} onChange={v => setCell(r, c, v)} />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="ed-tbtns">
+                <button onClick={() => set({ cells: [...cells.map(r => [...r]), Array(cells[0].length).fill('')] })}>＋ แถว</button>
+                <button onClick={() => set({ cells: cells.map(r => [...r, '']) })}>＋ ชุดข้อมูล</button>
+                <button disabled={cells.length <= 2} onClick={() => set({ cells: cells.slice(0, -1) })}>− แถว</button>
+                <button disabled={(cells[0]?.length || 0) <= 2} onClick={() => set({ cells: cells.map(r => r.slice(0, -1)) })}>− ชุดข้อมูล</button>
+              </div>
+              <div className="hintx">ช่องซ้ายสุด = ชื่อแกน · แถวบนสุด = ชื่อชุดข้อมูล · กราฟอัปเดตหลังบันทึก</div>
+            </div>
+          )}
+          {!manual && <div className="hintx">ดึงตัวเลขจริงจากระบบตอนเปิดอ่าน — นับเฉพาะยอดที่อนุมัติแล้ว หน่วยกล่อง</div>}
         </div>
       );
     }

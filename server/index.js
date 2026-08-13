@@ -12,6 +12,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { renderShiftCardPNG, renderKpiCardPNG, canRenderCard, renderBeforeAfterCardPNG } = require('./shiftCard');
 const vault = require('./vault');
 const articlePage = require('./articlePage');
+const chartSvg = require('./chartSvg');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -8739,6 +8740,96 @@ app.get('/api/posts/:id/markdown', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── กราฟในบทความ ───────────────────────────────────────────────────────────
+// วาดฝั่งเซิร์ฟเวอร์เป็น SVG แล้วใช้ได้ทั้งหน้าอ่าน / ตัวอย่างใน editor / Obsidian
+// ⚠️ ยอดผลิตต้องกรองก่อนรวม — ข้อมูลจริงมีทั้งหน่วย "กล่อง" และ "หม้อ" ปนกัน
+//    และมีทั้ง approved / pending_review / rejected เอามาบวกดิบ ๆ ได้ตัวเลขมั่ว
+const CHART_UNIT = 'กล่อง';
+const nDaysAgo = (n) => {
+  const d = new Date(`${workDayBKK()}T12:00:00`);
+  d.setDate(d.getDate() - (n - 1));
+  return d.toLocaleDateString('en-CA');
+};
+
+async function chartData(q) {
+  const kind = q.k === 'line' ? 'line' : 'bar';
+  const days = Math.min(Math.max(Number(q.d) || 14, 2), 90);
+  const title = String(q.t || '').slice(0, 120);
+  const src = String(q.s || 'manual');
+
+  if (src === 'production-daily') {
+    const rows = await dbAll(
+      `SELECT work_day, SUM(prod_qty) AS total FROM production_reports
+        WHERE work_day >= ? AND status = 'approved' AND count_unit = ?
+        GROUP BY work_day ORDER BY work_day`, [nDaysAgo(days), CHART_UNIT]);
+    return {
+      title: title || `ยอดผลิตรายวัน ${days} วันล่าสุด`,
+      kind,
+      unit: CHART_UNIT,
+      labels: rows.map(r => String(r.work_day).slice(5)),
+      series: [{ name: 'ยอดผลิต', values: rows.map(r => Number(r.total) || 0) }],
+    };
+  }
+  if (src === 'production-machine') {
+    const rows = await dbAll(
+      `SELECT machine, SUM(prod_qty) AS total FROM production_reports
+        WHERE work_day >= ? AND status = 'approved' AND count_unit = ?
+        GROUP BY machine ORDER BY total DESC`, [nDaysAgo(days), CHART_UNIT]);
+    const keep = rows.filter(r => r.machine).slice(0, 8);
+    return {
+      title: title || `ยอดผลิตแยกตามเครื่อง ${days} วันล่าสุด`,
+      kind,
+      unit: CHART_UNIT,
+      labels: keep.map(r => r.machine),
+      series: [{ name: 'ยอดผลิต', values: keep.map(r => Number(r.total) || 0) }],
+    };
+  }
+  if (src === 'tasks-daily') {
+    const rows = await dbAll(
+      `SELECT task_date,
+              COUNT(*) AS total,
+              SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done
+         FROM daily_tasks WHERE task_date >= ?
+        GROUP BY task_date ORDER BY task_date`, [nDaysAgo(days)]);
+    return {
+      title: title || `งานรายวัน ${days} วันล่าสุด`,
+      kind,
+      unit: 'งาน',
+      labels: rows.map(r => String(r.task_date).slice(5)),
+      series: [
+        { name: 'ทำเสร็จ', values: rows.map(r => Number(r.done) || 0) },
+        { name: 'ทั้งหมด', values: rows.map(r => Number(r.total) || 0) },
+      ],
+    };
+  }
+  // พิมพ์เอง — ตารางที่คนกรอก แถวแรกคือหัวตาราง ช่องแรกของแต่ละแถวคือชื่อแกน
+  let cells = [];
+  try { cells = JSON.parse(Buffer.from(String(q.m || ''), 'base64').toString('utf8')); } catch { cells = []; }
+  if (!Array.isArray(cells) || cells.length < 2) return { title, kind, labels: [], series: [], unit: '' };
+  const head = cells[0].map(c => String(c || '').replace(/<[^>]+>/g, '').trim());
+  const body = cells.slice(1).filter(r => Array.isArray(r) && String(r[0] || '').trim());
+  return {
+    title,
+    kind,
+    unit: '',
+    labels: body.map(r => String(r[0] || '').replace(/<[^>]+>/g, '').trim()),
+    series: head.slice(1).map((name, ci) => ({
+      name: name || `ชุดที่ ${ci + 1}`,
+      values: body.map(r => Number(String(r[ci + 1] || '').replace(/[^0-9.\-]/g, '')) || 0),
+    })),
+  };
+}
+
+app.get('/api/chart.svg', async (req, res) => {
+  try {
+    const data = await chartData(req.query || {});
+    res.type('image/svg+xml').set('Cache-Control', 'public, max-age=300').send(chartSvg.renderChart(data));
+  } catch (e) {
+    console.error('[chart] วาดไม่สำเร็จ', e.message);
+    res.status(500).type('image/svg+xml').send(chartSvg.renderChart({ title: 'ดึงข้อมูลไม่สำเร็จ', labels: [], series: [] }));
+  }
+});
+
 // ── หน้าอ่านบทความสาธารณะ (เฟส 5) ──────────────────────────────────────────
 // /บทความ            → รายชื่อบทความที่เผยแพร่แล้ว
 // /บทความ/<slug>     → ตัวบทความ
@@ -8762,7 +8853,18 @@ app.use(async (req, res, next) => {
     }
     const row = await dbGet("SELECT * FROM posts WHERE slug = ? AND status = 'published'", [slug]);
     if (!row) return send(articlePage.renderNotFound(), 404);
-    return send(articlePage.renderArticle(postFromRow(row), PUBLIC_URL));
+    const post = postFromRow(row);
+    // กราฟต้องดึงข้อมูลก่อน (เป็นงาน async) ตัวเรนเดอร์หน้าเป็นฟังก์ชันธรรมดา
+    for (const b of post.blocks || []) {
+      if (b.type !== 'chart') continue;
+      try {
+        b._chart = await chartData({
+          k: b.chartKind, s: b.chartSrc, d: b.days, t: b.title,
+          m: Buffer.from(JSON.stringify(b.cells || []), 'utf8').toString('base64'),
+        });
+      } catch (e) { console.error('[chart] ดึงข้อมูลไม่สำเร็จ', e.message); }
+    }
+    return send(articlePage.renderArticle(post, PUBLIC_URL));
   } catch (e) {
     console.error('[บทความ] เปิดหน้าไม่สำเร็จ', e.message);
     return send(articlePage.renderNotFound(), 500);

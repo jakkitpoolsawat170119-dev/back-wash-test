@@ -5,6 +5,9 @@
 //   2. คนอ่านไม่ต้องล็อกอิน ไม่ต้องโหลด bundle ของแอปทั้งก้อน
 // เห็นเฉพาะบทความที่ status='published' — ร่างเปิดไม่ได้
 
+const vault = require('./vault');
+const chartSvg = require('./chartSvg');
+
 const BRAND = '#ff6b00';
 
 const esc = (s) => String(s == null ? '' : s)
@@ -92,6 +95,30 @@ function renderBlock(b) {
       const head = `<thead><tr>${cells[0].map(c => `<th>${safeInline(c)}</th>`).join('')}</tr></thead>`;
       const rows = cells.slice(1).map(r => `<tr>${r.map(c => `<td>${safeInline(c)}</td>`).join('')}</tr>`).join('');
       return `<div class="tbl-wrap"${at}><table>${head}<tbody>${rows}</tbody></table></div>`;
+    }
+    case 'cols': {
+      const cols = b.items || [];
+      return `<div class="cols c${Math.min(cols.length, 3)}"${at}>`
+        + cols.map(c => `<div>${safeInline(c)}</div>`).join('') + '</div>';
+    }
+    case 'video': {
+      const emb = vault.videoEmbed(b.url || '');
+      if (!emb) return '';
+      const cap = plain(b.cap);
+      const player = emb.kind === 'file'
+        ? `<video src="${esc(emb.src)}" controls playsinline></video>`
+        : `<iframe src="${esc(emb.src)}" title="วิดีโอ" loading="lazy" allowfullscreen`
+          + ` allow="accelerometer; encrypted-media; gyroscope; picture-in-picture"></iframe>`;
+      return `<figure class="vid"${at}><div class="frame">${player}</div>`
+        + (cap ? `<figcaption>${esc(cap)}</figcaption>` : '') + '</figure>';
+    }
+    case 'chart': {
+      // ข้อมูลถูกดึงมาแปะไว้ที่ b._chart ก่อนเรนเดอร์ (ดู resolveCharts ใน index.js)
+      const d = b._chart;
+      if (!d) return '';
+      // ห่อด้วยกล่องเลื่อนแนวนอน — จอมือถือถ้าปล่อยให้ย่อเต็มความกว้าง ตัวหนังสือในกราฟจะเล็กจนอ่านไม่ออก
+      return `<figure class="chart"${at}><div class="chart-scroll">${chartSvg.renderChart(d)}</div>`
+        + `${chartSvg.renderDataTable(d)}</figure>`;
     }
     case 'code':
       return `<pre${at}><code>${esc(b.html || '')}</code></pre>`;
@@ -233,6 +260,19 @@ tr.oor td{background:#fdefec;color:#8c2f18}
 .flow li>span{background:var(--c);color:#fff;border-radius:12px;padding:11px 16px;
   font-family:'Kanit',sans-serif;font-size:14.5px;line-height:1.45;box-shadow:var(--shadow)}
 .flow .arw{color:var(--ink-soft);font-style:normal;font-size:19px}
+/* คอลัมน์ — จอแคบยุบเป็นแถวเดียวเสมอ อ่านบนมือถือได้ */
+.cols{display:grid;gap:18px;grid-template-columns:1fr;margin:0 0 20px}
+@media(min-width:620px){.cols.c2{grid-template-columns:1fr 1fr}
+  .cols.c3{grid-template-columns:1fr 1fr 1fr}}
+.vid{margin:0 0 24px}
+.vid .frame{position:relative;padding-top:56.25%;border-radius:14px;overflow:hidden;
+  background:#2b2119;box-shadow:var(--shadow)}
+.vid iframe,.vid video{position:absolute;inset:0;width:100%;height:100%;border:0}
+figure.chart{margin:0 0 26px;background:var(--card);border:1px solid var(--line);
+  border-radius:14px;padding:16px;box-shadow:var(--shadow)}
+figure.chart details.fold{margin:12px 0 0;box-shadow:none;background:transparent}
+figure.chart .chart-scroll{overflow-x:auto}
+figure.chart .chart-scroll svg{min-width:600px}
 .cards{display:grid;gap:14px;grid-template-columns:1fr}
 @media(min-width:680px){.cards{grid-template-columns:1fr 1fr}}
 .card{display:flex;flex-direction:column;align-items:flex-start;background:var(--card);
