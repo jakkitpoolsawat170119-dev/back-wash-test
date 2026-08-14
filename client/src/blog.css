@@ -303,6 +303,12 @@
 /* ทางเลือกคู่ของบล็อกสื่อ: อัปโหลดใหม่ | หยิบจากคลังไฟล์ */
 .blogx .ph-pick { display: grid; gap: 8px; grid-template-columns: 1fr; }
 @media (min-width: 560px) { .blogx .ph-pick { grid-template-columns: 1fr 1fr; } }
+/* ทางออกเวลาหน้าต่างเลือกไฟล์ของเครื่องทำไฟล์จางจนกดไม่ติด */
+.blogx .ph-escape {
+  display: block; margin: 7px auto 0; border: none; background: transparent;
+  font-size: 11.5px; color: var(--ink-soft); text-decoration: underline; text-underline-offset: 3px;
+}
+.blogx .ph-escape:hover { color: var(--brand-deep); }
 .blogx .cover-prev {
   border: 1px solid var(--line); border-radius: 11px; overflow: hidden; background: #f6f2ee;
   aspect-ratio: 16 / 9; display: grid; place-items: center;

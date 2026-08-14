@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppRoute } from '../hooks/useAppRoute';
 import { wakeFetch } from '../lib/wakeFetch';
-import { uploadToStorage, humanSize } from '../lib/uploadFile';
+import { uploadFileDetailed, humanSize } from '../lib/uploadFile';
 import MediaLibrary, { type MediaInsertOpt } from './MediaLibrary';
-import { isImage, type MediaItem } from '../lib/media';
+import { DOC_ACCEPT, isDocFile, isImage, type MediaItem } from '../lib/media';
 import '../blog.css';
 
 const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
@@ -112,6 +112,9 @@ const BLOCK_TYPES: { id: BlockType; ic: string; t: string; d: string; k: string;
   { id: 'alert',  ic: '⚠️', t: 'กล่องแจ้งเตือน',      d: 'อันตราย / ระวัง / ข้อมูล',      k: '/alert', grp: 'งานผลิต' },
 ];
 const BT = Object.fromEntries(BLOCK_TYPES.map(b => [b.id, b])) as Record<BlockType, typeof BLOCK_TYPES[number]>;
+
+/** device = อัปจากเครื่อง · device-any = อัปจากเครื่องแบบไม่กรองชนิด · library = หยิบจากคลัง */
+type PickSource = 'device' | 'device-any' | 'library';
 
 const CATEGORIES = ['ระบบ CIP', 'Boiler', 'Evaporator', 'Mixing / Syrup', 'บรรจุ', 'ความปลอดภัย'];
 const MACHINES = ['CIP Line 1', 'CIP Line 2', 'CIP Line 3', 'Boiler', 'Evaporator', 'Mixing Station'];
@@ -382,6 +385,9 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
 
   const fileRef = useRef<HTMLInputElement>(null);
   const pendingUpload = useRef<{ blockId: string; kind: 'image' | 'pdf' | 'pid' } | null>(null);
+  // n เพิ่มทุกครั้งที่กด เพื่อให้ effect ทำงานซ้ำได้แม้เลือกชนิดเดิม
+  const pickerN = useRef(0);
+  const [picker, setPicker] = useState<{ accept: string; n: number } | null>(null);
   // บล็อกที่เพิ่งแทรก — ต้องย้ายเคอร์เซอร์ไปให้ ไม่งั้นกด Enter แล้วพิมพ์ต่อไม่เข้า
   const focusNext = useRef<string | null>(null);
 
@@ -550,24 +556,31 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
 
   /* ── อัปโหลดไฟล์ ── */
   // source='library' = ไม่อัปโหลดใหม่ แต่ไปหยิบของที่มีอยู่แล้วในคลังไฟล์
-  const pickFile = (blockId: string, kind: 'image' | 'pdf' | 'pid', source: 'device' | 'library' = 'device') => {
+  // source='device-any' = เปิดหน้าต่างเลือกไฟล์แบบไม่กรองชนิด (ทางออกตอนไฟล์จางกดไม่ติด)
+  const pickFile = (blockId: string, kind: 'image' | 'pdf' | 'pid', source: PickSource = 'device') => {
     if (source === 'library') { setLib({ blockId, kind }); return; }
     pendingUpload.current = { blockId, kind };
-    if (fileRef.current) {
-      fileRef.current.accept = kind === 'pdf' ? '.pdf,application/pdf' : 'image/*';
-      fileRef.current.value = '';
-      fileRef.current.click();
-    }
+    // ตั้ง accept ผ่าน state แล้วค่อยเปิดหน้าต่างใน effect — ถ้าตั้งใส่ DOM ตรง ๆ แล้วสั่ง
+    // click() ในบรรทัดถัดไป บางเบราว์เซอร์ยังใช้ตัวกรองของครั้งก่อนอยู่
+    setPicker({ accept: source === 'device-any' ? '' : kind === 'pdf' ? DOC_ACCEPT : 'image/*', n: pickerN.current++ });
   };
   const doUpload = async (file: File, target: { blockId: string; kind: 'image' | 'pdf' | 'pid' }) => {
-    setUploading(`กำลังอัปโหลด ${file.name}…`);
-    const url = await uploadToStorage(file);
+    setUploading(`กำลังอัปโหลด ${file.name} (${humanSize(file.size)})…`);
+    const r = await uploadFileDetailed(file);
     setUploading('');
-    if (!url) { setUploading(''); alert('อัปโหลดไม่สำเร็จ — ยังไม่ได้ตั้งค่า Supabase หรือไฟล์ใหญ่เกิน'); return; }
-    if (target.kind === 'pid') patch(target.blockId, { pid: url });
-    else if (target.kind === 'image') patch(target.blockId, { src: url, name: file.name });
-    else patch(target.blockId, { url, name: file.name, meta: humanSize(file.size) });
+    // บอกเหตุผลจริงจากที่เก็บไฟล์ — ไม่งั้นแยกไม่ออกว่าติดชนิดไฟล์ ขนาด หรือสิทธิ์
+    if (!r.url) { alert(r.error || 'อัปโหลดไม่สำเร็จ'); return; }
+    if (target.kind === 'pid') patch(target.blockId, { pid: r.url });
+    else if (target.kind === 'image') patch(target.blockId, { src: r.url, name: file.name });
+    else patch(target.blockId, { url: r.url, name: file.name, meta: humanSize(file.size) });
   };
+  // เปิดหน้าต่างเลือกไฟล์หลัง accept ลง DOM แล้วเท่านั้น
+  useEffect(() => {
+    if (!picker || !fileRef.current) return;
+    fileRef.current.value = '';       // เลือกไฟล์เดิมซ้ำต้องได้
+    fileRef.current.click();
+  }, [picker]);
+
   const onFileChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     const t = pendingUpload.current;
@@ -607,8 +620,8 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
     if (!files.length) return;
     for (const f of files) {
       const isImg = f.type.startsWith('image/');
-      const isPdf = f.type === 'application/pdf';
-      if (!isImg && !isPdf) continue;
+      // เอกสารดูจากนามสกุลด้วย — ลากไฟล์จาก Finder บางทีเบราว์เซอร์ไม่บอกชนิดมาเลย
+      if (!isImg && !isDocFile(f)) continue;
       const b = insertAfter(selId, isImg ? 'image' : 'pdf');
       await doUpload(f, { blockId: b.id, kind: isImg ? 'image' : 'pdf' });
     }
@@ -844,7 +857,8 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
 
   return (
     <div className="blogx" onDrop={onDrop} onDragOver={e => e.preventDefault()}>
-      <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={onFileChosen} />
+      <input ref={fileRef} type="file" style={{ display: 'none' }}
+        accept={picker?.accept || undefined} onChange={onFileChosen} />
 
       {/* แถบเครื่องมือ */}
       <div className="bl-toolbar">
@@ -1270,7 +1284,7 @@ interface BlockListProps {
   onAct: (id: string, act: 'up' | 'dn' | 'dup' | 'del') => void;
   onReplace: (id: string, t: BlockType) => Block;
   onInsertAfter: (afterId: string | null, t: BlockType) => Block;
-  onPick: (blockId: string, kind: 'image' | 'pdf' | 'pid', source?: 'device' | 'library') => void;
+  onPick: (blockId: string, kind: 'image' | 'pdf' | 'pid', source?: PickSource) => void;
   styleOf: (b: Block) => React.CSSProperties;
 }
 
@@ -1379,7 +1393,7 @@ const BlockList: React.FC<BlockListProps> = ({ blocks, selId, onSelect, onPatch,
 const BlockBody: React.FC<{
   b: Block;
   onPatch: (id: string, up: Partial<Block>) => void;
-  onPick: (blockId: string, kind: 'image' | 'pdf' | 'pid', source?: 'device' | 'library') => void;
+  onPick: (blockId: string, kind: 'image' | 'pdf' | 'pid', source?: PickSource) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
 }> = ({ b, onPatch, onPick, onKeyDown }) => {
   const set = (up: Partial<Block>) => onPatch(b.id, up);
@@ -1615,14 +1629,20 @@ const BlockBody: React.FC<{
     case 'pdf':
       if (!b.url) {
         return (
-          <div className="ph-pick">
-            <button className="cover-ph" onClick={() => onPick(b.id, 'pdf')}>
-              📕 อัปโหลด PDF จากเครื่อง<small>SOP, คู่มือเครื่อง, รายงาน</small>
+          <>
+            <div className="ph-pick">
+              <button className="cover-ph" onClick={() => onPick(b.id, 'pdf')}>
+                📕 อัปโหลดเอกสารจากเครื่อง<small>PDF, Word, Excel — SOP, คู่มือเครื่อง, รายงาน</small>
+              </button>
+              <button className="cover-ph" onClick={() => onPick(b.id, 'pdf', 'library')}>
+                🗂 เลือกจากคลังไฟล์<small>เอกสารที่เคยอัปไว้แล้ว</small>
+              </button>
+            </div>
+            {/* ทางออกเวลาหน้าต่างเลือกไฟล์ของเครื่องทำไฟล์จางจนกดไม่ติด */}
+            <button className="ph-escape" onClick={() => onPick(b.id, 'pdf', 'device-any')}>
+              ไฟล์จางกดเลือกไม่ติด? เปิดแบบไม่กรองชนิดไฟล์
             </button>
-            <button className="cover-ph" onClick={() => onPick(b.id, 'pdf', 'library')}>
-              🗂 เลือกจากคลังไฟล์<small>เอกสารที่เคยอัปไว้แล้ว</small>
-            </button>
-          </div>
+          </>
         );
       }
       if (b.mode === 'embed') {
@@ -1734,7 +1754,7 @@ const BlockBody: React.FC<{
 const BlockSpecific: React.FC<{
   b: Block;
   onPatch: (id: string, up: Partial<Block>) => void;
-  onPick: (blockId: string, kind: 'image' | 'pdf' | 'pid', source?: 'device' | 'library') => void;
+  onPick: (blockId: string, kind: 'image' | 'pdf' | 'pid', source?: PickSource) => void;
   onSnap: () => void;
 }> = ({ b, onPatch, onPick, onSnap }) => {
   if (!['alert', 'pdf', 'params', 'flow', 'image'].includes(b.type)) return null;
@@ -1765,6 +1785,7 @@ const BlockSpecific: React.FC<{
           <div className="minibtns" style={{ marginTop: 8 }}>
             <button onClick={() => onPick(b.id, 'pdf')}>📕 เปลี่ยนไฟล์</button>
             <button onClick={() => onPick(b.id, 'pdf', 'library')}>🗂 จากคลังไฟล์</button>
+            <button onClick={() => onPick(b.id, 'pdf', 'device-any')}>📄 ไม่กรองชนิดไฟล์</button>
           </div>
           <div className="hintx">{b.name || 'ยังไม่ได้เลือกไฟล์'}{b.meta ? ` · ${b.meta}` : ''}</div>
         </>

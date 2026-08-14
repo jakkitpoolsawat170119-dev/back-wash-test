@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  MEDIA_FOLDERS, deleteMedia, isImage, isPdf, listMedia, patchMedia, scanStorage,
+  DOC_ACCEPT, MEDIA_FOLDERS, deleteMedia, isDocFile, isImage, isPdf, listMedia, patchMedia, scanStorage,
   type MediaItem,
 } from '../lib/media';
 import { humanSize, uploadAndRegister } from '../lib/uploadFile';
@@ -77,17 +77,18 @@ const MediaLibrary: React.FC<Props> = ({ accept = 'any', insertLabel = 'แท�
   /* ── อัปโหลดเข้าคลัง ── */
   const takeFiles = async (files: File[]) => {
     const ok = files.filter(f => (accept === 'image' ? f.type.startsWith('image/')
-      : accept === 'pdf' ? f.type === 'application/pdf' : true));
+      : accept === 'pdf' ? isDocFile(f) : true));
     if (!ok.length) { setNote('ไฟล์ที่ลากมาไม่ตรงชนิดที่ต้องการ'); return; }
     let last: number | undefined;
     for (let i = 0; i < ok.length; i++) {
-      setBusy(`กำลังอัปโหลด ${ok[i].name} (${i + 1}/${ok.length})…`);
-      const m = await uploadAndRegister(ok[i], {
+      setBusy(`กำลังอัปโหลด ${ok[i].name} (${humanSize(ok[i].size)}) — ${i + 1}/${ok.length}…`);
+      const r = await uploadAndRegister(ok[i], {
         folder: folder && folder !== UNFILED ? folder : '',
         uploadedBy,
       });
-      if (!m) { setBusy(''); setErr('อัปโหลดไม่สำเร็จ — ยังไม่ได้ตั้งค่า Supabase หรือไฟล์ใหญ่เกิน'); return; }
-      last = m.id;
+      // ขึ้นเหตุผลจริงจากที่เก็บไฟล์ ไม่ใช่ข้อความเดาเอา
+      if (!r.item) { setBusy(''); setErr(r.error || 'อัปโหลดไม่สำเร็จ'); return; }
+      last = r.item.id;
     }
     setBusy('');
     setNote(`เพิ่มเข้าคลังแล้ว ${ok.length} ไฟล์`);
@@ -185,7 +186,7 @@ const MediaLibrary: React.FC<Props> = ({ accept = 'any', insertLabel = 'แท�
                 ＋ อัปโหลด
               </button>
               <input ref={fileRef} type="file" multiple style={{ display: 'none' }}
-                accept={accept === 'image' ? 'image/*' : accept === 'pdf' ? '.pdf,application/pdf' : undefined}
+                accept={accept === 'image' ? 'image/*' : accept === 'pdf' ? DOC_ACCEPT : undefined}
                 onChange={async e => {
                   const fs = Array.from(e.target.files || []);
                   e.target.value = '';
