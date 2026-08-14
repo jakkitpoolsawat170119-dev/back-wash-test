@@ -4,7 +4,7 @@ import { wakeFetch } from '../lib/wakeFetch';
 import { uploadFileDetailed, humanSize } from '../lib/uploadFile';
 import MediaLibrary, { type MediaInsertOpt } from './MediaLibrary';
 import { isDocFile, isImage, type MediaItem } from '../lib/media';
-import { runJs, type RunLine } from '../lib/runJs';
+import { runJs, type RunHandle, type RunLine } from '../lib/runJs';
 import '../blog.css';
 
 const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
@@ -39,6 +39,8 @@ export interface Block {
   cells?: string[][];        // ตารางอิสระ / ข้อมูลกราฟแบบพิมพ์เอง — แถวแรกคือหัวตาราง
   checks?: boolean[];        // เช็กลิสต์ — ติ๊กคู่กับ items ทีละช่อง
   auto?: boolean;            // บล็อกโค้ดที่รันได้ — รันเองตอนคนเปิดหน้าอ่าน
+  draw?: boolean;            // โหมดวาดภาพ/เคลื่อนไหว — กล่องโผล่ในหน้าและอยู่ต่อหลังรันจบ
+  h?: number;                // ความสูงของกล่องวาดภาพ (px)
   chartKind?: 'bar' | 'line';
   chartSrc?: string;         // manual | production-daily | production-machine | tasks-daily
   days?: number;             // ย้อนหลังกี่วัน (เฉพาะกราฟที่ดึงข้อมูลจากระบบ)
@@ -133,6 +135,131 @@ const น้ำรวม = ขั้นตอน.reduce((s, x) => s + x.น้�
 for (const x of ขั้นตอน) console.log(x.ชื่อ, '—', x.นาที, 'นาที', x.น้ำ, 'ลิตร');
 
 return \`รวม \${เวลารวม} นาที · ใช้น้ำ \${น้ำรวม} ลิตร\`;`;
+
+const JS_FLOW_SAMPLE = `// ── ตัวอย่างภาพเคลื่อนไหว: กระบวนการผลิตน้ำเชื่อมแต่งกลิ่น ──
+const ขั้นตอน = [
+  { ชื่อ: 'น้ำ RO',       ย่อ: 'RO',   สี: '#4aa3df' },
+  { ชื่อ: 'ละลายน้ำตาล',  ย่อ: '80°C', สี: '#e0a021' },
+  { ชื่อ: 'กรอง',         ย่อ: 'FIL',  สี: '#8fd3a0' },
+  { ชื่อ: 'เติมกลิ่น',    ย่อ: 'FLV',  สี: '#c86bd8' },
+  { ชื่อ: 'พักเย็น',      ย่อ: '25°C', สี: '#5ec8c8' },
+  { ชื่อ: 'บรรจุ',        ย่อ: 'PACK', สี: '#ff8c3c' },
+];
+const วินาทีต่อขั้น = 2;
+
+const จอ = document.createElement('canvas');
+document.body.appendChild(จอ);
+const g = จอ.getContext('2d');
+let W, H;
+
+function ปรับขนาด() {
+  const dpr = window.devicePixelRatio || 1;
+  W = innerWidth; H = innerHeight;
+  จอ.width = W * dpr; จอ.height = H * dpr;
+  จอ.style.width = W + 'px'; จอ.style.height = H + 'px';
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+ปรับขนาด();
+addEventListener('resize', ปรับขนาด);
+
+function กล่องมน(x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+
+// จับเวลาจากเฟรมแรกที่วาดจริง ไม่ใช่ performance.now() ตอนเริ่ม
+// (เวลาของเฟรมแรกอาจย้อนหลังกว่าตอนเริ่มเล็กน้อย ทำให้เวลาติดลบแล้วคำนวณขั้นตอนเพี้ยน)
+let เริ่ม = null;
+
+function วาด(now) {
+  if (เริ่ม === null) เริ่ม = now;
+  const t = Math.max(0, (now - เริ่ม) / 1000);
+  const ตำแหน่ง = (t % (ขั้นตอน.length * วินาทีต่อขั้น)) / วินาทีต่อขั้น;
+  const ที่ทำอยู่ = Math.floor(ตำแหน่ง);
+  const เศษ = ตำแหน่ง - ที่ทำอยู่;
+
+  g.clearRect(0, 0, W, H);
+
+  const ขอบ = 14;
+  const ช่อง = 12;
+  const กว้าง = (W - ขอบ * 2 - ช่อง * (ขั้นตอน.length - 1)) / ขั้นตอน.length;
+  const สูง = Math.min(74, H * 0.3);
+  const บน = H * 0.34;
+
+  g.font = '600 13px system-ui, sans-serif';
+  g.fillStyle = '#e8ddd2';
+  g.textAlign = 'left';
+  g.fillText('กระบวนการผลิตน้ำเชื่อมแต่งกลิ่น', ขอบ, 26);
+
+  for (let i = 0; i < ขั้นตอน.length; i++) {
+    const s = ขั้นตอน[i];
+    const x = ขอบ + i * (กว้าง + ช่อง);
+    const ทำอยู่ = i === ที่ทำอยู่;
+    const เต้น = ทำอยู่ ? Math.sin(t * 6) * 1.5 : 0;
+
+    // ท่อเชื่อมไปกล่องถัดไป + หยดของเหลวที่วิ่งอยู่
+    if (i < ขั้นตอน.length - 1) {
+      const x1 = x + กว้าง, x2 = x1 + ช่อง, กลาง = บน + สูง / 2;
+      g.strokeStyle = 'rgba(232,221,210,.25)';
+      g.lineWidth = 3;
+      g.beginPath(); g.moveTo(x1, กลาง); g.lineTo(x2, กลาง); g.stroke();
+      if (i === ที่ทำอยู่) {
+        g.fillStyle = s.สี;
+        g.beginPath(); g.arc(x1 + ช่อง * เศษ, กลาง, 3.2, 0, Math.PI * 2); g.fill();
+      }
+    }
+
+    if (ทำอยู่) {
+      g.shadowColor = s.สี;
+      g.shadowBlur = 18;
+    }
+    กล่องมน(x, บน - เต้น, กว้าง, สูง + เต้น * 2, 12);
+    g.fillStyle = ทำอยู่ ? s.สี : 'rgba(232,221,210,.10)';
+    g.fill();
+    g.shadowBlur = 0;
+    g.lineWidth = ทำอยู่ ? 0 : 1;
+    g.strokeStyle = 'rgba(232,221,210,.22)';
+    if (!ทำอยู่) g.stroke();
+
+    // ระดับของเหลวในกล่องที่กำลังทำ
+    if (ทำอยู่) {
+      g.save();
+      กล่องมน(x, บน, กว้าง, สูง, 12);
+      g.clip();
+      g.fillStyle = 'rgba(27,20,16,.30)';
+      g.fillRect(x, บน, กว้าง, สูง * (1 - เศษ));
+      g.restore();
+    }
+
+    g.textAlign = 'center';
+    g.fillStyle = ทำอยู่ ? '#1b1410' : '#e8ddd2';
+    g.font = '700 12px system-ui, sans-serif';
+    g.fillText(s.ย่อ, x + กว้าง / 2, บน + สูง / 2 + 4);
+
+    g.fillStyle = ทำอยู่ ? s.สี : 'rgba(232,221,210,.55)';
+    g.font = (ทำอยู่ ? '700 ' : '400 ') + '11px system-ui, sans-serif';
+    g.fillText(s.ชื่อ, x + กว้าง / 2, บน + สูง + 18);
+  }
+
+  // แถบความคืบหน้าของรอบ + ป้ายบอกว่าอยู่ขั้นไหน
+  const ล่าง = H - 26;
+  g.fillStyle = 'rgba(232,221,210,.14)';
+  g.fillRect(ขอบ, ล่าง, W - ขอบ * 2, 5);
+  g.fillStyle = ขั้นตอน[ที่ทำอยู่].สี;
+  g.fillRect(ขอบ, ล่าง, (W - ขอบ * 2) * (ตำแหน่ง / ขั้นตอน.length), 5);
+  g.textAlign = 'left';
+  g.fillStyle = '#9c8f83';
+  g.font = '400 11px system-ui, sans-serif';
+  g.fillText('กำลังทำ: ' + ขั้นตอน[ที่ทำอยู่].ชื่อ + '  ·  ขั้นที่ ' + (ที่ทำอยู่ + 1) + '/' + ขั้นตอน.length, ขอบ, ล่าง - 8);
+
+  requestAnimationFrame(วาด);
+}
+requestAnimationFrame(วาด);`;
 
 const CATEGORIES = ['ระบบ CIP', 'Boiler', 'Evaporator', 'Mixing / Syrup', 'บรรจุ', 'ความปลอดภัย'];
 const MACHINES = ['CIP Line 1', 'CIP Line 2', 'CIP Line 3', 'Boiler', 'Evaporator', 'Mixing Station'];
@@ -1791,20 +1918,48 @@ const JsOutput: React.FC<{ lines: RunLine[]; error: string; ms: number }> = ({ l
 const JsBlock: React.FC<{ b: Block; onPatch: (id: string, patch: Partial<Block>) => void }> = ({ b, onPatch }) => {
   const [res, setRes] = useState<{ lines: RunLine[]; error: string; ms: number } | null>(null);
   const [running, setRunning] = useState(false);
+  const [live, setLive] = useState(false);          // โหมดวาดภาพ: กล่องยังเดินอยู่ไหม
+  const stage = useRef<HTMLDivElement>(null);
+  const handle = useRef<RunHandle | null>(null);
+
+  const stop = useCallback(() => {
+    handle.current?.stop();
+    handle.current = null;
+    setLive(false);
+  }, []);
+  // ออกจากบล็อก/ปิดหน้าแล้วต้องไม่ทิ้งกล่องที่ยังวิ่งอยู่
+  useEffect(() => stop, [stop]);
+
   const run = async () => {
+    stop();
     setRunning(true);
-    setRes(await runJs(b.html || ''));
+    const r = await runJs(b.html || '', { mount: b.draw ? stage.current : null });
+    handle.current = r;
+    setRes({ lines: r.lines, error: r.error, ms: r.ms });
+    setLive(!!b.draw && !r.error);
     setRunning(false);
   };
+
   return (
     <div className="jsrun-ed">
       <div className="jsrun-bar">
-        <span className="tag">JavaScript</span>
-        <span className="hint">รันในกล่องแยก แตะหน้าเว็บไม่ได้</span>
-        <button className="go" disabled={running} onClick={run}>{running ? 'กำลังรัน…' : '▶ รัน'}</button>
+        <span className="tag">{b.draw ? 'ภาพเคลื่อนไหว' : 'JavaScript'}</span>
+        <span className="hint">รันในกล่องแยก แตะหน้าเว็บไม่ได้ · ต่อเน็ตไม่ได้</span>
+        {live && <button className="go stop" onClick={stop}>■ หยุด</button>}
+        <button className="go" disabled={running} onClick={run}>
+          {running ? 'กำลังรัน…' : live ? '↻ เริ่มใหม่' : '▶ รัน'}
+        </button>
       </div>
+      {b.draw && (
+        // กล่องถูกยัดเข้า .mount ด้วยมือ (นอกสายตา React) — จึงต้องเป็น div ที่ React
+        // ไม่เคยวางลูกไว้เอง ไม่งั้น React จะไล่เก็บโหนดที่เราเปลี่ยนไปแล้วจนกล่องหาย
+        <div className="jsrun-stage" style={{ height: (b.h || 320) + 'px' }}>
+          <div className="mount" ref={stage} />
+          {!live && <div className="ph">กด ▶ รัน เพื่อดูภาพเคลื่อนไหว</div>}
+        </div>
+      )}
       <Rich className="ed-code" plain html={b.html || ''} onChange={v => onPatch(b.id, { html: v })} />
-      {res && <JsOutput {...res} />}
+      {res && (res.error || !b.draw || res.lines.length > 0) && <JsOutput {...res} />}
     </div>
   );
 };
@@ -1824,14 +1979,39 @@ const BlockSpecific: React.FC<{
 
       {b.type === 'js' && (
         <>
-          <label className="chkline">
+          <div className="fsizes col">
+            {([[false, '🧮 คำนวณ — ได้ผลเป็นตัวหนังสือ'], [true, '🎞 วาดภาพ / เคลื่อนไหว']] as const).map(([v, l]) => (
+              <button key={String(v)} className={!!b.draw === v ? 'on' : ''}
+                onClick={() => act({ draw: v, ...(v && !b.h ? { h: 320 } : {}) })}>{l}</button>
+            ))}
+          </div>
+          {b.draw && (
+            <>
+              <div className="srow" style={{ marginTop: 10 }}>
+                <label>สูง</label>
+                <input className="sinput" type="number" min={120} max={800} step={20}
+                  value={b.h || 320} onChange={e => act({ h: Math.max(120, Math.min(800, Number(e.target.value) || 320)) })} />
+                <span className="hintx" style={{ margin: 0 }}>px</span>
+              </div>
+              <div className="minibtns" style={{ marginTop: 8 }}>
+                <button onClick={() => {
+                  if (b.html && b.html !== JS_SAMPLE && !confirm('ทับโค้ดที่เขียนไว้ด้วยตัวอย่างกระบวนการผลิตน้ำเชื่อม?')) return;
+                  act({ html: JS_FLOW_SAMPLE, auto: true });
+                }}>🍯 ใส่ตัวอย่างน้ำเชื่อมแต่งกลิ่น</button>
+              </div>
+            </>
+          )}
+          <label className="chkline" style={{ marginTop: 10 }}>
             <input type="checkbox" checked={!!b.auto} onChange={e => act({ auto: e.target.checked })} />
             รันเองตอนคนเปิดหน้าอ่าน
           </label>
           <div className="hintx">
-            ไม่ติ๊ก = คนอ่านเห็นโค้ดกับปุ่ม "▶ กดเพื่อรัน" แล้วเลือกเองว่าจะรันไหม<br />
-            โค้ดรันในกล่องแยกที่แตะหน้าเว็บจริงไม่ได้ · เกิน 3 วินาทีระบบหยุดให้เอง<br />
-            ผลลัพธ์มาจาก <code className="inl">console.log()</code> และค่าที่ <code className="inl">return</code> กลับมา
+            ไม่ติ๊ก = คนอ่านเห็นโค้ดกับปุ่ม "▶ กดเพื่อรัน" แล้วเลือกเองว่าจะรันไหม
+            (ภาพเคลื่อนไหวควรติ๊กไว้)<br />
+            โค้ดรันในกล่องแยกที่แตะหน้าเว็บจริงไม่ได้ และ<b>ต่อเน็ตไม่ได้</b> ·
+            โค้ดที่ค้างเกิน 3 วินาทีระบบหยุดให้เอง<br />
+            โหมดคำนวณ: ผลมาจาก <code className="inl">console.log()</code> และค่าที่ <code className="inl">return</code><br />
+            โหมดวาดภาพ: วาดลงกล่องด้วย <code className="inl">document.body</code> / canvas ได้ตามใจ
           </div>
         </>
       )}

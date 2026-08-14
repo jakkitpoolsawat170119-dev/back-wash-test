@@ -126,11 +126,14 @@ function renderBlock(b) {
     // โค้ดส่งเข้ากล่องผ่าน data-code ไม่ใช่ฝังในสคริปต์ของหน้า — หน้านี้จึงไม่มีทางรันมันเอง
     case 'js': {
       const code = b.html || '';
+      const h = Math.max(120, Math.min(800, Number(b.h) || 320));
       return `<figure class="jsrun"${at} data-code="${esc(JSON.stringify(code))}"${b.auto ? ' data-auto="1"' : ''}>
-      <div class="jsrun-hd"><span class="tag">JavaScript</span>
-        <span class="note">รันในกล่องแยก ไม่แตะหน้านี้</span>
+      <div class="jsrun-hd"><span class="tag">${b.draw ? 'ภาพเคลื่อนไหว' : 'JavaScript'}</span>
+        <span class="note">รันในกล่องแยก ไม่แตะหน้านี้ · ต่อเน็ตไม่ได้</span>
+        <button type="button" class="jsrun-stop" hidden>■ หยุด</button>
         <button type="button" class="jsrun-go">▶ กดเพื่อรัน</button></div>
-      <pre><code>${esc(code)}</code></pre>
+      ${b.draw ? `<div class="jsrun-stage" style="height:${h}px"><div class="ph">กด ▶ เพื่อดูภาพเคลื่อนไหว</div></div>` : ''}
+      <details class="jsrun-src"${b.draw ? '' : ' open'}><summary>ดูโค้ด</summary><pre><code>${esc(code)}</code></pre></details>
       <div class="jsrun-out" hidden></div>
     </figure>`;
     }
@@ -248,6 +251,19 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em;
 .jsrun-go:hover{transform:translateY(-1px)}
 .jsrun-go:disabled{opacity:.55;cursor:default;transform:none}
 .jsrun pre{margin:0;border-radius:0}
+.jsrun-stage{background:#1b1410;border-top:1px solid var(--line);position:relative}
+.jsrun-stage .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  color:#9c8f83;font-size:13px}
+.jsrun-frame{display:block;width:100%;height:100%;border:0;background:#1b1410}
+.jsrun-src{border-top:1px solid var(--line)}
+.jsrun-src summary{cursor:pointer;padding:9px 14px;font-size:12.5px;color:var(--ink-soft);
+  list-style:none}
+.jsrun-src summary::-webkit-details-marker{display:none}
+.jsrun-src summary::before{content:'▸ ';color:var(--brand)}
+.jsrun-src[open] summary::before{content:'▾ '}
+.jsrun-stop{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:9px;
+  padding:7px 13px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;margin-left:auto}
+.jsrun-stop + .jsrun-go{margin-left:0}
 .jsrun-out{background:#1b1410;color:#e8ddd2;padding:12px 16px;font-size:13.5px;line-height:1.75;
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;border-top:2px solid var(--brand);
   overflow-x:auto}
@@ -367,7 +383,10 @@ function shell({ title, desc, image, url, body, noindex = true, script = '' }) {
       แก้ที่ไหนต้องแก้อีกที่ (กติกาเดียวกับคู่ toMarkdown() / postToMarkdown())
    โค้ดของคนเขียนรันใน <iframe sandbox="allow-scripts"> ที่ไม่มี allow-same-origin
    ⚠️ ห้ามเติม allow-same-origin — ใส่คู่กับ allow-scripts เมื่อไหร่กล่องกันพังทันที */
-const SANDBOX_HTML = `<!doctype html><meta charset="utf-8"><body><script>
+const sandboxHtml = (draw) => `<!doctype html><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:">
+<style>html,body{margin:0;padding:0;height:100%;overflow:hidden;background:${draw ? '#1b1410' : 'transparent'};
+color:#e8ddd2;font-family:system-ui,-apple-system,'Segoe UI',sans-serif}</style><body><script>
 (function () {
   var out = [];
   function fmt(v) {
@@ -380,6 +399,20 @@ const SANDBOX_HTML = `<!doctype html><meta charset="utf-8"><body><script>
   console.info = function () { push('log', arguments); };
   console.warn = function () { push('warn', arguments); };
   console.error = function () { push('err', arguments); };
+
+  // ปิดทางออกเน็ตให้อ่านรู้เรื่อง — ตัวกันจริงคือ CSP ข้างบน อันนี้ไว้บอกเหตุผลตอนเรียก
+  var NO_NET = 'บล็อกนี้ต่อเน็ตไม่ได้ — โค้ดในบทความถูกตัดขาดจากเครือข่ายทั้งหมด';
+  function blocked() { throw new Error(NO_NET); }
+  try {
+    window.fetch = blocked;
+    window.XMLHttpRequest = blocked;
+    window.WebSocket = blocked;
+    window.EventSource = blocked;
+    if (window.navigator && navigator.sendBeacon) navigator.sendBeacon = blocked;
+    window.Worker = blocked;
+    window.importScripts = blocked;
+  } catch (e) { /* เบราว์เซอร์บางตัวห้ามเขียนทับ — CSP ยังกันอยู่ */ }
+
   function done(err) { parent.postMessage({ spp: 'js-result', out: out, err: err || '' }, '*'); }
   window.addEventListener('message', function (e) {
     var code = e.data && e.data.spp === 'js-run' ? e.data.code : null;
@@ -400,27 +433,40 @@ const SANDBOX_HTML = `<!doctype html><meta charset="utf-8"><body><script>
 </script>`;
 
 // ฝังสตริงลงในสคริปต์ของหน้า — ต้องหนี "</" เป็น "<\/" ไม่งั้น </script> ข้างในไปปิดแท็กของหน้า
-const bootLiteral = () => JSON.stringify(SANDBOX_HTML).replace(/<\//g, '<\\/');
+const bootLiteral = (draw) => JSON.stringify(sandboxHtml(draw)).replace(/<\//g, '<\\/');
 
 const JS_RUNTIME = () => `<script>
 (function () {
-  var BOOT = ${bootLiteral()};
+  var BOOT = { calc: ${bootLiteral(false)}, draw: ${bootLiteral(true)} };
   var TIMEOUT = 3000;
 
-  function run(code, cb) {
+  // mount = ช่องที่จะให้กล่องโผล่ (โหมดวาดภาพ) · ไม่ส่ง = ซ่อนแล้วเก็บทิ้งหลังได้ผล
+  function run(code, mount, cb) {
     var t0 = Date.now();
     var frame = document.createElement('iframe');
     frame.setAttribute('sandbox', 'allow-scripts');
-    frame.setAttribute('aria-hidden', 'true');
-    frame.style.cssText = 'position:fixed;width:0;height:0;border:0;left:-9999px;top:-9999px';
-    frame.srcdoc = BOOT;
+    frame.setAttribute('title', 'กล่องรันโค้ดของบทความ');
+    if (mount) {
+      frame.className = 'jsrun-frame';
+      mount.innerHTML = '';
+      mount.appendChild(frame);
+    } else {
+      frame.setAttribute('aria-hidden', 'true');
+      frame.style.cssText = 'position:fixed;width:0;height:0;border:0;left:-9999px;top:-9999px';
+      document.body.appendChild(frame);
+    }
+    frame.srcdoc = mount ? BOOT.draw : BOOT.calc;
     var done = false;
+    function kill() {
+      window.removeEventListener('message', onMsg);
+      frame.parentNode && frame.parentNode.removeChild(frame);
+    }
     function finish(r) {
       if (done) return;
       done = true;
       clearTimeout(timer);
-      window.removeEventListener('message', onMsg);
-      frame.parentNode && frame.parentNode.removeChild(frame);
+      if (!mount || r.error) kill();
+      r.stop = kill;
       cb(r);
     }
     function onMsg(e) {
@@ -433,7 +479,6 @@ const JS_RUNTIME = () => `<script>
       finish({ lines: [], error: 'รันเกิน 3 วินาที — หยุดให้แล้ว (โค้ดอาจวนไม่รู้จบ)', ms: TIMEOUT });
     }, TIMEOUT);
     window.addEventListener('message', onMsg);
-    document.body.appendChild(frame);
   }
 
   function show(box, r) {
@@ -449,7 +494,8 @@ const JS_RUNTIME = () => `<script>
       e.textContent = '✕ ' + r.error;
       html += e.outerHTML;
     } else if (!r.lines.length) {
-      html += '<div class="ln muted">รันแล้วไม่มีผลลัพธ์</div>';
+      box.hidden = true;
+      return;
     }
     box.innerHTML = html + '<div class="ms">ใช้เวลา ' + r.ms + ' ms</div>';
     box.className = 'jsrun-out' + (r.error ? ' bad' : '');
@@ -458,19 +504,37 @@ const JS_RUNTIME = () => `<script>
 
   [].forEach.call(document.querySelectorAll('.jsrun'), function (fig) {
     var btn = fig.querySelector('.jsrun-go');
+    var stopBtn = fig.querySelector('.jsrun-stop');
     var box = fig.querySelector('.jsrun-out');
+    var stage = fig.querySelector('.jsrun-stage');
+    var live = null;
     var code;
     try { code = JSON.parse(fig.getAttribute('data-code') || '""'); } catch (e) { code = ''; }
+
+    function stop() {
+      if (live) { live(); live = null; }
+      if (stage) stage.innerHTML = '<div class="ph">กด ▶ เพื่อดูภาพเคลื่อนไหวอีกครั้ง</div>';
+      if (stopBtn) stopBtn.hidden = true;
+      btn.textContent = '▶ กดเพื่อรัน';
+    }
     function go() {
+      if (live) { live(); live = null; }
       btn.disabled = true;
       btn.textContent = 'กำลังรัน…';
-      run(code, function (r) {
+      run(code, stage, function (r) {
         show(box, r);
         btn.disabled = false;
-        btn.textContent = '▶ รันอีกครั้ง';
+        if (stage && !r.error) {
+          live = r.stop;
+          if (stopBtn) stopBtn.hidden = false;
+          btn.textContent = '↻ เริ่มใหม่';
+        } else {
+          btn.textContent = '▶ รันอีกครั้ง';
+        }
       });
     }
     btn.addEventListener('click', go);
+    if (stopBtn) stopBtn.addEventListener('click', stop);
     if (fig.getAttribute('data-auto') === '1') go();
   });
 })();
