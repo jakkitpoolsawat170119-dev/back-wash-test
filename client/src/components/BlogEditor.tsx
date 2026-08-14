@@ -3,7 +3,7 @@ import { useAppRoute } from '../hooks/useAppRoute';
 import { wakeFetch } from '../lib/wakeFetch';
 import { uploadFileDetailed, humanSize } from '../lib/uploadFile';
 import MediaLibrary, { type MediaInsertOpt } from './MediaLibrary';
-import { DOC_ACCEPT, isDocFile, isImage, type MediaItem } from '../lib/media';
+import { isDocFile, isImage, type MediaItem } from '../lib/media';
 import '../blog.css';
 
 const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
@@ -113,8 +113,8 @@ const BLOCK_TYPES: { id: BlockType; ic: string; t: string; d: string; k: string;
 ];
 const BT = Object.fromEntries(BLOCK_TYPES.map(b => [b.id, b])) as Record<BlockType, typeof BLOCK_TYPES[number]>;
 
-/** device = อัปจากเครื่อง · device-any = อัปจากเครื่องแบบไม่กรองชนิด · library = หยิบจากคลัง */
-type PickSource = 'device' | 'device-any' | 'library';
+/** device = อัปจากเครื่อง · library = หยิบของที่มีอยู่แล้วในคลังไฟล์ */
+type PickSource = 'device' | 'library';
 
 const CATEGORIES = ['ระบบ CIP', 'Boiler', 'Evaporator', 'Mixing / Syrup', 'บรรจุ', 'ความปลอดภัย'];
 const MACHINES = ['CIP Line 1', 'CIP Line 2', 'CIP Line 3', 'Boiler', 'Evaporator', 'Mixing Station'];
@@ -556,13 +556,15 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
 
   /* ── อัปโหลดไฟล์ ── */
   // source='library' = ไม่อัปโหลดใหม่ แต่ไปหยิบของที่มีอยู่แล้วในคลังไฟล์
-  // source='device-any' = เปิดหน้าต่างเลือกไฟล์แบบไม่กรองชนิด (ทางออกตอนไฟล์จางกดไม่ติด)
+  // ⚠️ บล็อกเอกสาร "ไม่กรองชนิดไฟล์" — เครื่องของ user ทำไฟล์ PDF จางกดไม่ติดทั้งที่ส่ง
+  //    .pdf กับ application/pdf ไปให้แล้ว (ทดสอบจริง 2026-08-14) ปล่อยไม่กรองจึงเลือกได้เสมอ
+  //    ส่วนบล็อกรูปยังกรอง image/* ตามเดิมเพราะใช้งานได้ปกติ
   const pickFile = (blockId: string, kind: 'image' | 'pdf' | 'pid', source: PickSource = 'device') => {
     if (source === 'library') { setLib({ blockId, kind }); return; }
     pendingUpload.current = { blockId, kind };
     // ตั้ง accept ผ่าน state แล้วค่อยเปิดหน้าต่างใน effect — ถ้าตั้งใส่ DOM ตรง ๆ แล้วสั่ง
     // click() ในบรรทัดถัดไป บางเบราว์เซอร์ยังใช้ตัวกรองของครั้งก่อนอยู่
-    setPicker({ accept: source === 'device-any' ? '' : kind === 'pdf' ? DOC_ACCEPT : 'image/*', n: pickerN.current++ });
+    setPicker({ accept: kind === 'pdf' ? '' : 'image/*', n: pickerN.current++ });
   };
   const doUpload = async (file: File, target: { blockId: string; kind: 'image' | 'pdf' | 'pid' }) => {
     setUploading(`กำลังอัปโหลด ${file.name} (${humanSize(file.size)})…`);
@@ -1629,20 +1631,14 @@ const BlockBody: React.FC<{
     case 'pdf':
       if (!b.url) {
         return (
-          <>
-            <div className="ph-pick">
-              <button className="cover-ph" onClick={() => onPick(b.id, 'pdf')}>
-                📕 อัปโหลดเอกสารจากเครื่อง<small>PDF, Word, Excel — SOP, คู่มือเครื่อง, รายงาน</small>
-              </button>
-              <button className="cover-ph" onClick={() => onPick(b.id, 'pdf', 'library')}>
-                🗂 เลือกจากคลังไฟล์<small>เอกสารที่เคยอัปไว้แล้ว</small>
-              </button>
-            </div>
-            {/* ทางออกเวลาหน้าต่างเลือกไฟล์ของเครื่องทำไฟล์จางจนกดไม่ติด */}
-            <button className="ph-escape" onClick={() => onPick(b.id, 'pdf', 'device-any')}>
-              ไฟล์จางกดเลือกไม่ติด? เปิดแบบไม่กรองชนิดไฟล์
+          <div className="ph-pick">
+            <button className="cover-ph" onClick={() => onPick(b.id, 'pdf')}>
+              📕 อัปโหลดเอกสารจากเครื่อง<small>PDF, Word, Excel — SOP, คู่มือเครื่อง, รายงาน</small>
             </button>
-          </>
+            <button className="cover-ph" onClick={() => onPick(b.id, 'pdf', 'library')}>
+              🗂 เลือกจากคลังไฟล์<small>ไฟล์ที่เคยอัปไว้แล้ว ไม่ต้องอัปซ้ำ</small>
+            </button>
+          </div>
         );
       }
       if (b.mode === 'embed') {
@@ -1785,7 +1781,6 @@ const BlockSpecific: React.FC<{
           <div className="minibtns" style={{ marginTop: 8 }}>
             <button onClick={() => onPick(b.id, 'pdf')}>📕 เปลี่ยนไฟล์</button>
             <button onClick={() => onPick(b.id, 'pdf', 'library')}>🗂 จากคลังไฟล์</button>
-            <button onClick={() => onPick(b.id, 'pdf', 'device-any')}>📄 ไม่กรองชนิดไฟล์</button>
           </div>
           <div className="hintx">{b.name || 'ยังไม่ได้เลือกไฟล์'}{b.meta ? ` · ${b.meta}` : ''}</div>
         </>

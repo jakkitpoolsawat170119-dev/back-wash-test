@@ -24,14 +24,6 @@ export interface MediaItem {
 /** โฟลเดอร์ตามพื้นที่ผลิต — ตรงกับหมวดหมู่บทความเพื่อให้เดาที่อยู่ของไฟล์ได้ */
 export const MEDIA_FOLDERS = ['ระบบ CIP', 'Boiler', 'Evaporator', 'Mixing / Syrup', 'บรรจุ', 'SCADA / HMI', 'SOP / เอกสาร'];
 
-/**
- * ชนิดไฟล์ที่บล็อกเอกสารรับ — ใส่ทั้งนามสกุลและ MIME เพราะบางเครื่องรู้จักแค่อย่างใดอย่างหนึ่ง
- * (เคยตั้งไว้แค่ '.pdf,application/pdf' แล้วหน้าต่างเลือกไฟล์บน Mac ทำไฟล์ PDF จางกดไม่ติด)
- */
-export const DOC_ACCEPT = '.pdf,.doc,.docx,.xls,.xlsx,.csv,application/pdf,application/msword,'
-  + 'application/vnd.openxmlformats-officedocument.wordprocessingml.document,'
-  + 'application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-
 /** ไฟล์นี้นับเป็นเอกสารไหม — ดูนามสกุลด้วย ไม่ใช่ดูแต่ MIME ที่เบราว์เซอร์บางตัวส่งมาว่าง */
 export const isDocFile = (f: File) =>
   f.type === 'application/pdf' || /\.(pdf|docx?|xlsx?|csv)$/i.test(f.name);

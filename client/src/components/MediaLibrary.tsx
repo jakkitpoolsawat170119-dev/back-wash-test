@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  DOC_ACCEPT, MEDIA_FOLDERS, deleteMedia, isDocFile, isImage, isPdf, listMedia, patchMedia, scanStorage,
+  MEDIA_FOLDERS, deleteMedia, isDocFile, isImage, isPdf, listMedia, patchMedia, scanStorage,
   type MediaItem,
 } from '../lib/media';
 import { humanSize, uploadAndRegister } from '../lib/uploadFile';
@@ -75,8 +75,9 @@ const MediaLibrary: React.FC<Props> = ({ accept = 'any', insertLabel = 'แท�
   }, [onClose]);
 
   /* ── อัปโหลดเข้าคลัง ── */
-  const takeFiles = async (files: File[]) => {
-    const ok = files.filter(f => (accept === 'image' ? f.type.startsWith('image/')
+  // strict = ลากมาวาง (คัดชนิดที่ไม่เกี่ยวออก) · ไม่ strict = คนกดเลือกเอง (รับตามที่เลือก)
+  const takeFiles = async (files: File[], strict = false) => {
+    const ok = !strict ? files : files.filter(f => (accept === 'image' ? f.type.startsWith('image/')
       : accept === 'pdf' ? isDocFile(f) : true));
     if (!ok.length) { setNote('ไฟล์ที่ลากมาไม่ตรงชนิดที่ต้องการ'); return; }
     let last: number | undefined;
@@ -99,7 +100,7 @@ const MediaLibrary: React.FC<Props> = ({ accept = 'any', insertLabel = 'แท�
     e.preventDefault();
     setDragOver(false);
     const files = Array.from(e.dataTransfer.files || []);
-    if (files.length) await takeFiles(files);
+    if (files.length) await takeFiles(files, true);
   };
 
   const scan = async () => {
@@ -186,7 +187,7 @@ const MediaLibrary: React.FC<Props> = ({ accept = 'any', insertLabel = 'แท�
                 ＋ อัปโหลด
               </button>
               <input ref={fileRef} type="file" multiple style={{ display: 'none' }}
-                accept={accept === 'image' ? 'image/*' : accept === 'pdf' ? DOC_ACCEPT : undefined}
+                accept={accept === 'image' ? 'image/*' : undefined}
                 onChange={async e => {
                   const fs = Array.from(e.target.files || []);
                   e.target.value = '';
