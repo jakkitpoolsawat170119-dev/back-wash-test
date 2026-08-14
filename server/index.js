@@ -558,6 +558,23 @@ const SCHEMA = [
       decided_by TEXT,
       UNIQUE(kind, task_id, line_text)
     )`,
+  // ── คลังไฟล์ (เฟส 2) ───────────────────────────────────────────────────────
+  // ไฟล์จริงอยู่บน Supabase Storage เหมือนเดิม — ตารางนี้เก็บแค่ "ทะเบียน" ไว้ให้ค้น/กรอง
+  // เพราะชื่อไฟล์ในที่เก็บเป็น <timestamp>-<สุ่ม>.<ext> ซึ่งค้นอะไรไม่ได้เลย
+  // url เป็น UNIQUE เพื่อให้ลงทะเบียนซ้ำได้โดยไม่เกิดแถวซ้ำ (ตอนสแกนไฟล์เก่า)
+  `CREATE TABLE IF NOT EXISTS media_files (
+      id ${db.pk},
+      url TEXT UNIQUE,
+      path TEXT,               -- path ใน bucket (ใช้ตอนสแกนเทียบของเก่า)
+      name TEXT,               -- ชื่อไฟล์ตอนอัปโหลด (ของเก่าที่สแกนเจอจะเป็น path)
+      mime TEXT,
+      size INTEGER DEFAULT 0,
+      folder TEXT DEFAULT '',  -- พื้นที่ผลิต: ระบบ CIP / Boiler / Evaporator / SCADA-HMI / SOP
+      tags TEXT,               -- JSON: ["ก่อนล้าง","ปั๊ม"]
+      caption TEXT,            -- คำบรรยายเริ่มต้น เอาไปเติมให้บล็อกรูปตอนแทรก
+      uploaded_by TEXT,
+      created_at TEXT
+    )`,
 ];
 
 const DEFAULT_OPERATORS = [
@@ -8887,6 +8904,146 @@ app.post('/api/posts/delete', async (req, res) => {
       catch (e) { console.error('[vault] ลบไฟล์บทความไม่สำเร็จ', row.vault_path, e.message); }
     }
     await db.exec('DELETE FROM posts WHERE id = ?', [id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══ คลังไฟล์ (เฟส 2) ═══════════════════════════════════════════════════════
+// ไฟล์อยู่บน Supabase Storage (ฝั่งเว็บอัปเอง — เซิร์ฟเวอร์ไม่มีคีย์ Supabase)
+// เซิร์ฟเวอร์เก็บแค่ทะเบียน: ชื่อจริง / โฟลเดอร์ / แท็ก / คำบรรยาย เพื่อให้ค้นเจอ
+// "ลบ" ที่นี่ = เอาออกจากทะเบียนเท่านั้น ไฟล์ยังอยู่ในที่เก็บ (ไม่มีสิทธิ์ลบจากตรงนี้)
+const MEDIA_FIELDS = ['url', 'path', 'name', 'mime', 'size', 'folder', 'tags', 'caption', 'uploaded_by'];
+
+const mediaTags = (s) => { try { const a = JSON.parse(s); return Array.isArray(a) ? a : []; } catch { return []; } };
+
+const mediaFromRow = (r) => ({
+  id: r.id,
+  url: r.url || '',
+  path: r.path || '',
+  name: r.name || '',
+  mime: r.mime || '',
+  size: Number(r.size || 0),
+  folder: r.folder || '',
+  tags: mediaTags(r.tags),
+  caption: r.caption || '',
+  uploadedBy: r.uploaded_by || '',
+  createdAt: r.created_at || '',
+});
+
+// ค่าที่จะเขียนลงตาราง — ใช้ร่วมกันทั้งตอนลงทะเบียนไฟล์ใหม่และตอนสแกนของเก่า
+const mediaVals = (b) => ({
+  url: String(b.url || '').trim(),
+  path: String(b.path || '').trim(),
+  name: String(b.name || '').trim() || String(b.path || '').trim() || 'ไม่มีชื่อ',
+  mime: String(b.mime || '').trim(),
+  size: Number(b.size) > 0 ? Math.round(Number(b.size)) : 0,
+  folder: String(b.folder || '').trim(),
+  tags: JSON.stringify(Array.isArray(b.tags) ? b.tags.map(String) : []),
+  caption: String(b.caption || '').trim(),
+  uploaded_by: String(b.uploadedBy || '').trim(),
+});
+
+// ลงทะเบียนไฟล์ 1 ตัว — url ซ้ำ = ของเดิม ไม่สร้างแถวใหม่ (กันซ้ำตอนสแกนหลายรอบ)
+// keepExisting = ตอนสแกนของเก่า: ห้ามทับชื่อ/แท็กที่คนตั้งไว้แล้วด้วยค่าว่าง
+async function registerMedia(body, { keepExisting = false } = {}) {
+  const v = mediaVals(body);
+  if (!v.url) throw new Error('ต้องมี url ของไฟล์');
+  const cur = await dbGet('SELECT * FROM media_files WHERE url = ?', [v.url]);
+  if (cur) {
+    if (!keepExisting) {
+      await db.exec(
+        `UPDATE media_files SET ${MEDIA_FIELDS.map(f => `${f} = ?`).join(', ')} WHERE url = ?`,
+        [...MEDIA_FIELDS.map(f => v[f]), v.url]);
+    }
+    return mediaFromRow(await dbGet('SELECT * FROM media_files WHERE url = ?', [v.url]));
+  }
+  await db.exec(
+    `INSERT INTO media_files (${MEDIA_FIELDS.join(', ')}, created_at)
+     VALUES (${MEDIA_FIELDS.map(() => '?').join(', ')}, ?)`,
+    [...MEDIA_FIELDS.map(f => v[f]), String(body.createdAt || '').trim() || nowBKK()]);
+  return mediaFromRow(await dbGet('SELECT * FROM media_files WHERE url = ?', [v.url]));
+}
+
+app.get('/api/media', async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim().toLowerCase();
+    const folder = String(req.query.folder || '').trim();
+    const kind = String(req.query.kind || '').trim();   // image | pdf | other
+    const kindSql = kind === 'image' ? "mime LIKE 'image/%'"
+      : kind === 'pdf' ? "mime LIKE '%pdf%'"
+        : kind === 'other' ? "(mime NOT LIKE 'image/%' AND mime NOT LIKE '%pdf%')" : '';
+    const where = [];
+    const params = [];
+    if (q) {
+      where.push('(LOWER(name) LIKE ? OR LOWER(caption) LIKE ? OR LOWER(tags) LIKE ? OR LOWER(folder) LIKE ?)');
+      const like = `%${q}%`;
+      params.push(like, like, like, like);
+    }
+    if (folder) { where.push('folder = ?'); params.push(folder); }
+    if (kindSql) where.push(kindSql);
+    const rows = await dbAll(
+      `SELECT * FROM media_files ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+        ORDER BY created_at DESC, id DESC LIMIT 500`, params);
+    // จำนวนต่อโฟลเดอร์ข้างเมนูซ้าย — ไม่นับคำค้น/โฟลเดอร์ที่เลือกอยู่ (ไม่งั้นตัวเลขจะเป็น 0 หมด)
+    // แต่ต้องนับตามชนิดที่กรองไว้ ไม่งั้นกดโฟลเดอร์ที่ขึ้นว่ามี 2 แล้วเจอศูนย์ไฟล์
+    const counts = await dbAll(
+      `SELECT folder, COUNT(*) AS n FROM media_files ${kindSql ? 'WHERE ' + kindSql : ''} GROUP BY folder`, []);
+    res.json({
+      items: rows.map(mediaFromRow),
+      folders: counts.map(c => ({ folder: c.folder || '', n: Number(c.n) })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/media', async (req, res) => {
+  try { res.json({ item: await registerMedia(req.body || {}) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// สแกนของเก่า — หน้าเว็บอ่านรายการไฟล์จาก bucket แล้วส่งมาลงทะเบียนทีเดียว
+// ของที่มีในทะเบียนแล้วจะไม่ถูกแตะ (ชื่อ/แท็กที่คนตั้งไว้ต้องอยู่เหมือนเดิม)
+app.post('/api/media/import', async (req, res) => {
+  const items = Array.isArray(req.body?.items) ? req.body.items : [];
+  if (!items.length) return res.status(400).json({ error: 'ไม่มีรายการไฟล์ส่งมา' });
+  let added = 0, skipped = 0;
+  try {
+    for (const it of items.slice(0, 1000)) {
+      const url = String(it?.url || '').trim();
+      if (!url) { skipped++; continue; }
+      const cur = await dbGet('SELECT id FROM media_files WHERE url = ?', [url]);
+      if (cur) { skipped++; continue; }
+      await registerMedia(it, { keepExisting: true });
+      added++;
+    }
+    res.json({ ok: true, added, skipped });
+  } catch (e) { res.status(500).json({ error: e.message, added, skipped }); }
+});
+
+// แก้ทะเบียน (ชื่อ / โฟลเดอร์ / แท็ก / คำบรรยาย) — ส่งมาเฉพาะช่องที่จะแก้
+app.patch('/api/media/:id', async (req, res) => {
+  const b = req.body || {};
+  const sets = [], params = [];
+  if (b.name !== undefined) { sets.push('name = ?'); params.push(String(b.name).trim() || 'ไม่มีชื่อ'); }
+  if (b.folder !== undefined) { sets.push('folder = ?'); params.push(String(b.folder).trim()); }
+  if (b.caption !== undefined) { sets.push('caption = ?'); params.push(String(b.caption).trim()); }
+  if (b.tags !== undefined) {
+    sets.push('tags = ?');
+    params.push(JSON.stringify(Array.isArray(b.tags) ? b.tags.map(String) : []));
+  }
+  if (!sets.length) return res.status(400).json({ error: 'ไม่มีอะไรให้แก้' });
+  try {
+    const row = await dbGet('SELECT id FROM media_files WHERE id = ?', [req.params.id]);
+    if (!row) return res.status(404).json({ error: 'ไม่พบไฟล์นี้ในคลัง' });
+    await db.exec(`UPDATE media_files SET ${sets.join(', ')} WHERE id = ?`, [...params, req.params.id]);
+    res.json({ item: mediaFromRow(await dbGet('SELECT * FROM media_files WHERE id = ?', [req.params.id])) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/media/delete', async (req, res) => {
+  const id = req.body?.id;
+  if (!id) return res.status(400).json({ error: 'ต้องระบุ id' });
+  try {
+    await db.exec('DELETE FROM media_files WHERE id = ?', [id]);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

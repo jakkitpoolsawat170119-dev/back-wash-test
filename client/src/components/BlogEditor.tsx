@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppRoute } from '../hooks/useAppRoute';
 import { wakeFetch } from '../lib/wakeFetch';
 import { uploadToStorage, humanSize } from '../lib/uploadFile';
+import MediaLibrary, { type MediaInsertOpt } from './MediaLibrary';
+import { isImage, type MediaItem } from '../lib/media';
 import '../blog.css';
 
 const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
@@ -368,6 +370,8 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState('');
   const [showMd, setShowMd] = useState(false);
+  // คลังไฟล์ที่เปิดอยู่ — blockId=null คือเปิดจากแถบเครื่องมือ (ยังไม่รู้ว่าจะลงบล็อกไหน)
+  const [lib, setLib] = useState<null | { blockId: string | null; kind: 'image' | 'pdf' | 'pid' | 'any' | 'cover' }>(null);
   const [tagIn, setTagIn] = useState('');
   const [uploading, setUploading] = useState('');
   const [vaultOn, setVaultOn] = useState<boolean | null>(null);   // null = ยังไม่รู้ (กำลังถาม server)
@@ -545,7 +549,9 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
   };
 
   /* ── อัปโหลดไฟล์ ── */
-  const pickFile = (blockId: string, kind: 'image' | 'pdf' | 'pid') => {
+  // source='library' = ไม่อัปโหลดใหม่ แต่ไปหยิบของที่มีอยู่แล้วในคลังไฟล์
+  const pickFile = (blockId: string, kind: 'image' | 'pdf' | 'pid', source: 'device' | 'library' = 'device') => {
+    if (source === 'library') { setLib({ blockId, kind }); return; }
     pendingUpload.current = { blockId, kind };
     if (fileRef.current) {
       fileRef.current.accept = kind === 'pdf' ? '.pdf,application/pdf' : 'image/*';
@@ -568,6 +574,33 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
     pendingUpload.current = null;
     if (f && t) await doUpload(f, t);
   };
+  /* ── คลังไฟล์ ── */
+  // blockId = null แปลว่ายังไม่มีบล็อกรองรับ → แทรกบล็อกใหม่ให้ตอนเลือกเสร็จ
+  // kind 'cover' = เอาไปเป็นภาพหน้าปกของบทความ ไม่ใช่บล็อกในเนื้อหา
+  const libAccept = lib?.kind === 'pdf' ? 'pdf' : lib && lib.kind !== 'any' ? 'image' : 'any';
+  const libInsert = (m: MediaItem, opt: MediaInsertOpt) => {
+    const t = lib;
+    setLib(null);
+    if (!t) return;
+    const cap = opt.caption ? esc(opt.caption) : '';
+    const asImage = (id: string, keepCap: boolean) =>
+      patch(id, { src: m.url, name: m.name, ...(cap && !keepCap ? { cap } : {}) });
+    const asFile = (id: string) =>
+      patch(id, { url: m.url, name: m.name, meta: m.size ? humanSize(m.size) : '', mode: opt.mode });
+
+    if (t.kind === 'cover') { setField('coverUrl', m.url); return; }
+    if (t.blockId) {
+      if (t.kind === 'pid') patch(t.blockId, { pid: m.url });
+      else if (t.kind === 'image') asImage(t.blockId, !!blocks.find(b => b.id === t.blockId)?.cap);
+      else asFile(t.blockId);
+      setSelId(t.blockId);
+      return;
+    }
+    const b = insertAfter(selId, isImage(m) ? 'image' : 'pdf');
+    if (isImage(m)) asImage(b.id, false);
+    else asFile(b.id);
+  };
+
   const onDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     const files = Array.from(e.dataTransfer.files || []);
@@ -818,6 +851,8 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
         <button className="tbtn" title="กลับไปรายการบทความ" onClick={onBack}>←</button>
         <button className="tbtn add" title="เพิ่มบล็อก"
           onClick={() => insertAfter(selId, 'p')}>+</button>
+        <button className="tbtn" title="คลังไฟล์ — หยิบรูป/เอกสารที่เคยอัปไว้มาใช้ซ้ำ"
+          onClick={() => setLib({ blockId: null, kind: 'any' })}>🗂</button>
         <button className="tbtn" title="ย้อนกลับ" disabled={!past.current.length} onClick={undo}>↶</button>
         <button className="tbtn" title="ทำซ้ำ" disabled={!future.current.length} onClick={redo}>↷</button>
         <span className="tsep" />
@@ -1063,6 +1098,18 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
                   }} />
               </div>
               <div className="sgrp">
+                <h4>ภาพหน้าปก</h4>
+                {post.coverUrl
+                  ? <div className="cover-prev"><img src={post.coverUrl} alt="ภาพหน้าปก" /></div>
+                  : <div className="hintx" style={{ marginTop: 0 }}>ยังไม่ได้ตั้ง — หน้าอ่านจะหยิบรูปแรกในบทความไปทำการ์ดตอนแชร์</div>}
+                <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 8 }}>
+                  <button className="btn-o" onClick={() => setLib({ blockId: null, kind: 'cover' })}>
+                    {post.coverUrl ? 'เปลี่ยนภาพหน้าปก' : 'เลือกจากคลังไฟล์'}
+                  </button>
+                  {post.coverUrl && <button className="btn-o danger" onClick={() => setField('coverUrl', '')}>เอาออก</button>}
+                </div>
+              </div>
+              <div className="sgrp">
                 <h4>สรุปย่อ</h4>
                 <textarea className="starea" rows={3} value={post.excerpt}
                   onChange={e => setField('excerpt', e.target.value)}
@@ -1178,6 +1225,17 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
         </aside>
       </div>
 
+      {lib && (
+        <MediaLibrary
+          accept={libAccept}
+          uploadedBy={post.author}
+          insertLabel={lib.kind === 'cover' ? 'ตั้งเป็นภาพหน้าปก'
+            : lib.blockId ? 'ใส่ในบล็อกนี้' : 'แทรกลงบทความ'}
+          onInsert={libInsert}
+          onClose={() => setLib(null)}
+        />
+      )}
+
       {showMd && (
         <>
           <div className="blogx-ov" onClick={() => setShowMd(false)} />
@@ -1212,7 +1270,7 @@ interface BlockListProps {
   onAct: (id: string, act: 'up' | 'dn' | 'dup' | 'del') => void;
   onReplace: (id: string, t: BlockType) => Block;
   onInsertAfter: (afterId: string | null, t: BlockType) => Block;
-  onPick: (blockId: string, kind: 'image' | 'pdf' | 'pid') => void;
+  onPick: (blockId: string, kind: 'image' | 'pdf' | 'pid', source?: 'device' | 'library') => void;
   styleOf: (b: Block) => React.CSSProperties;
 }
 
@@ -1321,7 +1379,7 @@ const BlockList: React.FC<BlockListProps> = ({ blocks, selId, onSelect, onPatch,
 const BlockBody: React.FC<{
   b: Block;
   onPatch: (id: string, up: Partial<Block>) => void;
-  onPick: (blockId: string, kind: 'image' | 'pdf' | 'pid') => void;
+  onPick: (blockId: string, kind: 'image' | 'pdf' | 'pid', source?: 'device' | 'library') => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
 }> = ({ b, onPatch, onPick, onKeyDown }) => {
   const set = (up: Partial<Block>) => onPatch(b.id, up);
@@ -1541,9 +1599,14 @@ const BlockBody: React.FC<{
           {b.src ? (
             <figure className="ed-fig"><img src={b.src} alt={stripHtml(b.cap)} /></figure>
           ) : (
-            <button className="cover-ph" onClick={() => onPick(b.id, 'image')}>
-              🖼 กดเพื่อเลือกรูป — หรือลากไฟล์มาวางบนหน้าก็ได้
-            </button>
+            <div className="ph-pick">
+              <button className="cover-ph" onClick={() => onPick(b.id, 'image')}>
+                🖼 อัปโหลดรูปจากเครื่อง<small>หรือลากไฟล์มาวางบนหน้าก็ได้</small>
+              </button>
+              <button className="cover-ph" onClick={() => onPick(b.id, 'image', 'library')}>
+                🗂 เลือกจากคลังไฟล์<small>รูปที่เคยอัปไว้แล้ว</small>
+              </button>
+            </div>
           )}
           <Rich className="ed-cap" ph="ใส่คำบรรยายภาพ เช่น จอแสดงค่า X ตอนสภาวะผิดปกติ"
             html={b.cap || ''} onChange={v => set({ cap: v })} />
@@ -1552,9 +1615,14 @@ const BlockBody: React.FC<{
     case 'pdf':
       if (!b.url) {
         return (
-          <button className="cover-ph" onClick={() => onPick(b.id, 'pdf')}>
-            📕 กดเพื่อเลือกไฟล์ PDF (SOP, คู่มือเครื่อง, รายงาน)
-          </button>
+          <div className="ph-pick">
+            <button className="cover-ph" onClick={() => onPick(b.id, 'pdf')}>
+              📕 อัปโหลด PDF จากเครื่อง<small>SOP, คู่มือเครื่อง, รายงาน</small>
+            </button>
+            <button className="cover-ph" onClick={() => onPick(b.id, 'pdf', 'library')}>
+              🗂 เลือกจากคลังไฟล์<small>เอกสารที่เคยอัปไว้แล้ว</small>
+            </button>
+          </div>
         );
       }
       if (b.mode === 'embed') {
@@ -1595,9 +1663,10 @@ const BlockBody: React.FC<{
           </div>
           {b.pid
             ? <div className="pflow-img"><img src={b.pid} alt="P&ID" /></div>
-            : <button className="pflow-img" style={{ width: '100%' }} onClick={() => onPick(b.id, 'pid')}>
-                🖼 แนบภาพ P&amp;ID ของช่วงนี้
-              </button>}
+            : <div className="ph-pick">
+                <button className="pflow-img" onClick={() => onPick(b.id, 'pid')}>🖼 แนบภาพ P&amp;ID ของช่วงนี้</button>
+                <button className="pflow-img" onClick={() => onPick(b.id, 'pid', 'library')}>🗂 เลือกจากคลังไฟล์</button>
+              </div>}
         </div>
       );
     case 'params':
@@ -1665,7 +1734,7 @@ const BlockBody: React.FC<{
 const BlockSpecific: React.FC<{
   b: Block;
   onPatch: (id: string, up: Partial<Block>) => void;
-  onPick: (blockId: string, kind: 'image' | 'pdf' | 'pid') => void;
+  onPick: (blockId: string, kind: 'image' | 'pdf' | 'pid', source?: 'device' | 'library') => void;
   onSnap: () => void;
 }> = ({ b, onPatch, onPick, onSnap }) => {
   if (!['alert', 'pdf', 'params', 'flow', 'image'].includes(b.type)) return null;
@@ -1695,6 +1764,7 @@ const BlockSpecific: React.FC<{
           </div>
           <div className="minibtns" style={{ marginTop: 8 }}>
             <button onClick={() => onPick(b.id, 'pdf')}>📕 เปลี่ยนไฟล์</button>
+            <button onClick={() => onPick(b.id, 'pdf', 'library')}>🗂 จากคลังไฟล์</button>
           </div>
           <div className="hintx">{b.name || 'ยังไม่ได้เลือกไฟล์'}{b.meta ? ` · ${b.meta}` : ''}</div>
         </>
@@ -1702,7 +1772,10 @@ const BlockSpecific: React.FC<{
 
       {b.type === 'image' && (
         <>
-          <div className="minibtns"><button onClick={() => onPick(b.id, 'image')}>🖼 เปลี่ยนรูป</button></div>
+          <div className="minibtns">
+            <button onClick={() => onPick(b.id, 'image')}>🖼 เปลี่ยนรูป</button>
+            <button onClick={() => onPick(b.id, 'image', 'library')}>🗂 จากคลังไฟล์</button>
+          </div>
           <div className="hintx">{b.name || 'ยังไม่ได้เลือกรูป'}</div>
         </>
       )}
@@ -1713,6 +1786,7 @@ const BlockSpecific: React.FC<{
             <button onClick={() => act({ steps: [...(b.steps || []), { t: 'ขั้นตอนใหม่', c: '#6a1b9a' }] })}>＋ เพิ่มขั้นตอน</button>
             <button onClick={() => (b.steps || []).length > 2 && act({ steps: (b.steps || []).slice(0, -1) })}>− ลบขั้นตอนท้าย</button>
             <button onClick={() => onPick(b.id, 'pid')}>🖼 แนบภาพ P&amp;ID</button>
+            <button onClick={() => onPick(b.id, 'pid', 'library')}>🗂 จากคลังไฟล์</button>
           </div>
           <div className="hintx">{(b.steps || []).length} ขั้นตอน · แก้ชื่อได้ที่กล่องในหน้า · ส่งออกเป็น mermaid</div>
         </>
