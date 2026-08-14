@@ -122,6 +122,18 @@ function renderBlock(b) {
     }
     case 'code':
       return `<pre${at}><code>${esc(b.html || '')}</code></pre>`;
+    // โค้ดที่รันได้ — โชว์โค้ดให้คนอ่านเห็นก่อนเสมอ แล้วค่อยกดรัน (หรือรันเองถ้าคนเขียนตั้งไว้)
+    // โค้ดส่งเข้ากล่องผ่าน data-code ไม่ใช่ฝังในสคริปต์ของหน้า — หน้านี้จึงไม่มีทางรันมันเอง
+    case 'js': {
+      const code = b.html || '';
+      return `<figure class="jsrun"${at} data-code="${esc(JSON.stringify(code))}"${b.auto ? ' data-auto="1"' : ''}>
+      <div class="jsrun-hd"><span class="tag">JavaScript</span>
+        <span class="note">รันในกล่องแยก ไม่แตะหน้านี้</span>
+        <button type="button" class="jsrun-go">▶ กดเพื่อรัน</button></div>
+      <pre><code>${esc(code)}</code></pre>
+      <div class="jsrun-out" hidden></div>
+    </figure>`;
+    }
     case 'image': {
       if (!b.src) return '';
       const cap = plain(b.cap);
@@ -223,6 +235,29 @@ pre{background:#2b2119;color:#ffd9b8;padding:16px 18px;border-radius:12px;overfl
 pre code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:none;padding:0;color:inherit}
 code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em;
   background:var(--brand-soft);color:var(--brand-deep);padding:1px 6px;border-radius:6px}
+.jsrun{margin:0 0 24px;border:1px solid var(--line);border-radius:14px;overflow:hidden;
+  background:var(--card);box-shadow:var(--shadow)}
+.jsrun-hd{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);
+  flex-wrap:wrap}
+.jsrun-hd .tag{font-size:11px;font-weight:700;letter-spacing:.04em;background:var(--brand-soft);
+  color:var(--brand-deep);border-radius:999px;padding:3px 10px}
+.jsrun-hd .note{font-size:12.5px;color:var(--ink-soft)}
+.jsrun-go{margin-left:auto;border:1px solid var(--brand);background:var(--brand);color:#fff;
+  border-radius:9px;padding:7px 15px;font:inherit;font-size:13.5px;font-weight:700;cursor:pointer;
+  transition:transform .12s cubic-bezier(.34,1.4,.64,1)}
+.jsrun-go:hover{transform:translateY(-1px)}
+.jsrun-go:disabled{opacity:.55;cursor:default;transform:none}
+.jsrun pre{margin:0;border-radius:0}
+.jsrun-out{background:#1b1410;color:#e8ddd2;padding:12px 16px;font-size:13.5px;line-height:1.75;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;border-top:2px solid var(--brand);
+  overflow-x:auto}
+.jsrun-out.bad{border-top-color:#e05e00}
+.jsrun-out .ln{white-space:pre-wrap;overflow-wrap:anywhere}
+.jsrun-out .ln.ret{color:#8ee6a1;font-weight:700}
+.jsrun-out .ln.err{color:#ff9b8a}
+.jsrun-out .ln.warn{color:#ffd166}
+.jsrun-out .ln.muted{color:#9c8f83}
+.jsrun-out .ms{color:#9c8f83;font-size:11.5px;margin-top:8px}
 figure{margin:0 0 24px}
 figure img{border-radius:14px;box-shadow:var(--shadow)}
 figcaption{font-size:14px;color:var(--ink-soft);margin-top:9px;text-align:center}
@@ -292,7 +327,7 @@ figure.chart .chart-scroll svg{min-width:600px}
 :focus-visible{outline:3px solid var(--brand);outline-offset:2px;border-radius:6px}
 `;
 
-function shell({ title, desc, image, url, body, noindex = true }) {
+function shell({ title, desc, image, url, body, noindex = true, script = '' }) {
   const og = [
     `<meta property="og:type" content="article">`,
     `<meta property="og:title" content="${esc(title)}">`,
@@ -322,9 +357,124 @@ function shell({ title, desc, image, url, body, noindex = true }) {
     <a href="/บทความ">บทความทั้งหมด</a>
   </div></header>
   ${body}
+  ${script}
 </body>
 </html>`;
 }
+
+/* ══════════════ ตัวรันโค้ดของหน้าอ่าน ══════════════
+   ⚠️ ต้องเหมือนกับ client/src/lib/runJs.ts — หน้าอ่านไม่ได้ผ่าน bundler เลยต้องมีสำเนา
+      แก้ที่ไหนต้องแก้อีกที่ (กติกาเดียวกับคู่ toMarkdown() / postToMarkdown())
+   โค้ดของคนเขียนรันใน <iframe sandbox="allow-scripts"> ที่ไม่มี allow-same-origin
+   ⚠️ ห้ามเติม allow-same-origin — ใส่คู่กับ allow-scripts เมื่อไหร่กล่องกันพังทันที */
+const SANDBOX_HTML = `<!doctype html><meta charset="utf-8"><body><script>
+(function () {
+  var out = [];
+  function fmt(v) {
+    if (typeof v === 'string') return v;
+    if (v instanceof Error) return v.message;
+    try { return JSON.stringify(v, null, 2); } catch (e) { return String(v); }
+  }
+  function push(k, args) { out.push({ k: k, v: [].map.call(args, fmt).join(' ') }); }
+  console.log = function () { push('log', arguments); };
+  console.info = function () { push('log', arguments); };
+  console.warn = function () { push('warn', arguments); };
+  console.error = function () { push('err', arguments); };
+  function done(err) { parent.postMessage({ spp: 'js-result', out: out, err: err || '' }, '*'); }
+  window.addEventListener('message', function (e) {
+    var code = e.data && e.data.spp === 'js-run' ? e.data.code : null;
+    if (typeof code !== 'string') return;
+    var run;
+    try {
+      run = new Function('"use strict"; return (async function () {\\n' + code + '\\n})()');
+    } catch (ex) { return done('โค้ดผิดไวยากรณ์ — ' + (ex && ex.message || ex)); }
+    try {
+      Promise.resolve(run()).then(
+        function (v) { if (v !== undefined) push('ret', [v]); done(''); },
+        function (ex) { done(String(ex && ex.message || ex)); }
+      );
+    } catch (ex) { done(String(ex && ex.message || ex)); }
+  });
+  parent.postMessage({ spp: 'js-ready' }, '*');
+})();
+</script>`;
+
+// ฝังสตริงลงในสคริปต์ของหน้า — ต้องหนี "</" เป็น "<\/" ไม่งั้น </script> ข้างในไปปิดแท็กของหน้า
+const bootLiteral = () => JSON.stringify(SANDBOX_HTML).replace(/<\//g, '<\\/');
+
+const JS_RUNTIME = () => `<script>
+(function () {
+  var BOOT = ${bootLiteral()};
+  var TIMEOUT = 3000;
+
+  function run(code, cb) {
+    var t0 = Date.now();
+    var frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', 'allow-scripts');
+    frame.setAttribute('aria-hidden', 'true');
+    frame.style.cssText = 'position:fixed;width:0;height:0;border:0;left:-9999px;top:-9999px';
+    frame.srcdoc = BOOT;
+    var done = false;
+    function finish(r) {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      window.removeEventListener('message', onMsg);
+      frame.parentNode && frame.parentNode.removeChild(frame);
+      cb(r);
+    }
+    function onMsg(e) {
+      if (e.source !== frame.contentWindow) return;
+      var d = e.data || {};
+      if (d.spp === 'js-ready') { frame.contentWindow.postMessage({ spp: 'js-run', code: code }, '*'); return; }
+      if (d.spp === 'js-result') finish({ lines: d.out || [], error: d.err || '', ms: Date.now() - t0 });
+    }
+    var timer = setTimeout(function () {
+      finish({ lines: [], error: 'รันเกิน 3 วินาที — หยุดให้แล้ว (โค้ดอาจวนไม่รู้จบ)', ms: TIMEOUT });
+    }, TIMEOUT);
+    window.addEventListener('message', onMsg);
+    document.body.appendChild(frame);
+  }
+
+  function show(box, r) {
+    var html = r.lines.map(function (l) {
+      var t = document.createElement('div');
+      t.className = 'ln ' + l.k;
+      t.textContent = (l.k === 'ret' ? '⟶ ' : '') + l.v;
+      return t.outerHTML;
+    }).join('');
+    if (r.error) {
+      var e = document.createElement('div');
+      e.className = 'ln err';
+      e.textContent = '✕ ' + r.error;
+      html += e.outerHTML;
+    } else if (!r.lines.length) {
+      html += '<div class="ln muted">รันแล้วไม่มีผลลัพธ์</div>';
+    }
+    box.innerHTML = html + '<div class="ms">ใช้เวลา ' + r.ms + ' ms</div>';
+    box.className = 'jsrun-out' + (r.error ? ' bad' : '');
+    box.hidden = false;
+  }
+
+  [].forEach.call(document.querySelectorAll('.jsrun'), function (fig) {
+    var btn = fig.querySelector('.jsrun-go');
+    var box = fig.querySelector('.jsrun-out');
+    var code;
+    try { code = JSON.parse(fig.getAttribute('data-code') || '""'); } catch (e) { code = ''; }
+    function go() {
+      btn.disabled = true;
+      btn.textContent = 'กำลังรัน…';
+      run(code, function (r) {
+        show(box, r);
+        btn.disabled = false;
+        btn.textContent = '▶ รันอีกครั้ง';
+      });
+    }
+    btn.addEventListener('click', go);
+    if (fig.getAttribute('data-auto') === '1') go();
+  });
+})();
+</script>`;
 
 /* ══════════════ หน้าต่าง ๆ ══════════════ */
 
@@ -357,6 +507,8 @@ function renderArticle(post, baseUrl) {
     image: post.coverUrl || (firstImg && firstImg.src) || '',
     url: `${baseUrl}/บทความ/${encodeURIComponent(post.slug)}`,
     body,
+    // ใส่ตัวรันเฉพาะบทความที่มีบล็อกรันได้จริง บทความอื่นไม่ต้องแบกสคริปต์นี้
+    script: src.some(b => b.type === 'js') ? JS_RUNTIME() : '',
   });
 }
 

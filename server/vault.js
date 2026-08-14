@@ -234,6 +234,8 @@ function postToMarkdown(post) {
         break;
       }
       case 'code': L.push('```', b.html || '', '```', ''); break;
+      // ใส่ชื่อภาษาให้ Obsidian ไล่สี — ใน Obsidian อ่านอย่างเดียว รันไม่ได้
+      case 'js': L.push('```js', b.html || '', '```', ''); break;
       case 'image':
         L.push(`![${stripHtml(b.cap) || b.name || 'ภาพ'}](${b.src || ''})`);
         if (stripHtml(b.cap)) L.push('*' + stripHtml(b.cap) + '*');

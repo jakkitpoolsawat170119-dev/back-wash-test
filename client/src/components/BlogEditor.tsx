@@ -4,6 +4,7 @@ import { wakeFetch } from '../lib/wakeFetch';
 import { uploadFileDetailed, humanSize } from '../lib/uploadFile';
 import MediaLibrary, { type MediaInsertOpt } from './MediaLibrary';
 import { isDocFile, isImage, type MediaItem } from '../lib/media';
+import { runJs, type RunLine } from '../lib/runJs';
 import '../blog.css';
 
 const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
@@ -11,7 +12,7 @@ const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-t
 /* ══════════════ ชนิดข้อมูล ══════════════ */
 
 export type BlockType =
-  | 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'list' | 'olist' | 'todo' | 'quote' | 'code'
+  | 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'list' | 'olist' | 'todo' | 'quote' | 'code' | 'js'
   | 'table' | 'divider' | 'toggle' | 'cols'
   | 'image' | 'pdf' | 'video' | 'flow' | 'params' | 'alert' | 'chart';
 
@@ -37,6 +38,7 @@ export interface Block {
   rows?: ParamRow[];
   cells?: string[][];        // ตารางอิสระ / ข้อมูลกราฟแบบพิมพ์เอง — แถวแรกคือหัวตาราง
   checks?: boolean[];        // เช็กลิสต์ — ติ๊กคู่กับ items ทีละช่อง
+  auto?: boolean;            // บล็อกโค้ดที่รันได้ — รันเองตอนคนเปิดหน้าอ่าน
   chartKind?: 'bar' | 'line';
   chartSrc?: string;         // manual | production-daily | production-machine | tasks-daily
   days?: number;             // ย้อนหลังกี่วัน (เฉพาะกราฟที่ดึงข้อมูลจากระบบ)
@@ -102,6 +104,7 @@ const BLOCK_TYPES: { id: BlockType; ic: string; t: string; d: string; k: string;
   { id: 'toggle', ic: '▸',  t: 'กล่องพับเก็บ',        d: 'ซ่อนรายละเอียดยาว ๆ กดแล้วกาง', k: '/toggle', grp: 'พื้นฐาน' },
   { id: 'divider',ic: '—',  t: 'เส้นคั่น',            d: 'คั่นระหว่างตอน',               k: '/hr',    grp: 'พื้นฐาน' },
   { id: 'code',   ic: '{}', t: 'บล็อกโค้ด',           d: 'สคริปต์ / ค่า config / log',    k: '/code',  grp: 'พื้นฐาน' },
+  { id: 'js',     ic: '▶',  t: 'โค้ดที่รันได้',        d: 'คำนวณ process จริง กดแล้วได้ผลลัพธ์', k: '/run', grp: 'งานผลิต' },
   { id: 'cols',   ic: '◫',  t: 'แบ่งคอลัมน์',         d: 'วางเนื้อหาคู่กัน จอแคบยุบเป็นแถวเดียว', k: '/cols', grp: 'พื้นฐาน' },
   { id: 'image',  ic: '🖼', t: 'รูปภาพ',              d: 'ภาพจอ SCADA/HMI พร้อมคำบรรยาย', k: '/image', grp: 'สื่อ' },
   { id: 'video',  ic: '▶',  t: 'วิดีโอ',              d: 'YouTube / Google Drive / ไฟล์วิดีโอ', k: '/video', grp: 'สื่อ' },
@@ -115,6 +118,21 @@ const BT = Object.fromEntries(BLOCK_TYPES.map(b => [b.id, b])) as Record<BlockTy
 
 /** device = อัปจากเครื่อง · library = หยิบของที่มีอยู่แล้วในคลังไฟล์ */
 type PickSource = 'device' | 'library';
+
+// ตัวอย่างตั้งต้นของบล็อกโค้ดที่รันได้ — ตั้งใจให้เป็นงานผลิตจริง ไม่ใช่ hello world
+const JS_SAMPLE = `// เวลาและน้ำที่ใช้ของ process ล้าง CIP
+const ขั้นตอน = [
+  { ชื่อ: 'Pre-rinse',      นาที: 5,  น้ำ: 300 },
+  { ชื่อ: 'Caustic 2% 80C', นาที: 20, น้ำ: 1200 },
+  { ชื่อ: 'Final rinse',    นาที: 5,  น้ำ: 300 },
+];
+
+const เวลารวม = ขั้นตอน.reduce((s, x) => s + x.นาที, 0);
+const น้ำรวม = ขั้นตอน.reduce((s, x) => s + x.น้ำ, 0);
+
+for (const x of ขั้นตอน) console.log(x.ชื่อ, '—', x.นาที, 'นาที', x.น้ำ, 'ลิตร');
+
+return \`รวม \${เวลารวม} นาที · ใช้น้ำ \${น้ำรวม} ลิตร\`;`;
 
 const CATEGORIES = ['ระบบ CIP', 'Boiler', 'Evaporator', 'Mixing / Syrup', 'บรรจุ', 'ความปลอดภัย'];
 const MACHINES = ['CIP Line 1', 'CIP Line 2', 'CIP Line 3', 'Boiler', 'Evaporator', 'Mixing Station'];
@@ -199,6 +217,10 @@ function newBlock(type: BlockType, extra?: Partial<Block>): Block {
   if (type === 'toggle') { b.title = 'กดเพื่อดูรายละเอียด'; b.body = 'เนื้อหาที่ซ่อนไว้'; }
   if (type === 'quote') b.html = 'ข้อความที่ยกมาจากคู่มือ';
   if (type === 'code') b.html = '# ค่าที่ตั้งไว้บน HMI\nsupply_temp = 80';
+  if (type === 'js') {
+    b.html = JS_SAMPLE;
+    b.auto = false;
+  }
   if (type === 'cols') b.items = ['เนื้อหาคอลัมน์ซ้าย', 'เนื้อหาคอลัมน์ขวา'];
   if (type === 'image') { b.src = ''; b.cap = ''; b.name = ''; }
   if (type === 'video') { b.url = ''; b.cap = ''; }
@@ -758,6 +780,8 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
           break;
         }
         case 'code': L.push('```', b.html || '', '```', ''); break;
+        // ใส่ชื่อภาษาไว้ให้ Obsidian ไล่สีให้ — ใน Obsidian เป็นโค้ดอ่านอย่างเดียว รันไม่ได้
+        case 'js': L.push('```js', b.html || '', '```', ''); break;
         case 'image': {
           // ยุบขึ้นบรรทัดในคำบรรยายให้เหลือเว้นวรรค ไม่งั้น ![alt](url) ขาดกลาง
           const cap = stripHtml(b.cap).replace(/\s+/g, ' ').trim();
@@ -1428,6 +1452,8 @@ const BlockBody: React.FC<{
       return <Rich className="ed-quote" html={b.html || ''} onChange={v => set({ html: v })} onKeyDown={onKeyDown} />;
     case 'code':
       return <Rich className="ed-code" plain html={b.html || ''} onChange={v => set({ html: v })} />;
+    case 'js':
+      return <JsBlock b={b} onPatch={onPatch} />;
     case 'list':
     case 'olist': {
       const Tag = b.type === 'olist' ? 'ol' : 'ul';
@@ -1747,18 +1773,68 @@ const BlockBody: React.FC<{
 
 /* ══════════════ ตั้งค่าที่มีเฉพาะบล็อกบางชนิด ══════════════ */
 
+/* ══════════════ บล็อกโค้ดที่รันได้ ══════════════
+   โค้ดรันในกล่องแยก (ดู lib/runJs.ts) แตะหน้าเว็บจริงไม่ได้
+   แยกเป็นคอมโพเนนต์ต่างหากเพราะต้องเก็บสถานะ "ผลลัพธ์ล่าสุด" ของตัวเอง */
+
+const JsOutput: React.FC<{ lines: RunLine[]; error: string; ms: number }> = ({ lines, error, ms }) => (
+  <div className={`jsrun-out${error ? ' bad' : ''}`}>
+    {lines.map((l, i) => (
+      <div key={i} className={`ln ${l.k}`}>{l.k === 'ret' ? '⟶ ' : ''}{l.v}</div>
+    ))}
+    {error && <div className="ln err">✕ {error}</div>}
+    {!error && !lines.length && <div className="ln muted">รันแล้วไม่มีผลลัพธ์ — ลอง console.log() หรือ return ค่ากลับมา</div>}
+    <div className="ms">ใช้เวลา {ms} ms</div>
+  </div>
+);
+
+const JsBlock: React.FC<{ b: Block; onPatch: (id: string, patch: Partial<Block>) => void }> = ({ b, onPatch }) => {
+  const [res, setRes] = useState<{ lines: RunLine[]; error: string; ms: number } | null>(null);
+  const [running, setRunning] = useState(false);
+  const run = async () => {
+    setRunning(true);
+    setRes(await runJs(b.html || ''));
+    setRunning(false);
+  };
+  return (
+    <div className="jsrun-ed">
+      <div className="jsrun-bar">
+        <span className="tag">JavaScript</span>
+        <span className="hint">รันในกล่องแยก แตะหน้าเว็บไม่ได้</span>
+        <button className="go" disabled={running} onClick={run}>{running ? 'กำลังรัน…' : '▶ รัน'}</button>
+      </div>
+      <Rich className="ed-code" plain html={b.html || ''} onChange={v => onPatch(b.id, { html: v })} />
+      {res && <JsOutput {...res} />}
+    </div>
+  );
+};
+
 const BlockSpecific: React.FC<{
   b: Block;
   onPatch: (id: string, up: Partial<Block>) => void;
   onPick: (blockId: string, kind: 'image' | 'pdf' | 'pid', source?: PickSource) => void;
   onSnap: () => void;
 }> = ({ b, onPatch, onPick, onSnap }) => {
-  if (!['alert', 'pdf', 'params', 'flow', 'image'].includes(b.type)) return null;
+  if (!['alert', 'pdf', 'params', 'flow', 'image', 'js'].includes(b.type)) return null;
   const act = (up: Partial<Block>) => { onSnap(); onPatch(b.id, up); };
 
   return (
     <div className="sgrp">
       <h4>ตั้งค่า{BT[b.type].t}</h4>
+
+      {b.type === 'js' && (
+        <>
+          <label className="chkline">
+            <input type="checkbox" checked={!!b.auto} onChange={e => act({ auto: e.target.checked })} />
+            รันเองตอนคนเปิดหน้าอ่าน
+          </label>
+          <div className="hintx">
+            ไม่ติ๊ก = คนอ่านเห็นโค้ดกับปุ่ม "▶ กดเพื่อรัน" แล้วเลือกเองว่าจะรันไหม<br />
+            โค้ดรันในกล่องแยกที่แตะหน้าเว็บจริงไม่ได้ · เกิน 3 วินาทีระบบหยุดให้เอง<br />
+            ผลลัพธ์มาจาก <code className="inl">console.log()</code> และค่าที่ <code className="inl">return</code> กลับมา
+          </div>
+        </>
+      )}
 
       {b.type === 'alert' && (
         <>
