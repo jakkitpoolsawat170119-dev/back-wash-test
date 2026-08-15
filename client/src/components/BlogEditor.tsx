@@ -5,6 +5,7 @@ import { uploadFileDetailed, humanSize } from '../lib/uploadFile';
 import MediaLibrary, { type MediaInsertOpt } from './MediaLibrary';
 import { isDocFile, isImage, type MediaItem } from '../lib/media';
 import { runJs, type RunHandle, type RunLine } from '../lib/runJs';
+import { ANIM_TEMPLATES } from '../lib/animTemplates';
 import '../blog.css';
 
 const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
@@ -136,130 +137,8 @@ for (const x of ขั้นตอน) console.log(x.ชื่อ, '—', x.น�
 
 return \`รวม \${เวลารวม} นาที · ใช้น้ำ \${น้ำรวม} ลิตร\`;`;
 
-const JS_FLOW_SAMPLE = `// ── ตัวอย่างภาพเคลื่อนไหว: กระบวนการผลิตน้ำเชื่อมแต่งกลิ่น ──
-const ขั้นตอน = [
-  { ชื่อ: 'น้ำ RO',       ย่อ: 'RO',   สี: '#4aa3df' },
-  { ชื่อ: 'ละลายน้ำตาล',  ย่อ: '80°C', สี: '#e0a021' },
-  { ชื่อ: 'กรอง',         ย่อ: 'FIL',  สี: '#8fd3a0' },
-  { ชื่อ: 'เติมกลิ่น',    ย่อ: 'FLV',  สี: '#c86bd8' },
-  { ชื่อ: 'พักเย็น',      ย่อ: '25°C', สี: '#5ec8c8' },
-  { ชื่อ: 'บรรจุ',        ย่อ: 'PACK', สี: '#ff8c3c' },
-];
-const วินาทีต่อขั้น = 2;
-
-const จอ = document.createElement('canvas');
-document.body.appendChild(จอ);
-const g = จอ.getContext('2d');
-let W, H;
-
-function ปรับขนาด() {
-  const dpr = window.devicePixelRatio || 1;
-  W = innerWidth; H = innerHeight;
-  จอ.width = W * dpr; จอ.height = H * dpr;
-  จอ.style.width = W + 'px'; จอ.style.height = H + 'px';
-  g.setTransform(dpr, 0, 0, dpr, 0, 0);
-}
-ปรับขนาด();
-addEventListener('resize', ปรับขนาด);
-
-function กล่องมน(x, y, w, h, r) {
-  g.beginPath();
-  g.moveTo(x + r, y);
-  g.arcTo(x + w, y, x + w, y + h, r);
-  g.arcTo(x + w, y + h, x, y + h, r);
-  g.arcTo(x, y + h, x, y, r);
-  g.arcTo(x, y, x + w, y, r);
-  g.closePath();
-}
-
-// จับเวลาจากเฟรมแรกที่วาดจริง ไม่ใช่ performance.now() ตอนเริ่ม
-// (เวลาของเฟรมแรกอาจย้อนหลังกว่าตอนเริ่มเล็กน้อย ทำให้เวลาติดลบแล้วคำนวณขั้นตอนเพี้ยน)
-let เริ่ม = null;
-
-function วาด(now) {
-  if (เริ่ม === null) เริ่ม = now;
-  const t = Math.max(0, (now - เริ่ม) / 1000);
-  const ตำแหน่ง = (t % (ขั้นตอน.length * วินาทีต่อขั้น)) / วินาทีต่อขั้น;
-  const ที่ทำอยู่ = Math.floor(ตำแหน่ง);
-  const เศษ = ตำแหน่ง - ที่ทำอยู่;
-
-  g.clearRect(0, 0, W, H);
-
-  const ขอบ = 14;
-  const ช่อง = 12;
-  const กว้าง = (W - ขอบ * 2 - ช่อง * (ขั้นตอน.length - 1)) / ขั้นตอน.length;
-  const สูง = Math.min(74, H * 0.3);
-  const บน = H * 0.34;
-
-  g.font = '600 13px system-ui, sans-serif';
-  g.fillStyle = '#e8ddd2';
-  g.textAlign = 'left';
-  g.fillText('กระบวนการผลิตน้ำเชื่อมแต่งกลิ่น', ขอบ, 26);
-
-  for (let i = 0; i < ขั้นตอน.length; i++) {
-    const s = ขั้นตอน[i];
-    const x = ขอบ + i * (กว้าง + ช่อง);
-    const ทำอยู่ = i === ที่ทำอยู่;
-    const เต้น = ทำอยู่ ? Math.sin(t * 6) * 1.5 : 0;
-
-    // ท่อเชื่อมไปกล่องถัดไป + หยดของเหลวที่วิ่งอยู่
-    if (i < ขั้นตอน.length - 1) {
-      const x1 = x + กว้าง, x2 = x1 + ช่อง, กลาง = บน + สูง / 2;
-      g.strokeStyle = 'rgba(232,221,210,.25)';
-      g.lineWidth = 3;
-      g.beginPath(); g.moveTo(x1, กลาง); g.lineTo(x2, กลาง); g.stroke();
-      if (i === ที่ทำอยู่) {
-        g.fillStyle = s.สี;
-        g.beginPath(); g.arc(x1 + ช่อง * เศษ, กลาง, 3.2, 0, Math.PI * 2); g.fill();
-      }
-    }
-
-    if (ทำอยู่) {
-      g.shadowColor = s.สี;
-      g.shadowBlur = 18;
-    }
-    กล่องมน(x, บน - เต้น, กว้าง, สูง + เต้น * 2, 12);
-    g.fillStyle = ทำอยู่ ? s.สี : 'rgba(232,221,210,.10)';
-    g.fill();
-    g.shadowBlur = 0;
-    g.lineWidth = ทำอยู่ ? 0 : 1;
-    g.strokeStyle = 'rgba(232,221,210,.22)';
-    if (!ทำอยู่) g.stroke();
-
-    // ระดับของเหลวในกล่องที่กำลังทำ
-    if (ทำอยู่) {
-      g.save();
-      กล่องมน(x, บน, กว้าง, สูง, 12);
-      g.clip();
-      g.fillStyle = 'rgba(27,20,16,.30)';
-      g.fillRect(x, บน, กว้าง, สูง * (1 - เศษ));
-      g.restore();
-    }
-
-    g.textAlign = 'center';
-    g.fillStyle = ทำอยู่ ? '#1b1410' : '#e8ddd2';
-    g.font = '700 12px system-ui, sans-serif';
-    g.fillText(s.ย่อ, x + กว้าง / 2, บน + สูง / 2 + 4);
-
-    g.fillStyle = ทำอยู่ ? s.สี : 'rgba(232,221,210,.55)';
-    g.font = (ทำอยู่ ? '700 ' : '400 ') + '11px system-ui, sans-serif';
-    g.fillText(s.ชื่อ, x + กว้าง / 2, บน + สูง + 18);
-  }
-
-  // แถบความคืบหน้าของรอบ + ป้ายบอกว่าอยู่ขั้นไหน
-  const ล่าง = H - 26;
-  g.fillStyle = 'rgba(232,221,210,.14)';
-  g.fillRect(ขอบ, ล่าง, W - ขอบ * 2, 5);
-  g.fillStyle = ขั้นตอน[ที่ทำอยู่].สี;
-  g.fillRect(ขอบ, ล่าง, (W - ขอบ * 2) * (ตำแหน่ง / ขั้นตอน.length), 5);
-  g.textAlign = 'left';
-  g.fillStyle = '#9c8f83';
-  g.font = '400 11px system-ui, sans-serif';
-  g.fillText('กำลังทำ: ' + ขั้นตอน[ที่ทำอยู่].ชื่อ + '  ·  ขั้นที่ ' + (ที่ทำอยู่ + 1) + '/' + ขั้นตอน.length, ขอบ, ล่าง - 8);
-
-  requestAnimationFrame(วาด);
-}
-requestAnimationFrame(วาด);`;
+/** หยุดพิมพ์นานเกินนี้ (ms) = ขึ้นก้อนใหม่ให้ปุ่มย้อนกลับ */
+const TYPING_SNAP_GAP = 1000;
 
 const CATEGORIES = ['ระบบ CIP', 'Boiler', 'Evaporator', 'Mixing / Syrup', 'บรรจุ', 'ความปลอดภัย'];
 const MACHINES = ['CIP Line 1', 'CIP Line 2', 'CIP Line 3', 'Boiler', 'Evaporator', 'Mixing Station'];
@@ -530,6 +409,8 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
   const [syncing, setSyncing] = useState(false);
   const past = useRef<string[]>([]);
   const future = useRef<string[]>([]);
+  // ตัวจับจังหวะพิมพ์: id = บล็อกที่กำลังแก้ (null = เพิ่งจดภาพไปแล้ว ไม่ต้องจดซ้ำ)
+  const typing = useRef<{ id: string | null; at: number }>({ id: '', at: 0 });
   const [, forceTick] = useState(0);
 
   const fileRef = useRef<HTMLInputElement>(null);
@@ -595,17 +476,26 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
   }, [postId, isNew, operatorName]);
 
   /* ── ประวัติ undo/redo ── */
-  const snap = useCallback(() => {
-    past.current.push(JSON.stringify(blocks));
+  const pushPast = useCallback((state: Block[]) => {
+    past.current.push(JSON.stringify(state));
     if (past.current.length > 60) past.current.shift();
     future.current.length = 0;
+  }, []);
+
+  // จดภาพก่อนลงมือ — ใช้กับงานที่เป็นก้อนเดียวจบ (เพิ่ม/ลบ/สลับ/เปลี่ยนชนิดบล็อก)
+  // typing.id = null แปลว่าเพิ่งจดไปหมาด ๆ การพิมพ์ครั้งถัดไปจึงไม่ต้องจดซ้ำ
+  const snap = useCallback(() => {
+    pushPast(blocks);
+    typing.current = { id: null, at: Date.now() };
     forceTick(n => n + 1);
-  }, [blocks]);
+  }, [blocks, pushPast]);
+
   const undo = () => {
     const prev = past.current.pop();
     if (prev === undefined) return;
     future.current.push(JSON.stringify(blocks));
     setBlocks(JSON.parse(prev));
+    typing.current = { id: '', at: 0 };   // พิมพ์ต่อหลัง undo = เริ่มจดก้อนใหม่
     setDirty(true); forceTick(n => n + 1);
   };
   const redo = () => {
@@ -613,10 +503,18 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
     if (next === undefined) return;
     past.current.push(JSON.stringify(blocks));
     setBlocks(JSON.parse(next));
+    typing.current = { id: '', at: 0 };
     setDirty(true); forceTick(n => n + 1);
   };
 
+  // แก้เนื้อในบล็อก — จดภาพให้เองเป็นช่วง ๆ เพื่อให้ปุ่มย้อนกลับใช้กับการพิมพ์ได้ด้วย
+  // จดเมื่อ "เริ่มแก้บล็อกใหม่" หรือ "หยุดมือไปเกิน 1 วินาที" ไม่ใช่ทุกตัวอักษร
+  // (ไม่งั้นกดย้อนกลับทีนึงได้คืนมาตัวเดียว และ 60 ช่องเต็มตั้งแต่ยังพิมพ์ไม่จบประโยค)
   const patch = (id: string, up: Partial<Block>) => {
+    const now = Date.now();
+    const t = typing.current;
+    if (t.id !== null && (t.id !== id || now - t.at > TYPING_SNAP_GAP)) pushPast(blocks);
+    typing.current = { id, at: now };
     setBlocks(bs => bs.map(b => (b.id === id ? { ...b, ...up } : b)));
     setDirty(true);
   };
@@ -725,6 +623,21 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
     else if (target.kind === 'image') patch(target.blockId, { src: r.url, name: file.name });
     else patch(target.blockId, { url: r.url, name: file.name, meta: humanSize(file.size) });
   };
+  // Cmd/Ctrl+Z ย้อนกลับ · เพิ่ม Shift = ทำซ้ำ
+  // ต้องกันของเบราว์เซอร์ไว้ ไม่งั้นมันจะย้อนตัวหนังสือใน DOM เองโดยที่ข้อมูลในแอปไม่ตาม
+  // ช่องกรอกธรรมดา (ชื่อบทความ/แท็ก/สรุปย่อ) ปล่อยให้เป็นของเบราว์เซอร์เหมือนเดิม
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z') return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
+      e.preventDefault();
+      if (e.shiftKey) redo(); else undo();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   // เปิดหน้าต่างเลือกไฟล์หลัง accept ลง DOM แล้วเท่านั้น
   useEffect(() => {
     if (!picker || !fileRef.current) return;
@@ -1982,7 +1895,12 @@ const BlockSpecific: React.FC<{
           <div className="fsizes col">
             {([[false, '🧮 คำนวณ — ได้ผลเป็นตัวหนังสือ'], [true, '🎞 วาดภาพ / เคลื่อนไหว']] as const).map(([v, l]) => (
               <button key={String(v)} className={!!b.draw === v ? 'on' : ''}
-                onClick={() => act({ draw: v, ...(v && !b.h ? { h: 320 } : {}) })}>{l}</button>
+                onClick={() => act({
+                  draw: v,
+                  ...(v && !b.h ? { h: 320 } : {}),
+                  // เปลี่ยนมาโหมดวาดภาพทั้งที่ยังเป็นโค้ดตัวอย่างคำนวณ = ใส่ตัวอย่างวาดภาพให้เลย
+                  ...(v && (!b.html || b.html === JS_SAMPLE) ? { html: ANIM_TEMPLATES[0].code, auto: true } : {}),
+                })}>{l}</button>
             ))}
           </div>
           {b.draw && (
@@ -1993,11 +1911,21 @@ const BlockSpecific: React.FC<{
                   value={b.h || 320} onChange={e => act({ h: Math.max(120, Math.min(800, Number(e.target.value) || 320)) })} />
                 <span className="hintx" style={{ margin: 0 }}>px</span>
               </div>
-              <div className="minibtns" style={{ marginTop: 8 }}>
-                <button onClick={() => {
-                  if (b.html && b.html !== JS_SAMPLE && !confirm('ทับโค้ดที่เขียนไว้ด้วยตัวอย่างกระบวนการผลิตน้ำเชื่อม?')) return;
-                  act({ html: JS_FLOW_SAMPLE, auto: true });
-                }}>🍯 ใส่ตัวอย่างน้ำเชื่อมแต่งกลิ่น</button>
+              <div className="tmpl-list">
+                {ANIM_TEMPLATES.map(t => (
+                  <button key={t.id} onClick={() => {
+                    const เขียนเอง = b.html && b.html !== JS_SAMPLE
+                      && !ANIM_TEMPLATES.some(x => x.code === b.html);
+                    if (เขียนเอง && !confirm(`ทับโค้ดที่เขียนไว้ด้วยตัวอย่าง "${t.ชื่อ}"?`)) return;
+                    act({ html: t.code, auto: true });
+                  }}>
+                    <span className="ic">{t.ic}</span>
+                    <span>
+                      <b>{t.ชื่อ}</b>
+                      <small>{t.คำอธิบาย}</small>
+                    </span>
+                  </button>
+                ))}
               </div>
             </>
           )}
