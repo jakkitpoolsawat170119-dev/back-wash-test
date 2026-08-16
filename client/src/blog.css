@@ -216,6 +216,35 @@
 .blogx .tmpl-list b { display: block; font-size: 12px; font-family: var(--font-head); line-height: 1.4; }
 .blogx .tmpl-list small { display: block; font-size: 11px; color: var(--ink-soft); line-height: 1.5; margin-top: 2px; }
 
+/* ───── สั่ง AI เขียนโค้ดให้ (แถบขวา ใต้ตัวอย่างสำเร็จรูป) ───── */
+.blogx .jsai {
+  margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line);
+  display: grid; gap: 8px;
+}
+.blogx .jsai h4 { margin: 0; font-size: 12px; font-family: var(--font-head); color: var(--ink); }
+.blogx .jsai .starea:disabled { background: #f6f2ee; color: var(--ink-soft); }
+.blogx .jsai-go { width: 100%; justify-content: center; }
+.blogx .jsai-st {
+  font-size: 11.5px; line-height: 1.6; color: var(--ink-soft);
+  border-radius: 9px; padding: 7px 10px; background: #fcfaf8; border: 1px solid var(--line);
+}
+.blogx .jsai-st.ok { color: #1c8a4c; border-color: #cfe8da; background: #f4fbf7; }
+.blogx .jsai-st.warn { color: #9a6400; border-color: #f0e0bd; background: #fffaf0; }
+.blogx .jsai-st.bad { color: var(--danger); border-color: #f6d6d6; background: #fff8f8; }
+.blogx .jsai-ask {
+  font-size: 11.5px; line-height: 1.6; color: var(--ink);
+  border: 1px solid #f0e0bd; background: #fffaf0; border-radius: 9px; padding: 9px 10px;
+}
+.blogx .jsai-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.blogx .jsai-btns .btn-o { font-size: 11.5px; padding: 5px 10px; }
+/* ต้องมองเห็นบนจอจริง — กล่องนอก viewport โดนเบราว์เซอร์หรี่ rAF จนนับได้ 0 เฟรม */
+.blogx .jsai-stage {
+  position: relative; height: 160px; background: #1b1410;
+  border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+}
+.blogx .jsai-stage .mount { position: absolute; inset: 0; }
+.blogx .jsai-undo { width: 100%; justify-content: center; font-size: 11.5px; }
+
 /* ช่องติ๊กในแถบตั้งค่า */
 .blogx .chkline { display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: pointer; }
 .blogx .chkline input { width: 16px; height: 16px; accent-color: var(--brand); }
