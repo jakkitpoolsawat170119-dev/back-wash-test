@@ -1896,6 +1896,7 @@ const JsBlock: React.FC<{ b: Block; onPatch: (id: string, patch: Partial<Block>)
  * toMarkdown / postToMarkdown) อ่าน b.html ล้วน จึงไม่ต้องแตะ renderer สักตัว
  */
 const CTX_KEY = 'spp-jsai-ctx';     // "ใช้บทความประกอบ" เป็นความชอบของคนใช้ ไม่ใช่เนื้อหาบทความ
+const WEBGL_KEY = 'spp-jsai-webgl'; // "ลอง 3D ด้วย WebGL" — default ปิด (ต่างจาก useCtx) เพราะเสี่ยงกว่า
 let lastOkAt = 0;                   // คุยกับ server ครั้งล่าสุด — ใช้ตัดสินว่าต้องปลุกก่อนไหม
 
 type Phase = 'idle' | 'waking' | 'gen' | 'verify' | 'repair';
@@ -1907,6 +1908,7 @@ const JsAiPanel: React.FC<{
 }> = ({ b, act, onArticleText }) => {
   const [prompt, setPrompt] = useState('');
   const [useCtx, setUseCtx] = useState(() => localStorage.getItem(CTX_KEY) !== '0');
+  const [useWebgl, setUseWebgl] = useState(() => localStorage.getItem(WEBGL_KEY) === '1');
   const [phase, setPhase] = useState<Phase>('idle');
   const [secs, setSecs] = useState(0);
   const [note, setNote] = useState('');
@@ -1978,7 +1980,10 @@ const JsAiPanel: React.FC<{
       }
 
       setPhase('gen');
-      const j = await ยิง({ prompt: คำสั่ง, mode, h: b.h || 0, context: useCtx ? onArticleText() : '' });
+      const j = await ยิง({
+        prompt: คำสั่ง, mode, h: b.h || 0, context: useCtx ? onArticleText() : '',
+        webgl: mode === 'draw' && useWebgl,
+      });
       if (!alive.current) return;
 
       // สั่งโหมดคำนวณแต่ได้โค้ดวาดภาพมา — เสนอให้สลับ อย่าสลับเอง
@@ -1998,6 +2003,7 @@ const JsAiPanel: React.FC<{
         setPhase('repair');
         const j2 = await ยิง({
           prompt: คำสั่ง, mode, h: b.h || 0, context: useCtx ? onArticleText() : '',
+          webgl: mode === 'draw' && useWebgl,
           previous: { code: j.code, error: v.repairHint },
         });
         if (!alive.current) return;
@@ -2032,6 +2038,13 @@ const JsAiPanel: React.FC<{
           onChange={e => { setUseCtx(e.target.checked); localStorage.setItem(CTX_KEY, e.target.checked ? '1' : '0'); }} />
         ใช้บทความนี้ประกอบ{useCtx ? ` (${ctxLen.toLocaleString()} ตัวอักษร)` : ''}
       </label>
+      {b.draw && (
+        <label className="chkline">
+          <input type="checkbox" checked={useWebgl} disabled={busy}
+            onChange={e => { setUseWebgl(e.target.checked); localStorage.setItem(WEBGL_KEY, e.target.checked ? '1' : '0'); }} />
+          🧪 ลอง 3D จริงด้วย WebGL (ทดลอง — พังง่ายกว่าโหมด 2D ปกติ)
+        </label>
+      )}
       <button className="btn-o fill jsai-go" disabled={busy || !prompt.trim()} onClick={สร้าง}>
         ✨ เขียนโค้ดให้
       </button>

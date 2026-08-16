@@ -52,12 +52,27 @@ const ท้าย = `
 function __sppSnap() {
   const c = document.querySelector('canvas');
   if (!c || !c.width || !c.height) return null;
-  let ctx;
-  try { ctx = c.getContext('2d'); } catch (e) { return null; }
-  if (!ctx) return null;
-  let d;
-  try { d = ctx.getImageData(0, 0, c.width, c.height).data; } catch (e) { return null; }
+  // canvas ล็อกชนิด context ตั้งแต่เรียก getContext ครั้งแรกตาม spec — เรียกผิดชนิดแล้วคืน
+  // null เฉย ๆ ไม่มีผลข้างเคียง จึงไล่ลองได้ปลอดภัย: 2d ก่อน แล้วค่อย webgl2/webgl
+  let d, ชนิด = null;
+  try {
+    const ctx2d = c.getContext('2d');
+    if (ctx2d) { d = ctx2d.getImageData(0, 0, c.width, c.height).data; ชนิด = '2d'; }
+  } catch (e) { /* ลอง webgl ต่อ */ }
+  if (!d) {
+    try {
+      const gl = c.getContext('webgl2') || c.getContext('webgl');
+      if (gl) {
+        const buf = new Uint8Array(c.width * c.height * 4);
+        gl.readPixels(0, 0, c.width, c.height, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+        d = buf; ชนิด = 'webgl';
+      }
+    } catch (e) { return null; }
+  }
+  if (!d) return null;
   // สุ่มพิกเซลเป็นตาราง 24x14 พอให้รู้ว่า "มีอะไรวาด" กับ "ภาพขยับไหม"
+  // (WebGL อ่านจากมุมล่างซ้าย 2D อ่านจากมุมบนซ้าย — สลับแนวตั้งกันแต่ไม่กระทบผล เพราะแค่
+  // เทียบสองภาพจาก context เดียวกันว่าขยับไหม ไม่ได้สนใจตำแหน่งจริงของพิกเซล)
   let ลาย = 0, ทึบ = 0;
   for (let iy = 0; iy < 14; iy++) {
     for (let ix = 0; ix < 24; ix++) {
@@ -69,7 +84,7 @@ function __sppSnap() {
       ลาย = (ลาย * 31 + r * 3 + gg * 5 + b * 7 + a * 11) % 2147483647;
     }
   }
-  return { ว่าง: ทึบ === 0, ลาย: ลาย };
+  return { ว่าง: ทึบ === 0, ลาย: ลาย, ชนิด: ชนิด };
 }
 await new Promise(function (r) { setTimeout(r, 300); });
 const __sppA = __sppSnap();
@@ -79,6 +94,7 @@ console.log(${JSON.stringify(เครื่องหมาย)} + JSON.stringif
   เฟรม: __sppFrames,
   ผิด: __sppErr,
   มีจอ: !!__sppB,
+  ชนิด: __sppB ? __sppB.ชนิด : null,
   ว่าง: !!(__sppB && __sppB.ว่าง),
   นิ่ง: !!(__sppA && __sppB && __sppA.ลาย === __sppB.ลาย),
 }));
@@ -88,6 +104,7 @@ interface ผลตรวจดิบ {
   เฟรม: number;
   ผิด: string;
   มีจอ: boolean;
+  ชนิด: '2d' | 'webgl' | null;
   ว่าง: boolean;
   นิ่ง: boolean;
 }
@@ -158,8 +175,9 @@ export async function verifyJs(
   }
   if (!p.มีจอ) {
     return {
-      level: 'error', reason: 'ไม่พบ canvas ในกล่อง',
-      repairHint: 'โค้ดไม่ได้สร้าง canvas แล้ว appendChild เข้า document.body', ...ฐาน,
+      level: 'error', reason: 'ไม่พบ canvas ที่วาดด้วย 2D หรือ WebGL ในกล่อง',
+      repairHint: 'โค้ดไม่ได้สร้าง canvas แล้ว appendChild เข้า document.body '
+        + '(หรือสร้าง context ไม่สำเร็จ — เช็ก getContext ว่าคืนค่าไม่ null)', ...ฐาน,
     };
   }
   // ว่าง/นิ่ง เป็นการ "เดา" ไม่ใช่การพิสูจน์ — มี false positive จริง (ภาพที่ตั้งใจนิ่ง, ภาพค่อย ๆ จาง)
