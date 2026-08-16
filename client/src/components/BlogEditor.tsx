@@ -5,6 +5,7 @@ import { uploadFileDetailed, humanSize } from '../lib/uploadFile';
 import MediaLibrary, { type MediaInsertOpt } from './MediaLibrary';
 import { isDocFile, isImage, type MediaItem } from '../lib/media';
 import { runJs, type RunHandle, type RunLine } from '../lib/runJs';
+import { verifyJs } from '../lib/jsVerify';
 import { ANIM_TEMPLATES } from '../lib/animTemplates';
 import '../blog.css';
 
@@ -877,6 +878,19 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
     });
     return L.join('\n');
   };
+
+  /* ── เนื้อบทความย่อ ๆ ส่งไปให้ AI ใช้ประกอบตอนเขียนโค้ด ──
+   * ตัดบล็อกโค้ดออกให้หมดก่อน — ป้อนผลงานเก่าของ AI กลับเข้าไปเองคือทางลัดสู่
+   * การได้ของหน้าตาเดิมซ้ำ ๆ (แถมโป่งเปล่า ๆ) · รูป/PDF/base64 ก็ไม่มีประโยชน์กับมัน
+   */
+  const articleContext = (): string => toMarkdown()
+    .replace(/^---\n[\s\S]*?\n---\n/, '')            // frontmatter
+    .replace(/```[\s\S]*?```/g, '')                   // บล็อกโค้ดทุกชนิด (js/code/mermaid)
+    .replace(/!?\[[^\]]*\]\((?:data:|https?:)[^)]*\)/g, '')  // ลิงก์รูป/ไฟล์
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, 6000);
+
   // ต้องตรงกับ postPath() ใน server/vault.js — ใช้ slug ล้วน ชื่อไฟล์จะได้คงที่ตอนแก้บทความซ้ำ
   const obsPath = () => `${post?.obsFolder || 'บทความ'}/${slugify(post?.slug || post?.title || '')}.md`;
 
@@ -1208,7 +1222,7 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
                 </div>
               </div>
 
-              {sel && <BlockSpecific b={sel} onPatch={patch} onPick={pickFile} onSnap={snap} />}
+              {sel && <BlockSpecific b={sel} onPatch={patch} onPick={pickFile} onSnap={snap} onArticleText={articleContext} />}
 
               <div className="sgrp">
                 <h4>สี</h4>
@@ -1877,12 +1891,201 @@ const JsBlock: React.FC<{ b: Block; onPatch: (id: string, patch: Partial<Block>)
   );
 };
 
+/* ══════════════ สั่ง AI เขียนโค้ดให้ ══════════════
+ * เขียนลง b.html เฉย ๆ — ทั้ง 4 ที่ที่ต้อง sync กัน (BlockBody / renderBlock /
+ * toMarkdown / postToMarkdown) อ่าน b.html ล้วน จึงไม่ต้องแตะ renderer สักตัว
+ */
+const CTX_KEY = 'spp-jsai-ctx';     // "ใช้บทความประกอบ" เป็นความชอบของคนใช้ ไม่ใช่เนื้อหาบทความ
+let lastOkAt = 0;                   // คุยกับ server ครั้งล่าสุด — ใช้ตัดสินว่าต้องปลุกก่อนไหม
+
+type Phase = 'idle' | 'waking' | 'gen' | 'verify' | 'repair';
+
+const JsAiPanel: React.FC<{
+  b: Block;
+  act: (up: Partial<Block>) => void;
+  onArticleText: () => string;
+}> = ({ b, act, onArticleText }) => {
+  const [prompt, setPrompt] = useState('');
+  const [useCtx, setUseCtx] = useState(() => localStorage.getItem(CTX_KEY) !== '0');
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [secs, setSecs] = useState(0);
+  const [note, setNote] = useState('');
+  const [warn, setWarn] = useState('');
+  const [err, setErr] = useState('');
+  const [prevHtml, setPrevHtml] = useState<string | null>(null);
+  const [lastAi, setLastAi] = useState('');
+  const [askSwap, setAskSwap] = useState('');   // โค้ดที่รอถามว่าจะสลับโหมดไหม
+  const stage = useRef<HTMLDivElement>(null);
+  const handle = useRef<{ stop: () => void } | null>(null);
+  const alive = useRef(true);
+
+  const busy = phase !== 'idle';
+  const ctxLen = useCtx ? onArticleText().length : 0;
+
+  // ⚠️ ต้องตั้ง true ในตัว effect ด้วย ไม่ใช่เขียนแต่ cleanup — StrictMode ตอน dev รัน
+  // effect สองรอบ (mount → cleanup → mount) ถ้าตั้งแค่ตอน useRef ค่าจะค้างเป็น false
+  // ตลอดกาล แล้วทุกงานจะหยุดเงียบ ๆ กลางคัน (สถานะค้างที่ "กำลังปลุกเซิร์ฟเวอร์")
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; handle.current?.stop(); };
+  }, []);
+
+  // ตัวนับวินาทีเดินจริง — สปินเนอร์นิ่ง 25 วินาทีคนอ่านว่าค้าง
+  useEffect(() => {
+    if (!busy) return;
+    const t = setInterval(() => setSecs(s => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [busy]);
+
+  const ยิง = async (body: Record<string, unknown>) => {
+    // ⚠️ retries: 0 บังคับ — ค่า default คือ 2 กับงบ 20 วิ จะ abort งานที่ใช้ 25 วิ
+    //    แล้วยิง Sonnet ซ้ำสามครั้ง จ่ายสามเท่าและน่าจะไม่ได้คำตอบเลย
+    const r = await wakeFetch(`${apiUrl}/api/blog/js-gen`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body), retries: 0, timeoutMs: 120000,
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    lastOkAt = Date.now();
+    return j as { code: string; note?: string };
+  };
+
+  const ลง = (code: string, extra?: Partial<Block>) => {
+    setPrevHtml(b.html || '');
+    setLastAi(code);
+    // ลงครั้งเดียวตอนจบ = undo หนึ่งก้าว (act เรียก onSnap ให้แล้ว)
+    act({ html: code, ...(b.draw ? { auto: true } : {}), ...extra });
+  };
+
+  const สร้าง = async () => {
+    const คำสั่ง = prompt.trim();
+    if (!คำสั่ง || busy) return;
+    // เงื่อนไขเดียวกับปุ่มตัวอย่างสำเร็จรูป + ไม่ถามซ้ำถ้าเพิ่งสร้างไปเอง
+    const เขียนเอง = b.html && b.html !== JS_SAMPLE && b.html !== lastAi
+      && !ANIM_TEMPLATES.some(x => x.code === b.html);
+    if (เขียนเอง && !confirm('ทับโค้ดที่เขียนไว้ด้วยโค้ดจาก AI?')) return;
+
+    setErr(''); setWarn(''); setNote(''); setAskSwap(''); setSecs(0);
+    handle.current?.stop(); handle.current = null;
+    const mode = b.draw ? 'draw' : 'calc';
+
+    try {
+      // Render หลับหลัง 15 นาที — ปลุกด้วย GET ถูก ๆ ก่อน ไม่งั้นเวลาตื่นไปกินงบของงานจริง
+      if (Date.now() - lastOkAt > 10 * 60 * 1000) {
+        setPhase('waking');
+        try { await wakeFetch(`${apiUrl}/api/operators`, { retries: 1 }); lastOkAt = Date.now(); } catch { /* ปลุกไม่ติดก็ลองยิงงานจริงเลย */ }
+        if (!alive.current) return;
+      }
+
+      setPhase('gen');
+      const j = await ยิง({ prompt: คำสั่ง, mode, h: b.h || 0, context: useCtx ? onArticleText() : '' });
+      if (!alive.current) return;
+
+      // สั่งโหมดคำนวณแต่ได้โค้ดวาดภาพมา — เสนอให้สลับ อย่าสลับเอง
+      if (mode === 'calc' && /requestAnimationFrame/.test(j.code)) {
+        setPhase('idle'); setNote(j.note || ''); setAskSwap(j.code);
+        return;
+      }
+
+      setPhase('verify');
+      let v = await verifyJs(j.code, { draw: b.draw ?? false, mount: stage.current });
+      if (!alive.current) { v.stop(); return; }
+      handle.current = v;
+      let code = j.code, note = j.note || '';
+
+      // ซ่อมรอบเดียว — รอบสองยังพังแปลว่าต้องเขียนใหม่ ไม่ใช่แปะ patch
+      if (v.level === 'error') {
+        setPhase('repair');
+        const j2 = await ยิง({
+          prompt: คำสั่ง, mode, h: b.h || 0, context: useCtx ? onArticleText() : '',
+          previous: { code: j.code, error: v.repairHint },
+        });
+        if (!alive.current) return;
+        setPhase('verify');
+        v.stop();
+        v = await verifyJs(j2.code, { draw: b.draw ?? false, mount: stage.current });
+        if (!alive.current) { v.stop(); return; }
+        handle.current = v;
+        code = j2.code; note = j2.note || note;
+      }
+
+      setPhase('idle');
+      setNote(note);
+      if (v.level === 'error') { setErr(v.reason); setAskSwap(code); return; }  // ให้คนเลือกว่าจะเอาอยู่ดีไหม
+      if (v.level === 'warn') setWarn(v.reason);
+      ลง(code);
+    } catch (e) {
+      if (!alive.current) return;
+      setPhase('idle');
+      setErr(e instanceof Error ? e.message : 'สั่งไม่สำเร็จ');
+    }
+  };
+
+  return (
+    <div className="jsai">
+      <h4>🪄 บอกความต้องการ แล้วให้ AI เขียนโค้ดให้</h4>
+      <textarea className="starea" rows={3} value={prompt} disabled={busy}
+        onChange={e => setPrompt(e.target.value)}
+        placeholder="เช่น ช่วยสร้างระบบผลิตน้ำเชื่อมแต่งกลิ่นตามบทความที่ผมเขียน สไตล์มินิมอล" />
+      <label className="chkline">
+        <input type="checkbox" checked={useCtx} disabled={busy}
+          onChange={e => { setUseCtx(e.target.checked); localStorage.setItem(CTX_KEY, e.target.checked ? '1' : '0'); }} />
+        ใช้บทความนี้ประกอบ{useCtx ? ` (${ctxLen.toLocaleString()} ตัวอักษร)` : ''}
+      </label>
+      <button className="btn-o fill jsai-go" disabled={busy || !prompt.trim()} onClick={สร้าง}>
+        ✨ เขียนโค้ดให้
+      </button>
+
+      {phase === 'waking' && <div className="jsai-st">⏳ กำลังปลุกเซิร์ฟเวอร์… · {secs}s</div>}
+      {phase === 'gen' && <div className="jsai-st">🪄 กำลังเขียนโค้ด… (ปกติ 15-30 วินาที) · {secs}s</div>}
+      {phase === 'verify' && <div className="jsai-st">🔍 กำลังลองรันดู… · {secs}s</div>}
+      {phase === 'repair' && <div className="jsai-st">🔧 เจอปัญหา กำลังให้ AI แก้ให้ (รอบสุดท้าย)… · {secs}s</div>}
+
+      {!busy && err && <div className="jsai-st bad">✕ {err}</div>}
+      {!busy && !err && warn && <div className="jsai-st warn">⚠️ {warn}</div>}
+      {!busy && !err && !warn && !askSwap && note && <div className="jsai-st ok">✅ ใส่โค้ดในบล็อกแล้ว — {note}</div>}
+
+      {!busy && askSwap && (
+        <div className="jsai-ask">
+          {err
+            ? 'ซ่อมแล้วยังไม่ผ่าน จะใส่โค้ดนี้ลงบล็อกอยู่ดีไหม?'
+            : 'โค้ดที่ได้เป็นภาพเคลื่อนไหว แต่บล็อกนี้ตั้งเป็นโหมดคำนวณอยู่'}
+          <div className="jsai-btns">
+            {!err && (
+              <button className="btn-o" onClick={() => { ลง(askSwap, { draw: true, h: b.h || 320, auto: true }); setAskSwap(''); setWarn(''); }}>
+                สลับเป็นโหมด 🎞 แล้วใส่โค้ด
+              </button>
+            )}
+            <button className="btn-o" onClick={() => { ลง(askSwap); setAskSwap(''); setErr(''); }}>
+              ใส่โค้ดนี้อยู่ดี
+            </button>
+            <button className="btn-o" onClick={() => { setAskSwap(''); setErr(''); }}>ยกเลิก</button>
+          </div>
+        </div>
+      )}
+
+      {b.draw && (
+        // ต้องมองเห็นจริง ๆ ไม่ใช่ซ่อนไว้นอกจอ — เบราว์เซอร์หรี่ rAF ของ iframe ที่ไม่อยู่ใน
+        // viewport แล้วตัวตรวจจะนับได้ 0 เฟรมทั้งที่โค้ดไม่ผิด (mount แบบ .mount ที่ React ไม่แตะ)
+        <div className="jsai-stage"><div className="mount" ref={stage} /></div>
+      )}
+
+      {prevHtml !== null && b.html === lastAi && (
+        <button className="btn-o jsai-undo" onClick={() => { act({ html: prevHtml }); setNote(''); setWarn(''); }}>
+          ↩︎ ย้อนกลับโค้ดเดิม
+        </button>
+      )}
+    </div>
+  );
+};
+
 const BlockSpecific: React.FC<{
   b: Block;
   onPatch: (id: string, up: Partial<Block>) => void;
   onPick: (blockId: string, kind: 'image' | 'pdf' | 'pid', source?: PickSource) => void;
   onSnap: () => void;
-}> = ({ b, onPatch, onPick, onSnap }) => {
+  onArticleText: () => string;
+}> = ({ b, onPatch, onPick, onSnap, onArticleText }) => {
   if (!['alert', 'pdf', 'params', 'flow', 'image', 'js'].includes(b.type)) return null;
   const act = (up: Partial<Block>) => { onSnap(); onPatch(b.id, up); };
 
@@ -1929,6 +2132,9 @@ const BlockSpecific: React.FC<{
               </div>
             </>
           )}
+          {/* key = b.id บังคับ — BlockSpecific ไม่เคยถูก remount ตอนเปลี่ยนบล็อก
+              (element ชนิดเดิมตำแหน่งเดิม React reuse instance) ข้อความที่พิมพ์ค้างจะไหลข้ามบล็อก */}
+          <JsAiPanel key={b.id} b={b} act={act} onArticleText={onArticleText} />
           <label className="chkline" style={{ marginTop: 10 }}>
             <input type="checkbox" checked={!!b.auto} onChange={e => act({ auto: e.target.checked })} />
             รันเองตอนคนเปิดหน้าอ่าน
@@ -1939,7 +2145,8 @@ const BlockSpecific: React.FC<{
             โค้ดรันในกล่องแยกที่แตะหน้าเว็บจริงไม่ได้ และ<b>ต่อเน็ตไม่ได้</b> ·
             โค้ดที่ค้างเกิน 3 วินาทีระบบหยุดให้เอง<br />
             โหมดคำนวณ: ผลมาจาก <code className="inl">console.log()</code> และค่าที่ <code className="inl">return</code><br />
-            โหมดวาดภาพ: วาดลงกล่องด้วย <code className="inl">document.body</code> / canvas ได้ตามใจ
+            โหมดวาดภาพ: วาดลงกล่องด้วย <code className="inl">document.body</code> / canvas ได้ตามใจ<br />
+            เขียนโค้ดเองไม่เป็นก็ได้ — พิมพ์บอกในช่อง 🪄 ข้างบน แล้วให้ AI เขียนให้
           </div>
         </>
       )}

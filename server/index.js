@@ -13,6 +13,7 @@ const { renderShiftCardPNG, renderKpiCardPNG, canRenderCard, renderBeforeAfterCa
 const vault = require('./vault');
 const articlePage = require('./articlePage');
 const chartSvg = require('./chartSvg');
+const jsGenPrompt = require('./jsGenPrompt');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -2313,11 +2314,13 @@ async function decideReport(reportId, approve, actor, opts = {}) {
 }
 
 // rate limit แบบง่ายสำหรับหน้าสาธารณะของคลัง (ไม่เพิ่ม dependency)
+// bucket = แยกโควตาต่อฟีเจอร์ ไม่งั้นคนที่ยิงหน้าคลังถี่จะไปกินโควตาของฟีเจอร์อื่นด้วย
 const verifyHits = new Map();
-function rateLimited(ip, max = 30, windowMs = 60000) {
+function rateLimited(ip, max = 30, windowMs = 60000, bucket = 'default') {
   const now = Date.now();
-  const rec = verifyHits.get(ip);
-  if (!rec || now - rec.t > windowMs) { verifyHits.set(ip, { t: now, n: 1 }); return false; }
+  const key = bucket + '|' + ip;
+  const rec = verifyHits.get(key);
+  if (!rec || now - rec.t > windowMs) { verifyHits.set(key, { t: now, n: 1 }); return false; }
   rec.n++;
   if (verifyHits.size > 500) for (const [k, v] of verifyHits) if (now - v.t > windowMs) verifyHits.delete(k);
   return rec.n > max;
@@ -8906,6 +8909,110 @@ app.post('/api/posts/delete', async (req, res) => {
     await db.exec('DELETE FROM posts WHERE id = ?', [id]);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══ ให้ AI เขียนโค้ดลงบล็อก "โค้ดที่รันได้" ════════════════════════════════
+// endpoint นี้ไม่ผ่าน runAssistantConversation() เพราะตัวนั้นส่งชุดเครื่องมือ 23 ตัว
+// ไปด้วยเสมอและปิดไม่ได้ — งานนี้ต้องการแค่ข้อความเข้า/ข้อความออก ไม่มีเครื่องมือ
+const JS_GEN_MODEL = process.env.SPP_JS_MODEL || 'claude-sonnet-5';
+const JS_GEN_EFFORT = process.env.SPP_JS_EFFORT || 'medium';
+
+// แยกเป็นฟังก์ชันเล็ก ๆ ไว้ให้ "ผู้ช่วยเขียนทั้งบทความ" (เฟส 2) เรียกต่อได้โดยไม่ต้องรื้อ handler
+async function callJsGen(client, { messages, effort, maxTokens = 8000 }) {
+  return client.messages.create({
+    model: JS_GEN_MODEL,
+    max_tokens: maxTokens,
+    thinking: { type: 'adaptive' },
+    output_config: { effort },
+    // ⚠️ ก้อน system ต้องคงที่ 100% ห้ามมีโหมด/วันที่/ความสูงปนเข้ามา ไม่งั้น cache miss ทุกครั้ง
+    system: [{ type: 'text', text: jsGenPrompt.JS_GEN_SYSTEM, cache_control: { type: 'ephemeral' } }],
+    messages,
+  });
+}
+
+app.post('/api/blog/js-gen', async (req, res) => {
+  const client = getAnthropic();
+  // ไม่มีคีย์ = ปิดเฉพาะปุ่มนี้ (503) เขียนโค้ดเองในบล็อกยังทำได้ตามปกติ
+  if (!client) {
+    return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์ — เขียนโค้ดเองในบล็อกได้ตามปกติ' });
+  }
+  if (rateLimited(req.ip, 8, 60000, 'jsgen')) {
+    return res.status(429).json({ error: 'สั่งถี่เกินไป รอสักครู่แล้วลองใหม่' });
+  }
+
+  const b = req.body || {};
+  const prompt = String(b.prompt || '').trim();
+  if (!prompt) return res.status(400).json({ error: 'พิมพ์บอกก่อนว่าอยากได้อะไร' });
+  // คำสั่งเป็นของที่คนพิมพ์เอง — ยาวเกินให้บอกไปตรง ๆ ดีกว่าตัดเงียบ ๆ
+  if (prompt.length > 800) return res.status(400).json({ error: 'คำสั่งยาวเกินไป (เกิน 800 ตัวอักษร) ช่วยสรุปให้สั้นลง' });
+
+  const mode = b.mode === 'calc' ? 'calc' : 'draw';
+  const h = Number(b.h) > 0 ? Math.round(Number(b.h)) : 0;
+  // บทความเป็นของที่ระบบดึงมาเอง ตัดเงียบ ๆ ได้
+  const context = String(b.context || '').slice(0, 8000);
+  const prev = b.previous && b.previous.code
+    ? { code: String(b.previous.code).slice(0, 20000), error: String(b.previous.error || '').slice(0, 500) }
+    : null;
+
+  // ทุกอย่างที่เปลี่ยนได้อยู่ใน messages ทั้งหมด — หลัง cache breakpoint
+  const หัวข้อ = [
+    mode === 'draw'
+      ? 'โหมด: วาดภาพเคลื่อนไหว (draw)' + (h ? ' · กล่องสูงประมาณ ' + h + ' พิกเซล' : '')
+      : 'โหมด: คำนวณ (calc) — ผลลัพธ์ออกทาง console.log และค่าที่ return',
+    '',
+    'สิ่งที่ต้องการ:',
+    prompt,
+  ];
+  if (context) {
+    หัวข้อ.push('', '── เนื้อหาบทความที่กำลังเขียนอยู่ (ใช้ชื่อขั้นตอน/ตัวเลขจริงจากตรงนี้) ──', context);
+  }
+
+  const messages = [{ role: 'user', content: หัวข้อ.join('\n') }];
+  if (prev) {
+    // รอบซ่อม: สนทนา 3 ท่อน user → assistant(โค้ดเดิม) → user(บอก error) แบบไม่เก็บ state ที่ไหนเลย
+    messages.push({ role: 'assistant', content: '```js\n' + prev.code + '\n```' });
+    messages.push({
+      role: 'user',
+      content: [
+        'โค้ดข้างบนรันแล้วมีปัญหา:',
+        prev.error || '(ไม่มีรายละเอียด)',
+        '',
+        'แก้เฉพาะจุดที่ทำให้เกิดปัญหานี้ อย่าเขียนใหม่ทั้งหมด อย่าเปลี่ยนดีไซน์',
+        'ตอบเป็นโปรแกรมเต็มชุดในบล็อก ```js เหมือนเดิม',
+      ].join('\n'),
+    });
+  }
+
+  const t0 = Date.now();
+  try {
+    const resp = await callJsGen(client, {
+      messages,
+      effort: prev ? 'low' : JS_GEN_EFFORT,   // ซ่อมคือแก้จุดเดียวที่รู้ชื่อแล้ว ไม่ต้องคิดเยอะ
+    });
+
+    // เช็ก stop_reason ก่อนแตะ content เสมอ — refusal คืน 200 พร้อม content ว่าง
+    if (resp.stop_reason === 'refusal') {
+      console.warn('[js-gen] refused');
+      return res.status(422).json({ error: 'โมเดลไม่ตอบคำสั่งนี้ ลองเปลี่ยนคำสั่งดู' });
+    }
+    if (resp.stop_reason === 'max_tokens') {
+      return res.status(422).json({ error: 'โค้ดยาวเกินโควตา เลยได้มาไม่ครบ — ลองสั่งให้เรียบง่ายลง' });
+    }
+
+    const text = (resp.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n');
+    const { code, note } = jsGenPrompt.extractCode(text);
+
+    const u = resp.usage || {};
+    console.log('[js-gen] in=%s out=%s cache_read=%s cache_write=%s ms=%s repair=%s mode=%s',
+      u.input_tokens, u.output_tokens, u.cache_read_input_tokens, u.cache_creation_input_tokens,
+      Date.now() - t0, prev ? 1 : 0, mode);
+
+    res.json({ code, note, repair: !!prev, ms: Date.now() - t0 });
+  } catch (e) {
+    // e.extract = คำตอบมาแล้วแต่แกะไม่ได้ (422) · ที่เหลือคือ upstream ล้ม (502)
+    console.error('[js-gen] failed', e.message);
+    res.status(e.extract ? 422 : 502).json({ error: e.message || 'เรียกโมเดลไม่สำเร็จ' });
+  }
 });
 
 // ═══ คลังไฟล์ (เฟส 2) ═══════════════════════════════════════════════════════
