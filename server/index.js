@@ -8948,6 +8948,8 @@ app.post('/api/blog/js-gen', async (req, res) => {
 
   const mode = b.mode === 'calc' ? 'calc' : 'draw';
   const h = Number(b.h) > 0 ? Math.round(Number(b.h)) : 0;
+  // ทดลอง 3D — มีความหมายเฉพาะโหมดวาดภาพ อย่าเชื่อ client เป็นแหล่งความจริงเดียว
+  const webgl = mode === 'draw' && !!b.webgl;
   // บทความเป็นของที่ระบบดึงมาเอง ตัดเงียบ ๆ ได้
   const context = String(b.context || '').slice(0, 8000);
   const prev = b.previous && b.previous.code
@@ -8963,6 +8965,11 @@ app.post('/api/blog/js-gen', async (req, res) => {
     'สิ่งที่ต้องการ:',
     prompt,
   ];
+  // ข้อความนี้ต้องตรงกับที่ JS_GEN_SYSTEM สอนให้โมเดลมองหาเป๊ะ ๆ ("เทคนิค: WebGL")
+  // ไม่งั้นโมเดลจะไม่รู้ว่าต้องสลับเทคนิค — แก้ฝั่งไหนต้องแก้อีกฝั่งด้วย (server/jsGenPrompt.js)
+  if (webgl) {
+    หัวข้อ.push('', 'เทคนิค: WebGL 3D (ทดลอง) — ใช้ตามตัวอย่างที่ 3 ห้ามใช้ canvas 2D ธรรมดา');
+  }
   if (context) {
     หัวข้อ.push('', '── เนื้อหาบทความที่กำลังเขียนอยู่ (ใช้ชื่อขั้นตอน/ตัวเลขจริงจากตรงนี้) ──', context);
   }
