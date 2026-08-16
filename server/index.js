@@ -8918,7 +8918,13 @@ const JS_GEN_MODEL = process.env.SPP_JS_MODEL || 'claude-sonnet-5';
 const JS_GEN_EFFORT = process.env.SPP_JS_EFFORT || 'medium';
 
 // แยกเป็นฟังก์ชันเล็ก ๆ ไว้ให้ "ผู้ช่วยเขียนทั้งบทความ" (เฟส 2) เรียกต่อได้โดยไม่ต้องรื้อ handler
-async function callJsGen(client, { messages, effort, maxTokens = 8000 }) {
+//
+// ⚠️ max_tokens คุม "ความคิด (thinking) + โค้ดที่เขียนออกมา" รวมกัน ไม่ใช่แค่โค้ด
+//    เดิมตั้ง 8000 แล้วคำสั่ง WebGL ที่รายละเอียดเยอะ (แถบสี + ท่อ + ป้าย) ชนเพดานจริง
+//    ผู้ใช้เห็นเป็น "โค้ดยาวเกินโควตา เลยได้มาไม่ครบ" — 16000 คือค่าที่คู่มือ API แนะนำ
+//    สำหรับการเรียกแบบไม่ stream (สูงกว่านี้เสี่ยง HTTP timeout ต้องเปลี่ยนไปใช้ stream)
+//    เพดานนี้เป็นแค่ "ห้ามเกิน" ไม่ได้จองโทเคนไว้ล่วงหน้า โหมด 2D สั้น ๆ จึงไม่แพงขึ้นเลย
+async function callJsGen(client, { messages, effort, maxTokens = 16000 }) {
   return client.messages.create({
     model: JS_GEN_MODEL,
     max_tokens: maxTokens,

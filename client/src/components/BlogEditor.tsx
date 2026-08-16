@@ -1942,9 +1942,12 @@ const JsAiPanel: React.FC<{
   const ยิง = async (body: Record<string, unknown>) => {
     // ⚠️ retries: 0 บังคับ — ค่า default คือ 2 กับงบ 20 วิ จะ abort งานที่ใช้ 25 วิ
     //    แล้วยิง Sonnet ซ้ำสามครั้ง จ่ายสามเท่าและน่าจะไม่ได้คำตอบเลย
+    // ⚠️ 300 วิไม่ใช่ 120 — คำสั่ง WebGL ที่รายละเอียดเยอะวัดได้จริง 136 วินาที
+    //    (โมเดลคิดนานขึ้นตามความซับซ้อน + โค้ด 3 มิติยาวกว่า 2D มาก)
+    //    ตั้ง 120 ไว้จะ abort ทิ้งทั้งที่เซิร์ฟเวอร์กำลังจะตอบ = จ่ายเงินแล้วไม่ได้ของ
     const r = await wakeFetch(`${apiUrl}/api/blog/js-gen`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body), retries: 0, timeoutMs: 120000,
+      body: JSON.stringify(body), retries: 0, timeoutMs: 300000,
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
@@ -2050,7 +2053,12 @@ const JsAiPanel: React.FC<{
       </button>
 
       {phase === 'waking' && <div className="jsai-st">⏳ กำลังปลุกเซิร์ฟเวอร์… · {secs}s</div>}
-      {phase === 'gen' && <div className="jsai-st">🪄 กำลังเขียนโค้ด… (ปกติ 15-30 วินาที) · {secs}s</div>}
+      {/* เวลาจริงต่างกันมากระหว่างสองโหมด — 3D วัดได้ถึง 136 วิ ถ้าบอก "15-30" คนจะนึกว่าค้าง */}
+      {phase === 'gen' && (
+        <div className="jsai-st">
+          🪄 กำลังเขียนโค้ด… ({useWebgl && b.draw ? '3D ใช้เวลานาน 1-3 นาที' : 'ปกติ 15-30 วินาที'}) · {secs}s
+        </div>
+      )}
       {phase === 'verify' && <div className="jsai-st">🔍 กำลังลองรันดู… · {secs}s</div>}
       {phase === 'repair' && <div className="jsai-st">🔧 เจอปัญหา กำลังให้ AI แก้ให้ (รอบสุดท้าย)… · {secs}s</div>}
 
