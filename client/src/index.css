@@ -22,11 +22,17 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* 🔴 overflow-x ต้องเป็น clip ไม่ใช่ hidden
+   hidden ทำให้ธาตุนั้นกลายเป็น "กล่องเลื่อน" ของลูกทั้งหมด → position: sticky ทุกตัวในแอปตาย
+   (แถบบน Admin / เมนูซ้าย / แถบเครื่องมือบทความ / แถบตั้งค่า เลื่อนแล้วหลุดหายหมด)
+   clip กันล้นแนวนอนเหมือนเดิมแต่ไม่สร้างกล่องเลื่อน — บรรทัด hidden ข้างบนไว้ให้เบราว์เซอร์เก่า
+   ที่ยังไม่รู้จัก clip (Safari < 16) ใช้แทน */
 html, body {
   margin: 0;
   padding: 0;
   width: 100%;
   overflow-x: hidden;
+  overflow-x: clip;
   overscroll-behavior-x: none;
   background-color: #ffffff;
 }
@@ -34,6 +40,7 @@ html, body {
 #root {
   width: 100%;
   overflow-x: hidden;
+  overflow-x: clip;
 }
 
 h1, h2, h3, h4, h5, h6 {

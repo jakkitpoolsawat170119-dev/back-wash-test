@@ -213,10 +213,16 @@
 .abtn.on{background:var(--brand-soft);color:var(--brand-deep);border-color:#f3d8bf}
 .abtn.ghost{background:transparent}
 .amain{display:flex;align-items:stretch;max-width:1300px;margin:0 auto}
+/* เมนูซ้ายต้องเกาะจอตอนเลื่อน — ต้องครบ 3 อย่างถึงจะติด:
+   align-self:flex-start (ไม่งั้น align-items:stretch ยืดมันสูงเท่าเนื้อหา เลยไม่มีที่ให้เกาะ)
+   · max-height + overflow-y (เมนูยาวกว่าจอต้องเลื่อนในตัวเอง)
+   · --admin-top = ความสูงจริงของแถบบน (AdminShell วัดให้ ตอนจอแคบแถบบนขึ้นสองแถว) */
 .aside-r{
   width:220px;flex:none;border-right:1px solid var(--line);
   padding:20px 14px 40px;display:flex;flex-direction:column;gap:2px;
-  position:sticky;top:57px;background:#fff;
+  position:sticky;top:var(--admin-top,57px);align-self:flex-start;
+  max-height:calc(100vh - var(--admin-top,57px));overflow-y:auto;overscroll-behavior:contain;
+  scrollbar-width:thin;background:#fff;
 }
 .rsbtn{
   display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:none;background:transparent;

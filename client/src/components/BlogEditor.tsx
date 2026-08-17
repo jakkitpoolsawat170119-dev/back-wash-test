@@ -452,6 +452,22 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
   const [picker, setPicker] = useState<{ accept: string; n: number } | null>(null);
   // บล็อกที่เพิ่งแทรก — ต้องย้ายเคอร์เซอร์ไปให้ ไม่งั้นกด Enter แล้วพิมพ์ต่อไม่เข้า
   const focusNext = useRef<string | null>(null);
+  // ref แบบ state ไม่ใช่ useRef — แถบเครื่องมือยังไม่ถูกวาดตอน mount แรก (ยังขึ้น "กำลังโหลด…" อยู่)
+  // useRef + deps [] จะได้ null แล้วไม่มีอะไรมาปลุกให้วัดซ้ำอีกเลย
+  const [toolbarEl, setToolbarEl] = useState<HTMLDivElement | null>(null);
+
+  /* แถบตั้งค่าด้านขวาเกาะจอต่อจากแถบเครื่องมือ — ต้องรู้ความสูงจริงของแถบเครื่องมือ
+     (มันขึ้นสองแถวเมื่อจอแคบลง) ไม่งั้นแถบตั้งค่าจะมุดหายไปใต้มันตอนเลื่อน */
+  useEffect(() => {
+    const el = toolbarEl;
+    if (!el) return;
+    const apply = () => document.documentElement.style.setProperty(
+      '--bl-tools', `${Math.round(el.getBoundingClientRect().height)}px`);
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => { ro.disconnect(); document.documentElement.style.removeProperty('--bl-tools'); };
+  }, [toolbarEl]);
 
   useEffect(() => {
     const id = focusNext.current;
@@ -1062,7 +1078,7 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
         accept={picker?.accept || undefined} onChange={onFileChosen} />
 
       {/* แถบเครื่องมือ */}
-      <div className="bl-toolbar">
+      <div className="bl-toolbar" ref={setToolbarEl}>
         <button className="tbtn" title="กลับไปรายการบทความ" onClick={leave}>←</button>
         <button className="tbtn add" title="เพิ่มบล็อก"
           onClick={() => insertAfter(selId, 'p')}>+</button>

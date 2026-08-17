@@ -60,7 +60,7 @@
 
 /* ───── แถบเครื่องมือ ───── */
 .blogx .bl-toolbar {
-  position: sticky; top: 57px; z-index: 25; display: flex; align-items: center; gap: 4px;
+  position: sticky; top: var(--admin-top, 57px); z-index: 25; display: flex; align-items: center; gap: 4px;
   flex-wrap: wrap; row-gap: 6px; background: #fff; border-bottom: 1px solid var(--line);
   padding: 8px 4px; margin-bottom: 4px;
 }
@@ -332,9 +332,13 @@
 .blogx .alertb.info { background: #e8f1fb; border-color: var(--cip1); color: #12406e; }
 
 /* ───── sidebar ───── */
+/* เกาะใต้แถบเครื่องมือ (--bl-tools) ซึ่งเกาะใต้แถบบนของ Admin (--admin-top) อีกที
+   ถ้าคำนวณไม่ตรง แถบตั้งค่าจะมุดหายไปใต้แถบเครื่องมือตอนเลื่อน */
 .blogx .bl-side {
   width: 288px; flex: none; border-left: 1px solid var(--line); background: #fff;
-  position: sticky; top: 106px; align-self: flex-start; max-height: calc(100vh - 106px); overflow-y: auto;
+  position: sticky; top: calc(var(--admin-top, 57px) + var(--bl-tools, 51px));
+  align-self: flex-start; overscroll-behavior: contain; scrollbar-width: thin;
+  max-height: calc(100vh - var(--admin-top, 57px) - var(--bl-tools, 51px)); overflow-y: auto;
 }
 .blogx .bl-side.hide { display: none; }
 .blogx .side-tabs { display: flex; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #fff; z-index: 2; }

@@ -12,6 +12,7 @@
   min-height: 100vh;
   color: #333333;
   overflow-x: hidden;
+  overflow-x: clip;   /* hidden = กล่องเลื่อน = sticky ข้างในตาย (ดูหมายเหตุใน index.css) */
   box-sizing: border-box;
 }
 

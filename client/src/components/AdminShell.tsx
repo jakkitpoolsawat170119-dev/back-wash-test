@@ -66,6 +66,21 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
     return () => document.removeEventListener('click', onDoc);
   }, [menuOpen]);
 
+  /* ── ความสูงจริงของแถบบน → ตัวแปร --admin-top ──
+   * ทุกอย่างที่ต้องเกาะจอ (เมนูซ้าย, แถบเครื่องมือบทความ, แถบตั้งค่า) เกาะต่อจากแถบนี้
+   * ฮาร์ดโค้ด 57px ไม่พอ เพราะพอจอแคบลงแถบบนขึ้นเป็นสองแถวแล้วของที่เกาะจะมุดหายไปใต้มัน
+   */
+  useEffect(() => {
+    const el = atopRef.current;
+    if (!el) return;
+    const apply = () => document.documentElement.style.setProperty(
+      '--admin-top', `${Math.round(el.getBoundingClientRect().height)}px`);
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => { ro.disconnect(); document.documentElement.style.removeProperty('--admin-top'); };
+  }, [authed]);
+
   if (!authed) return <AdminGate onExit={onExit} onAuthed={() => setAuthed(true)} />;
 
   const go = (p: Pane) => { navigate({ tab: p, item: null }); setMenuOpen(false); window.scrollTo({ top: 0 }); };
