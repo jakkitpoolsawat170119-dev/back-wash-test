@@ -8691,13 +8691,19 @@ async function syncPostToVault(id) {
 }
 
 // รายการบทความ — ไม่ส่ง blocks กลับไป (หนักและหน้ารายการไม่ได้ใช้)
+// ไม่ส่ง query อะไรมา = รายการของหน้า Admin (ได้ร่างด้วย เรียงตามที่แก้ล่าสุด) — พฤติกรรมเดิม
+// ?status=published[&limit=n] = ชั้นบทความบนหน้าหลักของแอป เรียงตามวันเผยแพร่เหมือนหน้าอ่านสาธารณะ
 app.get('/api/posts', async (req, res) => {
   try {
+    const onlyPub = String(req.query.status || '') === 'published';
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 0, 0), 50);
     const rows = await dbAll(
       `SELECT id, slug, title, status, author, category, tags, machine, excerpt, cover_url,
               created_at, updated_at, published_at
-         FROM posts ORDER BY updated_at DESC`, []);
-    res.json({ items: rows.map(r => ({ ...postFromRow({ ...r, blocks: '[]' }), blocks: undefined })) });
+         FROM posts ${onlyPub ? "WHERE status = 'published'" : ''}
+        ORDER BY ${onlyPub ? 'COALESCE(published_at, updated_at)' : 'updated_at'} DESC`, []);
+    const items = rows.map(r => ({ ...postFromRow({ ...r, blocks: '[]' }), blocks: undefined }));
+    res.json({ items: limit ? items.slice(0, limit) : items });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -8888,11 +8894,14 @@ app.use(async (req, res, next) => {
   const send = (html, code = 200) => res.status(code).type('html').send(html);
   try {
     if (!slug) {
+      // ต้องดึง cover_url + tags + machine มาด้วย — การ์ดพรีวิวใช้รูปหน้าปกกับแท็ก
       const rows = await dbAll(
-        `SELECT id, slug, title, excerpt, author, category, updated_at, published_at
+        `SELECT id, slug, title, excerpt, author, category, machine, tags, cover_url, updated_at, published_at
            FROM posts WHERE status = 'published'
           ORDER BY COALESCE(published_at, updated_at) DESC`, []);
-      return send(articlePage.renderIndex(rows.map(postFromRow), PUBLIC_URL));
+      // ?cat=<หมวด> = กรองหมวด · ส่งรายการเต็มเข้าไปเสมอเพราะต้องนับจำนวนต่อหมวดให้เมนู/ชิป
+      const cat = String((req.query && req.query.cat) || '').trim();
+      return send(articlePage.renderIndex(rows.map(postFromRow), PUBLIC_URL, cat));
     }
     const row = await dbGet("SELECT * FROM posts WHERE slug = ? AND status = 'published'", [slug]);
     if (!row) return send(articlePage.renderNotFound(), 404);

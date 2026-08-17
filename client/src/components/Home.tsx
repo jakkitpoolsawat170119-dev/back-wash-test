@@ -1,5 +1,6 @@
 import React from 'react';
 import BrandLogo from './BrandLogo';
+import ArticleShelf from './ArticleShelf';
 import type { AppView } from './TopBar';
 
 interface Props {
@@ -43,6 +44,9 @@ const Home: React.FC<Props> = ({ onNav }) => (
             </span>
           </button>
         </div>
+
+        {/* ชั้นบทความ — ไม่มีบทความเผยแพร่ก็ไม่ขึ้นอะไรเลย หน้าหลักจะได้ไม่มีกล่องว่าง */}
+        <ArticleShelf />
       </div>
     </div>
 

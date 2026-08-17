@@ -10,6 +10,21 @@ const chartSvg = require('./chartSvg');
 
 const BRAND = '#ff6b00';
 
+/* ══════════════ หมวดหมู่ ══════════════
+   ต้องตรงกับ CATEGORIES ใน client/src/components/BlogEditor.tsx — แก้ที่ไหนต้องแก้อีกที่
+   สี/สัญลักษณ์ใช้ทั้งจุดสีในเมนู ป้ายหมวด และ "พื้นวาดแทนรูปหน้าปก" ของบทความที่ไม่ได้ตั้งรูป
+   (ยึดจากหมวด ไม่สุ่ม — บทความเดิมเปิดกี่ครั้งก็หน้าตาเดิม) */
+const CATS = [
+  { name: 'ระบบ CIP', color: '#ff6b00', g: 'g0', ic: '💧' },
+  { name: 'Boiler', color: '#1565c0', g: 'g1', ic: '🔥' },
+  { name: 'Evaporator', color: '#0f7a6c', g: 'g2', ic: '🧪' },
+  { name: 'Mixing / Syrup', color: '#6a1b9a', g: 'g3', ic: '🍯' },
+  { name: 'บรรจุ', color: '#1c8a4c', g: 'g4', ic: '📦' },
+  { name: 'ความปลอดภัย', color: '#c77700', g: 'g5', ic: '🦺' },
+];
+const catStyle = (name) => CATS.find(c => c.name === name) || { name, color: '#6d6259', g: 'g0', ic: '📄' };
+const catHref = (name) => name ? `/บทความ?cat=${encodeURIComponent(name)}` : '/บทความ';
+
 const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -133,7 +148,8 @@ function renderBlock(b) {
         <button type="button" class="jsrun-stop" hidden>■ หยุด</button>
         <button type="button" class="jsrun-go">▶ กดเพื่อรัน</button></div>
       ${b.draw ? `<div class="jsrun-stage" style="height:${h}px"><div class="ph">กด ▶ เพื่อดูภาพเคลื่อนไหว</div></div>` : ''}
-      <details class="jsrun-src"${b.draw ? '' : ' open'}><summary>ดูโค้ด</summary><pre><code>${esc(code)}</code></pre></details>
+      ${b.hideSrc ? ''   /* คนเขียนสั่งให้ซ่อนโค้ด — เห็นแต่ผลลัพธ์ (โค้ดยังอยู่ใน data-code เพราะต้องใช้รัน) */
+    : `<details class="jsrun-src"${b.draw ? '' : ' open'}><summary>ดูโค้ด</summary><pre><code>${esc(code)}</code></pre></details>`}
       <div class="jsrun-out" hidden></div>
     </figure>`;
     }
@@ -198,7 +214,10 @@ a{color:var(--brand-deep)}
 .top .in{max-width:760px;margin:0 auto;padding:14px 20px;display:flex;align-items:center;gap:10px}
 .logo{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,var(--brand),#ff9d4d);flex:none}
 .top b{font-family:'Kanit',sans-serif;font-size:16px;letter-spacing:-.01em}
-.top a{margin-left:auto;font-size:14px;text-decoration:none;font-family:'Kanit',sans-serif}
+.top .tsub{color:var(--ink-soft);font-size:12.5px}
+@media(max-width:560px){.top .tsub{display:none}}
+/* เจาะจงลูกตรงเท่านั้น — ไม่งั้นลิงก์ในเมนูย่อยโดนดันไปชิดขวาตามไปด้วย */
+.top .in>a{margin-left:auto;font-size:14px;text-decoration:none;font-family:'Kanit',sans-serif}
 main{max-width:760px;margin:0 auto;padding:34px 20px 80px}
 .eyebrow{font-family:'Kanit',sans-serif;font-size:13px;color:var(--brand-deep);
   background:var(--brand-soft);display:inline-block;padding:3px 12px;border-radius:999px}
@@ -341,9 +360,186 @@ figure.chart .chart-scroll svg{min-width:600px}
   font-size:14px;text-decoration:none}
 .back:hover{text-decoration:underline}
 :focus-visible{outline:3px solid var(--brand);outline-offset:2px;border-radius:6px}
+
+/* ══════ หน้ารายชื่อบทความ ══════ */
+.wide{max-width:1120px !important}
+/* เมนูบทความ + เมนูย่อยบนหัวหน้า */
+.amenu{position:relative;margin-left:14px}
+.ambtn{border:none;background:transparent;color:var(--ink-soft);font:inherit;font-family:'Kanit',sans-serif;
+  font-size:14.5px;font-weight:600;padding:7px 14px;border-radius:999px;cursor:pointer;
+  display:flex;align-items:center;gap:6px;transition:background-color .15s ease,color .15s ease}
+.ambtn:hover{background:#f7f1ea;color:var(--ink)}
+.ambtn .caret{font-size:10px;opacity:.6;transition:transform .18s ease}
+.amenu.open .ambtn{background:var(--brand-soft);color:var(--brand-deep)}
+.amenu.open .ambtn .caret{transform:rotate(180deg)}
+.amdd{position:absolute;top:calc(100% + 9px);left:0;z-index:70;width:min(430px,calc(100vw - 28px));
+  background:var(--card);border:1px solid var(--line);border-radius:18px;padding:8px;
+  box-shadow:0 2px 4px rgba(63,37,10,.08),0 16px 40px -12px rgba(63,37,10,.22);
+  display:none;opacity:0;transform:translateY(-6px);transition:opacity .16s ease,transform .16s ease}
+.amenu.open .amdd{display:block;opacity:1;transform:translateY(0)}
+.amhd{padding:8px 10px 6px;font-family:'Kanit',sans-serif;font-weight:600;font-size:13px}
+.amhd span{font-family:'Sarabun',sans-serif;font-weight:400;font-size:11.5px;color:var(--ink-soft);margin-left:6px}
+.amgrid{display:grid;grid-template-columns:1fr 1fr;gap:2px}
+.amgrid a{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:11px;text-decoration:none;
+  color:var(--ink);font-family:'Kanit',sans-serif;font-size:13.5px;font-weight:600;
+  transition:background-color .15s ease,color .15s ease}
+.amgrid a:hover{background:var(--brand-soft);color:var(--brand-deep)}
+.amgrid .cdot{width:9px;height:9px;border-radius:3px;flex:none}
+.amgrid .n{margin-left:auto;font-family:'Sarabun',sans-serif;font-size:11.5px;font-weight:400;color:var(--ink-soft)}
+.amsep{height:1px;background:var(--line);margin:7px 6px}
+.amfoot{padding:2px 6px 4px}
+.amfoot a{display:block;text-align:center;padding:9px;border-radius:11px;text-decoration:none;
+  font-family:'Kanit',sans-serif;font-size:13px;font-weight:600;background:var(--brand);color:#fff;
+  transition:background-color .15s ease}
+.amfoot a:hover{background:var(--brand-deep)}
+@media(max-width:520px){.amgrid{grid-template-columns:1fr}}
+
+.hero{border-bottom:1px solid var(--line);background:linear-gradient(180deg,#fff8f2,transparent)}
+.hero .in{max-width:1120px;margin:0 auto;padding:26px 20px 22px}
+.hero h1{margin:9px 0 6px}
+.hero p{font-size:15.5px;color:var(--ink-soft);margin:0;max-width:640px}
+.shead{display:flex;align-items:flex-end;gap:12px;margin:30px 0 14px;flex-wrap:wrap}
+.shead h2{margin:0;font-size:clamp(19px,2.6vw,23px)}
+.shead .sub{font-size:13.5px;color:var(--ink-soft)}
+
+/* คารูเซลบทความแนะนำ */
+.car{position:relative}
+.track{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;
+  -webkit-overflow-scrolling:touch;padding:4px 0 6px}
+.track::-webkit-scrollbar{display:none}
+.slide{flex:0 0 100%;scroll-snap-align:center;min-width:0}
+.feat{display:grid;grid-template-columns:1fr;background:var(--card);border:1px solid var(--line);
+  border-radius:22px;overflow:hidden;box-shadow:var(--shadow);text-decoration:none;color:var(--ink);
+  transition:transform .18s cubic-bezier(.2,.9,.3,1.3)}
+.feat:hover{transform:translateY(-2px)}
+@media(min-width:820px){.feat{grid-template-columns:1.15fr 1fr}}
+.feat .shot{position:relative;min-height:210px;overflow:hidden}
+@media(min-width:820px){.feat .shot{min-height:278px}}
+.feat .acbody{padding:24px 26px 26px;display:flex;flex-direction:column;gap:11px;justify-content:center}
+.feat h2{margin:0;font-size:clamp(20px,2.7vw,27px);letter-spacing:-.03em;line-height:1.32}
+.feat p{margin:0;font-size:15px;color:var(--ink-soft);line-height:1.75}
+.feat .ameta{margin-top:14px}
+.rank{position:absolute;top:14px;left:14px;z-index:2;background:rgba(43,33,25,.72);color:#fff;
+  font-family:'Kanit',sans-serif;font-size:11.5px;font-weight:600;padding:5px 11px;border-radius:999px}
+.carbtn{position:absolute;top:50%;transform:translateY(-50%);z-index:5;width:42px;height:42px;border-radius:50%;
+  border:1px solid var(--line);background:rgba(255,255,255,.94);box-shadow:var(--shadow);cursor:pointer;
+  font-size:17px;color:var(--ink);display:grid;place-items:center;transition:transform .14s ease}
+.carbtn:hover{transform:translateY(-50%) scale(1.06)}
+.carbtn.prev{left:-8px}.carbtn.next{right:-8px}
+@media(max-width:760px){.carbtn{display:none}}
+.cardock{display:flex;align-items:center;gap:12px;margin-top:12px}
+.dots{display:flex;gap:7px}
+.dots button{width:8px;height:8px;padding:0;border:none;border-radius:999px;background:#e0d3c6;cursor:pointer;
+  transition:width .2s ease,background-color .2s ease}
+.dots button.on{width:26px;background:var(--brand)}
+.bar{flex:1;max-width:180px;height:3px;border-radius:999px;background:#e9ddd1;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--brand);border-radius:999px}
+.playbtn{margin-left:auto;border:1px solid var(--line);background:var(--card);color:var(--ink-soft);
+  font:inherit;font-family:'Kanit',sans-serif;font-size:12px;font-weight:600;padding:5px 12px;
+  border-radius:999px;cursor:pointer;transition:background-color .15s ease,color .15s ease}
+.playbtn:hover{background:#f7f1ea;color:var(--ink)}
+
+/* แถบกรองหมวด */
+.chips{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none;padding:2px 0 6px}
+.chips::-webkit-scrollbar{display:none}
+.chip{border:1px solid var(--line);background:var(--card);color:var(--ink-soft);white-space:nowrap;
+  text-decoration:none;font-family:'Kanit',sans-serif;font-size:13px;font-weight:600;padding:7px 15px;
+  border-radius:999px;display:flex;align-items:center;gap:7px;transition:background-color .15s ease,color .15s ease}
+.chip:hover{background:#f7f1ea;color:var(--ink)}
+.chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.chip .cdot{width:8px;height:8px;border-radius:3px;flex:none}
+.chip .n{font-family:'Sarabun',sans-serif;font-weight:400;font-size:11.5px;opacity:.7}
+
+/* การ์ดพรีวิว */
+.agrid{display:grid;gap:16px;grid-template-columns:1fr;margin-top:14px}
+@media(min-width:640px){.agrid{grid-template-columns:1fr 1fr}}
+@media(min-width:1000px){.agrid{grid-template-columns:repeat(3,1fr)}}
+.acard{display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);
+  border-radius:18px;overflow:hidden;box-shadow:var(--shadow);text-decoration:none;color:var(--ink);height:100%;
+  transition:transform .18s cubic-bezier(.2,.9,.3,1.3),border-color .15s ease}
+.acard:hover{transform:translateY(-3px);border-color:#e6d3c1}
+.acard .shot{position:relative;aspect-ratio:16/9;overflow:hidden}
+.acard .acbody{display:flex;flex-direction:column;gap:8px;padding:15px 17px 16px;flex:1}
+.acard h2{margin:0;font-size:16.5px;font-weight:600;line-height:1.42;overflow-wrap:anywhere}
+.acard p{margin:0;font-size:13.5px;color:var(--ink-soft);line-height:1.65;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* 🔴 รูปต้องเป็น absolute — ไม่งั้น height:100% ตกเป็น auto แล้วรูปกลายเป็นตัวกำหนดความสูงแถว
+   (การ์ดใหญ่จะสูงตามอัตราส่วนรูปแทนที่จะสูงตามเนื้อหา) */
+.shot img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;
+  border-radius:0;box-shadow:none;transition:transform .5s cubic-bezier(.2,.9,.3,1)}
+.acard:hover .shot img,.feat:hover .shot img{transform:scale(1.045)}
+.shot::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(to top,rgba(43,33,25,.42),rgba(43,33,25,.06) 45%,transparent 70%)}
+.shot .cat{position:absolute;left:12px;bottom:11px;z-index:2;font-family:'Kanit',sans-serif;font-size:11.5px;
+  font-weight:600;color:#fff;background:rgba(43,33,25,.5);padding:4px 11px;border-radius:999px}
+.feat .shot .cat{left:14px;bottom:14px;font-size:12.5px;padding:5px 13px}
+/* ไม่มีรูปหน้าปก = วาดพื้นให้ตามหมวด */
+.shot.gen{display:grid;place-items:center}
+.shot.gen .art{position:absolute;inset:0}
+.shot.gen .art::before{content:"";position:absolute;inset:0;
+  background:radial-gradient(120% 90% at 12% 8%,rgba(255,255,255,.42),transparent 55%),
+             radial-gradient(90% 70% at 92% 96%,rgba(0,0,0,.22),transparent 60%)}
+.shot.gen .art::after{content:"";position:absolute;inset:0;opacity:.16;
+  background-image:repeating-linear-gradient(115deg,rgba(255,255,255,.5) 0 1.5px,transparent 1.5px 13px)}
+.shot.gen .glyph{position:relative;z-index:1;font-size:54px;line-height:1;
+  filter:drop-shadow(0 6px 14px rgba(43,33,25,.32))}
+.feat .shot.gen .glyph{font-size:80px}
+.shot.gen.g0{background:linear-gradient(140deg,#ff8a2b,#e05e00 55%,#c24f00)}
+.shot.gen.g1{background:linear-gradient(140deg,#3f8fdc,#1565c0 55%,#0d3f7d)}
+.shot.gen.g2{background:linear-gradient(140deg,#22a894,#0f7a6c 55%,#0a5348)}
+.shot.gen.g3{background:linear-gradient(140deg,#9a4fc4,#6a1b9a 55%,#48136a)}
+.shot.gen.g4{background:linear-gradient(140deg,#37b06a,#1c8a4c 55%,#125c33)}
+.shot.gen.g5{background:linear-gradient(140deg,#e0a52f,#c77700 55%,#8c5400)}
+.tags{display:flex;flex-wrap:wrap;gap:5px}
+.tg{font-size:11.5px;font-weight:600;color:var(--ink-soft);background:#f6f0e9;padding:2px 9px;border-radius:999px}
+.ameta{display:flex;align-items:center;gap:8px;margin-top:auto;padding-top:11px;
+  border-top:1px dashed var(--line);font-size:12.5px;color:var(--ink-soft)}
+.ameta .av{width:24px;height:24px;border-radius:50%;flex:none;display:grid;place-items:center;
+  font-family:'Kanit',sans-serif;font-size:11.5px;font-weight:600;color:#fff}
+.ameta .who{font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ameta .when{margin-left:auto;white-space:nowrap}
+@media(prefers-reduced-motion:reduce){*{animation-duration:.01ms !important;transition-duration:.01ms !important}}
 `;
 
-function shell({ title, desc, image, url, body, noindex = true, script = '' }) {
+/* เมนูบทความ + เมนูย่อย 6 หมวด — อยู่บนหัวทุกหน้า (รายชื่อและตัวบทความ)
+   counts ส่งมาเฉพาะหน้ารายชื่อที่รู้จำนวนจริง หน้าอื่นโชว์แค่ชื่อหมวด */
+function articleMenu(counts) {
+  const items = CATS.map(c => {
+    const n = counts ? (counts[c.name] || 0) : null;
+    return `<a href="${esc(catHref(c.name))}"><span class="cdot" style="background:${c.color}"></span>${esc(c.name)}${
+      n === null ? '' : `<span class="n">${n}</span>`}</a>`;
+  }).join('');
+  const total = counts ? Object.values(counts).reduce((a, b) => a + b, 0) : null;
+  return `<div class="amenu" id="amenu">
+    <button class="ambtn" id="ambtn" aria-expanded="false" aria-controls="amdd">📚 บทความ <span class="caret">▾</span></button>
+    <div class="amdd" id="amdd">
+      <div class="amhd">เลือกหมวดหมู่${total === null ? '' : `<span>${total} เรื่องที่เผยแพร่แล้ว</span>`}</div>
+      <div class="amgrid">${items}</div>
+      <div class="amsep"></div>
+      <div class="amfoot"><a href="/บทความ">ดูบทความทั้งหมด →</a></div>
+    </div>
+  </div>`;
+}
+
+const MENU_SCRIPT = `<script>
+(function(){
+  var w=document.getElementById('amenu'),b=document.getElementById('ambtn');
+  if(!w||!b)return;
+  b.addEventListener('click',function(e){
+    e.stopPropagation();
+    var on=w.classList.toggle('open');
+    b.setAttribute('aria-expanded',on?'true':'false');
+  });
+  document.addEventListener('click',function(e){
+    if(!e.target.closest('#amenu')){w.classList.remove('open');b.setAttribute('aria-expanded','false');}
+  });
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape'){w.classList.remove('open');b.setAttribute('aria-expanded','false');}
+  });
+})();
+</script>`;
+
+function shell({ title, desc, image, url, body, noindex = true, script = '', wide = false, counts = null }) {
   const og = [
     `<meta property="og:type" content="article">`,
     `<meta property="og:title" content="${esc(title)}">`,
@@ -368,11 +564,12 @@ function shell({ title, desc, image, url, body, noindex = true, script = '' }) {
   <style>${CSS}</style>
 </head>
 <body>
-  <header class="top"><div class="in">
-    <span class="logo"></span><b>SPP-MP</b>
-    <a href="/บทความ">บทความทั้งหมด</a>
+  <header class="top"><div class="in${wide ? ' wide' : ''}">
+    <span class="logo"></span><b>SPP-MP</b><span class="tsub">· คลังความรู้ฝ่ายผลิต</span>
+    ${articleMenu(counts)}
   </div></header>
   ${body}
+  ${MENU_SCRIPT}
   ${script}
 </body>
 </html>`;
@@ -576,24 +773,167 @@ function renderArticle(post, baseUrl) {
   });
 }
 
-function renderIndex(posts, baseUrl) {
-  const cards = posts.map(p => `<a class="card" href="/บทความ/${encodeURIComponent(p.slug)}">
-      ${p.category ? `<span class="eyebrow">${esc(p.category)}</span>` : ''}
-      <h2>${esc(p.title)}</h2>
-      ${p.excerpt ? `<p>${esc(p.excerpt)}</p>` : ''}
-      <div class="when">${[p.author ? `โดย ${esc(p.author)}` : '', thaiDate(p.publishedAt || p.updatedAt)].filter(Boolean).join(' · ')}</div>
-    </a>`).join('\n');
-  const body = `<main>
+/* ══════════════ ชิ้นส่วนของหน้ารายชื่อ ══════════════ */
+
+// ช่องรูปหน้าปก — มีรูปก็ใช้รูป ไม่มีก็วาดพื้นไล่สีตามหมวดให้ (ไม่ปล่อยให้เป็นช่องว่างโหว่)
+function cover(p, rank = '') {
+  const c = catStyle(p.category);
+  const tag = rank ? `<span class="rank">${esc(rank)}</span>` : '';
+  const badge = p.category ? `<span class="cat">${esc(p.category)}</span>` : '';
+  const inner = p.coverUrl
+    ? `<img src="${esc(p.coverUrl)}" alt="" loading="lazy">`
+    : `<span class="art"></span><span class="glyph">${c.ic}</span>`;
+  return `<div class="shot${p.coverUrl ? '' : ` gen ${c.g}`}">${tag}${inner}${badge}</div>`;
+}
+
+function metaLine(p) {
+  const c = catStyle(p.category);
+  const who = String(p.author || '').trim();
+  const av = who ? `<span class="av" style="background:${c.color}">${esc(who.slice(0, 1))}</span>` : '';
+  return `<div class="ameta">${av}<span class="who">${esc(who || 'ทีมผลิต')}</span>
+    <span class="when">${thaiDate(p.publishedAt || p.updatedAt)}</span></div>`;
+}
+
+const tagRow = (p) => (p.tags || []).length
+  ? `<div class="tags">${p.tags.slice(0, 3).map(t => `<span class="tg">#${esc(t)}</span>`).join('')}</div>`
+  : '';
+
+const articleCard = (p) => `<a class="acard" href="/บทความ/${encodeURIComponent(p.slug)}">
+  ${cover(p)}
+  <div class="acbody">
+    <h2>${esc(p.title)}</h2>
+    ${p.excerpt ? `<p>${esc(p.excerpt)}</p>` : ''}
+    ${tagRow(p)}
+    ${metaLine(p)}
+  </div>
+</a>`;
+
+const featSlide = (p, i, n) => `<div class="slide"><a class="feat" href="/บทความ/${encodeURIComponent(p.slug)}">
+  ${cover(p, i === 0 ? '⭐ ใหม่ล่าสุด' : `${i + 1} / ${n}`)}
+  <div class="acbody">
+    <h2>${esc(p.title)}</h2>
+    ${p.excerpt ? `<p>${esc(p.excerpt)}</p>` : ''}
+    ${tagRow(p)}
+    ${metaLine(p)}
+  </div>
+</a></div>`;
+
+// เลื่อนเองทุก 5 วิ · หยุดเมื่อเอาเมาส์วาง/แตะ แล้วเดินต่อเองหลัง 6 วิ · เครื่องที่ตั้งลดการเคลื่อนไหวไม่เลื่อนเอง
+const CAR_SCRIPT = `<script>
+(function(){
+  var track=document.getElementById('track'),car=document.getElementById('car');
+  if(!track||!car)return;
+  var slides=[].slice.call(track.children),dotbox=document.getElementById('dots'),bar=document.getElementById('bar');
+  var i=0,t0=performance.now(),paused=false,rt=null;
+  var reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches,playing=!reduce;
+  slides.forEach(function(_,k){
+    var d=document.createElement('button');
+    d.type='button';d.setAttribute('aria-label','ไปเรื่องที่ '+(k+1));
+    d.addEventListener('click',function(){go(k);nudge();});
+    dotbox.appendChild(d);
+  });
+  var dots=[].slice.call(dotbox.children);
+  function paint(){dots.forEach(function(d,k){d.classList.toggle('on',k===i);});}
+  paint();                       // ต้องระบายรอบแรกเอง ไม่งั้นจุดแรกไม่ติดจนกว่าจะเลื่อนครั้งแรก
+  function go(k){
+    i=(k+slides.length)%slides.length;
+    track.scrollTo({left:slides[i].offsetLeft-track.offsetLeft,behavior:'smooth'});
+    t0=performance.now();paint();
+  }
+  var st;
+  track.addEventListener('scroll',function(){
+    clearTimeout(st);
+    st=setTimeout(function(){
+      var mid=track.scrollLeft+track.clientWidth/2,best=0,bd=1e9;
+      slides.forEach(function(s,k){
+        var c=s.offsetLeft-track.offsetLeft+s.clientWidth/2,d=Math.abs(c-mid);
+        if(d<bd){bd=d;best=k;}
+      });
+      if(best!==i){i=best;t0=performance.now();paint();}
+    },90);
+  },{passive:true});
+  function nudge(){paused=true;clearTimeout(rt);rt=setTimeout(function(){paused=false;t0=performance.now();},6000);}
+  ['pointerdown','wheel','touchstart'].forEach(function(ev){track.addEventListener(ev,nudge,{passive:true});});
+  car.addEventListener('mouseenter',function(){paused=true;clearTimeout(rt);});
+  car.addEventListener('mouseleave',function(){paused=false;t0=performance.now();});
+  car.addEventListener('focusin',function(){paused=true;clearTimeout(rt);});
+  [].forEach.call(car.querySelectorAll('.carbtn'),function(b){
+    b.addEventListener('click',function(){go(i+Number(b.dataset.dir));nudge();});
+  });
+  var pb=document.getElementById('playbtn');
+  pb.addEventListener('click',function(){
+    playing=!playing;t0=performance.now();
+    pb.textContent=playing?'⏸ หยุดเลื่อนเอง':'▶ ให้เลื่อนเอง';
+    if(!playing)bar.style.width='0%';
+  });
+  if(reduce)pb.textContent='▶ ให้เลื่อนเอง';
+  (function tick(now){
+    if(playing&&!paused&&!document.hidden){
+      var p=(now-t0)/5000;
+      bar.style.width=Math.min(p,1)*100+'%';
+      if(p>=1)go(i+1);
+    }
+    requestAnimationFrame(tick);
+  })(performance.now());
+})();
+</script>`;
+
+function renderIndex(all, baseUrl, cat = '') {
+  const counts = {};
+  all.forEach(p => { if (p.category) counts[p.category] = (counts[p.category] || 0) + 1; });
+  const posts = cat ? all.filter(p => p.category === cat) : all;
+
+  // บทความแนะนำ = 5 เรื่องล่าสุด (รายการเรียงใหม่→เก่ามาแล้วจากคำสั่ง SQL)
+  // โชว์เฉพาะตอนดูทั้งหมดและมีของให้เลื่อนจริง ๆ — กรองหมวดอยู่แล้วเอาการ์ดล้วนพอ
+  const feat = !cat && all.length >= 2 ? all.slice(0, 5) : [];
+  const carousel = feat.length ? `
+    <div class="shead">
+      <div><span class="eyebrow">⭐ แนะนำ</span><h2 style="margin-top:8px">${feat.length} เรื่องล่าสุด</h2></div>
+    </div>
+    <div class="car" id="car">
+      <button class="carbtn prev" data-dir="-1" aria-label="ก่อนหน้า">‹</button>
+      <button class="carbtn next" data-dir="1" aria-label="ถัดไป">›</button>
+      <div class="track" id="track">${feat.map((p, i) => featSlide(p, i, feat.length)).join('')}</div>
+      <div class="cardock">
+        <div class="dots" id="dots"></div>
+        <div class="bar"><i id="bar"></i></div>
+        <button class="playbtn" id="playbtn">⏸ หยุดเลื่อนเอง</button>
+      </div>
+    </div>` : '';
+
+  const chip = (name, n, color) => `<a class="chip${(cat === name || (!cat && !name)) ? ' on' : ''}" href="${esc(catHref(name))}">${
+    color ? `<span class="cdot" style="background:${color}"></span>` : ''}${esc(name || 'ทั้งหมด')} <span class="n">${n}</span></a>`;
+  const chips = [chip('', all.length, '')]
+    .concat(CATS.filter(c => counts[c.name]).map(c => chip(c.name, counts[c.name], c.color)))
+    .join('');
+
+  const heading = cat ? `หมวด “${esc(cat)}”` : 'ทุกบทความ';
+  const body = `<div class="hero"><div class="in">
+    <span class="eyebrow">📖 อ่านได้เลย ไม่ต้องล็อกอิน</span>
     <h1>บทความ / คู่มือระบบ</h1>
-    <p class="excerpt">เรื่องที่ทีมผลิตเขียนอธิบายระบบและขั้นตอนการทำงาน</p>
-    ${posts.length ? `<div class="cards">${cards}</div>` : '<div class="empty">ยังไม่มีบทความที่เผยแพร่</div>'}
+    <p>เรื่องที่ทีมผลิตเขียนอธิบายระบบและขั้นตอนการทำงาน — ส่งลิงก์ให้ใครก็เปิดอ่านได้</p>
+  </div></div>
+  <main class="wide">
+    ${carousel}
+    <div class="shead">
+      <div><h2>${heading}</h2><div class="sub">${cat ? `${posts.length} เรื่องในหมวดนี้` : 'กรองตามหมวดหมู่ได้จากแถบด้านล่าง'}</div></div>
+    </div>
+    ${all.length > 1 ? `<div class="chips">${chips}</div>` : ''}
+    ${posts.length
+      ? `<div class="agrid">${posts.map(articleCard).join('')}</div>`
+      : `<div class="empty">${cat ? 'ยังไม่มีบทความในหมวดนี้' : 'ยังไม่มีบทความที่เผยแพร่'}</div>`}
   </main>
-  <div class="foot">เอกสารภายในของทีมผลิต SPP-MP</div>`;
+  <div class="foot wide">เอกสารภายในของทีมผลิต SPP-MP</div>`;
+
   return shell({
-    title: 'บทความ / คู่มือระบบ — SPP-MP',
+    title: cat ? `บทความหมวด ${cat} — SPP-MP` : 'บทความ / คู่มือระบบ — SPP-MP',
     desc: 'คลังความรู้ของทีมผลิต SPP-MP',
+    image: (all.find(p => p.coverUrl) || {}).coverUrl || '',
     url: `${baseUrl}/บทความ`,
     body,
+    wide: true,
+    counts,
+    script: feat.length ? CAR_SCRIPT : '',
   });
 }
 

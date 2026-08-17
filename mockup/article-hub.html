@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockup — เมนูบทความ + การ์ดพรีวิว + บทความแนะนำ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@500;600;700;800&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ══════════ token ชุดเดียวกับ client/src/redesign.css ══════════ */
+  :root{
+    --brand:#ff6b00;
+    --brand-deep:#c24f00;
+    --brand-soft:#fff3ea;
+    --ink:#2b2119;
+    --ink-soft:#6d6259;
+    --paper:#faf7f4;
+    --card:#ffffff;
+    --line:#eee3d9;
+    --ok:#1c8a4c;
+    --warn:#c77700;
+    --danger:#c62828;
+    --cip1:#1565c0;
+    --cip2:#01579b;
+    --cip3:#006064;
+    --cipx:#6a1b9a;
+    --chat:#0f7a6c;
+    --radius:16px;
+    --shadow-card:0 1px 2px rgba(63,37,10,.06),0 6px 18px -6px rgba(63,37,10,.12);
+    --shadow-float:0 2px 4px rgba(63,37,10,.08),0 16px 40px -12px rgba(63,37,10,.22);
+    --font-head:'Kanit',sans-serif;
+    --font-body:'Sarabun',sans-serif;
+  }
+  *,*::before,*::after{box-sizing:border-box}
+  :where(h1,h2,h3,h4,p,ul,ol,li,figure){margin:0;padding:0}
+  body{
+    margin:0;font-family:var(--font-body);color:var(--ink);background:var(--paper);line-height:1.7;
+    background-image:
+      radial-gradient(1200px 500px at 85% -10%, rgba(255,107,0,.07), transparent 60%),
+      radial-gradient(900px 420px at -10% 20%, rgba(21,101,192,.05), transparent 55%);
+    background-attachment:fixed;
+    min-height:100vh;display:flex;flex-direction:column;
+  }
+  :where(h1,h2,h3,h4){font-family:var(--font-head);letter-spacing:-.02em;line-height:1.3;color:var(--ink)}
+  button{font-family:inherit;cursor:pointer}
+  a{color:inherit;text-decoration:none}
+  :focus-visible{outline:3px solid rgba(255,107,0,.5);outline-offset:2px;border-radius:6px}
+
+  .view{display:none}
+  .view.active{display:flex;flex-direction:column;flex:1}
+  .wrap{max-width:1120px;margin:0 auto;padding:22px 16px 70px;width:100%}
+
+  /* ══════════ แถบบอกว่านี่คือ mockup + สลับหน้า ══════════ */
+  .ribbon{
+    position:sticky;top:0;z-index:80;background:#2b2119;color:#ffd9bd;
+    font-size:12px;padding:7px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  }
+  .ribbon .sw{display:flex;gap:4px;margin-left:auto;background:rgba(255,255,255,.08);border-radius:999px;padding:3px}
+  .ribbon .sw button{
+    border:none;background:transparent;color:#ffd9bd;font-size:12px;font-weight:600;font-family:var(--font-head);
+    padding:4px 12px;border-radius:999px;transition:background-color .15s ease,color .15s ease;
+  }
+  .ribbon .sw button.on{background:var(--brand);color:#fff}
+
+  /* ══════════ แถบบนของแอป ══════════ */
+  .topbar{
+    position:sticky;top:31px;z-index:60;display:flex;align-items:center;gap:8px;
+    padding:10px 14px;background:rgba(250,247,244,.88);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .logo{display:flex;align-items:center;gap:8px;background:none;border:none;padding:0}
+  .lg-word{font-family:var(--font-head);font-weight:700;font-size:17px;letter-spacing:-.02em;color:var(--ink)}
+  .lg-word em{font-style:normal;color:var(--brand)}
+  .nav{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;flex:1;align-items:center}
+  .nav::-webkit-scrollbar{display:none}
+  .navbtn{
+    border:none;background:transparent;color:var(--ink-soft);white-space:nowrap;
+    font-size:14px;font-weight:600;font-family:var(--font-head);padding:7px 14px;border-radius:999px;
+    display:flex;align-items:center;gap:6px;transition:background-color .15s ease,color .15s ease,transform .12s ease;
+  }
+  .navbtn:hover{background:#f1e8df;color:var(--ink)}
+  .navbtn:active{transform:scale(.95)}
+  .navbtn.on{background:var(--ink);color:#fff}
+  .navbtn.admin.on{background:var(--brand);color:#fff}
+  .chip-op{
+    display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;background:var(--card);
+    border:1px solid var(--line);border-radius:999px;padding:5px 12px;white-space:nowrap;
+  }
+  .chip-op .dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+  .iconbtn{
+    width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--card);
+    font-size:15px;display:grid;place-items:center;flex:none;transition:transform .12s ease,background-color .15s ease;
+  }
+  .iconbtn:active{transform:scale(.9)}
+
+  /* ══════════ เมนูบทความ + เมนูย่อย ══════════ */
+  .mwrap{position:relative;flex:none}
+  .navbtn .caret{font-size:10px;opacity:.6;transition:transform .18s ease}
+  .mwrap.open .navbtn .caret{transform:rotate(180deg)}
+  .mwrap.open .navbtn{background:var(--brand-soft);color:var(--brand-deep)}
+  /* 🔴 ต้องเป็น fixed ไม่ใช่ absolute — .nav เป็นแถบเลื่อนแนวนอน (overflow-x:auto)
+     เมนูย่อยที่เป็น absolute จะโดนกล่องเลื่อนตัดหายไปเลย (ตำแหน่งคำนวณด้วย JS) */
+  .dd{
+    position:fixed;top:0;left:0;z-index:70;width:min(430px,calc(100vw - 28px));
+    background:var(--card);border:1px solid var(--line);border-radius:18px;padding:8px;
+    box-shadow:var(--shadow-float);
+    display:none;opacity:0;transform:translateY(-6px);transition:opacity .16s ease,transform .16s ease;
+  }
+  .dd.open{display:block;opacity:1;transform:translateY(0)}
+  .dd .ddhead{
+    display:flex;align-items:baseline;gap:8px;padding:8px 10px 6px;
+    font-family:var(--font-head);font-weight:700;font-size:13px;color:var(--ink);
+  }
+  .dd .ddhead span{font-family:var(--font-body);font-weight:400;font-size:11.5px;color:var(--ink-soft)}
+  .ddgrid{display:grid;grid-template-columns:1fr 1fr;gap:2px}
+  .ddgrid a{
+    display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:11px;
+    font-size:13.5px;font-weight:600;font-family:var(--font-head);
+    transition:background-color .15s ease,color .15s ease;
+  }
+  .ddgrid a:hover{background:var(--brand-soft);color:var(--brand-deep)}
+  .ddgrid a .cdot{width:9px;height:9px;border-radius:3px;flex:none}
+  .ddgrid a .n{margin-left:auto;font-family:var(--font-body);font-size:11.5px;font-weight:400;color:var(--ink-soft)}
+  .ddsep{height:1px;background:var(--line);margin:7px 6px}
+  .ddfoot{display:flex;gap:6px;padding:2px 6px 4px}
+  .ddfoot a{
+    flex:1;text-align:center;padding:9px;border-radius:11px;font-family:var(--font-head);
+    font-size:13px;font-weight:600;background:#f7f1ea;color:var(--ink);
+    transition:background-color .15s ease,color .15s ease;
+  }
+  .ddfoot a.pri{background:var(--brand);color:#fff}
+  .ddfoot a:hover{background:var(--ink);color:#fff}
+  .ddfoot a.pri:hover{background:var(--brand-deep)}
+
+  /* ══════════ หัวข้อ section ══════════ */
+  .shead{display:flex;align-items:flex-end;gap:12px;margin:34px 0 14px;flex-wrap:wrap}
+  .shead h2{font-size:clamp(19px,2.6vw,23px);font-weight:700;letter-spacing:-.03em}
+  .shead .sub{font-size:13px;color:var(--ink-soft)}
+  .shead .more{
+    margin-left:auto;font-family:var(--font-head);font-weight:600;font-size:13px;color:var(--brand-deep);
+    background:var(--brand-soft);padding:6px 14px;border-radius:999px;border:none;
+    transition:background-color .15s ease,transform .12s ease;
+  }
+  .shead .more:hover{background:#ffe6d2}
+  .shead .more:active{transform:scale(.96)}
+  .eyebrow{
+    font-family:var(--font-head);font-size:12px;font-weight:600;color:var(--brand-deep);
+    background:var(--brand-soft);display:inline-flex;align-items:center;gap:6px;
+    padding:4px 12px;border-radius:999px;
+  }
+
+  /* ══════════ การ์ดเปิดหน้า (ของเดิม) ══════════ */
+  .launch{display:grid;gap:16px;grid-template-columns:1fr;margin-top:12px}
+  @media(min-width:760px){.launch{grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr}}
+  .lcard{
+    position:relative;display:flex;flex-direction:column;gap:8px;text-align:left;
+    background:var(--card);border:1px solid var(--line);border-radius:20px;padding:22px 20px;
+    box-shadow:var(--shadow-card);overflow:hidden;width:100%;
+    transition:transform .18s cubic-bezier(.2,.9,.3,1.3),box-shadow .18s ease;
+  }
+  .lcard:hover{transform:translateY(-3px);box-shadow:var(--shadow-float)}
+  .lcard:active{transform:translateY(-1px) scale(.99)}
+  .lcard .ic{font-size:30px;line-height:1}
+  .lcard h3{font-size:21px;font-weight:600}
+  .lcard p{font-size:13.5px;color:var(--ink-soft);line-height:1.6}
+  .lcard .status{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto;padding-top:10px}
+  .lcard::after{
+    content:"";position:absolute;inset:auto -30px -40px auto;width:150px;height:150px;border-radius:50%;
+    background:radial-gradient(circle, rgba(255,107,0,.12), transparent 70%);pointer-events:none;
+  }
+  .lcard.cip::after{background:radial-gradient(circle, rgba(21,101,192,.12), transparent 70%)}
+  .lcard.stick::after{background:radial-gradient(circle, rgba(15,122,108,.14), transparent 70%)}
+  .pill{font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;background:var(--brand-soft);color:var(--brand-deep)}
+  .pill.blue{background:#e8f1fb;color:var(--cip1)}
+  .pill.teal{background:#e8f6f3;color:var(--chat)}
+  .pill.ok{background:#e6f4ec;color:var(--ok)}
+
+  /* ══════════ บทความแนะนำ (คารูเซล) ══════════ */
+  .car{position:relative}
+  .track{
+    display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;
+    scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:4px 0 6px;
+  }
+  .track::-webkit-scrollbar{display:none}
+  .slide{flex:0 0 100%;scroll-snap-align:center;min-width:0}
+  .feat{
+    display:grid;grid-template-columns:1fr;gap:0;background:var(--card);border:1px solid var(--line);
+    border-radius:22px;overflow:hidden;box-shadow:var(--shadow-card);
+    transition:transform .18s cubic-bezier(.2,.9,.3,1.3),box-shadow .18s ease;
+  }
+  .feat:hover{transform:translateY(-2px);box-shadow:var(--shadow-float)}
+  @media(min-width:820px){.feat{grid-template-columns:1.15fr 1fr}}
+  .feat .shot{position:relative;min-height:210px;overflow:hidden}
+  @media(min-width:820px){.feat .shot{min-height:278px}}
+  .feat .body{padding:24px 26px 26px;display:flex;flex-direction:column;gap:11px;justify-content:center}
+  /* ในการ์ดใหญ่ให้ทุกอย่างเกาะกลุ่มตรงกลาง — ไม่ดันชื่อคนเขียนไปติดขอบล่างจนเว้าแหว่ง */
+  .feat .meta{margin-top:14px}
+  .feat h3{font-size:clamp(20px,2.7vw,27px);font-weight:700;letter-spacing:-.03em;line-height:1.32}
+  .feat p{font-size:14.5px;color:var(--ink-soft);line-height:1.75}
+  .rank{
+    position:absolute;top:14px;left:14px;z-index:2;display:flex;align-items:center;gap:6px;
+    background:rgba(43,33,25,.72);backdrop-filter:blur(6px);color:#fff;
+    font-family:var(--font-head);font-size:11.5px;font-weight:600;padding:5px 11px;border-radius:999px;
+  }
+  .carbtn{
+    position:absolute;top:50%;transform:translateY(-50%);z-index:5;width:42px;height:42px;border-radius:50%;
+    border:1px solid var(--line);background:rgba(255,255,255,.94);backdrop-filter:blur(6px);
+    box-shadow:var(--shadow-card);font-size:17px;color:var(--ink);display:grid;place-items:center;
+    transition:transform .14s ease,background-color .15s ease;
+  }
+  .carbtn:hover{background:#fff;transform:translateY(-50%) scale(1.06)}
+  .carbtn:active{transform:translateY(-50%) scale(.94)}
+  .carbtn.prev{left:-8px}
+  .carbtn.next{right:-8px}
+  @media(max-width:760px){.carbtn{display:none}}
+  .cardock{display:flex;align-items:center;gap:12px;margin-top:12px}
+  .dots{display:flex;gap:7px}
+  .dots button{
+    width:8px;height:8px;padding:0;border:none;border-radius:999px;background:#e0d3c6;
+    transition:width .2s ease,background-color .2s ease;
+  }
+  .dots button.on{width:26px;background:var(--brand)}
+  .playbtn{
+    margin-left:auto;display:flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--card);
+    color:var(--ink-soft);font-size:12px;font-weight:600;font-family:var(--font-head);
+    padding:5px 12px;border-radius:999px;transition:background-color .15s ease,color .15s ease;
+  }
+  .playbtn:hover{background:#f1e8df;color:var(--ink)}
+  .bar{flex:1;max-width:180px;height:3px;border-radius:999px;background:#e9ddd1;overflow:hidden}
+  .bar i{display:block;height:100%;width:0;background:var(--brand);border-radius:999px;transform-origin:left}
+
+  /* ══════════ การ์ดพรีวิวบทความ ══════════ */
+  .agrid{display:grid;gap:16px;grid-template-columns:1fr}
+  @media(min-width:640px){.agrid{grid-template-columns:1fr 1fr}}
+  @media(min-width:1000px){.agrid{grid-template-columns:repeat(3,1fr)}}
+  .acard{
+    display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);
+    border-radius:18px;overflow:hidden;box-shadow:var(--shadow-card);height:100%;
+    transition:transform .18s cubic-bezier(.2,.9,.3,1.3),box-shadow .18s ease,border-color .15s ease;
+  }
+  .acard:hover{transform:translateY(-3px);box-shadow:var(--shadow-float);border-color:#e6d3c1}
+  .acard:active{transform:translateY(-1px)}
+  .acard .shot{position:relative;aspect-ratio:16/9;overflow:hidden}
+  .acard .body{display:flex;flex-direction:column;gap:8px;padding:15px 17px 16px;flex:1}
+  .acard h3{font-size:16.5px;font-weight:600;line-height:1.42;overflow-wrap:anywhere}
+  .acard p{
+    font-size:13px;color:var(--ink-soft);line-height:1.65;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  }
+
+  /* รูปหน้าปก + ชั้นแต่งสี */
+  .shot img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .5s cubic-bezier(.2,.9,.3,1)}
+  .acard:hover .shot img,.feat:hover .shot img{transform:scale(1.045)}
+  .shot::after{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(to top, rgba(43,33,25,.42), rgba(43,33,25,.06) 45%, transparent 70%);
+  }
+  .shot .tint{position:absolute;inset:0;mix-blend-mode:multiply;pointer-events:none;opacity:.16}
+  .shot.c0 .tint{background:linear-gradient(135deg,#ff6b00,#ffb168)}
+  .shot.c1 .tint{background:linear-gradient(135deg,#1565c0,#5fa8e8)}
+  .shot.c2 .tint{background:linear-gradient(135deg,#0f7a6c,#63c9b4)}
+  .shot.c3 .tint{background:linear-gradient(135deg,#6a1b9a,#b47ad6)}
+  .shot.c4 .tint{background:linear-gradient(135deg,#1c8a4c,#7ac795)}
+  .shot.c5 .tint{background:linear-gradient(135deg,#c77700,#ffcf7a)}
+
+  /* ไม่มีรูปหน้าปก = วาดพื้นให้ (ชั้นไล่สี + ลายเส้น + เม็ดหยาบ + ตัวอักษรจาง) */
+  .shot.gen{display:grid;place-items:center}
+  .shot.gen .art{position:absolute;inset:0}
+  .shot.gen .art::before{
+    content:"";position:absolute;inset:0;
+    background:
+      radial-gradient(120% 90% at 12% 8%, rgba(255,255,255,.42), transparent 55%),
+      radial-gradient(90% 70% at 92% 96%, rgba(0,0,0,.22), transparent 60%);
+  }
+  .shot.gen .art::after{
+    content:"";position:absolute;inset:0;opacity:.16;
+    background-image:repeating-linear-gradient(115deg, rgba(255,255,255,.5) 0 1.5px, transparent 1.5px 13px);
+  }
+  .shot.gen .grain{
+    position:absolute;inset:0;opacity:.3;mix-blend-mode:overlay;pointer-events:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/></filter><rect width='140' height='140' filter='url(%23n)' opacity='.55'/></svg>");
+  }
+  .shot.gen .glyph{
+    position:relative;z-index:1;font-size:54px;line-height:1;filter:drop-shadow(0 6px 14px rgba(43,33,25,.32));
+  }
+  .feat .shot.gen .glyph{font-size:80px}
+  .shot.gen.g0{background:linear-gradient(140deg,#ff8a2b,#e05e00 55%,#c24f00)}
+  .shot.gen.g1{background:linear-gradient(140deg,#3f8fdc,#1565c0 55%,#0d3f7d)}
+  .shot.gen.g2{background:linear-gradient(140deg,#22a894,#0f7a6c 55%,#0a5348)}
+  .shot.gen.g3{background:linear-gradient(140deg,#9a4fc4,#6a1b9a 55%,#48136a)}
+  .shot.gen.g4{background:linear-gradient(140deg,#37b06a,#1c8a4c 55%,#125c33)}
+  .shot.gen.g5{background:linear-gradient(140deg,#e0a52f,#c77700 55%,#8c5400)}
+
+  /* ป้ายหมวดหมู่บนรูป */
+  .shot .cat{
+    position:absolute;left:12px;bottom:11px;z-index:2;display:inline-flex;align-items:center;gap:6px;
+    font-family:var(--font-head);font-size:11.5px;font-weight:600;color:#fff;
+    background:rgba(43,33,25,.5);backdrop-filter:blur(6px);padding:4px 11px;border-radius:999px;
+  }
+  .feat .shot .cat{left:14px;bottom:14px;font-size:12.5px;padding:5px 13px}
+
+  .tags{display:flex;flex-wrap:wrap;gap:5px}
+  .tg{
+    font-size:11.5px;font-weight:600;color:var(--ink-soft);background:#f6f0e9;
+    padding:2px 9px;border-radius:999px;white-space:nowrap;
+    transition:background-color .15s ease,color .15s ease;
+  }
+  .tg:hover{background:var(--brand-soft);color:var(--brand-deep)}
+  .meta{
+    display:flex;align-items:center;gap:8px;margin-top:auto;padding-top:11px;
+    border-top:1px dashed var(--line);font-size:12px;color:var(--ink-soft);
+  }
+  .meta .av{
+    width:24px;height:24px;border-radius:50%;flex:none;display:grid;place-items:center;
+    font-family:var(--font-head);font-size:11.5px;font-weight:600;color:#fff;
+    background:linear-gradient(135deg,var(--brand),#ff9a3d);
+  }
+  .meta .av.b{background:linear-gradient(135deg,var(--cip1),#4a9be0)}
+  .meta .av.t{background:linear-gradient(135deg,var(--chat),#3fb8a4)}
+  .meta .who{font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .meta .when{margin-left:auto;white-space:nowrap}
+
+  /* ══════════ แถบกรองหมวด (หน้าอ่านสาธารณะ) ══════════ */
+  .chips{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none;padding:2px 0 6px}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{
+    border:1px solid var(--line);background:var(--card);color:var(--ink-soft);white-space:nowrap;
+    font-family:var(--font-head);font-size:13px;font-weight:600;padding:7px 15px;border-radius:999px;
+    display:flex;align-items:center;gap:7px;transition:background-color .15s ease,color .15s ease,transform .12s ease;
+  }
+  .chip:hover{background:#f7f1ea;color:var(--ink)}
+  .chip:active{transform:scale(.96)}
+  .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .chip .cdot{width:8px;height:8px;border-radius:3px;flex:none}
+  .chip .n{font-family:var(--font-body);font-weight:400;font-size:11.5px;opacity:.7}
+
+  /* ══════════ หัวหน้าอ่านสาธารณะ ══════════ */
+  .ptop{
+    position:sticky;top:31px;z-index:60;background:rgba(255,255,255,.92);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .ptop .in{
+    max-width:1120px;margin:0 auto;padding:11px 16px;display:flex;align-items:center;gap:10px;
+  }
+  .plogo{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,#ff6b00,#ff8c00);flex:none;
+    display:grid;place-items:center;color:#fff;font-size:14px}
+  .ptop .nm{font-family:var(--font-head);font-weight:700;font-size:15px;letter-spacing:-.02em}
+  .ptop .nm span{color:var(--ink-soft);font-weight:400;font-size:12.5px}
+  .psearch{
+    margin-left:auto;display:flex;align-items:center;gap:8px;background:#f7f1ea;border:1px solid var(--line);
+    border-radius:999px;padding:7px 14px;color:var(--ink-soft);font-size:13px;min-width:150px;
+  }
+  @media(max-width:700px){.psearch{display:none}}
+  .phero{
+    background:linear-gradient(180deg,#fff8f2,transparent);
+    border-bottom:1px solid var(--line);
+  }
+  .phero .in{max-width:1120px;margin:0 auto;padding:26px 16px 22px}
+  .phero h1{font-size:clamp(24px,4vw,34px);font-weight:700;letter-spacing:-.03em}
+  .phero p{font-size:14.5px;color:var(--ink-soft);margin-top:6px;max-width:640px}
+
+  .foot{
+    margin-top:auto;border-top:1px solid var(--line);background:#f3ebe1;
+  }
+  .foot .in{
+    max-width:1120px;margin:0 auto;padding:18px 16px;display:flex;align-items:center;gap:10px;
+    font-size:12.5px;color:var(--ink-soft);flex-wrap:wrap;
+  }
+  .note{
+    background:#fff8ef;border:1px dashed #f0d9bd;border-radius:14px;padding:12px 15px;
+    font-size:12.5px;color:#7a5200;line-height:1.7;margin-top:26px;
+  }
+  .note b{font-family:var(--font-head)}
+
+  @media(prefers-reduced-motion:reduce){
+    *{animation-duration:.01ms !important;transition-duration:.01ms !important}
+    .track{scroll-behavior:auto}
+  }
+</style>
+</head>
+<body>
+
+<div class="ribbon">
+  MOCKUP — เมนูบทความ · การ์ดพรีวิว · บทความแนะนำ (ข้อมูลตัวอย่าง ยังไม่ต่อระบบจริง)
+  <span class="sw">
+    <button class="on" data-view="home">หน้าหลักแอป</button>
+    <button data-view="public">หน้าอ่านสาธารณะ</button>
+  </span>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     หน้าที่ 1 — หน้าหลักของแอป
+     ══════════════════════════════════════════════════════════ -->
+<section class="view active" id="view-home">
+
+  <header class="topbar">
+    <button class="logo">
+      <svg width="28" height="28" viewBox="0 0 34 34" fill="none" aria-hidden="true">
+        <rect x="1" y="1" width="32" height="32" rx="9.5" fill="url(#lg)" stroke="rgba(255,255,255,.35)" stroke-width="1.2"/>
+        <g transform="translate(5.5,5.5) scale(0.96)">
+          <path d="M12 2.5C8.5 7 5.5 10.8 5.5 14.2C5.5 18.1 8.4 21 12 21C15.6 21 18.5 18.1 18.5 14.2C18.5 10.8 15.5 7 12 2.5Z" fill="#fff"/>
+        </g>
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="34" y2="34">
+          <stop stop-color="#ff6b00"/><stop offset="1" stop-color="#ff8c00"/>
+        </linearGradient></defs>
+      </svg>
+      <span class="lg-word">SPP<em>-MP</em></span>
+    </button>
+
+    <nav class="nav">
+      <button class="navbtn on">🏠 หน้าหลัก</button>
+      <button class="navbtn">🏭 ผลิต</button>
+      <button class="navbtn">💧 CIP</button>
+
+      <!-- เมนูบทความ + เมนูย่อย 6 หมวด -->
+      <span class="mwrap" id="mw1">
+        <button class="navbtn" data-menu="1">📚 บทความ <span class="caret">▾</span></button>
+        <div class="dd" id="dd1">
+          <div class="ddhead">เลือกหมวดหมู่ <span>18 เรื่องที่เผยแพร่แล้ว</span></div>
+          <div class="ddgrid">
+            <a href="#"><span class="cdot" style="background:#ff6b00"></span>ระบบ CIP<span class="n">6</span></a>
+            <a href="#"><span class="cdot" style="background:#1565c0"></span>Boiler<span class="n">3</span></a>
+            <a href="#"><span class="cdot" style="background:#0f7a6c"></span>Evaporator<span class="n">2</span></a>
+            <a href="#"><span class="cdot" style="background:#6a1b9a"></span>Mixing / Syrup<span class="n">4</span></a>
+            <a href="#"><span class="cdot" style="background:#1c8a4c"></span>บรรจุ<span class="n">2</span></a>
+            <a href="#"><span class="cdot" style="background:#c77700"></span>ความปลอดภัย<span class="n">1</span></a>
+          </div>
+          <div class="ddsep"></div>
+          <div class="ddfoot">
+            <a href="#">🕒 ล่าสุด</a>
+            <a class="pri" href="#">ดูบทความทั้งหมด →</a>
+          </div>
+        </div>
+      </span>
+
+      <button class="navbtn admin">🔐 Admin</button>
+    </nav>
+
+    <span class="chip-op"><span class="dot"></span>จักรกฤษ พูลสวัสดิ์</span>
+    <button class="iconbtn" title="โหมดกลางคืน">🌙</button>
+  </header>
+
+  <div class="wrap">
+
+    <div class="launch">
+      <button class="lcard prod">
+        <span class="ic">🏭</span>
+        <h3>บันทึกการผลิต</h3>
+        <p>ลงบันทึก batch, brix, pH, lot และเวลาเริ่ม–จบ ของแต่ละ Line</p>
+        <span class="status"><span class="pill">Line 1 · 2 · 3</span></span>
+      </button>
+      <button class="lcard cip">
+        <span class="ic">💧</span>
+        <h3>CIP</h3>
+        <p>ล้างระบบ Line 1 · Line 2 · Line 3 และ CIP ทดลอง — รวมอยู่หน้าเดียว</p>
+        <span class="status"><span class="pill blue">4 โหมดในหน้าเดียว</span></span>
+      </button>
+      <button class="lcard stick">
+        <span class="ic">💬</span>
+        <h3>วิธีติดสติ๊กเกอร์</h3>
+        <p>ถาม AI หาวิธีติดสติ๊กเกอร์ตามลูกค้าแต่ละเจ้า พร้อมรูปประกอบ</p>
+        <span class="status"><span class="pill teal">ค้นด้วยชื่อลูกค้า</span></span>
+      </button>
+    </div>
+
+    <!-- ── บทความแนะนำ: ล่าสุด 5 เรื่อง เลื่อนเอง ── -->
+    <div class="shead">
+      <div>
+        <span class="eyebrow">⭐ บทความแนะนำ</span>
+        <h2 style="margin-top:8px">เรื่องล่าสุดจากหน้างาน</h2>
+        <div class="sub">หยิบ 5 เรื่องที่เผยแพร่ล่าสุดมาหมุนให้เอง — แตะหรือลากเพื่อเลื่อนเองได้</div>
+      </div>
+    </div>
+
+    <div class="car" id="car1">
+      <button class="carbtn prev" data-car="1" data-dir="-1" aria-label="ก่อนหน้า">‹</button>
+      <button class="carbtn next" data-car="1" data-dir="1" aria-label="ถัดไป">›</button>
+      <div class="track" id="track1">
+
+        <div class="slide">
+          <a class="feat" href="#">
+            <div class="shot c0">
+              <span class="rank">⭐ ใหม่ล่าสุด</span>
+              <img src="https://placehold.co/900x560/e9dcce/8a7967?text=COVER+PHOTO" alt="">
+              <span class="tint"></span>
+              <span class="cat">ระบบ CIP</span>
+            </div>
+            <div class="body">
+              <h3>How To Freshy Sala Processing — ตั้งแต่รับน้ำเชื่อมจนปิด batch</h3>
+              <p>ไล่ทีละขั้นว่าน้ำเชื่อมเข้าสายไหน ตั้งอุณหภูมิเท่าไหร่ ต้องดู brix ตอนไหน และจุดที่คนใหม่พลาดบ่อยที่สุด 3 จุด</p>
+              <div class="tags"><span class="tg">#FreshySala</span><span class="tg">#Mixing</span><span class="tg">#คู่มือ</span></div>
+              <div class="meta">
+                <span class="av">จ</span><span class="who">จักรกฤษ พูลสวัสดิ์</span>
+                <span class="when">12 ส.ค. 2569</span>
+              </div>
+            </div>
+          </a>
+        </div>
+
+        <div class="slide">
+          <a class="feat" href="#">
+            <div class="shot gen g1">
+              <span class="rank">2 / 5</span>
+              <span class="art"></span><span class="grain"></span><span class="glyph">🔥</span>
+              <span class="cat">Boiler</span>
+            </div>
+            <div class="body">
+              <h3>อ่านค่าแรงดัน Boiler ยังไงให้รู้ก่อนว่ากำลังจะมีปัญหา</h3>
+              <p>เทียบค่าปกติกับค่าที่เริ่มผิดสังเกต พร้อมตารางว่าถ้าเข็มไปอยู่ช่วงไหนต้องแจ้งใครและหยุดอะไรก่อน</p>
+              <div class="tags"><span class="tg">#Boiler</span><span class="tg">#ค่าควบคุม</span></div>
+              <div class="meta">
+                <span class="av b">ม</span><span class="who">ม้ำ</span>
+                <span class="when">9 ส.ค. 2569</span>
+              </div>
+            </div>
+          </a>
+        </div>
+
+        <div class="slide">
+          <a class="feat" href="#">
+            <div class="shot c2">
+              <img src="https://placehold.co/900x560/dfe3dc/74806f?text=COVER+PHOTO" alt="">
+              <span class="rank">3 / 5</span>
+              <span class="tint"></span>
+              <span class="cat">Evaporator</span>
+            </div>
+            <div class="body">
+              <h3>ล้าง Evaporator รอบใหญ่ — ลำดับที่ทำให้ไม่ต้องกลับมาล้างซ้ำ</h3>
+              <p>สรุปลำดับจากที่ทำจริง 6 รอบ ว่าแช่ด่างกี่นาที ล้างน้ำตามกี่รอบ และจุดที่ต้องเปิดวาล์วทิ้งก่อนเสมอ</p>
+              <div class="tags"><span class="tg">#Evaporator</span><span class="tg">#CIP</span><span class="tg">#SOP</span></div>
+              <div class="meta">
+                <span class="av t">พ</span><span class="who">พลุ๊ก</span>
+                <span class="when">5 ส.ค. 2569</span>
+              </div>
+            </div>
+          </a>
+        </div>
+
+        <div class="slide">
+          <a class="feat" href="#">
+            <div class="shot gen g3">
+              <span class="rank">4 / 5</span>
+              <span class="art"></span><span class="grain"></span><span class="glyph">🍯</span>
+              <span class="cat">Mixing / Syrup</span>
+            </div>
+            <div class="body">
+              <h3>น้ำเชื่อมแต่งกลิ่น 6 ขั้น — ทำไมต้องพักเย็นก่อนบรรจุ</h3>
+              <p>อธิบายด้วยภาพเคลื่อนไหวในบทความ กดรันดูได้เลยว่าถ้าข้ามขั้นพักเย็นแล้วกลิ่นหายไปตรงไหน</p>
+              <div class="tags"><span class="tg">#Syrup</span><span class="tg">#กลิ่น</span><span class="tg">#มีภาพเคลื่อนไหว</span></div>
+              <div class="meta">
+                <span class="av">จ</span><span class="who">จักรกฤษ พูลสวัสดิ์</span>
+                <span class="when">2 ส.ค. 2569</span>
+              </div>
+            </div>
+          </a>
+        </div>
+
+        <div class="slide">
+          <a class="feat" href="#">
+            <div class="shot gen g5">
+              <span class="rank">5 / 5</span>
+              <span class="art"></span><span class="grain"></span><span class="glyph">🦺</span>
+              <span class="cat">ความปลอดภัย</span>
+            </div>
+            <div class="body">
+              <h3>ก่อนเข้าไปในถัง — เช็กลิสต์ 9 ข้อที่ห้ามข้ามแม้แต่ข้อเดียว</h3>
+              <p>ล็อกไฟ ปลดแรงดัน วัดออกซิเจน มีคนเฝ้าปากถัง — พร้อมช่องติ๊กที่ติ๊กในมือถือหน้างานได้เลย</p>
+              <div class="tags"><span class="tg">#ความปลอดภัย</span><span class="tg">#เช็กลิสต์</span></div>
+              <div class="meta">
+                <span class="av b">น</span><span class="who">นาย</span>
+                <span class="when">29 ก.ค. 2569</span>
+              </div>
+            </div>
+          </a>
+        </div>
+
+      </div>
+      <div class="cardock">
+        <div class="dots" id="dots1"></div>
+        <div class="bar"><i id="bar1"></i></div>
+        <button class="playbtn" data-play="1"><span id="playic1">⏸</span> <span id="playtx1">หยุดเลื่อนเอง</span></button>
+      </div>
+    </div>
+
+    <!-- ── การ์ดพรีวิวบทความ ── -->
+    <div class="shead">
+      <div>
+        <h2>บทความล่าสุด</h2>
+        <div class="sub">คู่มือและบันทึกจากหน้างานที่ทีมเขียนไว้</div>
+      </div>
+      <button class="more">ดูทั้งหมด 18 เรื่อง →</button>
+    </div>
+
+    <div class="agrid">
+
+      <a class="acard" href="#">
+        <div class="shot c1">
+          <img src="https://placehold.co/640x360/e2ded7/8a7967?text=COVER+PHOTO" alt="">
+          <span class="tint"></span><span class="cat">Boiler</span>
+        </div>
+        <div class="body">
+          <h3>เดินเครื่อง Boiler ตอนเช้า — ลำดับเปิดที่ไม่ทำให้ทริป</h3>
+          <p>เปิดอะไรก่อนหลัง รอค่าไหนขึ้นถึงเท่าไหร่ถึงเดินต่อได้ และเสียงแบบไหนคือผิดปกติ</p>
+          <div class="tags"><span class="tg">#Boiler</span><span class="tg">#เดินเครื่อง</span></div>
+          <div class="meta"><span class="av b">ม</span><span class="who">ม้ำ</span><span class="when">8 ส.ค. 2569</span></div>
+        </div>
+      </a>
+
+      <a class="acard" href="#">
+        <div class="shot gen g0">
+          <span class="art"></span><span class="grain"></span><span class="glyph">💧</span>
+          <span class="cat">ระบบ CIP</span>
+        </div>
+        <div class="body">
+          <h3>CIP Line 2 ใช้น้ำเยอะกว่าเดิม 30% — ไล่หาสาเหตุยังไง</h3>
+          <p>บันทึกการไล่ทีละจุดจนเจอว่าเป็นวาล์วปิดไม่สนิท พร้อมกราฟยอดน้ำย้อนหลัง 30 วัน</p>
+          <div class="tags"><span class="tg">#CIP</span><span class="tg">#Line2</span><span class="tg">#มีกราฟ</span></div>
+          <div class="meta"><span class="av">จ</span><span class="who">จักรกฤษ พูลสวัสดิ์</span><span class="when">6 ส.ค. 2569</span></div>
+        </div>
+      </a>
+
+      <a class="acard" href="#">
+        <div class="shot gen g4">
+          <span class="art"></span><span class="grain"></span><span class="glyph">📦</span>
+          <span class="cat">บรรจุ</span>
+        </div>
+        <div class="body">
+          <h3>สลับ SKU กลางกะ — ต้องล้างอะไรบ้างก่อนเปลี่ยนรส</h3>
+          <p>ตารางว่ารสไหนสลับกันได้เลย รสไหนต้องล้างเต็มรอบ และเวลาที่ต้องเผื่อในแผนบรรจุ</p>
+          <div class="tags"><span class="tg">#บรรจุ</span><span class="tg">#เปลี่ยนรส</span></div>
+          <div class="meta"><span class="av t">พ</span><span class="who">พลุ๊ก</span><span class="when">4 ส.ค. 2569</span></div>
+        </div>
+      </a>
+
+      <a class="acard" href="#">
+        <div class="shot c3">
+          <img src="https://placehold.co/640x360/ded6e2/7d6f88?text=COVER+PHOTO" alt="">
+          <span class="tint"></span><span class="cat">Mixing / Syrup</span>
+        </div>
+        <div class="body">
+          <h3>ละลายน้ำตาลที่ 80°C — ทำไมห้ามเร่งไฟให้เร็วกว่านี้</h3>
+          <p>อธิบายด้วยตัวเลขจริงว่าถ้าเร่งแล้วเกิดอะไรกับสีและกลิ่น พร้อมช่วงค่าที่ยอมรับได้</p>
+          <div class="tags"><span class="tg">#Syrup</span><span class="tg">#อุณหภูมิ</span></div>
+          <div class="meta"><span class="av">จ</span><span class="who">จักรกฤษ พูลสวัสดิ์</span><span class="when">1 ส.ค. 2569</span></div>
+        </div>
+      </a>
+
+      <a class="acard" href="#">
+        <div class="shot gen g2">
+          <span class="art"></span><span class="grain"></span><span class="glyph">🧪</span>
+          <span class="cat">Evaporator</span>
+        </div>
+        <div class="body">
+          <h3>ค่า brix ไม่นิ่ง — ไล่จากปั๊มป้อนหรือจากไอน้ำก่อนดี</h3>
+          <p>ลำดับการไล่ที่ใช้เวลาน้อยที่สุด อิงจากอาการที่เจอจริง 4 ครั้งในเดือนที่ผ่านมา</p>
+          <div class="tags"><span class="tg">#Evaporator</span><span class="tg">#brix</span></div>
+          <div class="meta"><span class="av b">น</span><span class="who">นาย</span><span class="when">28 ก.ค. 2569</span></div>
+        </div>
+      </a>
+
+      <a class="acard" href="#">
+        <div class="shot gen g5">
+          <span class="art"></span><span class="grain"></span><span class="glyph">📋</span>
+          <span class="cat">ความปลอดภัย</span>
+        </div>
+        <div class="body">
+          <h3>ส่งกะให้ครบใน 5 นาที — ข้อมูลที่กะถัดไปต้องได้จริง ๆ</h3>
+          <p>สรุปว่ากะถัดไปอยากรู้อะไรก่อน และอะไรที่เขียนไปก็ไม่มีใครอ่าน ตัดทิ้งได้เลย</p>
+          <div class="tags"><span class="tg">#ส่งกะ</span><span class="tg">#ทีม</span></div>
+          <div class="meta"><span class="av t">พ</span><span class="who">พลุ๊ก</span><span class="when">25 ก.ค. 2569</span></div>
+        </div>
+      </a>
+
+    </div>
+
+    <div class="note">
+      <b>หมายเหตุจาก Claude:</b> การ์ดที่ยังไม่มีรูปหน้าปกจะวาดพื้นไล่สีให้เองตามหมวดหมู่ (สีคงที่ต่อหมวด ไม่สุ่ม)
+      + สัญลักษณ์ประจำหมวด — บทความเก่าจึงไม่มีช่องว่างโหว่ · เลข “18 เรื่อง” และจำนวนต่อหมวดเป็นตัวอย่าง
+    </div>
+  </div>
+
+  <footer class="foot">
+    <div class="in">
+      <svg width="24" height="24" viewBox="0 0 34 34" fill="none" aria-hidden="true">
+        <rect x="1" y="1" width="32" height="32" rx="9.5" fill="url(#lg2)"/>
+        <g transform="translate(5.5,5.5) scale(0.96)">
+          <path d="M12 2.5C8.5 7 5.5 10.8 5.5 14.2C5.5 18.1 8.4 21 12 21C15.6 21 18.5 18.1 18.5 14.2C18.5 10.8 15.5 7 12 2.5Z" fill="#fff"/>
+        </g>
+        <defs><linearGradient id="lg2" x1="0" y1="0" x2="34" y2="34">
+          <stop stop-color="#ff6b00"/><stop offset="1" stop-color="#ff8c00"/>
+        </linearGradient></defs>
+      </svg>
+      <span class="lg-word" style="font-size:16px">SPP<em>-MP</em></span>
+      <span style="margin-left:auto">ระบบบันทึกการผลิต &amp; CIP</span>
+    </div>
+  </footer>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════
+     หน้าที่ 2 — หน้าอ่านสาธารณะ /บทความ
+     ══════════════════════════════════════════════════════════ -->
+<section class="view" id="view-public">
+
+  <header class="ptop">
+    <div class="in">
+      <span class="plogo">💧</span>
+      <span class="nm">SPP-MP <span>· คลังความรู้ฝ่ายผลิต</span></span>
+
+      <span class="mwrap" id="mw2" style="margin-left:14px">
+        <button class="navbtn" data-menu="2">📚 บทความ <span class="caret">▾</span></button>
+        <div class="dd" id="dd2">
+          <div class="ddhead">เลือกหมวดหมู่ <span>18 เรื่องที่เผยแพร่แล้ว</span></div>
+          <div class="ddgrid">
+            <a href="#"><span class="cdot" style="background:#ff6b00"></span>ระบบ CIP<span class="n">6</span></a>
+            <a href="#"><span class="cdot" style="background:#1565c0"></span>Boiler<span class="n">3</span></a>
+            <a href="#"><span class="cdot" style="background:#0f7a6c"></span>Evaporator<span class="n">2</span></a>
+            <a href="#"><span class="cdot" style="background:#6a1b9a"></span>Mixing / Syrup<span class="n">4</span></a>
+            <a href="#"><span class="cdot" style="background:#1c8a4c"></span>บรรจุ<span class="n">2</span></a>
+            <a href="#"><span class="cdot" style="background:#c77700"></span>ความปลอดภัย<span class="n">1</span></a>
+          </div>
+          <div class="ddsep"></div>
+          <div class="ddfoot">
+            <a href="#">🕒 ล่าสุด</a>
+            <a class="pri" href="#">ดูบทความทั้งหมด →</a>
+          </div>
+        </div>
+      </span>
+
+      <span class="psearch">🔎 ค้นหาบทความ…</span>
+    </div>
+  </header>
+
+  <div class="phero">
+    <div class="in">
+      <span class="eyebrow">📖 อ่านได้เลย ไม่ต้องล็อกอิน</span>
+      <h1 style="margin-top:9px">บทความ / คู่มือระบบ</h1>
+      <p>เรื่องที่ทีมผลิตเขียนอธิบายระบบและขั้นตอนการทำงาน — ส่งลิงก์ให้ใครก็เปิดอ่านได้</p>
+    </div>
+  </div>
+
+  <div class="wrap">
+
+    <div class="shead" style="margin-top:22px">
+      <div>
+        <span class="eyebrow">⭐ แนะนำ</span>
+        <h2 style="margin-top:8px">5 เรื่องล่าสุด</h2>
+      </div>
+    </div>
+
+    <div class="car" id="car2">
+      <button class="carbtn prev" data-car="2" data-dir="-1" aria-label="ก่อนหน้า">‹</button>
+      <button class="carbtn next" data-car="2" data-dir="1" aria-label="ถัดไป">›</button>
+      <div class="track" id="track2">
+
+        <div class="slide">
+          <a class="feat" href="#">
+            <div class="shot c0">
+              <span class="rank">⭐ ใหม่ล่าสุด</span>
+              <img src="https://placehold.co/900x560/e9dcce/8a7967?text=COVER+PHOTO" alt="">
+              <span class="tint"></span><span class="cat">ระบบ CIP</span>
+            </div>
+            <div class="body">
+              <h3>How To Freshy Sala Processing — ตั้งแต่รับน้ำเชื่อมจนปิด batch</h3>
+              <p>ไล่ทีละขั้นว่าน้ำเชื่อมเข้าสายไหน ตั้งอุณหภูมิเท่าไหร่ ต้องดู brix ตอนไหน และจุดที่คนใหม่พลาดบ่อยที่สุด 3 จุด</p>
+              <div class="tags"><span class="tg">#FreshySala</span><span class="tg">#Mixing</span><span class="tg">#คู่มือ</span></div>
+              <div class="meta"><span class="av">จ</span><span class="who">จักรกฤษ พูลสวัสดิ์</span><span class="when">12 ส.ค. 2569</span></div>
+            </div>
+          </a>
+        </div>
+
+        <div class="slide">
+          <a class="feat" href="#">
+            <div class="shot gen g1">
+              <span class="rank">2 / 5</span>
+              <span class="art"></span><span class="grain"></span><span class="glyph">🔥</span>
+              <span class="cat">Boiler</span>
+            </div>
+            <div class="body">
+              <h3>อ่านค่าแรงดัน Boiler ยังไงให้รู้ก่อนว่ากำลังจะมีปัญหา</h3>
+              <p>เทียบค่าปกติกับค่าที่เริ่มผิดสังเกต พร้อมตารางว่าถ้าเข็มไปอยู่ช่วงไหนต้องแจ้งใครและหยุดอะไรก่อน</p>
+              <div class="tags"><span class="tg">#Boiler</span><span class="tg">#ค่าควบคุม</span></div>
+              <div class="meta"><span class="av b">ม</span><span class="who">ม้ำ</span><span class="when">9 ส.ค. 2569</span></div>
+            </div>
+          </a>
+        </div>
+
+        <div class="slide">
+          <a class="feat" href="#">
+            <div class="shot c2">
+              <img src="https://placehold.co/900x560/dfe3dc/74806f?text=COVER+PHOTO" alt="">
+              <span class="rank">3 / 5</span>
+              <span class="tint"></span><span class="cat">Evaporator</span>
+            </div>
+            <div class="body">
+              <h3>ล้าง Evaporator รอบใหญ่ — ลำดับที่ทำให้ไม่ต้องกลับมาล้างซ้ำ</h3>
+              <p>สรุปลำดับจากที่ทำจริง 6 รอบ ว่าแช่ด่างกี่นาที ล้างน้ำตามกี่รอบ และจุดที่ต้องเปิดวาล์วทิ้งก่อนเสมอ</p>
+              <div class="tags"><span class="tg">#Evaporator</span><span class="tg">#CIP</span><span class="tg">#SOP</span></div>
+              <div class="meta"><span class="av t">พ</span><span class="who">พลุ๊ก</span><span class="when">5 ส.ค. 2569</span></div>
+            </div>
+          </a>
+        </div>
+
+        <div class="slide">
+          <a class="feat" href="#">
+            <div class="shot gen g3">
+              <span class="rank">4 / 5</span>
+              <span class="art"></span><span class="grain"></span><span class="glyph">🍯</span>
+              <span class="cat">Mixing / Syrup</span>
+            </div>
+            <div class="body">
+              <h3>น้ำเชื่อมแต่งกลิ่น 6 ขั้น — ทำไมต้องพักเย็นก่อนบรรจุ</h3>
+              <p>อธิบายด้วยภาพเคลื่อนไหวในบทความ กดรันดูได้เลยว่าถ้าข้ามขั้นพักเย็นแล้วกลิ่นหายไปตรงไหน</p>
+              <div class="tags"><span class="tg">#Syrup</span><span class="tg">#กลิ่น</span><span class="tg">#มีภาพเคลื่อนไหว</span></div>
+              <div class="meta"><span class="av">จ</span><span class="who">จักรกฤษ พูลสวัสดิ์</span><span class="when">2 ส.ค. 2569</span></div>
+            </div>
+          </a>
+        </div>
+
+        <div class="slide">
+          <a class="feat" href="#">
+            <div class="shot gen g5">
+              <span class="rank">5 / 5</span>
+              <span class="art"></span><span class="grain"></span><span class="glyph">🦺</span>
+              <span class="cat">ความปลอดภัย</span>
+            </div>
+            <div class="body">
+              <h3>ก่อนเข้าไปในถัง — เช็กลิสต์ 9 ข้อที่ห้ามข้ามแม้แต่ข้อเดียว</h3>
+              <p>ล็อกไฟ ปลดแรงดัน วัดออกซิเจน มีคนเฝ้าปากถัง — พร้อมช่องติ๊กที่ติ๊กในมือถือหน้างานได้เลย</p>
+              <div class="tags"><span class="tg">#ความปลอดภัย</span><span class="tg">#เช็กลิสต์</span></div>
+              <div class="meta"><span class="av b">น</span><span class="who">นาย</span><span class="when">29 ก.ค. 2569</span></div>
+            </div>
+          </a>
+        </div>
+
+      </div>
+      <div class="cardock">
+        <div class="dots" id="dots2"></div>
+        <div class="bar"><i id="bar2"></i></div>
+        <button class="playbtn" data-play="2"><span id="playic2">⏸</span> <span id="playtx2">หยุดเลื่อนเอง</span></button>
+      </div>
+    </div>
+
+    <div class="shead">
+      <div><h2>ทุกบทความ</h2><div class="sub">กรองตามหมวดหมู่ได้จากแถบด้านล่าง</div></div>
+    </div>
+
+    <div class="chips">
+      <button class="chip on">ทั้งหมด <span class="n">18</span></button>
+      <button class="chip"><span class="cdot" style="background:#ff6b00"></span>ระบบ CIP <span class="n">6</span></button>
+      <button class="chip"><span class="cdot" style="background:#1565c0"></span>Boiler <span class="n">3</span></button>
+      <button class="chip"><span class="cdot" style="background:#0f7a6c"></span>Evaporator <span class="n">2</span></button>
+      <button class="chip"><span class="cdot" style="background:#6a1b9a"></span>Mixing / Syrup <span class="n">4</span></button>
+      <button class="chip"><span class="cdot" style="background:#1c8a4c"></span>บรรจุ <span class="n">2</span></button>
+      <button class="chip"><span class="cdot" style="background:#c77700"></span>ความปลอดภัย <span class="n">1</span></button>
+    </div>
+
+    <div class="agrid" style="margin-top:14px">
+
+      <a class="acard" href="#">
+        <div class="shot c1">
+          <img src="https://placehold.co/640x360/e2ded7/8a7967?text=COVER+PHOTO" alt="">
+          <span class="tint"></span><span class="cat">Boiler</span>
+        </div>
+        <div class="body">
+          <h3>เดินเครื่อง Boiler ตอนเช้า — ลำดับเปิดที่ไม่ทำให้ทริป</h3>
+          <p>เปิดอะไรก่อนหลัง รอค่าไหนขึ้นถึงเท่าไหร่ถึงเดินต่อได้ และเสียงแบบไหนคือผิดปกติ</p>
+          <div class="tags"><span class="tg">#Boiler</span><span class="tg">#เดินเครื่อง</span></div>
+          <div class="meta"><span class="av b">ม</span><span class="who">ม้ำ</span><span class="when">8 ส.ค. 2569</span></div>
+        </div>
+      </a>
+
+      <a class="acard" href="#">
+        <div class="shot gen g0">
+          <span class="art"></span><span class="grain"></span><span class="glyph">💧</span>
+          <span class="cat">ระบบ CIP</span>
+        </div>
+        <div class="body">
+          <h3>CIP Line 2 ใช้น้ำเยอะกว่าเดิม 30% — ไล่หาสาเหตุยังไง</h3>
+          <p>บันทึกการไล่ทีละจุดจนเจอว่าเป็นวาล์วปิดไม่สนิท พร้อมกราฟยอดน้ำย้อนหลัง 30 วัน</p>
+          <div class="tags"><span class="tg">#CIP</span><span class="tg">#Line2</span><span class="tg">#มีกราฟ</span></div>
+          <div class="meta"><span class="av">จ</span><span class="who">จักรกฤษ พูลสวัสดิ์</span><span class="when">6 ส.ค. 2569</span></div>
+        </div>
+      </a>
+
+      <a class="acard" href="#">
+        <div class="shot gen g4">
+          <span class="art"></span><span class="grain"></span><span class="glyph">📦</span>
+          <span class="cat">บรรจุ</span>
+        </div>
+        <div class="body">
+          <h3>สลับ SKU กลางกะ — ต้องล้างอะไรบ้างก่อนเปลี่ยนรส</h3>
+          <p>ตารางว่ารสไหนสลับกันได้เลย รสไหนต้องล้างเต็มรอบ และเวลาที่ต้องเผื่อในแผนบรรจุ</p>
+          <div class="tags"><span class="tg">#บรรจุ</span><span class="tg">#เปลี่ยนรส</span></div>
+          <div class="meta"><span class="av t">พ</span><span class="who">พลุ๊ก</span><span class="when">4 ส.ค. 2569</span></div>
+        </div>
+      </a>
+
+      <a class="acard" href="#">
+        <div class="shot c3">
+          <img src="https://placehold.co/640x360/ded6e2/7d6f88?text=COVER+PHOTO" alt="">
+          <span class="tint"></span><span class="cat">Mixing / Syrup</span>
+        </div>
+        <div class="body">
+          <h3>ละลายน้ำตาลที่ 80°C — ทำไมห้ามเร่งไฟให้เร็วกว่านี้</h3>
+          <p>อธิบายด้วยตัวเลขจริงว่าถ้าเร่งแล้วเกิดอะไรกับสีและกลิ่น พร้อมช่วงค่าที่ยอมรับได้</p>
+          <div class="tags"><span class="tg">#Syrup</span><span class="tg">#อุณหภูมิ</span></div>
+          <div class="meta"><span class="av">จ</span><span class="who">จักรกฤษ พูลสวัสดิ์</span><span class="when">1 ส.ค. 2569</span></div>
+        </div>
+      </a>
+
+      <a class="acard" href="#">
+        <div class="shot gen g2">
+          <span class="art"></span><span class="grain"></span><span class="glyph">🧪</span>
+          <span class="cat">Evaporator</span>
+        </div>
+        <div class="body">
+          <h3>ค่า brix ไม่นิ่ง — ไล่จากปั๊มป้อนหรือจากไอน้ำก่อนดี</h3>
+          <p>ลำดับการไล่ที่ใช้เวลาน้อยที่สุด อิงจากอาการที่เจอจริง 4 ครั้งในเดือนที่ผ่านมา</p>
+          <div class="tags"><span class="tg">#Evaporator</span><span class="tg">#brix</span></div>
+          <div class="meta"><span class="av b">น</span><span class="who">นาย</span><span class="when">28 ก.ค. 2569</span></div>
+        </div>
+      </a>
+
+      <a class="acard" href="#">
+        <div class="shot gen g5">
+          <span class="art"></span><span class="grain"></span><span class="glyph">📋</span>
+          <span class="cat">ความปลอดภัย</span>
+        </div>
+        <div class="body">
+          <h3>ส่งกะให้ครบใน 5 นาที — ข้อมูลที่กะถัดไปต้องได้จริง ๆ</h3>
+          <p>สรุปว่ากะถัดไปอยากรู้อะไรก่อน และอะไรที่เขียนไปก็ไม่มีใครอ่าน ตัดทิ้งได้เลย</p>
+          <div class="tags"><span class="tg">#ส่งกะ</span><span class="tg">#ทีม</span></div>
+          <div class="meta"><span class="av t">พ</span><span class="who">พลุ๊ก</span><span class="when">25 ก.ค. 2569</span></div>
+        </div>
+      </a>
+
+    </div>
+  </div>
+
+  <footer class="foot">
+    <div class="in">
+      <span>เอกสารภายในของทีมผลิต SPP-MP</span>
+      <span style="margin-left:auto">อัปเดตอัตโนมัติจากระบบ · เชื่อมกับ Obsidian</span>
+    </div>
+  </footer>
+</section>
+
+<script>
+  /* ── สลับหน้า ── */
+  document.querySelectorAll('.ribbon .sw button').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('.ribbon .sw button').forEach(x=>x.classList.toggle('on',x===b));
+    document.getElementById('view-home').classList.toggle('active',b.dataset.view==='home');
+    document.getElementById('view-public').classList.toggle('active',b.dataset.view==='public');
+    closeMenus();
+    window.scrollTo({top:0});
+    window.dispatchEvent(new Event('spp:view'));   // ให้คารูเซลของหน้าที่เพิ่งโผล่ตั้งตำแหน่งใหม่
+  }));
+
+  /* ── เมนูบทความ (เมนูย่อย) ── */
+  function closeMenus(){document.querySelectorAll('.mwrap').forEach(w=>{w.classList.remove('open');w.querySelector('.dd').classList.remove('open')})}
+  function placeDD(btn,dd){                 // fixed = ต้องบอกพิกัดเอง แต่แลกกับการไม่โดนแถบเลื่อนตัด
+    const r=btn.getBoundingClientRect();
+    const w=dd.offsetWidth||430;
+    dd.style.top=(r.bottom+9)+'px';
+    dd.style.left=Math.max(14,Math.min(r.left,window.innerWidth-w-14))+'px';
+  }
+  document.querySelectorAll('[data-menu]').forEach(btn=>btn.addEventListener('click',e=>{
+    e.stopPropagation();
+    const wrap=btn.closest('.mwrap'), dd=wrap.querySelector('.dd'), was=wrap.classList.contains('open');
+    closeMenus();
+    if(!was){wrap.classList.add('open');dd.classList.add('open');placeDD(btn,dd)}
+  }));
+  document.addEventListener('click',e=>{if(!e.target.closest('.mwrap'))closeMenus()});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMenus()});
+  window.addEventListener('resize',closeMenus);
+  window.addEventListener('scroll',()=>{                   // เลื่อนหน้าแล้วเมนูจะไม่ลอยค้างผิดที่
+    document.querySelectorAll('.mwrap.open').forEach(w=>placeDD(w.querySelector('[data-menu]'),w.querySelector('.dd')));
+  },{passive:true});
+
+  /* ── แถบกรองหมวด ── */
+  document.querySelectorAll('.chips').forEach(row=>{
+    row.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{
+      row.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===c));
+    }));
+  });
+
+  /* ── คารูเซลบทความแนะนำ ──
+     เลื่อนเองทุก 5 วิ · หยุดเมื่อเอาเมาส์ไปวาง/แตะ/ลาก แล้วเดินต่อเองหลัง 6 วิ
+     · ปุ่ม ‹ › · จุดบอกตำแหน่ง · แถบเวลาเดินให้เห็นว่าจะเปลี่ยนเมื่อไหร่ */
+  const SLIDE_MS=5000, RESUME_MS=6000;
+  const reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function setupCar(n){
+    const track=document.getElementById('track'+n);
+    const dotbox=document.getElementById('dots'+n);
+    const bar=document.getElementById('bar'+n);
+    const slides=[...track.children];
+    let i=0, playing=!reduce, t0=performance.now(), paused=false, resumeTimer=null, raf=null;
+
+    slides.forEach((_,k)=>{
+      const d=document.createElement('button');
+      d.type='button'; d.setAttribute('aria-label','ไปเรื่องที่ '+(k+1));
+      d.addEventListener('click',()=>{go(k);nudge()});
+      dotbox.appendChild(d);
+    });
+
+    const dots=[...dotbox.children];
+    function paint(){dots.forEach((d,k)=>d.classList.toggle('on',k===i))}
+    function go(k){
+      i=(k+slides.length)%slides.length;
+      track.scrollTo({left:slides[i].offsetLeft-track.offsetLeft,behavior:'smooth'});
+      t0=performance.now(); paint();
+    }
+
+    // คนเลื่อนเอง → จุดต้องตามไปด้วย
+    let st;
+    track.addEventListener('scroll',()=>{
+      clearTimeout(st);
+      st=setTimeout(()=>{
+        const mid=track.scrollLeft+track.clientWidth/2;
+        let best=0,bd=1e9;
+        slides.forEach((s,k)=>{const c=s.offsetLeft-track.offsetLeft+s.clientWidth/2;const d=Math.abs(c-mid);if(d<bd){bd=d;best=k}});
+        if(best!==i){i=best;t0=performance.now();paint()}
+      },90);
+    },{passive:true});
+
+    function nudge(){                       // แตะแล้วหยุดชั่วคราว เดินต่อเอง
+      paused=true; clearTimeout(resumeTimer);
+      resumeTimer=setTimeout(()=>{paused=false;t0=performance.now()},RESUME_MS);
+    }
+    ['pointerdown','wheel','touchstart'].forEach(ev=>track.addEventListener(ev,nudge,{passive:true}));
+    const car=document.getElementById('car'+n);
+    car.addEventListener('mouseenter',()=>{paused=true;clearTimeout(resumeTimer)});
+    car.addEventListener('mouseleave',()=>{paused=false;t0=performance.now()});
+    car.addEventListener('focusin',()=>{paused=true;clearTimeout(resumeTimer)});
+
+    // หน้าที่ยังไม่ถูกเปิดอยู่ = วัดความกว้างไม่ได้ (เป็น 0) ถ้าปล่อยให้เดินต่อ พอสลับมาจะค้างคาสไลด์
+    const visible=()=>car.offsetParent!==null;
+    window.addEventListener('spp:view',()=>{ if(visible()){ i=Math.min(i,slides.length-1);
+      track.scrollTo({left:slides[i].offsetLeft-track.offsetLeft,behavior:'auto'}); t0=performance.now(); paint(); } });
+
+    function tick(now){
+      if(playing&&!paused&&!document.hidden&&visible()){
+        const p=(now-t0)/SLIDE_MS;
+        bar.style.width=Math.min(p,1)*100+'%';
+        if(p>=1) go(i+1);
+      }else{
+        bar.style.width=playing?bar.style.width:'0%';
+      }
+      raf=requestAnimationFrame(tick);
+    }
+    raf=requestAnimationFrame(tick);
+    paint();
+
+    car.querySelectorAll('.carbtn').forEach(b=>b.addEventListener('click',()=>{go(i+ +b.dataset.dir);nudge()}));
+    document.querySelector('[data-play="'+n+'"]').addEventListener('click',()=>{
+      playing=!playing; t0=performance.now();
+      document.getElementById('playic'+n).textContent=playing?'⏸':'▶';
+      document.getElementById('playtx'+n).textContent=playing?'หยุดเลื่อนเอง':'ให้เลื่อนเอง';
+      if(!playing)bar.style.width='0%';
+    });
+    if(reduce){                              // เครื่องที่ตั้งค่าลดการเคลื่อนไหว = ไม่เลื่อนเอง
+      document.getElementById('playic'+n).textContent='▶';
+      document.getElementById('playtx'+n).textContent='ให้เลื่อนเอง';
+    }
+  }
+  setupCar(1); setupCar(2);
+
+  /* รูปหน้าปกโหลดไม่ขึ้น → ใช้พื้นไล่สีแทน (พฤติกรรมเดียวกับบทความที่ไม่เคยตั้งรูป) */
+  // สีพื้นกับสัญลักษณ์ยึดจาก "หมวดหมู่" ไม่ใช่สุ่ม — บทความเดิมเปิดกี่ครั้งก็ได้หน้าตาเดิม
+  const BYCAT={
+    'ระบบ CIP':['g0','💧'],'Boiler':['g1','🔥'],'Evaporator':['g2','🧪'],
+    'Mixing / Syrup':['g3','🍯'],'บรรจุ':['g4','📦'],'ความปลอดภัย':['g5','📋'],
+  };
+  function drawInstead(img){
+    const shot=img.closest('.shot'); if(!shot||shot.classList.contains('gen'))return;
+    const cat=shot.querySelector('.cat')?.textContent.trim()||'';
+    const [g,ic]=BYCAT[cat]||['g0','📄'];
+    shot.classList.add('gen',g);
+    img.remove();
+    shot.querySelector('.tint')?.remove();
+    shot.insertAdjacentHTML('afterbegin','<span class="art"></span><span class="grain"></span><span class="glyph">'+ic+'</span>');
+  }
+  document.querySelectorAll('.shot img').forEach(img=>{
+    // ต้องเช็กของที่พังไปแล้วด้วย — สคริปต์อยู่ท้ายหน้า รูปที่โหลดไม่ขึ้นยิง error ไปก่อนผูก listener ทัน
+    if(img.complete&&!img.naturalWidth) drawInstead(img);
+    img.addEventListener('error',()=>drawInstead(img));
+  });
+</script>
+</body>
+</html>
