@@ -43,6 +43,20 @@
 .blogx .bl-badge.draft { background: #f4ede6; color: var(--ink-soft); }
 .blogx .bl-badge.review { background: #fff6e6; color: var(--warn); }
 .blogx .bl-badge.published { background: #e9f7ee; color: var(--ok); }
+.blogx .bl-badge.local { background: #e8f1fb; color: var(--cip1); }
+
+/* ───── แถบร่างค้าง (กันงานหาย) ───── */
+.blogx .bl-rescue {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  border: 1px solid #cfe0f5; border-left: 4px solid var(--cip1); border-radius: 12px;
+  background: #f4f8fd; padding: 12px 14px; margin: 10px 0 2px; font-size: 13px; line-height: 1.65;
+}
+.blogx .bl-rescue.slim { margin: 4px 0 14px; }
+.blogx .bl-rescue .ic { font-size: 20px; line-height: 1; flex: none; }
+.blogx .bl-rescue .tx { flex: 1; min-width: 220px; overflow-wrap: anywhere; }
+.blogx .bl-rescue .sub { font-size: 11.5px; color: var(--ink-soft); margin-top: 2px; }
+.blogx .bl-rescue .btn-o { flex: none; }
+.blogx .saved-note.warn { color: var(--warn); font-weight: 600; white-space: normal; max-width: 320px; }
 
 /* ───── แถบเครื่องมือ ───── */
 .blogx .bl-toolbar {

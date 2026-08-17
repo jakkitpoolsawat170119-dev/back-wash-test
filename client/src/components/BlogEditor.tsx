@@ -7,6 +7,7 @@ import { isDocFile, isImage, type MediaItem } from '../lib/media';
 import { runJs, type RunHandle, type RunLine } from '../lib/runJs';
 import { verifyJs } from '../lib/jsVerify';
 import { ANIM_TEMPLATES } from '../lib/animTemplates';
+import { clearDrafts, draftIds, dropRescued, pruneDrafts, takeDraft, writeDraft, type BlogDraft } from '../lib/blogDraft';
 import '../blog.css';
 
 const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
@@ -140,6 +141,20 @@ return \`รวม \${เวลารวม} นาที · ใช้น้ำ 
 
 /** หยุดพิมพ์นานเกินนี้ (ms) = ขึ้นก้อนใหม่ให้ปุ่มย้อนกลับ */
 const TYPING_SNAP_GAP = 1000;
+/** หยุดมือนานเกินนี้ (ms) = เก็บร่างลงเครื่องหนึ่งครั้ง */
+const DRAFT_SAVE_GAP = 1200;
+
+/** ร่างในเครื่องคือ Post + Block ของหน้านี้ (blocks ใน post ปล่อยว่างไว้ ตัวจริงอยู่ช่องนอก) */
+type Draft = BlogDraft<Post, Block>;
+
+/** "14:32 น." ถ้าเป็นวันนี้ · ข้ามวันแล้วบอกวันด้วย ไม่งั้นคนแยกไม่ออกว่าเป็นของเมื่อไหร่ */
+function whenLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'ไม่ทราบเวลา';
+  const t = d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.';
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay ? t : `${d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })} ${t}`;
+}
 
 const CATEGORIES = ['ระบบ CIP', 'Boiler', 'Evaporator', 'Mixing / Syrup', 'บรรจุ', 'ความปลอดภัย'];
 const MACHINES = ['CIP Line 1', 'CIP Line 2', 'CIP Line 3', 'Boiler', 'Evaporator', 'Mixing Station'];
@@ -307,6 +322,8 @@ const PostList: React.FC<{ onOpen: (id: number | 'new') => void }> = ({ onOpen }
   const [err, setErr] = useState('');
   const [q, setQ] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
+  // บทความที่มีร่างค้างในเครื่อง — ติดป้ายไว้ ไม่งั้นคนไม่มีทางรู้ว่ามีของให้กู้จนกว่าจะเผลอเปิดเจอ
+  const [drafts] = useState(() => draftIds());
 
   // alive กันเซ็ต state ใส่ component ที่ผู้ใช้เปลี่ยนหน้าไปแล้วระหว่างรอ Render ตื่น
   useEffect(() => {
@@ -351,6 +368,14 @@ const PostList: React.FC<{ onOpen: (id: number | 'new') => void }> = ({ onOpen }
         <button className="btn-o fill" onClick={() => onOpen('new')}>＋ เขียนบทความใหม่</button>
       </div>
 
+      {drafts.has('new') && (
+        <div className="bl-rescue slim">
+          <span className="ic">🛟</span>
+          <div className="tx">มี<b>บทความใหม่ที่ยังไม่ได้บันทึก</b>ค้างอยู่ในเครื่องนี้</div>
+          <button className="btn-o fill" onClick={() => onOpen('new')}>เปิดขึ้นมากู้คืน</button>
+        </div>
+      )}
+
       {items === null && <div className="bl-empty">กำลังโหลด…</div>}
 
       {err && (
@@ -374,6 +399,7 @@ const PostList: React.FC<{ onOpen: (id: number | 'new') => void }> = ({ onOpen }
               {p.excerpt && <div className="x">{p.excerpt.slice(0, 110)}</div>}
               <div className="m">
                 <span className={`bl-badge ${p.status}`}>{STATUS_LABEL[p.status] || p.status}</span>
+                {drafts.has(String(p.id)) && <span className="bl-badge local" title="มีที่แก้ไว้ในเครื่องนี้แต่ยังไม่ได้บันทึกขึ้นเซิร์ฟเวอร์">🛟 ร่างค้างในเครื่อง</span>}
                 {p.category && <span>{p.category}</span>}
                 {p.author && <span>· {p.author}</span>}
                 {p.updatedAt && <span>· แก้ล่าสุด {String(p.updatedAt).slice(0, 16).replace('T', ' ')}</span>}
@@ -408,6 +434,11 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
   const [uploading, setUploading] = useState('');
   const [vaultOn, setVaultOn] = useState<boolean | null>(null);   // null = ยังไม่รู้ (กำลังถาม server)
   const [syncing, setSyncing] = useState(false);
+  // ร่างที่ค้างในเครื่องจากรอบก่อน — รอคนกดกู้คืนหรือทิ้ง (ยังไม่เอามาใส่ให้เอง)
+  const [rescued, setRescued] = useState<Draft | null>(null);
+  const [draftNote, setDraftNote] = useState('');
+  const [draftWarn, setDraftWarn] = useState('');
+  const draftTimer = useRef<number | null>(null);
   const past = useRef<string[]>([]);
   const future = useRef<string[]>([]);
   // ตัวจับจังหวะพิมพ์: id = บล็อกที่กำลังแก้ (null = เพิ่งจดภาพไปแล้ว ไม่ต้องจดซ้ำ)
@@ -447,6 +478,15 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
     return () => { alive = false; };
   }, []);
 
+  /* ── ร่างที่ค้างอยู่ในเครื่อง ──
+   * ย้ายออกจากช่องหลักตั้งแต่ตอนเปิดหน้า ช่องหลักจะได้ว่างให้การพิมพ์รอบนี้ทับได้
+   * โดยไม่กลืนของเก่าทิ้งก่อนที่คนจะได้ตัดสินใจ (ดู blogDraft.ts)
+   */
+  useEffect(() => {
+    pruneDrafts();
+    setRescued(takeDraft<Post, Block>(postId));
+  }, [postId]);
+
   /* ── โหลดบทความ ── */
   useEffect(() => {
     let alive = true;
@@ -475,6 +515,53 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
     })();
     return () => { alive = false; };
   }, [postId, isNew, operatorName]);
+
+  /* ── เก็บร่างลงเครื่องเองเมื่อหยุดมือ ──
+   * เก็บเฉพาะตอนที่มีของยังไม่ได้บันทึกจริง ๆ (dirty) — เปิดอ่านเฉย ๆ ไม่ต้องเขียนอะไรลงเครื่อง
+   * ตัวจับเวลาเริ่มใหม่ทุกครั้งที่มีการแก้ จึงเขียนครั้งเดียวตอนหยุด ไม่ใช่ทุกตัวอักษร
+   */
+  const draftOf = useCallback((): Draft => ({
+    v: 1,
+    at: new Date().toISOString(),
+    base: post?.updatedAt,
+    title: post?.title,
+    post: { ...(post as Post), blocks: [] },
+    blocks,
+  }), [post, blocks]);
+
+  const keepDraft = useCallback(() => {
+    if (!post) return;
+    const r = writeDraft<Post, Block>(postId, draftOf());
+    if (r === 'ok') { setDraftNote(whenLabel(new Date().toISOString())); setDraftWarn(''); }
+    // บอกให้รู้ตัวว่ากันงานหายให้ไม่ได้ — เงียบไว้แล้วคนเข้าใจว่ามีตาข่ายรับอยู่คือแย่กว่า
+    else setDraftWarn(r === 'too-big'
+      ? 'บทความใหญ่เกินกว่าจะเก็บร่างในเครื่องได้ — กดบันทึกร่างเองบ่อย ๆ'
+      : 'ที่เก็บในเครื่องเต็ม เก็บร่างให้ไม่ได้ — กดบันทึกร่างเองบ่อย ๆ');
+  }, [post, postId, draftOf]);
+
+  // เก็บ id ของตัวจับเวลาไว้ให้ save() ยกเลิกได้ — ไม่งั้นตัวที่ตั้งไว้ก่อนกดบันทึกอาจไปทำงาน
+  // หลังบันทึกเสร็จแล้ว เขียนร่างขึ้นมาใหม่ทั้งที่ของขึ้นเซิร์ฟเวอร์ไปเรียบร้อย
+  // (อาการ: รอบหน้าเปิดบทความนี้แล้วเจอแถบชวนกู้คืนของที่เหมือนกันเป๊ะ)
+  useEffect(() => {
+    if (!dirty || !post) return;
+    draftTimer.current = window.setTimeout(keepDraft, DRAFT_SAVE_GAP);
+    return () => { if (draftTimer.current) window.clearTimeout(draftTimer.current); };
+  }, [dirty, post, blocks, keepDraft]);
+
+  /* ── ปิดแท็บ/รีเฟรชทั้งที่ยังไม่ได้บันทึก ──
+   * เก็บร่างทิ้งไว้ก่อนเป็นอย่างแรก (localStorage เขียนเสร็จทันทีในจังหวะนี้ได้)
+   * แล้วค่อยให้เบราว์เซอร์ถามยืนยัน — ถึงคนจะกดออกไปจริงงานก็ยังอยู่
+   */
+  useEffect(() => {
+    const onLeave = (e: BeforeUnloadEvent) => {
+      if (!dirty) return;
+      keepDraft();
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onLeave);
+    return () => window.removeEventListener('beforeunload', onLeave);
+  }, [dirty, keepDraft]);
 
   /* ── ประวัติ undo/redo ── */
   const pushPast = useCallback((state: Block[]) => {
@@ -506,6 +593,25 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
     setBlocks(JSON.parse(next));
     typing.current = { id: '', at: 0 };
     setDirty(true); forceTick(n => n + 1);
+  };
+
+  /* ── กู้คืนร่างที่ค้างไว้ ── */
+  const restoreDraft = () => {
+    if (!rescued) return;
+    pushPast(blocks);                       // กู้คืนแล้วยังกดย้อนกลับได้ ถ้าหยิบผิดตัว
+    // id ยึดของที่โหลดมาจากเซิร์ฟเวอร์ — ร่างคือเนื้อหา ไม่ใช่ตัวบอกว่านี่คือบทความไหน
+    setPost(p => ({ ...rescued.post, id: p?.id ?? rescued.post.id, blocks: [] }));
+    setBlocks(rescued.blocks.length ? rescued.blocks : [newBlock('p')]);
+    setSelId(null);
+    setDirty(true);
+    dropRescued(postId);
+    setRescued(null);
+    setNote('');
+    forceTick(n => n + 1);
+  };
+  const discardDraft = () => {
+    dropRescued(postId);
+    setRescued(null);
   };
 
   // แก้เนื้อในบล็อก — จดภาพให้เองเป็นช่วง ๆ เพื่อให้ปุ่มย้อนกลับใช้กับการพิมพ์ได้ด้วย
@@ -740,6 +846,11 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
       const v: VaultResult | undefined = j.vault;
       setPost(p => (p ? { ...p, id: j.id, status: body.status, slug: body.slug, ...vaultFields(p, v) } : p));
       setDirty(false);
+      // ขึ้นเซิร์ฟเวอร์แล้ว = ไม่มีอะไรค้างให้กู้อีก (บทความใหม่เก็บร่างไว้ที่คีย์ 'new' ด้วย)
+      if (draftTimer.current) { window.clearTimeout(draftTimer.current); draftTimer.current = null; }
+      clearDrafts(postId);
+      if (isNew && j.id) clearDrafts(String(j.id));
+      setDraftNote(''); setDraftWarn('');
       // บันทึกลง DB สำเร็จแล้วเสมอถึงจะมาถึงบรรทัดนี้ — sync ที่ล้มเป็นเรื่องแยก บอกต่อท้ายพอ
       const base = status === 'published' ? 'เผยแพร่แล้ว' : 'บันทึกร่างแล้ว';
       setNote(base + (!v || !v.enabled ? ''
@@ -752,14 +863,24 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
   };
 
   const removePost = async () => {
-    if (!post?.id) { onBack(); return; }
+    if (!post?.id) { clearDrafts(postId); onBack(); return; }
     if (!window.confirm(`ลบบทความ "${post.title}" ทิ้ง?`)) return;
     try {
       await wakeFetch(`${apiUrl}/api/posts/delete`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: post.id }),
       });
+      clearDrafts(postId);   // ลบบทความแล้วร่างในเครื่องต้องไม่ค้างมาหลอนตอนเปิดบทความ id เดิม
       onBack();
     } catch { alert('ลบไม่สำเร็จ'); }
+  };
+
+  // ออกจากหน้าเขียนทั้งที่ยังไม่ได้บันทึก — ร่างยังอยู่ในเครื่อง บอกให้รู้ว่ากลับมาเอาได้
+  const leave = () => {
+    if (dirty) {
+      keepDraft();
+      if (!window.confirm('ยังมีที่แก้ไว้แต่ยังไม่ได้บันทึกขึ้นเซิร์ฟเวอร์\nออกจากหน้านี้เลยไหม? (ร่างถูกเก็บไว้ในเครื่อง กลับเข้ามากู้คืนได้)')) return;
+    }
+    onBack();
   };
 
   /* ── markdown สำหรับ Obsidian ── */
@@ -942,7 +1063,7 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
 
       {/* แถบเครื่องมือ */}
       <div className="bl-toolbar">
-        <button className="tbtn" title="กลับไปรายการบทความ" onClick={onBack}>←</button>
+        <button className="tbtn" title="กลับไปรายการบทความ" onClick={leave}>←</button>
         <button className="tbtn add" title="เพิ่มบล็อก"
           onClick={() => insertAfter(selId, 'p')}>+</button>
         <button className="tbtn" title="คลังไฟล์ — หยิบรูป/เอกสารที่เคยอัปไว้มาใช้ซ้ำ"
@@ -965,13 +1086,37 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
         }}>&lt;/&gt;</button>
         <span className="tspace" />
         {uploading && <span className="saved-note">{uploading}</span>}
-        {!uploading && <span className="saved-note">{dirty ? 'ยังไม่ได้บันทึก' : note}</span>}
+        {!uploading && (
+          <span className={`saved-note${draftWarn ? ' warn' : ''}`} title={draftWarn || undefined}>
+            {draftWarn ? '⚠️ ' + draftWarn
+              : dirty ? 'ยังไม่ได้บันทึก' + (draftNote ? ` · เก็บร่างในเครื่อง ${draftNote}` : '')
+                : note}
+          </span>
+        )}
         <button className="tlink" disabled={saving} onClick={() => save('draft')}>บันทึกร่าง</button>
         <button className="tbtn primary" disabled={saving} onClick={() => save('published')}>
           {saving ? 'กำลังบันทึก…' : 'เผยแพร่'}
         </button>
         <button className="tbtn" title="เปิด/ปิดแถบตั้งค่า" onClick={() => setSideOpen(o => !o)}>▤</button>
       </div>
+
+      {/* ร่างค้างจากรอบก่อน — ถามก่อนเสมอ ไม่ยัดใส่ให้เอง เพราะของบนเซิร์ฟเวอร์อาจใหม่กว่า
+          (เช่นแก้จากอีกเครื่องหลังจากทิ้งร่างนี้ไว้) */}
+      {rescued && (
+        <div className="bl-rescue">
+          <span className="ic">🛟</span>
+          <div className="tx">
+            <b>พบงานที่ยังไม่ได้บันทึก</b> เก็บไว้ในเครื่องนี้เมื่อ {whenLabel(rescued.at)}
+            {rescued.title ? ` — “${rescued.title}”` : ''}
+            <div className="sub">
+              บนเซิร์ฟเวอร์ตอนนี้เป็นฉบับ{post.updatedAt ? ` ${String(post.updatedAt).slice(0, 16).replace('T', ' ')}` : 'ใหม่ที่ยังไม่เคยบันทึก'}
+              {' · '}กู้คืนแล้วยังกด ↶ ย้อนกลับได้
+            </div>
+          </div>
+          <button className="btn-o fill" onClick={restoreDraft}>กู้คืนงานที่ค้าง</button>
+          <button className="btn-o" onClick={discardDraft}>ทิ้งร่างนี้</button>
+        </div>
+      )}
 
       <div className="bl-main">
         <div className="bl-scroll">
