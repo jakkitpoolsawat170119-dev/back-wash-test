@@ -42,6 +42,7 @@ export interface Block {
   cells?: string[][];        // ตารางอิสระ / ข้อมูลกราฟแบบพิมพ์เอง — แถวแรกคือหัวตาราง
   checks?: boolean[];        // เช็กลิสต์ — ติ๊กคู่กับ items ทีละช่อง
   auto?: boolean;            // บล็อกโค้ดที่รันได้ — รันเองตอนคนเปิดหน้าอ่าน
+  hideSrc?: boolean;         // ไม่โชว์โค้ดในหน้าอ่าน เห็นแต่ผลลัพธ์/ภาพ (ยังรันได้เหมือนเดิม)
   draw?: boolean;            // โหมดวาดภาพ/เคลื่อนไหว — กล่องโผล่ในหน้าและอยู่ต่อหลังรันจบ
   h?: number;                // ความสูงของกล่องวาดภาพ (px)
   chartKind?: 'bar' | 'line';
@@ -143,6 +144,15 @@ return \`รวม \${เวลารวม} นาที · ใช้น้ำ 
 const TYPING_SNAP_GAP = 1000;
 /** หยุดมือนานเกินนี้ (ms) = เก็บร่างลงเครื่องหนึ่งครั้ง */
 const DRAFT_SAVE_GAP = 1200;
+
+/* ขนาดจอที่ให้ลองดูก่อนเผยแพร่ — ความกว้างอิงพื้นที่อ่านจริงของหน้าอ่านสาธารณะ
+   (main กว้างสุด 760px ใน server/articlePage.js) ไม่ใช่ความกว้างเครื่องทั้งเครื่อง */
+type DeviceId = 'desktop' | 'tablet' | 'mobile';
+const DEVICES: { id: DeviceId; ic: string; label: string; note: string }[] = [
+  { id: 'desktop', ic: '🖥', label: 'คอมพิวเตอร์', note: 'เต็มความกว้าง' },
+  { id: 'tablet', ic: '💻', label: 'แท็บเล็ต', note: '720px' },
+  { id: 'mobile', ic: '📱', label: 'มือถือ', note: '390px' },
+];
 
 /** ร่างในเครื่องคือ Post + Block ของหน้านี้ (blocks ใน post ปล่อยว่างไว้ ตัวจริงอยู่ช่องนอก) */
 type Draft = BlogDraft<Post, Block>;
@@ -424,6 +434,9 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
   const [selId, setSelId] = useState<string | null>(null);
   const [sideTab, setSideTab] = useState<'post' | 'block'>('post');
   const [sideOpen, setSideOpen] = useState(() => window.innerWidth > 900);
+  // ดูตัวอย่างว่าหน้าตาบนจอขนาดต่าง ๆ เป็นยังไง — ย่อความกว้างพื้นที่เขียน ไม่ได้ย่อทั้งหน้าจอ
+  const [device, setDevice] = useState<DeviceId>('desktop');
+  const [devOpen, setDevOpen] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState('');
@@ -760,6 +773,18 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
+
+  // กดที่อื่นแล้วเมนูขนาดจอต้องปิด
+  useEffect(() => {
+    if (!devOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest('.devwrap')) setDevOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setDevOpen(false); };
+    document.addEventListener('click', onDoc);
+    document.addEventListener('keydown', onEsc);
+    return () => { document.removeEventListener('click', onDoc); document.removeEventListener('keydown', onEsc); };
+  }, [devOpen]);
 
   // เปิดหน้าต่างเลือกไฟล์หลัง accept ลง DOM แล้วเท่านั้น
   useEffect(() => {
@@ -1113,6 +1138,26 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
         <button className="tbtn primary" disabled={saving} onClick={() => save('published')}>
           {saving ? 'กำลังบันทึก…' : 'เผยแพร่'}
         </button>
+        {/* ดูตัวอย่างขนาดจอ — ไม่ได้เปลี่ยนเนื้อหา แค่ย่อความกว้างพื้นที่เขียนให้เห็นการตัดบรรทัดจริง */}
+        <span className="devwrap">
+          <button className={`tbtn${device !== 'desktop' ? ' on' : ''}`} title="ดูตัวอย่างขนาดจอ"
+            aria-expanded={devOpen}
+            onClick={e => { e.stopPropagation(); setDevOpen(o => !o); }}>
+            {DEVICES.find(d => d.id === device)?.ic}
+          </button>
+          {devOpen && (
+            <div className="devdd">
+              {DEVICES.map(d => (
+                <button key={d.id} className={device === d.id ? 'on' : ''}
+                  onClick={() => { setDevice(d.id); setDevOpen(false); }}>
+                  <span className="ic">{d.ic}</span>
+                  <span className="tx">{d.label}<small>{d.note}</small></span>
+                  {device === d.id && <span className="ck">✓</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </span>
         <button className="tbtn" title="เปิด/ปิดแถบตั้งค่า" onClick={() => setSideOpen(o => !o)}>▤</button>
       </div>
 
@@ -1136,7 +1181,7 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
 
       <div className="bl-main">
         <div className="bl-scroll">
-          <div className="bl-canvas">
+          <div className={`bl-canvas${device !== 'desktop' ? ` dev-${device}` : ''}`}>
             <Rich
               className="doc-title"
               ph="เพิ่มหัวข้อบทความ"
@@ -2321,6 +2366,17 @@ const BlockSpecific: React.FC<{
             <input type="checkbox" checked={!!b.auto} onChange={e => act({ auto: e.target.checked })} />
             รันเองตอนคนเปิดหน้าอ่าน
           </label>
+          <label className="chkline">
+            <input type="checkbox" checked={!!b.hideSrc} onChange={e => act({ hideSrc: e.target.checked })} />
+            ซ่อนโค้ดจากคนอ่าน — เห็นแต่ผลลัพธ์
+          </label>
+          {b.hideSrc && (
+            <div className="hintx" style={{ color: 'var(--warn)' }}>
+              ⚠️ ซ่อนจาก<b>หน้าจอ</b>เท่านั้น — โค้ดยังต้องส่งไปกับหน้าเพื่อให้รันได้
+              คนที่กด "ดูซอร์สหน้าเว็บ" ยังเห็นอยู่ · ห้ามใส่รหัสผ่าน/คีย์ลงในบล็อกนี้
+              {!b.auto && ' · ควรติ๊ก "รันเองตอนคนเปิดหน้าอ่าน" คู่กัน ไม่งั้นคนอ่านเห็นแต่ปุ่มเปล่า ๆ'}
+            </div>
+          )}
           <div className="hintx">
             ไม่ติ๊ก = คนอ่านเห็นโค้ดกับปุ่ม "▶ กดเพื่อรัน" แล้วเลือกเองว่าจะรันไหม
             (ภาพเคลื่อนไหวควรติ๊กไว้)<br />

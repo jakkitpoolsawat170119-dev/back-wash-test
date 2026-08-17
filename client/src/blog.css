@@ -90,6 +90,33 @@
 .blogx .tlink:disabled { color: #b7ada2; cursor: not-allowed; background: transparent; }
 .blogx .saved-note { font-size: 12px; color: var(--ink-soft); white-space: nowrap; padding-right: 4px; }
 
+/* ───── เมนูดูตัวอย่างขนาดจอ ───── */
+.blogx .devwrap { position: relative; flex: none; }
+.blogx .tbtn.on { background: var(--brand-soft); color: var(--brand-deep); }
+.blogx .devdd {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 40; min-width: 232px;
+  background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 6px;
+  box-shadow: var(--shadow-float); display: flex; flex-direction: column; gap: 2px;
+}
+.blogx .devdd button {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: none;
+  background: transparent; padding: 9px 11px; border-radius: 10px; color: var(--ink);
+  transition: background-color .15s ease, color .15s ease;
+}
+.blogx .devdd button:hover { background: var(--brand-soft); color: var(--brand-deep); }
+.blogx .devdd button.on { background: #f7f1ea; }
+.blogx .devdd .ic { font-size: 16px; flex: none; }
+.blogx .devdd .tx { font-family: var(--font-head); font-weight: 600; font-size: 13.5px; display: flex; flex-direction: column; }
+.blogx .devdd .tx small { font-family: var(--font-body); font-weight: 400; font-size: 11.5px; color: var(--ink-soft); }
+.blogx .devdd .ck { margin-left: auto; color: var(--brand); font-weight: 700; }
+/* กรอบจำลองจอ — ย่อเฉพาะพื้นที่เขียน ไม่ได้ย่อทั้งแอป */
+.blogx .bl-canvas.dev-tablet, .blogx .bl-canvas.dev-mobile {
+  border: 1px solid var(--line); border-radius: 22px; background: #fff;
+  box-shadow: var(--shadow-card); padding: 22px 16px 30px; margin-top: 16px;
+}
+.blogx .bl-canvas.dev-tablet { max-width: 720px; }
+.blogx .bl-canvas.dev-mobile { max-width: 390px; }
+
 /* ───── พื้นที่เขียน ───── */
 .blogx .bl-main { display: flex; align-items: flex-start; gap: 0; }
 .blogx .bl-scroll { flex: 1; min-width: 0; padding-bottom: 60px; }
