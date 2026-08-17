@@ -4798,7 +4798,9 @@ async function downloadSppFile(fileId) {
     if (!filePath) return null;
     const resp = await axios.get(`https://api.telegram.org/file/bot${token}/${filePath}`, { responseType: 'arraybuffer' });
     const mime = filePath.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
-    return `data:${mime};base64,${Buffer.from(resp.data).toString('base64')}`;
+    const buf = Buffer.from(resp.data);
+    const url = await uploadBufferToStorage(buf, mime); // เก็บ URL แทน base64 ถ้าอัปได้
+    return url || `data:${mime};base64,${buf.toString('base64')}`;
   } catch (e) { console.error('[SPP bot] getFile error', e.response?.data || e.message); return null; }
 }
 
@@ -7451,7 +7453,26 @@ async function getPhotoWait(chatId, userId) {
 async function clearPhotoWait(chatId, userId) {
   await db.exec('DELETE FROM tg_photo_wait WHERE chat_id = ? AND user_id = ?', [String(chatId), String(userId)]);
 }
-// getFile → ดาวน์โหลดไบต์ → data URL (หรือ null)
+// อัปไบต์รูปขึ้น Supabase Storage (bucket duty-images) → คืน public URL
+// ไม่มี SUPABASE_URL/KEY หรือพลาด → คืน null (ให้ caller fallback เป็น base64 เหมือนเดิม)
+// ใช้ anon key ได้ (bucket duty-images เปิด RLS insert ให้ anon อยู่แล้ว) — เก็บ URL แทน base64 กัน DB โต
+async function uploadBufferToStorage(buffer, mime) {
+  const base = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
+  if (!base || !key) return null;
+  try {
+    const ext = mime === 'image/png' ? 'png' : 'jpg';
+    const day = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+    const path = `tg/${day}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
+    await axios.post(`${base.replace(/\/$/, '')}/storage/v1/object/duty-images/${path}`, buffer, {
+      headers: { Authorization: `Bearer ${key}`, apikey: key, 'Content-Type': mime, 'x-upsert': 'false' },
+      maxBodyLength: Infinity, maxContentLength: Infinity, timeout: 20000,
+    });
+    return `${base.replace(/\/$/, '')}/storage/v1/object/public/duty-images/${path}`;
+  } catch (e) { console.error('[storage upload]', e.response?.data || e.message); return null; }
+}
+
+// getFile → ดาวน์โหลดไบต์ → อัป Storage คืน URL (fallback base64 ถ้าไม่มี Supabase) หรือ null
 async function downloadTelegramFile(fileId) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return null;
@@ -7461,7 +7482,9 @@ async function downloadTelegramFile(fileId) {
     if (!filePath) return null;
     const resp = await axios.get(`https://api.telegram.org/file/bot${token}/${filePath}`, { responseType: 'arraybuffer' });
     const mime = filePath.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
-    return `data:${mime};base64,${Buffer.from(resp.data).toString('base64')}`;
+    const buf = Buffer.from(resp.data);
+    const url = await uploadBufferToStorage(buf, mime); // เก็บ URL แทน base64 ถ้าอัปได้
+    return url || `data:${mime};base64,${buf.toString('base64')}`;
   } catch (e) { console.error('[downloadTelegramFile] error', e.response?.data || e.message); return null; }
 }
 
