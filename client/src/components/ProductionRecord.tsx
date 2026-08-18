@@ -214,7 +214,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     "Freshy Punch", "Freshy blue Lemon", "Senorita Fres Mint","Senorita Strawberry",
     "Freshy Orange", "Signature Rose", "Freshy Shine Muscat Grape", "Freshy Peach",
     "Freshy Mango", "Dilute W-Molass", "Freshy Brownsugar", "Freshy Blueberry", "Senorita Signature Pomegranate", "CIP",
-    "Senorita Blue Curacao", "Freshy Kiwi",
+    "Senorita Blue Curacao", "Freshy Kiwi", "Senorita Vanilla",
   ];
 
   const flavorColors: Record<string, { bg: string; border: string }> = {
@@ -248,6 +248,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     "Freshy Orange":          { bg: '#fff3e0', border: '#ff9800' },
     "Signature Rose":         { bg: '#fce4ec', border: '#f06292' },
     "Freshy Shine Muscat Grape": { bg: '#f0fce4', border: '#76b82a' },
+    "Senorita Vanilla":  { bg: '#fafafa', border: '#bdbdbd' },
   };
 
   const getNextBatch = (currentBatch: string, flavor: string) => {
