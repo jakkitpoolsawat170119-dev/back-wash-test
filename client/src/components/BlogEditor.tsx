@@ -166,7 +166,9 @@ function whenLabel(iso: string): string {
   return sameDay ? t : `${d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })} ${t}`;
 }
 
-const CATEGORIES = ['ระบบ CIP', 'Boiler', 'Evaporator', 'Mixing / Syrup', 'บรรจุ', 'ความปลอดภัย'];
+// เพิ่มหมวดต้องแก้ 3 ที่เสมอ: ที่นี่ · client/src/lib/articles.ts · server/articlePage.js (CATS)
+const CATEGORIES = ['ระบบ CIP', 'Boiler', 'Evaporator', 'Mixing / Syrup', 'บรรจุ', 'ความปลอดภัย',
+  'ชีวิตและการทำงาน', 'หนังสือ'];
 const MACHINES = ['CIP Line 1', 'CIP Line 2', 'CIP Line 3', 'Boiler', 'Evaporator', 'Mixing Station'];
 const OBS_FOLDERS = ['บทความ', 'คู่มือ', 'ส่งกะ'];
 const STATUS_LABEL: Record<Post['status'], string> = { draft: 'ร่าง', review: 'รอตรวจ', published: 'เผยแพร่' };

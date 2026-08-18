@@ -29,6 +29,8 @@ export const CATS: { name: string; color: string; g: string; ic: string }[] = [
   { name: 'Mixing / Syrup', color: '#6a1b9a', g: 'g3', ic: '🍯' },
   { name: 'บรรจุ', color: '#1c8a4c', g: 'g4', ic: '📦' },
   { name: 'ความปลอดภัย', color: '#c77700', g: 'g5', ic: '🦺' },
+  { name: 'ชีวิตและการทำงาน', color: '#c2185b', g: 'g6', ic: '🌱' },
+  { name: 'หนังสือ', color: '#6d4c41', g: 'g7', ic: '📖' },
 ];
 export const catStyle = (name: string) =>
   CATS.find(c => c.name === name) || { name, color: '#6d6259', g: 'g0', ic: '📄' };
