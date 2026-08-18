@@ -255,6 +255,7 @@
 .ashelf .shot.gen.g5{background:linear-gradient(140deg,#e0a52f,#c77700 55%,#8c5400)}
 .ashelf .shot.gen.g6{background:linear-gradient(140deg,#e0568f,#c2185b 55%,#7d0f3a)}
 .ashelf .shot.gen.g7{background:linear-gradient(140deg,#a1887f,#6d4c41 55%,#42291f)}
+.ashelf .shot.gen.g8{background:linear-gradient(140deg,#4db6a4,#0f7a6c 55%,#064a41)}
 .ashelf .tags{display:flex;flex-wrap:wrap;gap:5px}
 .ashelf .tg{font-size:11.5px;font-weight:600;color:var(--ink-soft);background:#f6f0e9;padding:2px 9px;border-radius:999px}
 .ashelf .ameta{

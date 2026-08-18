@@ -11,12 +11,17 @@ type Role = 'mt' | 'op' | 'qc' | 'pd';
 type Node = {
   key: string; title: string; id?: number; machine: string | null; goal: string | null;
   ownerRole: Role | null; coOwnerRole: Role | null;
-  checked: boolean; bypassed: boolean; doneImage?: string | null; hasDoneImage?: boolean;
+  checked: boolean; bypassed: boolean; bypassReason: string | null;
+  handoffTo: string | null; handoffToName: string | null;
+  doneImage?: string | null; hasDoneImage?: boolean;
 };
+// งานที่คนอื่นข้ามแล้วมอบต่อมาให้คนนี้ (โครงเดียวกับบอร์ดกะ)
+type Received = { ownerKey: string; fromName: string; nodeKey: string; title: string; checked: boolean };
 type Person = {
   key: string; name: string; role: string; color?: string; wash?: string; initial?: string;
-  nodes: Node[]; watch: Node[]; done: number; total: number; pct: number;
+  nodes: Node[]; watch: Node[]; received: Received[]; done: number; total: number; pct: number;
 };
+const BYPASS_REASONS = ['ไม่มีการผลิต', 'เครื่องหยุด/ซ่อม', 'ทำล่วงหน้าแล้ว', 'ไม่ถึงรอบ', 'ให้คนอื่นทำแทน', 'อื่นๆ'];
 type Board = {
   date: string; maint: boolean; shiftName: string | null; people: Person[];
   team: { done: number; total: number; left: number; pct: number };
@@ -82,6 +87,11 @@ const inp: React.CSSProperties = {
   border: '1px solid var(--line,#eee3d9)', background: '#fdfbf9', borderRadius: 10,
   padding: '7px 12px', fontSize: 14, fontWeight: 600, color: 'var(--ink,#2b2119)', fontFamily: 'inherit',
 };
+const menuItem: React.CSSProperties = {
+  display: 'block', width: '100%', textAlign: 'left', border: 'none', background: 'transparent',
+  color: 'var(--ink,#2b2119)', fontFamily: 'inherit', fontSize: 13, padding: '7px 8px',
+  borderRadius: 8, cursor: 'pointer',
+};
 
 const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorName }) => {
   const [date, setDate] = useState(todayBKK());
@@ -91,6 +101,8 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState('');            // node key ที่กำลังอัปโหลดรูป
   const [zoom, setZoom] = useState<string | null>(null);
+  const [menu, setMenu] = useState('');            // "personKey|nodeKey" ที่กางเมนู ⋯ อยู่
+  const [drag, setDrag] = useState<{ from: string; nodeKey: string; title: string; x: number; y: number; over: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -108,6 +120,34 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
   };
   const toggle = (pKey: string, n: Node) =>
     post('/api/routine/toggle', { date, assignee: pKey, nodeKey: n.key, title: n.title, checked: !n.checked });
+
+  // ลากงาน → วางบนการ์ดคนอื่น = ข้ามงานพร้อมมอบต่อ (เส้นทางเดียวกับเมนู ⋯ ให้คนอื่นทำแทน)
+  // ใช้ elementFromPoint หาการ์ดใต้นิ้ว เพราะเงาที่ลากอยู่ไม่รับ event (pointerEvents: none)
+  const startDrag = (e: React.PointerEvent, from: string, n: Node) => {
+    if (people.length < 2) return;
+    e.preventDefault();
+    const hit = (x: number, y: number) =>
+      (document.elementFromPoint(x, y)?.closest('[data-person]') as HTMLElement | null)?.dataset.person || '';
+    setDrag({ from, nodeKey: n.key, title: n.title, x: e.clientX, y: e.clientY, over: '' });
+    const move = (ev: PointerEvent) =>
+      setDrag(d => (d ? { ...d, x: ev.clientX, y: ev.clientY, over: hit(ev.clientX, ev.clientY) } : d));
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      const to = hit(ev.clientX, ev.clientY);
+      setDrag(null);
+      if (to && to !== from) doBypass(from, n, 'ให้คนอื่นทำแทน', to);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  const doBypass = (pKey: string, n: Node, reason: string, handoffTo?: string) => {
+    setMenu('');
+    return post('/api/routine/bypass', { date, assignee: pKey, nodeKey: n.key, title: n.title, reason, handoffTo });
+  };
+  const restore = (pKey: string, n: Node) => { setMenu(''); return post('/api/routine/restore', { date, assignee: pKey, nodeKey: n.key }); };
+  const toggleReceived = (r: Received) => post('/api/routine/toggle', { date, assignee: r.ownerKey, nodeKey: r.nodeKey, checked: !r.checked });
 
   const attachPhoto = async (pKey: string, n: Node, file?: File) => {
     if (!file) return;
@@ -144,11 +184,32 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
   const TaskRow: React.FC<{ p: Person; n: Node; showWho?: boolean }> = ({ p, n, showWho }) => {
     const gk = `${p.key}|${n.key}`;
     const fileRef = useRef<HTMLInputElement>(null);
+    const others = people.filter(x => x.key !== p.key);
+
+    // งานที่ถูกข้าม/มอบต่อ — แสดงเป็นแถบจาง ๆ พร้อมเหตุผล กดเอากลับมาได้
+    if (n.bypassed) return (
+      <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', padding: '8px 9px', borderRadius: 10, background: '#f7f3ef' }}>
+        <span style={{ width: 20, flex: 'none', marginTop: 2, textAlign: 'center', color: '#b6ada4' }}>↷</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 600, color: '#a89e94' }}>{n.title}</div>
+          <div style={{ fontSize: 11.5, color: 'var(--ink-soft,#6d6259)' }}>
+            {n.handoffToName ? `ให้ ${n.handoffToName} ทำแทน` : `ข้าม — ${n.bypassReason || 'ไม่ระบุเหตุผล'}`}
+          </div>
+        </div>
+        <button onClick={() => restore(p.key, n)} style={{ ...btn, padding: '4px 9px', fontSize: 12, flex: 'none' }}>เอากลับมา</button>
+      </div>
+    );
+
     return (
-      <div style={{
+      <div data-nodekey={n.key} style={{
         display: 'flex', gap: 9, alignItems: 'flex-start', padding: '8px 9px', borderRadius: 10,
         background: n.checked ? 'transparent' : '#fffaf5',
+        opacity: drag && drag.from === p.key && drag.nodeKey === n.key ? 0.4 : 1,
       }}>
+        {others.length > 0 && (
+          <span onPointerDown={e => startDrag(e, p.key, n)} title="ลากไปวางที่การ์ดของคนอื่นเพื่อมอบงานต่อ"
+            style={{ flex: 'none', marginTop: 3, color: '#cfc4b8', fontSize: 13, cursor: 'grab', touchAction: 'none', userSelect: 'none' }}>⠿</span>
+        )}
         <button onClick={() => toggle(p.key, n)} aria-label={n.checked ? 'เอาเครื่องหมายออก' : 'ติ๊กว่าทำแล้ว'}
           style={{
             width: 20, height: 20, flex: 'none', marginTop: 3, borderRadius: 6, cursor: 'pointer',
@@ -178,6 +239,28 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
         </button>
         <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }}
           onChange={e => { attachPhoto(p.key, n, e.target.files?.[0]); e.target.value = ''; }} />
+        <div style={{ position: 'relative', flex: 'none' }}>
+          <button onClick={() => setMenu(menu === gk ? '' : gk)} title="ข้ามงาน / มอบต่อ"
+            style={{ ...btn, padding: '4px 9px', fontSize: 12 }}>⋯</button>
+          {menu === gk && (
+            <div style={{
+              position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 20, minWidth: 190,
+              background: '#fff', border: '1px solid var(--line,#eee3d9)', borderRadius: 12, padding: 6,
+              boxShadow: '0 2px 4px rgba(63,37,10,.08),0 16px 40px -12px rgba(63,37,10,.22)',
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft,#6d6259)', padding: '4px 8px' }}>ข้ามงานนี้ เพราะ…</div>
+              {BYPASS_REASONS.filter(r => r !== 'ให้คนอื่นทำแทน').map(r => (
+                <button key={r} onClick={() => doBypass(p.key, n, r)} style={menuItem}>{r}</button>
+              ))}
+              {others.length > 0 && <>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft,#6d6259)', padding: '8px 8px 4px', borderTop: '1px dashed #efe6dc', marginTop: 4 }}>ให้คนอื่นทำแทน</div>
+                {others.map(o => (
+                  <button key={o.key} onClick={() => doBypass(p.key, n, 'ให้คนอื่นทำแทน', o.key)} style={menuItem}>👤 {o.name}</button>
+                ))}
+              </>}
+            </div>
+          )}
+        </div>
       </div>
     );
   };
@@ -257,7 +340,11 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
       {board && view === 'person' && (
         <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', alignItems: 'start' }}>
           {people.map(p => (
-            <article key={p.key} style={{ ...card, overflow: 'hidden' }}>
+            <article key={p.key} data-person={p.key} style={{
+              ...card, overflow: 'hidden',
+              outline: drag && drag.over === p.key && drag.from !== p.key ? '2px solid #ff6b00' : 'none',
+              outlineOffset: 2,
+            }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '13px 16px', borderBottom: '1px solid var(--line,#eee3d9)' }}>
                 <span style={{
                   width: 38, height: 38, borderRadius: '50%', display: 'grid', placeItems: 'center', flex: 'none',
@@ -284,6 +371,27 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
                       {g.rows.map(n => <TaskRow key={n.key} p={p} n={n} />)}
                     </div>
                   ))}
+                {p.received.length > 0 && (
+                  <div style={{ marginTop: 6, borderTop: '1px dashed #efe6dc', paddingTop: 4 }}>
+                    <div style={{ fontFamily: 'Kanit, sans-serif', fontSize: 11.5, fontWeight: 600, color: '#0d47a1', padding: '6px 8px 2px' }}>
+                      📥 รับมาทำแทน
+                    </div>
+                    {p.received.map(r => (
+                      <div key={`${r.ownerKey}|${r.nodeKey}`} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', padding: '8px 9px', borderRadius: 10, background: '#f4f8fd' }}>
+                        <button onClick={() => toggleReceived(r)} aria-label={r.checked ? 'เอาเครื่องหมายออก' : 'ติ๊กว่าทำแล้ว'}
+                          style={{
+                            width: 20, height: 20, flex: 'none', marginTop: 3, borderRadius: 6, cursor: 'pointer',
+                            border: `1.5px solid ${r.checked ? '#1c8a4c' : '#c3cddd'}`, background: r.checked ? '#1c8a4c' : '#fff',
+                            color: '#fff', fontSize: 11, lineHeight: 1, display: 'grid', placeItems: 'center',
+                          }}>{r.checked ? '✓' : ''}</button>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13.5, fontWeight: 600, color: r.checked ? '#a89e94' : 'var(--ink,#2b2119)', textDecoration: r.checked ? 'line-through' : 'none' }}>{r.title}</div>
+                          <div style={{ fontSize: 11.5, color: 'var(--ink-soft,#6d6259)' }}>จาก {r.fromName}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </article>
           ))}
@@ -333,6 +441,15 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
             ))}
           </div>
         </div>
+      )}
+
+      {drag && (
+        <div style={{
+          position: 'fixed', left: drag.x, top: drag.y, transform: 'translate(-50%, -140%)',
+          zIndex: 1200, pointerEvents: 'none', maxWidth: 260, background: '#2b2119', color: '#fff',
+          borderRadius: 10, padding: '7px 12px', fontSize: 13, fontWeight: 600,
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }}>{drag.over && drag.over !== drag.from ? '📥 ' : '✊ '}{drag.title}</div>
       )}
 
       {zoom && (

@@ -496,6 +496,37 @@ const SCHEMA = [
       active INTEGER DEFAULT 1,
       created_at TEXT
     )`,
+  // ── ทะเบียนเครื่องจักร (ERP Phase 1 Master Data) — ใช้เป็นปลายทาง [[wikilink]] ของ KM ด้วย ──
+  `CREATE TABLE IF NOT EXISTS machines (
+      id ${db.pk},
+      code TEXT,
+      name TEXT UNIQUE,
+      line_name TEXT,
+      installed_at TEXT,
+      last_pm TEXT,
+      note TEXT,
+      sort_order INTEGER DEFAULT 0,
+      active INTEGER DEFAULT 1,
+      created_at TEXT
+    )`,
+  // ── เหตุการณ์ (หัวใจของ KM) — 1 แถว = 1 ปัญหา พร้อมสาเหตุ/วิธีแก้ · sync เป็นโน้ตใน vault ──
+  `CREATE TABLE IF NOT EXISTS incidents (
+      id ${db.pk},
+      title TEXT,
+      machine TEXT,
+      line_name TEXT,
+      batch_id TEXT,
+      operator TEXT,
+      occurred_at TEXT,
+      symptom TEXT,
+      cause TEXT,
+      fix TEXT,
+      result TEXT,
+      status TEXT DEFAULT 'open',
+      vault_path TEXT,
+      created_at TEXT,
+      updated_at TEXT
+    )`,
   // ── ทีมซ่อมบำรุง: ชื่อกะ (แถวเดียว) — สมาชิกอยู่ใน duty_people kind='maint' ─────
   `CREATE TABLE IF NOT EXISTS maint_team (
       id ${db.pk},
@@ -5625,7 +5656,14 @@ async function seedMaintBoard() {
       `INSERT INTO duty_people (person_key, name, role, color, wash, initial, dot, kind, sort_order, active, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'maint', 100, 1, ?) ON CONFLICT (person_key) DO NOTHING`,
       [p.key, p.name, p.role, p.color, p.wash, p.initial, p.dot, nowBKK()]);
-    const have = (await dbAll('SELECT node_key FROM duty_routines WHERE person_key = ?', [p.key])).map(r => r.node_key);
+    // เช็ก node_key ของ "ทุกคนในทีมซ่อมบำรุง" ไม่ใช่แค่หัวหน้าทีม —
+    // ไม่งั้นงานที่ถูกย้ายไปให้สมาชิกคนอื่นจะถูก seed ขึ้นมาใหม่ให้หัวหน้าทุกครั้งที่เซิร์ฟเวอร์รีสตาร์ต (Render รีบ่อย)
+    // ไม่กรอง active — งานที่คนลบทิ้งเองต้องไม่ฟื้นกลับมา
+    const maintKeys = (await dbAll("SELECT person_key FROM duty_people WHERE kind = 'maint'", [])).map(r => r.person_key);
+    if (!maintKeys.includes(p.key)) maintKeys.push(p.key);
+    const have = (await dbAll(
+      `SELECT node_key FROM duty_routines WHERE person_key IN (${maintKeys.map(() => '?').join(',')})`,
+      maintKeys)).map(r => r.node_key);
     for (let i = 0; i < MAINT_ROUTINES_SEED.length; i++) {
       const key = maintNodeKey(i);
       if (have.includes(key)) continue;                       // มีแล้ว (หรือ user ลบไปเอง) — ไม่ยัดซ้ำ
@@ -5638,10 +5676,149 @@ async function seedMaintBoard() {
     }
     const cfg = await dbAll('SELECT id FROM maint_team LIMIT 1', []);
     if (!cfg.length) await db.exec('INSERT INTO maint_team (shift_name, updated_at) VALUES (?, ?)', [MAINT_SHIFT_DEFAULT, nowBKK()]);
+    // ทะเบียนเครื่องจักรตั้งต้น = ชื่อเครื่องที่โผล่ในทะเบียนงาน PM (ชื่อต้องตรงกันเป๊ะถึงจะผูกกันได้)
+    let mi = 0;
+    for (const name of [...new Set(MAINT_ROUTINES_SEED.map(r => r[0]).filter(Boolean))]) {
+      await db.exec(
+        `INSERT INTO machines (name, sort_order, active, created_at) VALUES (?, ?, 1, ?)
+         ON CONFLICT (name) DO NOTHING`, [name, mi++, nowBKK()]);
+    }
     invalidateRoutineCache();
     await refreshPeopleCache();
   } catch (e) { console.error('[db] seedMaintBoard failed', e.message); }
 }
+// ══ Knowledge management ═════════════════════════════════════════════════════
+// ทะเบียนเครื่องจักร (ERP Phase 1) — ชื่อเครื่องใช้เป็น [[wikilink]] ปลายทางของโน้ตใน vault
+app.get('/api/machines', async (req, res) => {
+  try {
+    const rows = await dbAll('SELECT * FROM machines WHERE active = 1 ORDER BY sort_order, id', []);
+    // นับงาน PM ที่ผูกกับเครื่องนี้ + เหตุการณ์ที่ยังไม่ปิด — ให้หน้าทะเบียนเห็นภาพโดยไม่ต้องยิงซ้ำ
+    const pm = await dbAll("SELECT machine, COUNT(*) AS n FROM duty_routines WHERE active = 1 AND machine IS NOT NULL AND machine <> '' GROUP BY machine", []);
+    const inc = await dbAll("SELECT machine, COUNT(*) AS n FROM incidents WHERE status = 'open' AND machine IS NOT NULL AND machine <> '' GROUP BY machine", []);
+    const nOf = (list, name) => Number((list.find(x => x.machine === name) || {}).n || 0);
+    res.json({
+      machines: rows.map(r => ({
+        id: r.id, code: r.code || '', name: r.name, line: r.line_name || '',
+        installedAt: r.installed_at || '', lastPm: r.last_pm || '', note: r.note || '',
+        pmCount: nOf(pm, r.name), openIncidents: nOf(inc, r.name),
+      })),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/machines', async (req, res) => {
+  const { id, code, name, line, installedAt, lastPm, note } = req.body;
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'name จำเป็น' });
+  try {
+    if (id) {
+      await db.exec('UPDATE machines SET code = ?, name = ?, line_name = ?, installed_at = ?, last_pm = ?, note = ? WHERE id = ?',
+        [code || null, name.trim(), line || null, installedAt || null, lastPm || null, note || null, id]);
+      return res.json({ success: true, id });
+    }
+    const max = (await dbAll('SELECT MAX(sort_order) AS m FROM machines', []))[0];
+    const order = (max && max.m != null ? Number(max.m) : -1) + 1;
+    const r = await dbRun(
+      `INSERT INTO machines (code, name, line_name, installed_at, last_pm, note, sort_order, active, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      [code || null, name.trim(), line || null, installedAt || null, lastPm || null, note || null, order, nowBKK()]);
+    res.json({ success: true, id: r.lastID });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/machines/delete', async (req, res) => {
+  if (!req.body.id) return res.status(400).json({ error: 'id จำเป็น' });
+  try { await db.exec('UPDATE machines SET active = 0 WHERE id = ?', [req.body.id]); res.json({ success: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── เหตุการณ์ ────────────────────────────────────────────────────────────────
+// โน้ตใน vault ใช้เทมเพลตตาม "แผนพัฒนา ERP และ KM" ข้อ 4.2 เป๊ะ (อาการ/สาเหตุ/วิธีแก้/ผล/เกี่ยวข้อง)
+// เขียนทับทั้งไฟล์ทุกครั้ง — ระบบเป็นเจ้าของไฟล์นี้ ต่างจากบันทึกประจำวันที่แตะแค่ในเขต marker
+// เขียนโน้ตลง vault — ล้มเหลวไม่ทำให้บันทึกในแอปพัง (คืนเหตุผลไปให้หน้าเว็บบอกผู้ใช้แทน)
+async function syncIncident(inc) {
+  if (!vault.vaultEnabled()) return { skipped: 'ยังไม่ได้ตั้งค่า vault' };
+  const path = vault.incidentPath(inc);
+  try {
+    await vault.vaultWrite(path, vault.incidentMarkdown(inc), `เหตุการณ์: ${inc.title || path}`);
+    if (inc.vault_path && inc.vault_path !== path) {
+      try { await vault.vaultDelete(inc.vault_path, `ย้ายชื่อไฟล์เหตุการณ์: ${inc.vault_path} → ${path}`); } catch { /* ไฟล์เก่าหายไปแล้วก็ช่าง */ }
+    }
+    return { path };
+  } catch (e) { console.error('[vault] เขียนเหตุการณ์ไม่สำเร็จ', e.message); return { error: e.message }; }
+}
+
+app.get('/api/incidents', async (req, res) => {
+  const status = req.query.status;
+  try {
+    const rows = status === 'open' || status === 'closed'
+      ? await dbAll('SELECT * FROM incidents WHERE status = ? ORDER BY occurred_at DESC, id DESC', [status])
+      : await dbAll('SELECT * FROM incidents ORDER BY occurred_at DESC, id DESC', []);
+    res.json({
+      incidents: rows.map(r => ({
+        id: r.id, title: r.title, machine: r.machine || '', line: r.line_name || '',
+        batchId: r.batch_id || '', operator: r.operator || '', occurredAt: r.occurred_at || '',
+        symptom: r.symptom || '', cause: r.cause || '', fix: r.fix || '', result: r.result || '',
+        status: r.status || 'open', vaultPath: r.vault_path || '',
+      })),
+      openCount: rows.filter(r => (r.status || 'open') !== 'closed').length,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/incidents', async (req, res) => {
+  const b = req.body || {};
+  if (!b.title || !String(b.title).trim()) return res.status(400).json({ error: 'title จำเป็น' });
+  const row = {
+    title: String(b.title).trim(), machine: b.machine || null, line_name: b.line || null,
+    batch_id: b.batchId || null, operator: b.operator || null,
+    occurred_at: b.occurredAt || todayBKK(),
+    symptom: b.symptom || null, cause: b.cause || null, fix: b.fix || null, result: b.result || null,
+    status: b.status === 'closed' ? 'closed' : 'open',
+  };
+  try {
+    let id = b.id, prevPath = null;
+    if (id) {
+      const cur = (await dbAll('SELECT * FROM incidents WHERE id = ?', [id]))[0];
+      if (!cur) return res.status(404).json({ error: 'ไม่พบเหตุการณ์นี้' });
+      prevPath = cur.vault_path || null;
+      await db.exec(
+        `UPDATE incidents SET title = ?, machine = ?, line_name = ?, batch_id = ?, operator = ?,
+           occurred_at = ?, symptom = ?, cause = ?, fix = ?, result = ?, status = ?, updated_at = ? WHERE id = ?`,
+        [row.title, row.machine, row.line_name, row.batch_id, row.operator, row.occurred_at,
+         row.symptom, row.cause, row.fix, row.result, row.status, nowBKK(), id]);
+    } else {
+      const r = await dbRun(
+        `INSERT INTO incidents (title, machine, line_name, batch_id, operator, occurred_at,
+           symptom, cause, fix, result, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [row.title, row.machine, row.line_name, row.batch_id, row.operator, row.occurred_at,
+         row.symptom, row.cause, row.fix, row.result, row.status, nowBKK(), nowBKK()]);
+      id = r.lastID;
+    }
+    const sync = await syncIncident({ ...row, id, vault_path: prevPath });
+    if (sync.path) await db.exec('UPDATE incidents SET vault_path = ? WHERE id = ?', [sync.path, id]);
+    res.json({ success: true, id, vaultPath: sync.path || null, vaultError: sync.error || null, vaultSkipped: sync.skipped || null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ทะเบียนงาน PM — งานประจำ "ทุกแถว" ของทีมซ่อมบำรุง (บอร์ดโชว์แค่ owner_role='mt')
+app.get('/api/maint/routines', async (req, res) => {
+  try {
+    const people = getPeople().filter(p => (p.kind || 'shift') === 'maint');
+    const keys = people.map(p => p.person_key);
+    if (!keys.length) return res.json({ people: [], rows: [] });
+    const rows = await dbAll(
+      `SELECT id, person_key, node_key, title, machine, goal, owner_role, co_owner_role, sort_order
+         FROM duty_routines WHERE active = 1 AND person_key IN (${keys.map(() => '?').join(',')})
+        ORDER BY sort_order, id`, keys);
+    res.json({
+      people: people.map(p => ({ key: p.person_key, name: p.name, role: p.role, color: p.color, initial: p.initial })),
+      rows: rows.map(r => ({
+        id: r.id, personKey: r.person_key, nodeKey: r.node_key, title: r.title,
+        machine: r.machine || '', goal: r.goal || '',
+        ownerRole: r.owner_role || '', coOwnerRole: r.co_owner_role || '', sortOrder: r.sort_order,
+      })),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ชื่อกะของทีมซ่อมบำรุง (แถวเดียว)
 async function getMaintShiftName() {
   try { return (await dbAll('SELECT shift_name FROM maint_team ORDER BY id LIMIT 1', []))[0]?.shift_name || MAINT_SHIFT_DEFAULT; }
@@ -6140,7 +6317,7 @@ app.post('/api/duty/person/delete', async (req, res) => {
 
 // upsert งาน (node ในเช็กลิสต์) — สร้างใหม่ (บนสุด/เป็นลูก) หรือแก้ชื่อ/mono
 app.post('/api/duty/routine', async (req, res) => {
-  const { id, personKey, parentId, title, mono, sortOrder, machine, goal, ownerRole, coOwnerRole } = req.body;
+  const { id, personKey, parentId, title, mono, sortOrder, machine, goal, ownerRole, coOwnerRole, assigneeKey } = req.body;
   // ช่องของโซนซ่อมบำรุง — ไม่ส่งมา = ไม่แตะของเดิม (งานของทีมกะไม่ได้ใช้ช่องพวกนี้)
   const role = (v) => (['mt', 'op', 'qc', 'pd'].includes(v) ? v : null);
   if (!title || !String(title).trim()) return res.status(400).json({ error: 'title จำเป็น' });
@@ -6148,9 +6325,18 @@ app.post('/api/duty/routine', async (req, res) => {
     if (id) {
       const cur = (await dbAll('SELECT * FROM duty_routines WHERE id = ?', [id]))[0];
       if (!cur) return res.status(404).json({ error: 'ไม่พบงานนี้' });
-      await db.exec(`UPDATE duty_routines SET title = ?, mono = ?, sort_order = ?,
+      // ย้ายงานให้คนอื่น: เปลี่ยน person_key ได้ก็ต่อเมื่อ node_key ไม่ชนกับงานของคนปลายทาง
+      // ⚠️ ประวัติติ๊กของวันก่อน ๆ ยังผูกกับคนเดิม (routine_state อ้าง assignee+node_key) — ตั้งใจ ไม่ย้อนแก้อดีต
+      let owner = cur.person_key;
+      if (assigneeKey && assigneeKey !== cur.person_key) {
+        const clash = await dbAll('SELECT id FROM duty_routines WHERE person_key = ? AND node_key = ? AND active = 1',
+          [assigneeKey, cur.node_key]);
+        if (clash.length) return res.status(409).json({ error: 'คนปลายทางมีงานรหัสนี้อยู่แล้ว' });
+        owner = assigneeKey;
+      }
+      await db.exec(`UPDATE duty_routines SET person_key = ?, title = ?, mono = ?, sort_order = ?,
            machine = ?, goal = ?, owner_role = ?, co_owner_role = ? WHERE id = ?`,
-        [title.trim(), mono ? 1 : 0, sortOrder != null ? sortOrder : cur.sort_order,
+        [owner, title.trim(), mono ? 1 : 0, sortOrder != null ? sortOrder : cur.sort_order,
          machine !== undefined ? (machine || null) : cur.machine,
          goal !== undefined ? (goal || null) : cur.goal,
          ownerRole !== undefined ? role(ownerRole) : cur.owner_role,

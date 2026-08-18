@@ -421,6 +421,43 @@ function removeLine(text, rawLine) {
   return out.join('\n');
 }
 
+
+/* ══════════════ เหตุการณ์ (KM) ══════════════ */
+// เทมเพลตตาม "แผนพัฒนา ERP และ KM" ข้อ 4.2 เป๊ะ — อาการ / สาเหตุ / วิธีแก้ / ผล / เกี่ยวข้อง
+// ระบบเป็นเจ้าของไฟล์นี้ทั้งไฟล์ (เขียนทับทุกครั้ง) ต่างจากบันทึกประจำวันที่แตะแค่ในเขต marker
+const incidentPath = (inc) => {
+  const day = String(inc.occurred_at || '').slice(0, 10) || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+  return `เหตุการณ์/${day}-${slugify(inc.title || 'incident')}.md`;
+};
+function incidentMarkdown(inc) {
+  const bullet = (t) => String(t || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => `- ${l}`).join('\n') || '- ';
+  return [
+    '---',
+    'tags: [เหตุการณ์]',
+    `batch_id: ${inc.batch_id || ''}`,
+    `line: ${inc.line_name || ''}`,
+    `operator: ${inc.operator || ''}`,
+    `date: ${String(inc.occurred_at || '').slice(0, 10)}`,
+    `สถานะ: ${inc.status === 'closed' ? 'ปิด' : 'เปิด'}`,
+    'ที่มา: SPP-MP',
+    '---',
+    '',
+    `# เหตุการณ์: ${inc.title || ''}`,
+    '',
+    '## อาการ', bullet(inc.symptom),
+    '',
+    '## สาเหตุที่คาดว่าเป็น', bullet(inc.cause),
+    '',
+    '## วิธีแก้ที่ใช้', bullet(inc.fix),
+    '',
+    '## ผลหลังแก้', bullet(inc.result),
+    '',
+    '## เกี่ยวข้อง',
+    inc.machine ? `- [[${inc.machine}]]` : '- ',
+    '',
+  ].join('\n');
+}
+
 module.exports = {
   vaultEnabled, vaultConfig: cfg,
   vaultRead, vaultWrite, vaultDelete,
@@ -428,4 +465,5 @@ module.exports = {
   postToMarkdown, postPath, slugify, videoEmbed, chartUrl,
   syncPost, unsyncPost,
   TASK_MARK, dailyNotePath, taskLine, parseTaskLine, buildDailyNote, removeLine,
+  incidentPath, incidentMarkdown,
 };

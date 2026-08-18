@@ -13,10 +13,13 @@ import ProductionTimeline from './ProductionTimeline';
 import BlogEditor from './BlogEditor';
 import ObsidianInbox from './ObsidianInbox';
 import MaintenanceBoard from './MaintenanceBoard';
+import PmRegistry from './PmRegistry';
+import MachineRegistry from './MachineRegistry';
+import IncidentBoard from './IncidentBoard';
 import ErrorBoundary from './ErrorBoundary';
 
 type TodoTab = 'today' | 'audit' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs';
-type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline' | 'blog' | 'obsidian' | 'maint';
+type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline' | 'blog' | 'obsidian' | 'maint' | 'pmreg' | 'machines' | 'incidents';
 
 const TODO_TABS: string[] = ['today', 'audit', 'calendar', 'report', 'timeline', 'recurring', 'ai', 'specs'];
 
@@ -39,8 +42,11 @@ const MENU: MenuRow[] = [
   { pane: 'ai', ic: '🤖', label: 'AI ผู้ช่วย' },
   { head: 'งานซ่อมบำรุง', ic: '🔧' },
   { pane: 'maint', ic: '👷', label: 'กระดานทีมซ่อมบำรุง', sub: true },
+  { pane: 'pmreg', ic: '🛠', label: 'ทะเบียนงาน PM', sub: true },
   { head: 'Knowledge management', ic: '📚', km: true },
-  { pane: 'blog', ic: '✍️', label: 'บทความ / คู่มือระบบ', sub: true },
+  { pane: 'blog', ic: '✍️', label: 'บทความ / คู่มือ / SOP', sub: true },
+  { pane: 'machines', ic: '⚙️', label: 'ทะเบียนเครื่องจักร', sub: true },
+  { pane: 'incidents', ic: '⚡', label: 'เหตุการณ์', sub: true },
   { pane: 'obsidian', ic: '📥', label: 'จาก Obsidian', sub: true },
   { pane: 'line4', ic: '📋', label: 'คู่มือ Line 4' },
   { pane: 'stickeradmin', ic: '🗂️', label: 'QC Record' },
@@ -176,6 +182,18 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
 
           {pane === 'maint' && (
             <ErrorBoundary label="admin-maint"><MaintenanceBoard operatorName={operator} /></ErrorBoundary>
+          )}
+
+          {pane === 'pmreg' && (
+            <ErrorBoundary label="admin-pmreg"><PmRegistry /></ErrorBoundary>
+          )}
+
+          {pane === 'machines' && (
+            <ErrorBoundary label="admin-machines"><MachineRegistry /></ErrorBoundary>
+          )}
+
+          {pane === 'incidents' && (
+            <ErrorBoundary label="admin-incidents"><IncidentBoard operatorName={operator} /></ErrorBoundary>
           )}
 
           {pane === 'obsidian' && (

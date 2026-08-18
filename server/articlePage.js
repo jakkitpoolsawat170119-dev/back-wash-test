@@ -23,6 +23,7 @@ const CATS = [
   { name: 'ความปลอดภัย', color: '#c77700', g: 'g5', ic: '🦺' },
   { name: 'ชีวิตและการทำงาน', color: '#c2185b', g: 'g6', ic: '🌱' },
   { name: 'หนังสือ', color: '#6d4c41', g: 'g7', ic: '📖' },
+  { name: 'คู่มือ / SOP', color: '#0f7a6c', g: 'g8', ic: '📘' },
 ];
 const catStyle = (name) => CATS.find(c => c.name === name) || { name, color: '#6d6259', g: 'g0', ic: '📄' };
 const catHref = (name) => name ? `/บทความ?cat=${encodeURIComponent(name)}` : '/บทความ';
@@ -494,6 +495,7 @@ figure.chart .chart-scroll svg{min-width:600px}
 .shot.gen.g5{background:linear-gradient(140deg,#e0a52f,#c77700 55%,#8c5400)}
 .shot.gen.g6{background:linear-gradient(140deg,#e0568f,#c2185b 55%,#7d0f3a)}
 .shot.gen.g7{background:linear-gradient(140deg,#a1887f,#6d4c41 55%,#42291f)}
+.shot.gen.g8{background:linear-gradient(140deg,#4db6a4,#0f7a6c 55%,#064a41)}
 .tags{display:flex;flex-wrap:wrap;gap:5px}
 .tg{font-size:11.5px;font-weight:600;color:var(--ink-soft);background:#f6f0e9;padding:2px 9px;border-radius:999px}
 .ameta{display:flex;align-items:center;gap:8px;margin-top:auto;padding-top:11px;

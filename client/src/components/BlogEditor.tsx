@@ -168,9 +168,11 @@ function whenLabel(iso: string): string {
 
 // เพิ่มหมวดต้องแก้ 3 ที่เสมอ: ที่นี่ · client/src/lib/articles.ts · server/articlePage.js (CATS)
 const CATEGORIES = ['ระบบ CIP', 'Boiler', 'Evaporator', 'Mixing / Syrup', 'บรรจุ', 'ความปลอดภัย',
-  'ชีวิตและการทำงาน', 'หนังสือ'];
+  'ชีวิตและการทำงาน', 'หนังสือ', 'คู่มือ / SOP'];
 const MACHINES = ['CIP Line 1', 'CIP Line 2', 'CIP Line 3', 'Boiler', 'Evaporator', 'Mixing Station'];
-const OBS_FOLDERS = ['บทความ', 'คู่มือ', 'ส่งกะ'];
+const OBS_FOLDERS = ['บทความ', 'คู่มือ', 'ส่งกะ', 'เหตุการณ์'];
+// หมวด SOP ควรลง vault ที่โฟลเดอร์ "คู่มือ" ตามแผน KM — เลือกหมวดแล้วเด้งให้เลย (เปลี่ยนเองทีหลังได้)
+const FOLDER_FOR_CAT: Record<string, string> = { 'คู่มือ / SOP': 'คู่มือ' };
 const STATUS_LABEL: Record<Post['status'], string> = { draft: 'ร่าง', review: 'รอตรวจ', published: 'เผยแพร่' };
 
 let uid = 0;
@@ -1373,7 +1375,11 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
               <div className="sgrp">
                 <h4>หมวดหมู่</h4>
                 <select className="sselect" style={{ width: '100%' }} value={post.category}
-                  onChange={e => setField('category', e.target.value)}>
+                  onChange={e => {
+                    setField('category', e.target.value);
+                    const f = FOLDER_FOR_CAT[e.target.value];
+                    if (f) setField('obsFolder', f);
+                  }}>
                   {CATEGORIES.map(c => <option key={c}>{c}</option>)}
                 </select>
               </div>
