@@ -496,6 +496,12 @@ const SCHEMA = [
       active INTEGER DEFAULT 1,
       created_at TEXT
     )`,
+  // ── ทีมซ่อมบำรุง: ชื่อกะ (แถวเดียว) — สมาชิกอยู่ใน duty_people kind='maint' ─────
+  `CREATE TABLE IF NOT EXISTS maint_team (
+      id ${db.pk},
+      shift_name TEXT,
+      updated_at TEXT
+    )`,
   // ── ระบบแบ่งงานใบตรวจ (Audit auto-assign): กฎ zone/keyword → ผู้รับผิดชอบ ─────
   `CREATE TABLE IF NOT EXISTS assign_rules (
       id ${db.pk},
@@ -613,6 +619,12 @@ async function initDb() {
     try { await db.exec(`ALTER TABLE daily_tasks ADD COLUMN ${col} TEXT`); }
     catch { /* มีคอลัมน์อยู่แล้ว — ข้าม */ }
   }
+  // migration (โซนซ่อมบำรุง): ช่องใหม่ของงานประจำตามตารางจริง
+  //   machine = เครื่องจักร · goal = เป้าหมาย · owner_role/co_owner_role = บทบาทผู้รับผิดชอบหลัก/รอง
+  //   ค่า role: 'mt' Maintenance · 'op' Operate · 'qc' QC · 'pd' พนักงานผลิต (NULL = งานเก่าที่ไม่ได้ระบุ)
+  for (const col of ['machine', 'goal', 'owner_role', 'co_owner_role']) {
+    try { await db.exec(`ALTER TABLE duty_routines ADD COLUMN ${col} TEXT`); } catch { /* มีแล้ว */ }
+  }
   // migration: รูปของงานประจำ (หัวข้อหน้าที่)
   // ref_image = "รูปอ้างอิง" ผูกกับหัวข้อ ไม่ใช่รายวัน → ตั้งครั้งเดียวใช้เป็นมาตรฐานทุกวัน
   for (const col of ['ref_image', 'ref_image_by', 'ref_image_at']) {
@@ -658,6 +670,8 @@ async function initDb() {
   await seedDutyBoard();
   // seed ผู้รับผิดชอบใบตรวจ + กฎแบ่งงานอัตโนมัติ (idempotent)
   await seedAuditBoard();
+  // seed ทีมซ่อมบำรุง + งานประจำ 34 รายการจากตารางจริง (idempotent)
+  await seedMaintBoard();
   // migration (ระบบลงยอดผลิต): เตรียมคอลัมน์สิทธิ์ไว้ก่อน — ยังไม่บังคับใช้จนถึงเฟส 3
   try { await db.exec("ALTER TABLE operators ADD COLUMN role TEXT DEFAULT 'operator'"); } catch { /* มีแล้ว */ }
   // batch_id: ผูกรายงานเข้ากับชุดของกะ — NULL = รายงานเดี่ยวแบบเดิม (ลิงก์เก่ายังใช้ได้)
@@ -5544,6 +5558,96 @@ async function seedAuditBoard() {
   await refreshAssignRules();
 }
 
+// ══ โซนเจ้าหน้าที่ซ่อมบำรุง (kind='maint') ═══════════════════════════════════
+// แยกกระดานจากทีมกะ เหมือนที่ใบตรวจ (kind='audit') แยกอยู่แล้ว
+// งานประจำถอดจากตารางจริง "เครื่องจักร × รายการที่ต้องทำ × เป้าหมาย × ผู้รับผิดชอบหลัก × ผู้รับผิดชอบ 2"
+//   owner_role='mt' → เป็นงานของทีมซ่อมบำรุง ขึ้นในเช็กลิสต์ให้ติ๊ก
+//   owner_role อื่น + co_owner_role='mt' → ทีมผลิตทำ เราแค่ตามผล (ขึ้นแถบ "ตามผล" ไม่ต้องติ๊ก)
+// seed ทั้ง 34 แถวไว้ตั้งแต่แรก เพื่อให้หน้า "ทะเบียนงาน PM" ที่จะทำทีหลังอ่านตารางเดียวกันได้
+const MAINT_PERSON_SEED = {
+  key: 'jakkrit', name: 'จักรกฤษ พูลสวัสดิ์', role: 'เจ้าหน้าที่ซ่อมบำรุง · หัวหน้าทีม',
+  color: '#ff6b00', wash: '#fff3ea', initial: 'จ', dot: '🔧',
+};
+const MAINT_SHIFT_DEFAULT = 'กะ 1';
+// [เครื่องจักร, รายการที่ต้องทำ, เป้าหมาย, ผู้รับผิดชอบหลัก, ผู้รับผิดชอบ 2]
+const MAINT_ROUTINES_SEED = [
+  ['', 'ตรวจสอบแผนผลิต', 'ทราบแผนประจำกะ', 'op', 'mt'],
+  ['', 'จัดพนักงานเข้าไลน์ผลิต', 'พนักงานครบประจำตำแหน่ง', 'op', ''],
+
+  ['เครื่องยิงวันที่', 'ติดตั้งเครื่องยิงวันที่', 'ครบทุกไลน์ผลิต', 'mt', ''],
+  ['เครื่องยิงวันที่', 'ทดสอบเครื่องยิง', 'คมชัด ขนาดถูกต้อง', 'mt', ''],
+  ['เครื่องยิงวันที่', 'ตั้งค่า Lot No', 'Lot No ถูกต้อง', 'op', 'qc'],
+  ['เครื่องยิงวันที่', 'ล้างทำความสะอาดหัวยิง', 'หลังหยุดใช้งานใช้งานได้', 'mt', ''],
+  ['เครื่องยิงวันที่', 'แก้ไข Alarm / ประสานงาน Supplier', 'แก้ไขใช้งานได้', 'mt', ''],
+
+  ['เครื่องชั่ง Mettler1/2/Ishida', 'ตั้งค่า Lot No / SKU / ยอดผลิต', 'Lot No/SKU/ยอดผลิต ถูกต้อง', 'op', ''],
+  ['เครื่องชั่ง Mettler1/2/Ishida', 'ตรวจสอบ Pass/NG', 'ไม่พบปัญหาน้ำหนักเกินขาด', 'mt', 'qc'],
+  ['เครื่องชั่ง Mettler1/2/Ishida', 'ทำความสะอาดเครื่อง', 'หลังหยุดใช้งานใช้งานได้', 'pd', 'mt'],
+  ['เครื่องชั่ง Mettler1/2/Ishida', 'แก้ไข Alarm / ประสานงาน Supplier', 'แก้ไขใช้งานได้', 'mt', ''],
+
+  ['เครื่องจับโละ 900g/25kg/ปี๊บ', 'ตั้งค่า SKU', 'SKU ถูกต้อง', 'mt', ''],
+  ['เครื่องจับโละ 900g/25kg/ปี๊บ', 'ตรวจสอบ Pass/NG', 'ไม่พบปัญหาน้ำหนักเกินขาด', 'mt', 'qc'],
+  ['เครื่องจับโละ 900g/25kg/ปี๊บ', 'ทำความสะอาดเครื่อง', 'หลังหยุดใช้งานใช้งานได้', 'pd', 'mt'],
+  ['เครื่องจับโละ 900g/25kg/ปี๊บ', 'แก้ไข Alarm / ประสานงาน Supplier', 'แก้ไขใช้งานได้', 'mt', ''],
+
+  ['เครื่องชั่งเล็กประจำไลน์', 'ติดตั้งครบพร้อมใช้งาน', 'หลังหยุดใช้งานใช้งานได้', 'pd', 'op'],
+  ['เครื่องชั่งเล็กประจำไลน์', 'ทำความสะอาดเครื่อง', 'หลังหยุดใช้งานใช้งานได้', 'pd', 'op'],
+  ['เครื่องชั่งเล็กประจำไลน์', 'การจัดเก็บหลังเลิกใช้งาน', 'หลังหยุดใช้งานใช้งานได้', 'pd', 'op'],
+  ['เครื่องชั่งเล็กประจำไลน์', 'แก้ไข Alarm / ประสานงาน Instrument', 'แก้ไขใช้งานได้', 'mt', ''],
+
+  ['ตั้งไลน์สำหรับผลิต', 'จัดโต๊ะ', 'พื้นที่พร้อมใช้งาน', 'pd', 'op'],
+  ['ตั้งไลน์สำหรับผลิต', 'เตรียมอุปกรณ์', 'อุปกรณ์พร้อมใช้งาน', 'pd', 'op'],
+  ['ตั้งไลน์สำหรับผลิต', 'ทำความสะอาดโต๊ะ อุปกรณ์', 'ความสะอาดพร้อมใช้งาน', 'pd', 'op'],
+  ['ตั้งไลน์สำหรับผลิต', 'จัดเก็บ', 'หลังหยุดใช้งานใช้งานได้', 'pd', 'op'],
+
+  ['เครื่องปิดลัง', 'ตั้งค่าขนาดกล่องตาม SKU', 'SKU ถูกต้อง', 'mt', ''],
+  ['เครื่องปิดลัง', 'ตรวจสอบความสามารถในการปิดลัง', 'เทปกาวไม่หลุด ลังไม่เสียหาย', 'mt', ''],
+  ['เครื่องปิดลัง', 'ตรวจสอบระยะเทปปิดลัง', 'เทปกาวไม่หลุด ลังไม่เสียหาย', 'mt', ''],
+  ['เครื่องปิดลัง', 'ทำความสะอาดเครื่อง', 'หลังหยุดใช้งานใช้งานได้', 'pd', 'mt'],
+
+  ['เครื่องซีลแนวตั้ง', 'วางเครื่องครบประจำตำแหน่ง', 'ครบทุกไลน์ผลิต', 'pd', 'op'],
+  ['เครื่องซีลแนวตั้ง', 'ตั้งค่า Temp ตาม Control', 'รอยซีลไม่รั่ว', 'mt', ''],
+  ['เครื่องซีลแนวตั้ง', 'ตรวจสอบรอยซีลก่อนใช้งาน', 'รอยซีลไม่รั่ว', 'mt', ''],
+  ['เครื่องซีลแนวตั้ง', 'ทำความสะอาดหลังเลิกใช้งาน', 'หลังหยุดใช้งานใช้งานได้', 'pd', 'mt'],
+  ['เครื่องซีลแนวตั้ง', 'จัดเก็บ', 'หลังหยุดใช้งานใช้งานได้', 'pd', 'op'],
+
+  ['เครน', 'ตรวจสอบความสมบูรณ์ สลิง & Hook', 'พร้อมใช้งาน', 'mt', ''],
+  ['เครน', 'ใช้งานถูกต้องตามวิธี', 'ไม่เสียหาย', 'pd', 'op'],
+];
+// node_key ต้องนิ่งตลอดกาล — routine_state อ้าง (วันที่, คน, node_key) ถ้าเปลี่ยนคีย์ ประวัติติ๊กจะหลุด
+const maintNodeKey = (i) => `pm${String(i + 1).padStart(2, '0')}`;
+
+// seed ทีมซ่อมบำรุง (idempotent — เพิ่มเฉพาะแถวที่ยังไม่มี ไม่ทับของที่ user แก้เอง)
+async function seedMaintBoard() {
+  try {
+    const p = MAINT_PERSON_SEED;
+    await db.exec(
+      `INSERT INTO duty_people (person_key, name, role, color, wash, initial, dot, kind, sort_order, active, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'maint', 100, 1, ?) ON CONFLICT (person_key) DO NOTHING`,
+      [p.key, p.name, p.role, p.color, p.wash, p.initial, p.dot, nowBKK()]);
+    const have = (await dbAll('SELECT node_key FROM duty_routines WHERE person_key = ?', [p.key])).map(r => r.node_key);
+    for (let i = 0; i < MAINT_ROUTINES_SEED.length; i++) {
+      const key = maintNodeKey(i);
+      if (have.includes(key)) continue;                       // มีแล้ว (หรือ user ลบไปเอง) — ไม่ยัดซ้ำ
+      const [machine, title, goal, owner, co] = MAINT_ROUTINES_SEED[i];
+      await db.exec(
+        `INSERT INTO duty_routines (person_key, parent_id, node_key, title, mono, sort_order, active, created_at,
+           machine, goal, owner_role, co_owner_role)
+         VALUES (?, NULL, ?, ?, 0, ?, 1, ?, ?, ?, ?, ?)`,
+        [p.key, key, title, i, nowBKK(), machine || null, goal || null, owner || null, co || null]);
+    }
+    const cfg = await dbAll('SELECT id FROM maint_team LIMIT 1', []);
+    if (!cfg.length) await db.exec('INSERT INTO maint_team (shift_name, updated_at) VALUES (?, ?)', [MAINT_SHIFT_DEFAULT, nowBKK()]);
+    invalidateRoutineCache();
+    await refreshPeopleCache();
+  } catch (e) { console.error('[db] seedMaintBoard failed', e.message); }
+}
+// ชื่อกะของทีมซ่อมบำรุง (แถวเดียว)
+async function getMaintShiftName() {
+  try { return (await dbAll('SELECT shift_name FROM maint_team ORDER BY id LIMIT 1', []))[0]?.shift_name || MAINT_SHIFT_DEFAULT; }
+  catch { return MAINT_SHIFT_DEFAULT; }
+}
+
 // แมตช์แบบไม่สนช่องว่าง/ตัวพิมพ์ (ไทยไม่มีเคส · ละตินเทียบ lower)
 const _normText = (s) => String(s || '').replace(/\s+/g, '').toLowerCase();
 // สร้าง suggestion จากกฎที่แมตช์
@@ -5600,7 +5704,7 @@ async function buildRoutineTree(personKey) {
   // ลด egress: ไม่ดึง ref_image ที่เป็น base64 (fallback ตอนไม่มี Supabase) — คืน URL ตรงๆ ถ้าเป็น URL
   // ไม่งั้นคืนแค่ธง แล้วให้ client โหลดผ่าน GET /api/routine/image ตอนกดดู
   const rows = await dbAll(
-    `SELECT id, parent_id, node_key, title, mono, sort_order,
+    `SELECT id, parent_id, node_key, title, mono, sort_order, machine, goal, owner_role, co_owner_role,
        CASE WHEN ref_image LIKE 'http%' THEN ref_image ELSE NULL END AS ref_image_url,
        CASE WHEN ref_image IS NULL OR ref_image = '' THEN 0 ELSE 1 END AS has_ref_image
      FROM duty_routines WHERE person_key = ? AND active = 1 ORDER BY parent_id, sort_order, id`, [personKey]);
@@ -5608,6 +5712,8 @@ async function buildRoutineTree(personKey) {
   for (const r of rows) { const k = r.parent_id == null ? 'root' : String(r.parent_id); (byParent[k] = byParent[k] || []).push(r); }
   const build = (key) => (byParent[key] || []).map(r => {
     const node = { key: r.node_key, title: r.title, id: r.id, parentId: r.parent_id == null ? null : r.parent_id,
+      machine: r.machine || null, goal: r.goal || null,
+      ownerRole: r.owner_role || null, coOwnerRole: r.co_owner_role || null,
       refImage: r.ref_image_url || null, hasRefImage: !!r.has_ref_image };
     if (r.mono) node.mono = true;
     const kids = build(String(r.id));
@@ -5624,6 +5730,8 @@ function flattenRoutine(nodes, depth = 0, prefix = '') {
   for (const n of nodes) {
     const key = prefix ? `${prefix}/${n.key}` : n.key;
     out.push({ key, title: n.title, depth, mono: !!n.mono, id: n.id, parentId: n.parentId,
+      machine: n.machine || null, goal: n.goal || null,
+      ownerRole: n.ownerRole || null, coOwnerRole: n.coOwnerRole || null,
       refImage: n.refImage || null, hasRefImage: !!n.hasRefImage });
     if (n.children) out.push(...flattenRoutine(n.children, depth + 1, key));
   }
@@ -5635,6 +5743,7 @@ function flattenRoutine(nodes, depth = 0, prefix = '') {
 // (คืนโครงเดียวกับบอร์ดกะ nodes/received/adhoc → buildDutyPerson ใช้ซ้ำได้ทั้งดุ้น)
 async function buildDuty(date, opts = {}) {
   const audit = !!opts.audit;
+  const maint = !!opts.maint;   // บอร์ดทีมซ่อมบำรุง — ใช้ท่อเดียวกับบอร์ดกะ (มี routine_state/ติ๊กได้)
   // ลด egress เช่นกัน: done_image อาจเป็น base64 → คืน URL ตรงๆ ถ้าเป็น URL ไม่งั้นคืนแค่ธง
   const stateRows = audit ? [] : await dbAll(
     `SELECT id, state_date, assignee, node_key, title, checked, bypassed, bypass_reason, handoff_to,
@@ -5657,12 +5766,15 @@ async function buildDuty(date, opts = {}) {
 
   let teamDone = 0, teamTotal = 0;
   // เฉพาะทีมกะ — ผู้รับผิดชอบใบตรวจ (kind='audit') ไม่โผล่ในบอร์ดหน้าที่รายวัน (โหมด audit กลับด้าน)
-  const peopleList = getPeople().filter(p => audit ? (p.kind === 'audit') : ((p.kind || 'shift') !== 'audit'));
+  //   audit → คนใบตรวจ · maint → ทีมซ่อมบำรุง · ปกติ → ทีมกะเท่านั้น (ไม่ให้ 2 กลุ่มนั้นปนเข้ามา)
+  const kindOf = (p) => p.kind || 'shift';
+  const peopleList = getPeople().filter(p =>
+    audit ? kindOf(p) === 'audit' : maint ? kindOf(p) === 'maint' : kindOf(p) === 'shift');
   const people = await Promise.all(peopleList.map(async (pRow) => {
     const p = { key: pRow.person_key, name: pRow.name, role: pRow.role, color: pRow.color, wash: pRow.wash, initial: pRow.initial, dot: pRow.dot, kind: pRow.kind || 'shift' };
     // คนใบตรวจไม่มีงานประจำ — ข้าม query routine ทั้งก้อน
     const tree = audit ? [] : await buildRoutineTree(p.key);
-    const nodes = flattenRoutine(tree).map(n => {
+    let nodes = flattenRoutine(tree).map(n => {
       const st = stateMap[`${p.key}|${n.key}`];
       return {
         ...n,
@@ -5686,16 +5798,23 @@ async function buildDuty(date, opts = {}) {
       hasImages: !!t.has_images, hasDoneImages: !!t.has_done_images, // รูปโหลด lazy ตอนกดดู
     }));
 
+    // โหมดซ่อมบำรุง: งานที่ "ผู้รับผิดชอบ 2" เป็น Maintenance = ทีมผลิตทำ เราแค่ตามผล → ไม่นับ ไม่ต้องติ๊ก
+    // ส่วนงานที่ไม่เกี่ยวกับซ่อมบำรุงเลย (เช่น Operate + Operate) ยังเก็บใน DB เป็นทะเบียนงาน แต่ไม่ขึ้นบอร์ด
+    const watch = maint ? nodes.filter(n => n.ownerRole && n.ownerRole !== 'mt' && n.coOwnerRole === 'mt') : [];
+    if (maint) nodes = nodes.filter(n => !n.ownerRole || n.ownerRole === 'mt');
+
     const active = nodes.filter(n => !n.bypassed);
     let done = active.filter(n => n.checked).length;
     let total = active.length;
     done += received.filter(r => r.checked).length; total += received.length;
     done += myAdhoc.filter(t => t.status === 'done').length; total += myAdhoc.length;
     teamDone += done; teamTotal += total;
-    return { ...p, nodes, received, adhoc: myAdhoc, done, total, pct: total ? Math.round(done / total * 100) : 100 };
+    return { ...p, nodes, watch, received, adhoc: myAdhoc, done, total, pct: total ? Math.round(done / total * 100) : 100 };
   }));
   // โหมด audit ไม่มีวันหยุด — ประเด็นค้างต้องตามได้ทุกวัน (รวมเสาร์)
-  return { date, audit, holiday: !audit && weekdayOf(date) === 6, people, team: { done: teamDone, total: teamTotal, left: teamTotal - teamDone, pct: teamTotal ? Math.round(teamDone / teamTotal * 100) : 100 } };
+  return { date, audit, maint, shiftName: maint ? await getMaintShiftName() : null,
+    holiday: !audit && !maint && weekdayOf(date) === 6, people,
+    team: { done: teamDone, total: teamTotal, left: teamTotal - teamDone, pct: teamTotal ? Math.round(teamDone / teamTotal * 100) : 100 } };
 }
 
 // คนนี้เป็นผู้รับผิดชอบใบตรวจไหม (ใช้เลือกว่าจะสร้างบอร์ดกะหรือบอร์ดใบตรวจ)
@@ -5710,8 +5829,25 @@ async function countAuditOpen() {
 
 app.get('/api/duty', async (req, res) => {
   const date = req.query.date || workDayBKK();
-  try { res.json(await buildDuty(date)); }
+  const maint = req.query.kind === 'maint';   // ไม่ส่ง kind = พฤติกรรมเดิมของบอร์ดกะเป๊ะ
+  try { res.json(await buildDuty(date, { maint })); }
   catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ชื่อกะของทีมซ่อมบำรุง — อ่าน/แก้จากหน้าเว็บ (สมาชิกใช้ /api/duty/person แบบเดียวกับทีมกะ)
+app.get('/api/maint/team', async (req, res) => {
+  try { res.json({ shiftName: await getMaintShiftName() }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/maint/team', async (req, res) => {
+  const name = String(req.body.shiftName || '').trim();
+  if (!name) return res.status(400).json({ error: 'shiftName จำเป็น' });
+  try {
+    const cur = await dbAll('SELECT id FROM maint_team ORDER BY id LIMIT 1', []);
+    if (cur.length) await db.exec('UPDATE maint_team SET shift_name = ?, updated_at = ? WHERE id = ?', [name, nowBKK(), cur[0].id]);
+    else await db.exec('INSERT INTO maint_team (shift_name, updated_at) VALUES (?, ?)', [name, nowBKK()]);
+    res.json({ success: true, shiftName: name });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── ระบบแบ่งงานใบตรวจอัตโนมัติ (Audit auto-assign) ──────────────────────────
@@ -5951,7 +6087,8 @@ app.get('/api/audit/tracking', async (req, res) => {
 // สร้าง key จากข้อความ (รองรับไทย → ถ้าว่างใช้ p + timestamp) แล้วกันซ้ำ
 const slugKey = (text, taken) => {
   let base = String(text || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-  if (!base) base = 'p' + Date.now().toString(36);
+  // ชื่อไทยล้วนจะเหลือแต่เศษ (เช่น "ทดสอบ สมาชิก2" → "2") — คีย์แบบนั้นอ่านไม่รู้เรื่องและชนง่าย
+  if (base.length < 2 || /^[\d-]+$/.test(base)) base = 'p' + Date.now().toString(36);
   let k = base, i = 2;
   while (taken.includes(k)) k = `${base}-${i++}`;
   return k;
@@ -5960,6 +6097,8 @@ const slugKey = (text, taken) => {
 // upsert คน — สร้างใหม่ (auto key + สี default) หรือแก้ที่มีอยู่
 app.post('/api/duty/person', async (req, res) => {
   const { key, name, role, color, wash, initial, sortOrder } = req.body;
+  // kind = กลุ่มของคน: shift (ทีมกะ) · maint (ทีมซ่อมบำรุง) · audit (ผู้รับผิดชอบใบตรวจ)
+  const kind = ['shift', 'maint', 'audit'].includes(req.body.kind) ? req.body.kind : 'shift';
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'name จำเป็น' });
   try {
     if (key) {
@@ -5980,9 +6119,9 @@ app.post('/api/duty/person', async (req, res) => {
     const maxOrder = (await dbAll('SELECT MAX(sort_order) AS m FROM duty_people', []))[0];
     const order = sortOrder != null ? sortOrder : ((maxOrder && maxOrder.m != null ? Number(maxOrder.m) : 0) + 1);
     await db.exec(
-      `INSERT INTO duty_people (person_key, name, role, color, wash, initial, dot, sort_order, active, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-      [newKey, name.trim(), role || '', color || pal.color, wash || pal.wash, initial || name.trim().slice(0, 1), dot, order, nowBKK()]);
+      `INSERT INTO duty_people (person_key, name, role, color, wash, initial, dot, kind, sort_order, active, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      [newKey, name.trim(), role || '', color || pal.color, wash || pal.wash, initial || name.trim().slice(0, 1), dot, kind, order, nowBKK()]);
     await refreshPeopleCache();
     res.json({ success: true, key: newKey });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -6001,14 +6140,21 @@ app.post('/api/duty/person/delete', async (req, res) => {
 
 // upsert งาน (node ในเช็กลิสต์) — สร้างใหม่ (บนสุด/เป็นลูก) หรือแก้ชื่อ/mono
 app.post('/api/duty/routine', async (req, res) => {
-  const { id, personKey, parentId, title, mono, sortOrder } = req.body;
+  const { id, personKey, parentId, title, mono, sortOrder, machine, goal, ownerRole, coOwnerRole } = req.body;
+  // ช่องของโซนซ่อมบำรุง — ไม่ส่งมา = ไม่แตะของเดิม (งานของทีมกะไม่ได้ใช้ช่องพวกนี้)
+  const role = (v) => (['mt', 'op', 'qc', 'pd'].includes(v) ? v : null);
   if (!title || !String(title).trim()) return res.status(400).json({ error: 'title จำเป็น' });
   try {
     if (id) {
       const cur = (await dbAll('SELECT * FROM duty_routines WHERE id = ?', [id]))[0];
       if (!cur) return res.status(404).json({ error: 'ไม่พบงานนี้' });
-      await db.exec('UPDATE duty_routines SET title = ?, mono = ?, sort_order = ? WHERE id = ?',
-        [title.trim(), mono ? 1 : 0, sortOrder != null ? sortOrder : cur.sort_order, id]);
+      await db.exec(`UPDATE duty_routines SET title = ?, mono = ?, sort_order = ?,
+           machine = ?, goal = ?, owner_role = ?, co_owner_role = ? WHERE id = ?`,
+        [title.trim(), mono ? 1 : 0, sortOrder != null ? sortOrder : cur.sort_order,
+         machine !== undefined ? (machine || null) : cur.machine,
+         goal !== undefined ? (goal || null) : cur.goal,
+         ownerRole !== undefined ? role(ownerRole) : cur.owner_role,
+         coOwnerRole !== undefined ? role(coOwnerRole) : cur.co_owner_role, id]);
       invalidateRoutineCache();
       return res.json({ success: true, id });
     }
@@ -6025,9 +6171,11 @@ app.post('/api/duty/routine', async (req, res) => {
       parentId ? [personKey, parentId] : [personKey]))[0];
     const order = sortOrder != null ? sortOrder : ((maxOrder && maxOrder.m != null ? Number(maxOrder.m) : -1) + 1);
     const r = await dbRun(
-      `INSERT INTO duty_routines (person_key, parent_id, node_key, title, mono, sort_order, active, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
-      [personKey, parentId || null, nodeKey, title.trim(), mono ? 1 : 0, order, nowBKK()]);
+      `INSERT INTO duty_routines (person_key, parent_id, node_key, title, mono, sort_order, active, created_at,
+         machine, goal, owner_role, co_owner_role)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+      [personKey, parentId || null, nodeKey, title.trim(), mono ? 1 : 0, order, nowBKK(),
+       machine || null, goal || null, role(ownerRole), role(coOwnerRole)]);
     invalidateRoutineCache();
     res.json({ success: true, id: r.lastID, nodeKey });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -6490,7 +6638,7 @@ function buildDutyText(duty) {
 app.post('/api/duty/telegram', async (req, res) => {
   const date = req.body.date || req.query.date || workDayBKK();
   try {
-    const duty = await buildDuty(date);
+    const duty = await buildDuty(date, { maint: req.body.kind === 'maint' });
     const text = buildDutyText(duty);
     await sendToTelegram(text);
     res.json({ success: true, sent: !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID), preview: text });

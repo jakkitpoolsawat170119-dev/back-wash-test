@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { currentWorkDay, shiftInfo, shiftsForWeekday, weekdayOf, nextShiftName } from '../shiftSchedule';
-import { uploadDutyImage } from '../lib/dutyImages';
+import { uploadDutyImage, resizePhoto, type PhotoAttach } from '../lib/dutyImages';
 import AuditBoard from './AuditBoard';
 
 // ใช้ Render เป็นค่าเริ่มต้น; override ด้วย VITE_API_BASE เวลาทดสอบ local
@@ -67,26 +67,6 @@ type DutyNode = { key: string; title: string; depth: number; mono: boolean; id?:
 type Received = { ownerKey: string; fromName: string; nodeKey: string; title: string; checked: boolean };
 type AdhocTask = { id: number; title: string; category: string; location: string | null; priority: string; status: string; handoffFrom: string | null; hasImages?: boolean; hasDoneImages?: boolean; images?: string[]; doneImages?: string[] };
 
-// ย่อรูปแบบง่าย (ไม่มี auto-tiling) — ขอบยาว ≤1568 → JPEG q0.85 · คืน data URL + base64 สำหรับส่ง
-type PhotoAttach = { preview: string; data: string; mediaType: string };
-const resizePhoto = (file: File): Promise<PhotoAttach> => new Promise((resolve, reject) => {
-  const reader = new FileReader();
-  reader.onload = () => {
-    const el = new Image();
-    el.onload = () => {
-      const scale = Math.min(1, 1568 / Math.max(el.width, el.height));
-      const w = Math.max(1, Math.round(el.width * scale)), h = Math.max(1, Math.round(el.height * scale));
-      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-      const cx = cv.getContext('2d')!;
-      cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h);
-      cx.drawImage(el, 0, 0, w, h);
-      const dataUrl = cv.toDataURL('image/jpeg', 0.85);
-      resolve({ preview: dataUrl, data: dataUrl.split(',')[1] || '', mediaType: 'image/jpeg' });
-    };
-    el.onerror = reject; el.src = String(reader.result);
-  };
-  reader.onerror = reject; reader.readAsDataURL(file);
-});
 type DutyPerson = { key: string; name: string; role: string; color?: string; wash?: string; initial?: string; dot?: string; nodes: DutyNode[]; received: Received[]; adhoc: AdhocTask[]; done: number; total: number; pct: number };
 type Duty = { date: string; holiday?: boolean; people: DutyPerson[]; team: { done: number; total: number; left: number; pct: number } };
 

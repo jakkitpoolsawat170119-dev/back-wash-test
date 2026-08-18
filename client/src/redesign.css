@@ -405,6 +405,16 @@
 .rsbtn.sub{padding-left:40px;font-size:12.5px;color:var(--ink-soft)}
 .rsbtn.sub.on{color:var(--brand-deep)}
 .rsbtn.sub .ic{width:16px;font-size:13px}
+/* หัวข้อกลุ่มในเมนู (ไม่ใช่ปุ่ม) — คั่นเมนูยาว ๆ ให้หาของเจอ */
+.rsgroup{
+  display:flex;align-items:center;gap:7px;font-family:var(--font-head);font-size:11px;font-weight:600;
+  color:var(--brand-deep);background:var(--brand-soft);border-radius:8px;
+  padding:5px 10px;margin:12px 0 3px;letter-spacing:.02em;
+}
+.rsgroup.km{color:var(--chat);background:#e8f6f3}
+.rsgroup .ic{font-size:12px}
+.menu-dd .rsgroup{margin:8px 2px 2px}
+
 @media(min-width:821px){.menuwrap{display:none}}
 @media(max-width:820px){.aside-r{display:none}}
 .menuwrap{position:relative}

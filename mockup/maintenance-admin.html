@@ -1,0 +1,806 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>โซนเจ้าหน้าที่ซ่อมบำรุง — 3 แบบให้เลือก</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ══ โทเคนชุดเดียวกับแอปจริง (client/src/redesign.css) — ห้ามคิดสีใหม่ให้ชนของเดิม ══ */
+:root{
+  --brand:#ff6b00; --brand-deep:#c24f00; --brand-soft:#fff3ea;
+  --ink:#2b2119; --ink-soft:#6d6259; --paper:#faf7f4; --card:#fff; --line:#eee3d9;
+  --ok:#1c8a4c; --warn:#c77700; --danger:#c62828; --cip1:#1565c0; --chat:#0f7a6c;
+  --radius:16px;
+  --shadow-card:0 1px 2px rgba(63,37,10,.06),0 6px 18px -6px rgba(63,37,10,.12);
+  --shadow-float:0 2px 4px rgba(63,37,10,.08),0 16px 40px -12px rgba(63,37,10,.22);
+  --font-head:'Kanit',sans-serif; --font-body:'Sarabun',sans-serif;
+  /* 4 บทบาทในตาราง — หยิบจากตระกูลสีที่แอปใช้อยู่แล้ว */
+  --r-mt:#ff6b00;  --r-mt-w:#fff3ea;  --r-mt-d:#c24f00;
+  --r-op:#1565c0;  --r-op-w:#e8f1fb;  --r-op-d:#0d47a1;
+  --r-qc:#1c8a4c;  --r-qc-w:#e6f4ec;  --r-qc-d:#14653a;
+  --r-pd:#6d6259;  --r-pd-w:#f2ede8;  --r-pd-d:#4b433c;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:var(--font-body);color:var(--ink);background:var(--paper);line-height:1.7;
+  background-image:
+    radial-gradient(1200px 500px at 85% -10%, rgba(255,107,0,.07), transparent 60%),
+    radial-gradient(900px 420px at -10% 20%, rgba(21,101,192,.05), transparent 55%);
+  background-attachment:fixed;
+}
+h1,h2,h3,h4,p,ul,ol,li{margin:0;padding:0}
+h1,h2,h3,h4{font-family:var(--font-head);letter-spacing:-.02em;line-height:1.3}
+button{font-family:inherit;cursor:pointer}
+input{font-family:inherit}
+button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid rgba(255,107,0,.5);outline-offset:2px}
+li{list-style:none}
+
+/* ══ แถบเลือกแบบ (ของ mockup เอง ไม่ใช่ส่วนหนึ่งของแอป) ══ */
+.optbar{
+  position:sticky;top:0;z-index:80;background:#1c1917;color:#f3ede6;
+  padding:10px 16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  box-shadow:0 8px 24px -12px rgba(0,0,0,.6);
+}
+.optbar .ttl{font-family:var(--font-head);font-weight:600;font-size:14px;margin-right:auto;letter-spacing:-.02em}
+.optbar .ttl em{font-style:normal;color:var(--brand)}
+.optbtn{
+  border:1px solid #37312a;background:#242019;color:#a89e92;
+  padding:7px 14px;border-radius:999px;font-size:13px;font-weight:600;font-family:var(--font-head);
+  display:flex;align-items:center;gap:7px;
+  transition:background-color .15s ease,color .15s ease,transform .12s cubic-bezier(.2,.9,.3,1.4);
+}
+.optbtn:hover{background:#312b23;color:#f3ede6}
+.optbtn:active{transform:scale(.95)}
+.optbtn.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.optbtn .n{
+  width:19px;height:19px;border-radius:50%;display:grid;place-items:center;
+  background:rgba(255,255,255,.12);font-size:11px;font-weight:700;
+}
+.optbtn.on .n{background:rgba(0,0,0,.22)}
+
+.sheet{display:none}
+.sheet.on{display:block}
+
+/* ══ โครงหน้า Admin จริง (ลอกจาก .atop/.amain/.aside-r ใน redesign.css) ══ */
+.atop{
+  position:sticky;top:41px;z-index:30;display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:8px;
+  background:rgba(248,245,240,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:10px 18px;
+}
+.atop .logo{margin-right:auto;display:flex;align-items:center;gap:8px;background:none;border:none;padding:0}
+.lg-mark{width:26px;height:26px;border-radius:8px;background:linear-gradient(145deg,var(--brand),var(--brand-deep));
+  display:grid;place-items:center;color:#fff;font-family:var(--font-head);font-weight:700;font-size:13px;
+  box-shadow:0 2px 6px -1px rgba(194,79,0,.5)}
+.lg-word{font-family:var(--font-head);font-weight:700;font-size:17px;letter-spacing:-.02em;color:var(--brand)}
+.abtn{
+  border:1px solid var(--line);background:var(--card);color:var(--ink);
+  padding:7px 13px;border-radius:10px;font-size:13.5px;font-weight:600;white-space:nowrap;font-family:var(--font-head);
+  display:flex;align-items:center;gap:6px;
+  transition:background-color .15s ease,color .15s ease,transform .12s ease;
+}
+.abtn:hover{background:var(--brand-soft);color:var(--brand-deep)}
+.abtn:active{transform:scale(.96)}
+.abtn.ghost{background:transparent}
+.atop .search{
+  flex:1;min-width:150px;max-width:340px;background:var(--card);border:1px solid var(--line);
+  border-radius:10px;padding:7px 12px;font-size:13px;color:#a49a90;
+}
+.atop .sys{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--ink-soft);white-space:nowrap}
+.atop .sys .dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.achip{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;background:var(--card);
+  border:1px solid var(--line);padding:4px 12px 4px 4px;border-radius:999px;white-space:nowrap}
+.achip .av{width:24px;height:24px;border-radius:50%;background:var(--brand);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:700}
+
+.amain{display:flex;align-items:stretch;max-width:1300px;margin:0 auto}
+.aside-r{
+  width:224px;flex:none;border-right:1px solid var(--line);
+  padding:18px 14px 40px;display:flex;flex-direction:column;gap:2px;
+  position:sticky;top:98px;align-self:flex-start;
+  max-height:calc(100vh - 98px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;background:#fff;
+}
+.rsbtn{
+  display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:none;background:transparent;
+  color:var(--ink);font-size:15.5px;font-weight:600;padding:8px 10px;border-radius:10px;font-family:var(--font-head);
+  transition:background-color .15s ease,color .15s ease;
+}
+.rsbtn:hover{background:var(--brand-soft);color:var(--brand-deep)}
+.rsbtn.on{background:var(--brand-soft);color:var(--brand-deep)}
+.rsbtn .ic{width:20px;text-align:left;font-size:15px}
+.rsbtn .tag{margin-left:auto;font-size:10px;background:var(--brand-soft);color:var(--brand-deep);border-radius:999px;padding:1px 7px;font-weight:700}
+.rsbtn.sub{padding-left:38px;font-size:12.5px;color:var(--ink-soft)}
+.rsbtn.sub.on{color:var(--brand-deep)}
+.rsbtn.sub .ic{width:16px;font-size:13px}
+.rsgroup{
+  display:flex;align-items:center;gap:7px;font-family:var(--font-head);font-size:11px;font-weight:600;
+  color:var(--brand-deep);background:var(--brand-soft);border-radius:8px;
+  padding:5px 10px;margin:12px 0 3px;letter-spacing:.02em;
+}
+.rsgroup.km{color:var(--chat);background:#e8f6f3}
+.rsgroup .new{margin-left:auto;font-size:9.5px;background:var(--brand);color:#fff;border-radius:999px;padding:1px 6px}
+.rsgroup.km .new{background:var(--chat)}
+.abody{flex:1;min-width:0;padding:22px 20px 90px}
+@media(max-width:900px){.aside-r{display:none}.abody{padding:16px 12px 70px}}
+
+/* ══ ชิ้นส่วนที่ใช้ร่วมทุกแบบ ══ */
+.phead{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.phead h1{font-size:clamp(20px,2.6vw,25px);font-weight:600}
+.phead .sub{font-size:13px;color:var(--ink-soft)}
+.eyebrow{
+  font-family:var(--font-head);font-size:11.5px;font-weight:600;color:var(--brand-deep);background:var(--brand-soft);
+  display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;margin-bottom:10px;
+}
+.note{
+  background:#fff;border:1px solid var(--line);border-left:3px solid var(--brand);border-radius:12px;
+  padding:11px 14px;font-size:12.5px;color:var(--ink-soft);line-height:1.65;margin:14px 0;
+}
+.note b{color:var(--ink)}
+
+/* การ์ดทีมซ่อมบำรุง */
+.team{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow-card);padding:16px 18px;margin:16px 0 20px;position:relative;overflow:hidden;
+}
+.team::after{content:"";position:absolute;inset:auto -40px -60px auto;width:180px;height:180px;border-radius:50%;
+  background:radial-gradient(circle,rgba(255,107,0,.13),transparent 70%);pointer-events:none}
+.team h3{font-size:16px;font-weight:600;display:flex;align-items:center;gap:8px}
+.team .shiftline{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0 14px}
+.team label{font-size:12px;font-weight:600;color:var(--ink-soft)}
+.tinput{
+  border:1px solid var(--line);background:#fdfbf9;border-radius:10px;padding:7px 12px;
+  font-size:14px;font-weight:600;color:var(--ink);min-width:130px;
+  transition:border-color .15s ease,background-color .15s ease;
+}
+.tinput:hover{border-color:#e0cdb9}
+.tinput:focus{background:#fff;border-color:var(--brand);outline:none;box-shadow:0 0 0 3px rgba(255,107,0,.14)}
+.mates{display:grid;gap:8px;grid-template-columns:1fr;position:relative;z-index:1}
+@media(min-width:700px){.mates{grid-template-columns:repeat(3,1fr)}}
+.mate{
+  display:flex;align-items:center;gap:9px;background:#fdfbf9;border:1px solid var(--line);
+  border-radius:12px;padding:8px 10px;
+}
+.mate .no{width:22px;height:22px;border-radius:50%;background:var(--brand-soft);color:var(--brand-deep);
+  display:grid;place-items:center;font-size:11.5px;font-weight:700;flex:none}
+.mate .nm{flex:1;min-width:0;font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mate .nm.empty{color:#b6ada4;font-weight:500}
+.mate .lead{font-size:10px;font-weight:700;background:var(--brand);color:#fff;border-radius:999px;padding:1px 7px;flex:none}
+.mate .x{border:none;background:transparent;color:#c0b6ac;font-size:14px;padding:0 2px;border-radius:6px;flex:none;
+  transition:color .15s ease,transform .12s ease}
+.mate .x:hover{color:var(--danger)}
+.mate .x:active{transform:scale(.85)}
+.mate.add{grid-column:1/-1;border-style:dashed;color:var(--ink-soft);justify-content:center;font-size:13px;font-weight:600;cursor:pointer;
+  transition:background-color .15s ease,transform .12s cubic-bezier(.2,.9,.3,1.4)}
+.mate.add:hover{background:var(--brand-soft);color:var(--brand-deep)}
+.mate.add:active{transform:scale(.98)}
+
+/* ชิปบทบาท */
+.rl{
+  display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;font-family:var(--font-head);
+  padding:2px 9px;border-radius:999px;white-space:nowrap;line-height:1.6;
+}
+.rl::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.75}
+.rl.mt{background:var(--r-mt-w);color:var(--r-mt-d)}
+.rl.op{background:var(--r-op-w);color:var(--r-op-d)}
+.rl.qc{background:var(--r-qc-w);color:var(--r-qc-d)}
+.rl.pd{background:var(--r-pd-w);color:var(--r-pd-d)}
+.rl.sec{font-weight:600;background:transparent;box-shadow:inset 0 0 0 1px currentColor;opacity:.62}
+.rl.dash{background:transparent;color:#c4bbb2;box-shadow:none}
+.rl.dash::before{display:none}
+
+/* แถบกรอง */
+.tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 14px}
+.fbtn{
+  border:1px solid var(--line);background:var(--card);color:var(--ink-soft);
+  padding:6px 13px;border-radius:999px;font-size:12.5px;font-weight:600;font-family:var(--font-head);
+  display:inline-flex;align-items:center;gap:6px;
+  transition:background-color .15s ease,color .15s ease,transform .12s cubic-bezier(.2,.9,.3,1.4);
+}
+.fbtn:hover{background:var(--brand-soft);color:var(--brand-deep)}
+.fbtn:active{transform:scale(.95)}
+.fbtn.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.fbtn.on.mt{background:var(--r-mt);border-color:var(--r-mt)}
+.fbtn.on.op{background:var(--r-op);border-color:var(--r-op)}
+.fbtn.on.qc{background:var(--r-qc);border-color:var(--r-qc)}
+.fbtn .cnt{font-size:11px;opacity:.7;font-variant-numeric:tabular-nums}
+.srch{
+  flex:1;min-width:160px;max-width:280px;border:1px solid var(--line);background:var(--card);
+  border-radius:999px;padding:7px 14px;font-size:13px;
+  transition:border-color .15s ease,box-shadow .15s ease;
+}
+.srch:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(255,107,0,.14)}
+.spacer{flex:1}
+
+/* สรุปตัวเลข */
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:18px}
+@media(min-width:700px){.stats{grid-template-columns:repeat(4,1fr)}}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;box-shadow:var(--shadow-card)}
+.stat .k{font-size:11.5px;font-weight:600;color:var(--ink-soft)}
+.stat .v{font-family:var(--font-head);font-size:24px;font-weight:600;line-height:1.25;font-variant-numeric:tabular-nums}
+.stat.mt .v{color:var(--r-mt-d)} .stat.op .v{color:var(--r-op-d)}
+.stat.qc .v{color:var(--r-qc-d)} .stat.pd .v{color:var(--r-pd-d)}
+
+/* ══ แบบ A — ตารางเอกสาร ══ */
+.tblwrap{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow-card);overflow:hidden;
+}
+.tblscroll{overflow-x:auto}
+table.doc{border-collapse:collapse;width:100%;min-width:840px;font-size:13.5px}
+table.doc th{
+  font-family:var(--font-head);font-size:12px;font-weight:600;color:var(--ink-soft);text-align:left;
+  padding:10px 14px;background:#fbf7f3;border-bottom:1px solid var(--line);
+}
+table.doc td{padding:9px 14px;border-bottom:1px solid #f5efe9;vertical-align:top}
+table.doc tbody tr{transition:background-color .12s ease}
+table.doc tbody tr:hover{background:#fdfaf7}
+table.doc tr.grp td{
+  background:linear-gradient(90deg,var(--brand-soft),rgba(255,243,234,.25));
+  font-family:var(--font-head);font-weight:600;font-size:13.5px;color:var(--brand-deep);
+  padding:8px 14px;border-bottom:1px solid #f6e2d0;
+}
+table.doc tr.grp .gcount{font-weight:500;font-size:11.5px;color:var(--ink-soft);margin-left:8px}
+table.doc td.task{font-weight:600}
+table.doc td.goal{color:var(--ink-soft);font-size:12.5px}
+table.doc tr.hit td.task{color:var(--r-mt-d)}
+table.doc tr.dim{opacity:.42}
+.thead-note{font-size:11.5px;color:#a49a90;padding:10px 14px;border-top:1px solid var(--line);background:#fdfbf9}
+@media(max-width:820px){
+  table.doc,table.doc thead,table.doc tbody,table.doc th,table.doc td,table.doc tr{display:block}
+  table.doc{min-width:0}
+  table.doc thead{display:none}
+  table.doc tr.row{padding:11px 14px;border-bottom:1px solid #f5efe9}
+  table.doc td{border:none;padding:1px 0}
+  table.doc td.goal::before{content:"🎯 ";opacity:.5}
+  table.doc td.own,table.doc td.own2{display:inline-block;margin:5px 6px 0 0;padding:0}
+  table.doc td.own2:has(.rl.dash){display:none}   /* บนมือถือไม่ต้องโชว์ขีดว่างของผู้รับผิดชอบ 2 */
+  table.doc tr.grp td{display:block}
+}
+
+/* ══ แบบ B — การ์ดรายเครื่องจักร ══ */
+.mgrid{display:grid;gap:14px;grid-template-columns:1fr}
+@media(min-width:760px){.mgrid{grid-template-columns:repeat(2,1fr)}}
+@media(min-width:1180px){.mgrid{grid-template-columns:repeat(3,1fr)}}
+.mcard{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow-card);padding:15px 16px;display:flex;flex-direction:column;gap:11px;
+  transition:transform .18s cubic-bezier(.2,.9,.3,1.3),box-shadow .18s ease;
+}
+.mcard:hover{transform:translateY(-3px);box-shadow:var(--shadow-float)}
+.mcard .mhead{display:flex;align-items:center;gap:11px}
+.ring{width:44px;height:44px;flex:none;position:relative}
+.ring svg{transform:rotate(-90deg);display:block}
+.ring .pc{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--font-head);
+  font-size:11.5px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.mcard h3{font-size:15px;font-weight:600;line-height:1.35}
+.mcard .msub{font-size:11.5px;color:var(--ink-soft)}
+.mlist{display:flex;flex-direction:column;gap:2px;border-top:1px dashed #efe6dc;padding-top:9px}
+.mrow{display:flex;gap:9px;align-items:flex-start;padding:7px 8px;border-radius:10px;
+  transition:background-color .13s ease}
+.mrow:hover{background:#fdfaf7}
+.mrow.mine{background:var(--brand-soft)}
+.mrow.mine:hover{background:#ffeada}
+.tick{width:19px;height:19px;flex:none;margin-top:2px;border-radius:6px;border:1.5px solid #ddd0c3;background:#fff;
+  display:grid;place-items:center;font-size:11px;color:#fff;
+  transition:background-color .15s ease,border-color .15s ease,transform .12s cubic-bezier(.2,.9,.3,1.4)}
+.tick:hover{border-color:var(--brand)}
+.tick:active{transform:scale(.88)}
+.tick.done{background:var(--ok);border-color:var(--ok)}
+.tick.na{border-style:dashed;background:#f7f3ef}
+.mrow .body{flex:1;min-width:0}
+.mrow .t{font-size:13.5px;font-weight:600;line-height:1.45}
+.mrow.done .t{text-decoration:line-through;color:#a89e94}
+.mrow .g{font-size:11.5px;color:var(--ink-soft);line-height:1.5}
+.mrow .owns{display:flex;gap:5px;flex-wrap:wrap;margin-top:4px}
+.mfoot{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px dashed #efe6dc;padding-top:10px;margin-top:auto}
+.mini{border:1px solid var(--line);background:#fdfbf9;color:var(--ink-soft);border-radius:9px;
+  padding:5px 10px;font-size:11.5px;font-weight:600;font-family:var(--font-head);
+  transition:background-color .15s ease,color .15s ease,transform .12s ease}
+.mini:hover{background:var(--brand-soft);color:var(--brand-deep)}
+.mini:active{transform:scale(.95)}
+.mini.pri{background:var(--brand);border-color:var(--brand);color:#fff}
+.mini.pri:hover{background:var(--brand-deep);border-color:var(--brand-deep);color:#fff}
+.badge-open{margin-left:auto;align-self:flex-start;font-size:11px;font-weight:700;color:var(--warn);background:#fdf1de;border-radius:999px;padding:2px 9px}
+
+/* ══ แบบ C — กระดานเวรวันนี้ ══ */
+.segs{display:inline-flex;background:#f2ece6;border-radius:999px;padding:3px;gap:3px}
+.seg{border:none;background:transparent;color:var(--ink-soft);font-family:var(--font-head);
+  font-size:12.5px;font-weight:600;padding:6px 15px;border-radius:999px;
+  transition:background-color .15s ease,color .15s ease}
+.seg.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(63,37,10,.14)}
+.teambar{
+  background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow-card);
+  padding:12px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px;
+}
+.teambar .big{font-family:var(--font-head);font-size:26px;font-weight:600;color:var(--brand-deep);
+  font-variant-numeric:tabular-nums;line-height:1}
+.bar{flex:1;min-width:150px;height:9px;border-radius:999px;background:#f2ece6;overflow:hidden}
+.bar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--brand),#ffa34d)}
+.pcards{display:grid;gap:14px;grid-template-columns:1fr}
+@media(min-width:880px){.pcards{grid-template-columns:repeat(2,1fr)}}
+.pcard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow-card);overflow:hidden}
+.pcard .ph{display:flex;align-items:center;gap:11px;padding:13px 16px;border-bottom:1px solid var(--line)}
+.pcard .av{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;color:#fff;
+  font-family:var(--font-head);font-weight:600;font-size:16px;flex:none;
+  box-shadow:0 3px 8px -2px rgba(63,37,10,.35)}
+.pcard .pn{font-family:var(--font-head);font-size:15px;font-weight:600;line-height:1.3}
+.pcard .pr{font-size:11.5px;color:var(--ink-soft)}
+.pcard .pp{margin-left:auto;text-align:right}
+.pcard .pp b{font-family:var(--font-head);font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+.pcard .pp span{display:block;font-size:11px;color:var(--ink-soft)}
+.pbody{padding:8px 10px 12px}
+.mgroup{font-family:var(--font-head);font-size:11.5px;font-weight:600;color:var(--brand-deep);
+  padding:9px 8px 3px;display:flex;align-items:center;gap:6px}
+.mgroup::after{content:"";flex:1;height:1px;background:#f2e6da}
+.watch{
+  margin-top:12px;background:#fbf7f3;border:1px dashed #e6d8c9;border-radius:12px;padding:11px 13px;
+}
+.watch .wt{font-family:var(--font-head);font-size:12px;font-weight:600;color:var(--ink-soft);display:flex;align-items:center;gap:7px;margin-bottom:7px}
+.watch ul{display:flex;flex-direction:column;gap:5px}
+.watch li{font-size:12.5px;color:var(--ink-soft);display:flex;gap:8px;align-items:flex-start}
+.watch li b{color:var(--ink);font-weight:600}
+.wdot{width:7px;height:7px;border-radius:50%;flex:none;margin-top:7px}
+
+/* ══ แท็บ 0 — ตารางต้นฉบับ ══ */
+.rawwrap{background:#fff;border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow-card);overflow:hidden}
+.rawscroll{overflow-x:auto}
+table.raw{border-collapse:collapse;width:100%;min-width:820px;font-size:12.5px}
+table.raw th{background:#d9d9d9;font-family:var(--font-head);font-weight:600;font-size:12.5px;
+  padding:6px 10px;border:1px solid #bfbfbf;text-align:center}
+table.raw td{padding:5px 10px;border:1px solid #d5d5d5;white-space:nowrap}
+table.raw td.c{text-align:center}
+table.raw tr:nth-child(even){background:#fafafa}
+
+/* ══ กล่องสรุปข้อดี/ข้อเสียท้ายแต่ละแบบ ══ */
+.verdict{
+  display:grid;gap:12px;grid-template-columns:1fr;margin-top:24px;
+}
+@media(min-width:760px){.verdict{grid-template-columns:repeat(3,1fr)}}
+.vbox{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:13px 15px;box-shadow:var(--shadow-card)}
+.vbox h4{font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px;margin-bottom:7px}
+.vbox ul{display:flex;flex-direction:column;gap:5px}
+.vbox li{font-size:12.5px;color:var(--ink-soft);line-height:1.6;padding-left:16px;position:relative}
+.vbox li::before{content:"•";position:absolute;left:4px;color:var(--brand);font-weight:700}
+.vbox.warn li::before{content:"–";color:var(--warn)}
+.vbox.work li::before{content:"›";color:var(--cip1)}
+</style>
+</head>
+<body>
+
+<div class="optbar">
+  <div class="ttl">🔧 โซน<em>เจ้าหน้าที่ซ่อมบำรุง</em> — mockup 3 แบบ</div>
+  <button class="optbtn" data-go="v0"><span class="n">0</span>ตารางต้นฉบับ</button>
+  <button class="optbtn on" data-go="vA"><span class="n">A</span>ตารางเอกสาร</button>
+  <button class="optbtn" data-go="vB"><span class="n">B</span>การ์ดรายเครื่อง</button>
+  <button class="optbtn" data-go="vC"><span class="n">C</span>กระดานเวรวันนี้</button>
+</div>
+
+<!-- ══════════ 0 · ตารางต้นฉบับ ══════════ -->
+<section class="sheet" id="v0">
+  <div class="amain"><div class="abody" style="padding-top:26px">
+    <div class="eyebrow">📄 ที่มาของข้อมูล</div>
+    <div class="phead"><h1>ตารางต้นฉบับที่แปะไว้ในโน้ต</h1></div>
+    <p class="sub" style="font-size:13px;color:var(--ink-soft);margin-top:4px">
+      34 รายการ · 8 กลุ่มเครื่องจักร · 4 บทบาท — ทั้ง 3 แบบด้านล่างใช้ข้อมูลชุดนี้เหมือนกันหมด เปลี่ยนแค่วิธีแสดง
+    </p>
+    <div class="note">
+      <b>ที่แก้จากต้นฉบับ 1 จุด:</b> แถวที่ 2 ในรูปพิมพ์ว่า “จัด<u>นักงาน</u>เข้าไลน์ผลิต” — ตรงนี้ใส่เป็น
+      “จัด<b>พนักงาน</b>เข้าไลน์ผลิต” ให้แล้ว ถ้าอยากได้ตามรูปเป๊ะบอกได้
+    </div>
+    <div class="rawwrap"><div class="rawscroll"><table class="raw" id="rawtbl"></table></div></div>
+  </div></div>
+</section>
+
+<!-- ══════════ A · ตารางเอกสาร ══════════ -->
+<section class="sheet on" id="vA"></section>
+
+<!-- ══════════ B · การ์ดรายเครื่องจักร ══════════ -->
+<section class="sheet" id="vB"></section>
+
+<!-- ══════════ C · กระดานเวรวันนี้ ══════════ -->
+<section class="sheet" id="vC"></section>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════
+   ข้อมูลจริงถอดจาก Pasted image 20260818184156.png (34 แถว)
+   m = เครื่องจักร · t = รายการที่ต้องทำ · g = เป้าหมาย · o = ผู้รับผิดชอบหลัก · o2 = ผู้รับผิดชอบ 2
+   ════════════════════════════════════════════════════════════════════ */
+const ROLES = {
+  mt:{k:'mt',label:'Maintenance',th:'ซ่อมบำรุง',c:'var(--r-mt)'},
+  op:{k:'op',label:'Operate',th:'ควบคุมผลิต',c:'var(--r-op)'},
+  qc:{k:'qc',label:'QC',th:'ตรวจคุณภาพ',c:'var(--r-qc)'},
+  pd:{k:'pd',label:'พนักงานผลิต',th:'พนักงานผลิต',c:'var(--r-pd)'},
+};
+const D = [
+  {m:'', t:'ตรวจสอบแผนผลิต', g:'ทราบแผนประจำกะ', o:'op', o2:'mt'},
+  {m:'', t:'จัดพนักงานเข้าไลน์ผลิต', g:'พนักงานครบประจำตำแหน่ง', o:'op', o2:''},
+
+  {m:'เครื่องยิงวันที่', t:'ติดตั้งเครื่องยิงวันที่', g:'ครบทุกไลน์ผลิต', o:'mt', o2:''},
+  {m:'เครื่องยิงวันที่', t:'ทดสอบเครื่องยิง', g:'คมชัด ขนาดถูกต้อง', o:'mt', o2:''},
+  {m:'เครื่องยิงวันที่', t:'ตั้งค่า Lot No', g:'Lot No ถูกต้อง', o:'op', o2:'qc'},
+  {m:'เครื่องยิงวันที่', t:'ล้างทำความสะอาดหัวยิง', g:'หลังหยุดใช้งานใช้งานได้', o:'mt', o2:''},
+  {m:'เครื่องยิงวันที่', t:'แก้ไข Alarm / ประสานงาน Supplier', g:'แก้ไขใช้งานได้', o:'mt', o2:''},
+
+  {m:'เครื่องชั่ง Mettler1/2/Ishida', t:'ตั้งค่า Lot No / SKU / ยอดผลิต', g:'Lot No/SKU/ยอดผลิต ถูกต้อง', o:'op', o2:''},
+  {m:'เครื่องชั่ง Mettler1/2/Ishida', t:'ตรวจสอบ Pass/NG', g:'ไม่พบปัญหาน้ำหนักเกินขาด', o:'mt', o2:'qc'},
+  {m:'เครื่องชั่ง Mettler1/2/Ishida', t:'ทำความสะอาดเครื่อง', g:'หลังหยุดใช้งานใช้งานได้', o:'pd', o2:'mt'},
+  {m:'เครื่องชั่ง Mettler1/2/Ishida', t:'แก้ไข Alarm / ประสานงาน Supplier', g:'แก้ไขใช้งานได้', o:'mt', o2:''},
+
+  {m:'เครื่องจับโละ 900g/25kg/ปี๊บ', t:'ตั้งค่า SKU', g:'SKU ถูกต้อง', o:'mt', o2:''},
+  {m:'เครื่องจับโละ 900g/25kg/ปี๊บ', t:'ตรวจสอบ Pass/NG', g:'ไม่พบปัญหาน้ำหนักเกินขาด', o:'mt', o2:'qc'},
+  {m:'เครื่องจับโละ 900g/25kg/ปี๊บ', t:'ทำความสะอาดเครื่อง', g:'หลังหยุดใช้งานใช้งานได้', o:'pd', o2:'mt'},
+  {m:'เครื่องจับโละ 900g/25kg/ปี๊บ', t:'แก้ไข Alarm / ประสานงาน Supplier', g:'แก้ไขใช้งานได้', o:'mt', o2:''},
+
+  {m:'เครื่องชั่งเล็กประจำไลน์', t:'ติดตั้งครบพร้อมใช้งาน', g:'หลังหยุดใช้งานใช้งานได้', o:'pd', o2:'op'},
+  {m:'เครื่องชั่งเล็กประจำไลน์', t:'ทำความสะอาดเครื่อง', g:'หลังหยุดใช้งานใช้งานได้', o:'pd', o2:'op'},
+  {m:'เครื่องชั่งเล็กประจำไลน์', t:'การจัดเก็บหลังเลิกใช้งาน', g:'หลังหยุดใช้งานใช้งานได้', o:'pd', o2:'op'},
+  {m:'เครื่องชั่งเล็กประจำไลน์', t:'แก้ไข Alarm / ประสานงาน Instrument', g:'แก้ไขใช้งานได้', o:'mt', o2:''},
+
+  {m:'ตั้งไลน์สำหรับผลิต', t:'จัดโต๊ะ', g:'พื้นที่พร้อมใช้งาน', o:'pd', o2:'op'},
+  {m:'ตั้งไลน์สำหรับผลิต', t:'เตรียมอุปกรณ์', g:'อุปกรณ์พร้อมใช้งาน', o:'pd', o2:'op'},
+  {m:'ตั้งไลน์สำหรับผลิต', t:'ทำความสะอาดโต๊ะ อุปกรณ์', g:'ความสะอาดพร้อมใช้งาน', o:'pd', o2:'op'},
+  {m:'ตั้งไลน์สำหรับผลิต', t:'จัดเก็บ', g:'หลังหยุดใช้งานใช้งานได้', o:'pd', o2:'op'},
+
+  {m:'เครื่องปิดลัง', t:'ตั้งค่าขนาดกล่องตาม SKU', g:'SKU ถูกต้อง', o:'mt', o2:''},
+  {m:'เครื่องปิดลัง', t:'ตรวจสอบความสามารถในการปิดลัง', g:'เทปกาวไม่หลุด ลังไม่เสียหาย', o:'mt', o2:''},
+  {m:'เครื่องปิดลัง', t:'ตรวจสอบระยะเทปปิดลัง', g:'เทปกาวไม่หลุด ลังไม่เสียหาย', o:'mt', o2:''},
+  {m:'เครื่องปิดลัง', t:'ทำความสะอาดเครื่อง', g:'หลังหยุดใช้งานใช้งานได้', o:'pd', o2:'mt'},
+
+  {m:'เครื่องซีลแนวตั้ง', t:'วางเครื่องครบประจำตำแหน่ง', g:'ครบทุกไลน์ผลิต', o:'pd', o2:'op'},
+  {m:'เครื่องซีลแนวตั้ง', t:'ตั้งค่า Temp ตาม Control', g:'รอยซีลไม่รั่ว', o:'mt', o2:''},
+  {m:'เครื่องซีลแนวตั้ง', t:'ตรวจสอบรอยซีลก่อนใช้งาน', g:'รอยซีลไม่รั่ว', o:'mt', o2:''},
+  {m:'เครื่องซีลแนวตั้ง', t:'ทำความสะอาดหลังเลิกใช้งาน', g:'หลังหยุดใช้งานใช้งานได้', o:'pd', o2:'mt'},
+  {m:'เครื่องซีลแนวตั้ง', t:'จัดเก็บ', g:'หลังหยุดใช้งานใช้งานได้', o:'pd', o2:'op'},
+
+  {m:'เครน', t:'ตรวจสอบความสมบูรณ์ สลิง & Hook', g:'พร้อมใช้งาน', o:'mt', o2:''},
+  {m:'เครน', t:'ใช้งานถูกต้องตามวิธี', g:'ไม่เสียหาย', o:'pd', o2:'op'},
+];
+const NOMACHINE = 'งานเปิดกะ (ไม่ผูกเครื่องจักร)';
+const MACHINE_IC = {
+  'เครื่องยิงวันที่':'🖨', 'เครื่องชั่ง Mettler1/2/Ishida':'⚖️', 'เครื่องจับโละ 900g/25kg/ปี๊บ':'📦',
+  'เครื่องชั่งเล็กประจำไลน์':'🧮', 'ตั้งไลน์สำหรับผลิต':'🧰', 'เครื่องปิดลัง':'📮',
+  'เครื่องซีลแนวตั้ง':'🔥', 'เครน':'🏗', [NOMACHINE]:'🗒',
+};
+/* ทีมซ่อมบำรุง (ตามโน้ต: ชื่อกะ + สมาชิก 3 ช่อง) */
+const TEAM = {shift:'กะ 1', mates:['นาย จักรกฤษ พูลสวัสดิ์','','']};
+/* สถานะติ๊กตัวอย่างของแบบ B/C — ให้เห็นว่าเสร็จ/ยัง/ข้ามหน้าตาเป็นยังไง */
+const DONE = new Set([0,2,3,5,7,11,19,20,23,28,32]);
+const NA   = new Set([6,10,14,18]);
+
+/* ── กลุ่มตามเครื่องจักร (คงลำดับเดิมของตาราง) ── */
+const groups = [];
+D.forEach((r,i)=>{
+  const key = r.m || NOMACHINE;
+  let g = groups.find(x=>x.name===key);
+  if(!g){ g={name:key, rows:[]}; groups.push(g); }
+  g.rows.push({...r, i});
+});
+const count = k => D.filter(r=>r.o===k).length;
+const esc = s => String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const chip = (k,sec) => k ? `<span class="rl ${k}${sec?' sec':''}">${esc(ROLES[k].label)}</span>`
+                          : `<span class="rl dash">—</span>`;
+
+/* ════════ โครงหน้า Admin (แถบบน + เมนูซ้าย) — ใช้ซ้ำทุกแบบ ════════ */
+const MENU = [
+  ['📊','ภาพรวม'], ['🕒','Timeline รับ-ส่งกะ'], ['🏭','ลงยอดผลิต'], ['✅','งานวันนี้'],
+  ['🧭','พื้นที่รับผิดชอบ'], ['📅','ปฏิทิน'], ['📈','รายงาน'], ['🔁','งานประจำ'], ['🤖','AI ผู้ช่วย'],
+];
+const MENU_KM = [
+  ['✍️','บทความ / คู่มือระบบ'], ['📥','จาก Obsidian'], ['🗄','คลังไฟล์'],
+  ['📘','คู่มือ / SOP'], ['⚙️','ทะเบียนเครื่องจักร'], ['⚡','เหตุการณ์'],
+];
+function chrome(activeLabel, badge){
+  const item = ([ic,l],on)=>`<button class="rsbtn${on?' on':''}"><span class="ic">${ic}</span>${l}${
+    on&&badge?`<span class="tag">${badge}</span>`:''}</button>`;
+  const sub = ([ic,l],on)=>`<button class="rsbtn sub${on?' on':''}"><span class="ic">${ic}</span>${l}</button>`;
+  return `
+  <div class="atop">
+    <button class="logo"><span class="lg-mark">SP</span><span class="lg-word">SPP-MP</span></button>
+    <div class="search">🔎 ค้นหางาน, batch, คู่มือ…</div>
+    <span class="sys"><span class="dot"></span>ระบบปกติ</span>
+    <span class="achip"><span class="av">จ</span>จักรกฤษ</span>
+    <button class="abtn ghost"><span>↩</span>ออกจาก Admin</button>
+  </div>
+  <div class="amain">
+    <aside class="aside-r">
+      ${MENU.map(m=>item(m,false)).join('')}
+      <div class="rsgroup">🔧 งานซ่อมบำรุง<span class="new">ใหม่</span></div>
+      ${sub(['👷','ทีมซ่อมบำรุง'], activeLabel==='ทีมซ่อมบำรุง')}
+      ${sub(['🛠','งาน PM รายเครื่องจักร'], activeLabel==='งาน PM รายเครื่องจักร')}
+      ${sub(['🧾','ประวัติซ่อม'], false)}
+      <div class="rsgroup km">📚 Knowledge management<span class="new">ใหม่</span></div>
+      ${MENU_KM.map(m=>sub(m,false)).join('')}
+      <div style="height:14px"></div>
+      ${item(['📋','คู่มือ Line 4'],false)}
+      ${item(['🗂️','QC Record'],false)}
+    </aside>
+    <div class="abody" id="BODY"></div>
+  </div>`;
+}
+/* การ์ดทีมซ่อมบำรุง — ตรงกับ "ชื่อกะ / ชื่อทีมงาน 1. 2. 3." ในโน้ต */
+function teamCard(){
+  const mate = (nm,i)=>`
+    <div class="mate">
+      <span class="no">${i+1}</span>
+      <span class="nm${nm?'':' empty'}">${nm?esc(nm):'— ยังไม่ระบุ —'}</span>
+      ${i===0&&nm?'<span class="lead">หัวหน้า</span>':''}
+      ${nm?'<button class="x" title="เอาออก">✕</button>':''}
+    </div>`;
+  return `
+  <div class="team">
+    <h3>👷 ทีมซ่อมบำรุง</h3>
+    <div class="shiftline">
+      <label for="shname">ชื่อกะ</label>
+      <input class="tinput" id="shname" value="${TEAM.shift}">
+      <span style="font-size:12px;color:var(--ink-soft)">· สมาชิก <b>${TEAM.mates.filter(Boolean).length}</b> คน</span>
+      <span class="spacer"></span>
+      <button class="fbtn">⚙️ ตั้งค่าทีม</button>
+    </div>
+    <div class="mates">
+      ${TEAM.mates.map(mate).join('')}
+      <div class="mate add">＋ เพิ่มสมาชิก</div>
+    </div>
+  </div>`;
+}
+function stats(){
+  return `<div class="stats">
+    <div class="stat mt"><div class="k">🔧 Maintenance ทำเอง</div><div class="v">${count('mt')}</div></div>
+    <div class="stat op"><div class="k">🎛 Operate</div><div class="v">${count('op')}</div></div>
+    <div class="stat qc"><div class="k">🔬 QC (ผู้รับผิดชอบ 2)</div><div class="v">${D.filter(r=>r.o==='qc'||r.o2==='qc').length}</div></div>
+    <div class="stat pd"><div class="k">👥 พนักงานผลิต</div><div class="v">${count('pd')}</div></div>
+  </div>`;
+}
+function verdict(good,bad,work){
+  const li = a=>a.map(x=>`<li>${x}</li>`).join('');
+  return `<div class="verdict">
+    <div class="vbox"><h4>✅ ดีตรงไหน</h4><ul>${li(good)}</ul></div>
+    <div class="vbox warn"><h4>⚠️ แลกมากับ</h4><ul>${li(bad)}</ul></div>
+    <div class="vbox work"><h4>🛠 งานที่ต้องเขียน</h4><ul>${li(work)}</ul></div>
+  </div>`;
+}
+
+/* ════════ 0 · ตารางต้นฉบับ ════════ */
+document.getElementById('rawtbl').innerHTML =
+  `<thead><tr><th>เครื่องจักร</th><th>รายการที่ต้องทำ</th><th>เป้าหมาย</th><th>ผู้รับผิดชอบหลัก</th><th>ผู้รับผิดชอบ 2</th></tr></thead>
+   <tbody>${D.map((r,i)=>{
+     const first = i===0 || D[i-1].m!==r.m;
+     return `<tr><td>${first?esc(r.m):''}</td><td>${esc(r.t)}</td><td>${esc(r.g)}</td>
+       <td class="c">${r.o?ROLES[r.o].label:''}</td><td class="c">${r.o2?ROLES[r.o2].label:''}</td></tr>`;
+   }).join('')}</tbody>`;
+
+/* ════════ A · ตารางเอกสาร ════════ */
+function buildA(){
+  const rows = groups.map(g=>{
+    const head = `<tr class="grp"><td colspan="5">${MACHINE_IC[g.name]||'🔩'} ${esc(g.name)}
+      <span class="gcount">${g.rows.length} รายการ · ซ่อมบำรุงทำเอง ${g.rows.filter(r=>r.o==='mt').length}</span></td></tr>`;
+    const body = g.rows.map(r=>`
+      <tr class="row" data-o="${r.o}" data-o2="${r.o2}">
+        <td></td>
+        <td class="task">${esc(r.t)}</td>
+        <td class="goal">${esc(r.g)}</td>
+        <td class="own">${chip(r.o)}</td>
+        <td class="own2">${chip(r.o2,true)}</td>
+      </tr>`).join('');
+    return head+body;
+  }).join('');
+  document.getElementById('vA').innerHTML = chrome('งาน PM รายเครื่องจักร', String(D.length));
+  document.querySelector('#vA #BODY').innerHTML = `
+    <div class="eyebrow">🔧 งานซ่อมบำรุง</div>
+    <div class="phead"><h1>งาน PM รายเครื่องจักร</h1><span class="sub">${D.length} รายการ · ${groups.length} กลุ่มเครื่องจักร</span></div>
+    ${teamCard()}
+    ${stats()}
+    <div class="tools">
+      <button class="fbtn on" data-f="all">ทั้งหมด <span class="cnt">${D.length}</span></button>
+      <button class="fbtn mt" data-f="mt">🔧 เฉพาะ Maintenance <span class="cnt">${count('mt')}</span></button>
+      <button class="fbtn op" data-f="op">🎛 Operate <span class="cnt">${count('op')}</span></button>
+      <button class="fbtn qc" data-f="qc">🔬 QC <span class="cnt">${D.filter(r=>r.o==='qc'||r.o2==='qc').length}</span></button>
+      <input class="srch" placeholder="🔎 ค้นหางาน / เครื่องจักร…">
+      <span class="spacer"></span>
+      <button class="fbtn">＋ เพิ่มรายการ</button>
+      <button class="fbtn">⬇ ออกไฟล์</button>
+    </div>
+    <div class="tblwrap">
+      <div class="tblscroll">
+        <table class="doc">
+          <thead><tr>
+            <th style="width:0"></th><th style="width:31%">รายการที่ต้องทำ</th><th style="width:28%">เป้าหมาย</th>
+            <th style="width:16%">ผู้รับผิดชอบหลัก</th><th style="width:16%">ผู้รับผิดชอบ 2</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div class="thead-note">คลิกช่องไหนก็แก้ได้ทันที · แถวใหม่กด “＋ เพิ่มรายการ” · กรอง “เฉพาะ Maintenance” แล้วปรินต์เป็นใบงานของทีมได้</div>
+    </div>
+    ${verdict(
+      ['หน้าตาเดียวกับตารางที่ใช้อยู่ — เปิดแล้วเข้าใจทันที ไม่ต้องสอน',
+       'เห็นภาพรวมทั้งโรงในจอเดียว เทียบข้ามเครื่องจักรได้',
+       'กรอง “เฉพาะ Maintenance” แล้วปรินต์/ส่งต่อเป็นเอกสารได้เลย'],
+      ['เป็นทะเบียนงาน ไม่ใช่กระดานทำงานรายวัน — ยังต้องมีที่ติ๊กงานอีกหน้า',
+       'บนมือถือถึงจะพับเป็นการ์ดให้ แต่ตารางยาว 34 แถวก็ยังต้องเลื่อนเยอะ'],
+      ['ตาราง master ใหม่ + ช่อง เครื่องจักร/เป้าหมาย/ผู้รับผิดชอบ 2',
+       'หน้าแก้ inline + ตัวกรอง', 'ยังไม่ผูกกับ duty board เดิม']
+    )}`;
+}
+
+/* ════════ B · การ์ดรายเครื่องจักร ════════ */
+function buildB(){
+  const cards = groups.map(g=>{
+    const mine = g.rows.filter(r=>r.o==='mt').length;
+    const done = g.rows.filter(r=>DONE.has(r.i)).length;
+    const pct = Math.round(done/g.rows.length*100);
+    const C=2*Math.PI*18;
+    const list = g.rows.map(r=>{
+      const isDone=DONE.has(r.i), isNa=NA.has(r.i), isMine=r.o==='mt';
+      return `<div class="mrow${isMine?' mine':''}${isDone?' done':''}">
+        <button class="tick${isDone?' done':''}${isNa?' na':''}" aria-label="ติ๊กว่าทำแล้ว">${isDone?'✓':''}</button>
+        <div class="body">
+          <div class="t">${esc(r.t)}</div>
+          <div class="g">🎯 ${esc(r.g)}</div>
+          <div class="owns">${chip(r.o)}${r.o2?chip(r.o2,true):''}</div>
+        </div>
+      </div>`;
+    }).join('');
+    return `<article class="mcard">
+      <div class="mhead">
+        <div class="ring">
+          <svg width="44" height="44"><circle cx="22" cy="22" r="18" fill="none" stroke="#f2ece6" stroke-width="5"/>
+          <circle cx="22" cy="22" r="18" fill="none" stroke="var(--brand)" stroke-width="5" stroke-linecap="round"
+            stroke-dasharray="${C}" stroke-dashoffset="${C*(1-pct/100)}"/></svg>
+          <span class="pc">${pct}%</span>
+        </div>
+        <div style="min-width:0">
+          <h3>${MACHINE_IC[g.name]||'🔩'} ${esc(g.name)}</h3>
+          <div class="msub">${g.rows.length} รายการ · ซ่อมบำรุงทำเอง ${mine}</div>
+        </div>
+        ${mine-g.rows.filter(r=>r.o==='mt'&&DONE.has(r.i)).length>0
+          ? `<span class="badge-open">ค้าง ${mine-g.rows.filter(r=>r.o==='mt'&&DONE.has(r.i)).length}</span>`:''}
+      </div>
+      <div class="mlist">${list}</div>
+      <div class="mfoot">
+        <button class="mini pri">📷 แนบรูปหลังทำ</button>
+        <button class="mini">🧾 ประวัติซ่อม</button>
+        <button class="mini">📘 SOP</button>
+      </div>
+    </article>`;
+  }).join('');
+  document.getElementById('vB').innerHTML = chrome('งาน PM รายเครื่องจักร', String(groups.length));
+  document.querySelector('#vB #BODY').innerHTML = `
+    <div class="eyebrow">🔧 งานซ่อมบำรุง</div>
+    <div class="phead"><h1>งาน PM รายเครื่องจักร</h1><span class="sub">${groups.length} เครื่อง · แถบส้ม = งานที่ทีมซ่อมบำรุงทำเอง</span></div>
+    ${teamCard()}
+    <div class="tools">
+      <button class="fbtn on" data-f="all">ทุกเครื่อง</button>
+      <button class="fbtn mt" data-f="mt">🔧 เฉพาะงานของเรา</button>
+      <button class="fbtn">📅 วันนี้</button>
+      <input class="srch" placeholder="🔎 ค้นหาเครื่องจักร…">
+      <span class="spacer"></span>
+      <button class="fbtn">＋ เพิ่มเครื่องจักร</button>
+    </div>
+    <div class="mgrid">${cards}</div>
+    ${verdict(
+      ['ตรงกับวิธีทำงานจริง — เดินไปทีละเครื่อง ติ๊กทีละการ์ด',
+       'เห็นทันทีว่าเครื่องไหนยังค้าง (วงแหวน % + ป้ายค้าง)',
+       'ต่อยอดเข้าตาราง <b>machines</b> ของแผน ERP Phase 1 ได้ตรงที่สุด — ประวัติซ่อม/SOP ผูกกับเครื่องได้เลย'],
+      ['ภาพรวมทั้งโรงต้องเลื่อนดู ไม่เห็นครบในจอเดียวเท่าแบบ A',
+       'ยังต้องมีหน้าแก้ทะเบียนงานแยกอีกที (การ์ดเน้นใช้งาน ไม่ใช่แก้ข้อมูล)'],
+      ['ตาราง machines + ผูกงานเข้าเครื่อง', 'การ์ด + วงแหวน + ติ๊ก/แนบรูป (ใช้ท่อ routine เดิมได้)',
+       'หน้าประวัติซ่อมรายเครื่อง (ของใหม่ทั้งหมด)']
+    )}`;
+}
+
+/* ════════ C · กระดานเวรวันนี้ ════════ */
+function buildC(){
+  const mine = D.map((r,i)=>({...r,i})).filter(r=>r.o==='mt');
+  const others = D.map((r,i)=>({...r,i})).filter(r=>r.o!=='mt' && r.o2==='mt');
+  const people = [
+    {nm:'จักรกฤษ พูลสวัสดิ์', role:'เจ้าหน้าที่ซ่อมบำรุง · หัวหน้าทีม', c:'#ff6b00', ini:'จ',
+     take:mine.slice(0,9)},
+    {nm:'ยังไม่มีเจ้าภาพ', role:'รอเติมชื่อสมาชิกคนที่ 2 ของกะ', c:'#b6ada4', ini:'?', take:mine.slice(9)},
+  ];
+  const doneAll = mine.filter(r=>DONE.has(r.i)).length;
+  const pct = Math.round(doneAll/mine.length*100);
+
+  const pcard = p=>{
+    const byM = [];
+    p.take.forEach(r=>{
+      const key=r.m||NOMACHINE; let g=byM.find(x=>x.name===key);
+      if(!g){g={name:key,rows:[]};byM.push(g);} g.rows.push(r);
+    });
+    const done = p.take.filter(r=>DONE.has(r.i)).length;
+    const body = byM.map(g=>`
+      <div class="mgroup">${MACHINE_IC[g.name]||'🔩'} ${esc(g.name)}</div>
+      ${g.rows.map(r=>{
+        const isDone=DONE.has(r.i), isNa=NA.has(r.i);
+        return `<div class="mrow${isDone?' done':''}">
+          <button class="tick${isDone?' done':''}${isNa?' na':''}" aria-label="ติ๊กว่าทำแล้ว">${isDone?'✓':''}</button>
+          <div class="body"><div class="t">${esc(r.t)}</div><div class="g">🎯 ${esc(r.g)}</div></div>
+        </div>`;
+      }).join('')}`).join('');
+    return `<article class="pcard">
+      <div class="ph">
+        <span class="av" style="background:${p.c}">${p.ini}</span>
+        <div style="min-width:0"><div class="pn">${esc(p.nm)}</div><div class="pr">${esc(p.role)}</div></div>
+        <div class="pp"><b>${done}/${p.take.length}</b><span>ทำแล้ว</span></div>
+      </div>
+      <div class="pbody">${body || '<div class="mgroup">ยังไม่มีงานในช่องนี้</div>'}</div>
+    </article>`;
+  };
+
+  document.getElementById('vC').innerHTML = chrome('ทีมซ่อมบำรุง', String(mine.length-doneAll));
+  document.querySelector('#vC #BODY').innerHTML = `
+    <div class="eyebrow">🔧 งานซ่อมบำรุง</div>
+    <div class="phead">
+      <h1>กระดานเวรวันนี้ — ทีมซ่อมบำรุง</h1>
+      <span class="sub">อังคาร 19 ส.ค. 2026 · ${TEAM.shift}</span>
+    </div>
+    ${teamCard()}
+    <div class="tools">
+      <span class="segs"><button class="seg on">👤 ตามคน</button><button class="seg">🔩 ตามเครื่องจักร</button></span>
+      <span class="spacer"></span>
+      <button class="fbtn">📨 ส่งเข้า Telegram</button>
+      <button class="fbtn">⚙️ จัดการคน / งาน</button>
+    </div>
+    <div class="teambar">
+      <div><div style="font-size:11.5px;color:var(--ink-soft);font-weight:600">ทั้งทีมวันนี้</div>
+        <div class="big">${doneAll}<span style="font-size:15px;color:var(--ink-soft)">/${mine.length}</span></div></div>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <div style="font-family:var(--font-head);font-weight:600;font-size:15px;color:var(--brand-deep)">${pct}%</div>
+    </div>
+    <div class="pcards">${people.map(pcard).join('')}</div>
+    <div class="watch">
+      <div class="wt">👀 ทีมผลิตทำ — เราแค่ตามผล (${others.length} รายการ)</div>
+      <ul>${others.slice(0,6).map(r=>`
+        <li><span class="wdot" style="background:${ROLES[r.o].c}"></span>
+          <span><b>${esc(r.t)}</b> · ${esc(r.m||NOMACHINE)} — หลัก ${ROLES[r.o].label}</span></li>`).join('')}
+        ${others.length>6?`<li><span class="wdot" style="background:#d8cec4"></span><span>…อีก ${others.length-6} รายการ</span></li>`:''}
+      </ul>
+    </div>
+    ${verdict(
+      ['หน้าตาเดียวกับกระดาน “งานวันนี้” ที่ทีมใช้อยู่ — ไม่ต้องเรียนหน้าจอใหม่',
+       'ใช้ท่อเดิมได้เกือบหมด (duty_people kind=maint + routine_state + ส่ง Telegram) — <b>งานเขียนโค้ดน้อยที่สุด</b>',
+       'แยก “งานเรา” กับ “งานที่แค่ตามผล” ชัด ไม่ต้องติ๊กงานคนอื่น'],
+      ['เป็นมุมมองรายวัน — ทะเบียนงานทั้งหมด/เป้าหมายละเอียดต้องดูอีกหน้า',
+       'ช่องสมาชิกที่ยังว่างจะเห็นการ์ดเปล่า ๆ จนกว่าจะเติมชื่อ'],
+      ['เพิ่ม kind=\'maint\' + โหมด maint ใน buildDuty()', 'ป้ายบทบาทในเช็กลิสต์ + แถบ “ตามผล”',
+       'มุมมอง “ตามเครื่องจักร” ต้องมีช่อง machine ในงาน']
+    )}`;
+}
+
+buildA(); buildB(); buildC();
+
+/* ── สลับแบบ ── */
+document.querySelectorAll('.optbtn').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('.optbtn').forEach(x=>x.classList.remove('on'));
+    document.querySelectorAll('.sheet').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    document.getElementById(b.dataset.go).classList.add('on');
+    window.scrollTo({top:0});
+  });
+});
+/* ── ตัวกรองบทบาทของแบบ A (ให้กดเล่นได้จริงตอนรีวิว) ── */
+document.querySelectorAll('#vA .fbtn[data-f]').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('#vA .fbtn[data-f]').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    const f=b.dataset.f;
+    document.querySelectorAll('#vA tr.row').forEach(tr=>{
+      const hit = f==='all' || tr.dataset.o===f || tr.dataset.o2===f;
+      tr.classList.toggle('dim', !hit);
+      tr.classList.toggle('hit', f!=='all' && hit);
+    });
+  });
+});
+/* ── ติ๊กงานได้จริงในแบบ B/C (ให้ลองกดดูหน้าตาตอนเสร็จ) ── */
+document.addEventListener('click',e=>{
+  const t=e.target.closest('.tick'); if(!t) return;
+  const on=t.classList.toggle('done');
+  t.textContent = on?'✓':'';
+  t.closest('.mrow').classList.toggle('done', on);
+});
+</script>
+</body>
+</html>

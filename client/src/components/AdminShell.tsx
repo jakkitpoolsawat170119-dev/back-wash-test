@@ -12,14 +12,19 @@ import SkuReviewPanel from './SkuReviewPanel';
 import ProductionTimeline from './ProductionTimeline';
 import BlogEditor from './BlogEditor';
 import ObsidianInbox from './ObsidianInbox';
+import MaintenanceBoard from './MaintenanceBoard';
 import ErrorBoundary from './ErrorBoundary';
 
 type TodoTab = 'today' | 'audit' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs';
-type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline' | 'blog' | 'obsidian';
+type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline' | 'blog' | 'obsidian' | 'maint';
 
 const TODO_TABS: string[] = ['today', 'audit', 'calendar', 'report', 'timeline', 'recurring', 'ai', 'specs'];
 
-const MENU: { pane: Pane; ic: string; label: string; sub?: boolean }[] = [
+// เมนูเดียวใช้ทั้งแถบซ้ายและ dropdown · แถวที่มี head = หัวข้อกลุ่ม (ไม่ใช่ปุ่ม)
+type MenuRow = { pane: Pane; ic: string; label: string; sub?: boolean } | { head: string; ic: string; km?: boolean };
+const isHead = (m: MenuRow): m is { head: string; ic: string; km?: boolean } => 'head' in m;
+
+const MENU: MenuRow[] = [
   { pane: 'overview', ic: '📊', label: 'ภาพรวม' },
   { pane: 'timeline', ic: '🕒', label: 'Timeline รับ-ส่งกะ' },
   { pane: 'sppreport', ic: '🏭', label: 'ลงยอดผลิต' },
@@ -32,14 +37,17 @@ const MENU: { pane: Pane; ic: string; label: string; sub?: boolean }[] = [
   { pane: 'report', ic: '📈', label: 'รายงาน' },
   { pane: 'recurring', ic: '🔁', label: 'งานประจำ' },
   { pane: 'ai', ic: '🤖', label: 'AI ผู้ช่วย' },
-  { pane: 'blog', ic: '✍️', label: 'บทความ / คู่มือระบบ' },
+  { head: 'งานซ่อมบำรุง', ic: '🔧' },
+  { pane: 'maint', ic: '👷', label: 'กระดานทีมซ่อมบำรุง', sub: true },
+  { head: 'Knowledge management', ic: '📚', km: true },
+  { pane: 'blog', ic: '✍️', label: 'บทความ / คู่มือระบบ', sub: true },
   { pane: 'obsidian', ic: '📥', label: 'จาก Obsidian', sub: true },
   { pane: 'line4', ic: '📋', label: 'คู่มือ Line 4' },
   { pane: 'stickeradmin', ic: '🗂️', label: 'QC Record' },
   { pane: 'specs', ic: '📐', label: 'สเปคคุณภาพ', sub: true },
 ];
 
-const PANES: Pane[] = MENU.map(m => m.pane);
+const PANES: Pane[] = MENU.filter(m => !isHead(m)).map(m => (m as { pane: Pane }).pane);
 
 interface Props {
   operator: string;
@@ -99,7 +107,11 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
   const isTodo = TODO_TABS.includes(pane);
   const MenuButtons = ({ cls }: { cls: 'rsbtn' | 'menu' }) => (
     <>
-      {MENU.map(m => (
+      {MENU.map(m => (isHead(m) ? (
+        <div key={m.head} className={`rsgroup${m.km ? ' km' : ''}`}>
+          <span className="ic">{m.ic}</span>{m.head}
+        </div>
+      ) : (
         <button
           key={m.pane}
           className={`${cls === 'rsbtn' ? 'rsbtn' : ''}${m.sub ? ' sub' : ''}${pane === m.pane ? ' on' : ''}`}
@@ -107,7 +119,7 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
         >
           <span className="ic">{m.ic}</span>{m.label}
         </button>
-      ))}
+      )))}
     </>
   );
 
@@ -160,6 +172,10 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
 
           {pane === 'blog' && (
             <ErrorBoundary label="admin-blog"><BlogEditor operatorName={operator} /></ErrorBoundary>
+          )}
+
+          {pane === 'maint' && (
+            <ErrorBoundary label="admin-maint"><MaintenanceBoard operatorName={operator} /></ErrorBoundary>
           )}
 
           {pane === 'obsidian' && (
