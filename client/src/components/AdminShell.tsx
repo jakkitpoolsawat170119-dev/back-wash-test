@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAppRoute, pickRouteValue } from '../hooks/useAppRoute';
 import BrandLogo from './BrandLogo';
-import AdminGate, { isAdminAuthed } from './AdminGate';
+import AdminGate from './AdminGate';
+import { isAdminAuthed } from '../lib/auth';
 import AdminOverview from './AdminOverview';
 import TodoBoard from './TodoBoard';
 import Line4Manual from './Line4Manual';
@@ -17,10 +18,11 @@ import PmRegistry from './PmRegistry';
 import MachineRegistry from './MachineRegistry';
 import IncidentBoard from './IncidentBoard';
 import DowntimeReport from './DowntimeReport';
+import UsersAdmin from './UsersAdmin';
 import ErrorBoundary from './ErrorBoundary';
 
 type TodoTab = 'today' | 'audit' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs';
-type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline' | 'blog' | 'obsidian' | 'maint' | 'pmreg' | 'downtime' | 'machines' | 'incidents';
+type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline' | 'blog' | 'obsidian' | 'maint' | 'pmreg' | 'downtime' | 'machines' | 'incidents' | 'users';
 
 const TODO_TABS: string[] = ['today', 'audit', 'calendar', 'report', 'timeline', 'recurring', 'ai', 'specs'];
 
@@ -53,6 +55,7 @@ const MENU: MenuRow[] = [
   { pane: 'line4', ic: '📋', label: 'คู่มือ Line 4' },
   { pane: 'stickeradmin', ic: '🗂️', label: 'QC Record' },
   { pane: 'specs', ic: '📐', label: 'สเปคคุณภาพ', sub: true },
+  { pane: 'users', ic: '🔐', label: 'ผู้ใช้และสิทธิ์' },
 ];
 
 const PANES: Pane[] = MENU.filter(m => !isHead(m)).map(m => (m as { pane: Pane }).pane);
@@ -182,6 +185,9 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
             <ErrorBoundary label="admin-blog"><BlogEditor operatorName={operator} /></ErrorBoundary>
           )}
 
+          {pane === 'users' && (
+            <ErrorBoundary label="admin-users"><UsersAdmin /></ErrorBoundary>
+          )}
           {pane === 'downtime' && (
             <ErrorBoundary label="admin-downtime"><DowntimeReport /></ErrorBoundary>
           )}

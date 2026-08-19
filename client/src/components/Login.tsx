@@ -52,8 +52,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     }
   };
 
-  const apiUrl = "https://back-wash-test.onrender.com";
-  console.log("Current API URL:", apiUrl);
+  // ตอนรันในเครื่องต้องยิงไปเซิร์ฟเวอร์ในเครื่อง ไม่งั้นทดสอบล็อกอินกับของ prod ตลอด
+  const apiUrl = (import.meta.env.VITE_API_BASE as string) || "https://back-wash-test.onrender.com";
 
   useEffect(() => {
     fetch(`${apiUrl}/api/operators`)
@@ -85,9 +85,11 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         });
         const data = await response.json();
         if (data.success) {
+          // สิทธิ์ของคนที่ล็อกอิน — หน้าอื่นอ่านจากที่นี่ (operator / supervisor / admin)
+          localStorage.setItem('operatorRole', data.role || 'operator');
           onLogin(selectedOp);
         } else {
-          alert('รหัส PIN ไม่ถูกต้อง');
+          alert(data.message || 'ชื่อหรือรหัส PIN ไม่ถูกต้อง');
           setPin('');
           autoSubmitted.current = false;
         }

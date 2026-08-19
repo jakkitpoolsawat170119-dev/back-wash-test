@@ -497,6 +497,14 @@ const SCHEMA = [
       created_at TEXT
     )`,
   // ── ทะเบียนเครื่องจักร (ERP Phase 1 Master Data) — ใช้เป็นปลายทาง [[wikilink]] ของ KM ด้วย ──
+  // ── โทเคนของคนที่ผ่านหน้า Admin แล้ว (ใช้กับเส้นที่แก้สิทธิ์ผู้ใช้) ──────────
+  //   เก็บลง DB ไม่ใช่ตัวแปรในหน่วยความจำ เพราะ Render รีสตาร์ตบ่อย
+  `CREATE TABLE IF NOT EXISTS auth_tokens (
+      token TEXT PRIMARY KEY,
+      name TEXT,
+      role TEXT,
+      created_at TEXT
+    )`,
   `CREATE TABLE IF NOT EXISTS machines (
       id ${db.pk},
       code TEXT,
@@ -615,10 +623,11 @@ const SCHEMA = [
     )`,
 ];
 
+// [ชื่อ, PIN, สิทธิ์] — seed ครั้งแรกเท่านั้น แก้สิทธิ์ทีหลังได้ที่หน้า "ผู้ใช้และสิทธิ์"
 const DEFAULT_OPERATORS = [
-  ["จักรกฤษ พูลสวัสดิ์", "1234"],
-  ["พัฒพริศ อ่ำอยู่", "1234"],
-  ["อนุวัตร สุวรรณวงค์", "1234"],
+  ["จักรกฤษ พูลสวัสดิ์", "1234", "admin"],
+  ["พัฒพริศ อ่ำอยู่", "1234", "operator"],
+  ["อนุวัตร สุวรรณวงค์", "1234", "operator"],
 ];
 
 // ทีมงานประจำกะ ตามฟอร์ม Google หมวด 2 (ดู GOOGLE_FORM_STRUCTURE.md)
@@ -698,10 +707,19 @@ async function initDb() {
   try { await db.exec('ALTER TABLE report_config ADD COLUMN kpi_alert_enabled INTEGER DEFAULT 0'); } catch { /* มีแล้ว */ }
   try { await db.exec('ALTER TABLE report_config ADD COLUMN kpi_alert_streak_days INTEGER DEFAULT 2'); } catch { /* มีแล้ว */ }
   try { await db.exec('ALTER TABLE report_config ADD COLUMN kpi_alert_cip_stale_hours INTEGER DEFAULT 30'); } catch { /* มีแล้ว */ }
+  // migration (ERP เฟส 1): สิทธิ์ผู้ใช้ — 'operator' | 'supervisor' | 'admin'
+  //   เดิมทุกคนเท่ากันหมด (มีแต่ PIN) → ไม่มีทางบอกได้ว่าใครมีสิทธิ์อนุมัติอะไร
+  try { await db.exec("ALTER TABLE operators ADD COLUMN role TEXT DEFAULT 'operator'"); } catch { /* มีแล้ว */ }
+  try { await db.exec("UPDATE operators SET role = 'operator' WHERE role IS NULL OR role = ''"); } catch { /* ช่างมัน */ }
   // seed รายชื่อ operator (idempotent — ไม่ลบของเดิมเพื่อไม่ให้ข้อมูลหายตอน restart)
-  for (const [name, pin] of DEFAULT_OPERATORS) {
-    await db.exec("INSERT INTO operators (name, pin) VALUES (?, ?) ON CONFLICT (name) DO NOTHING", [name, pin]);
+  for (const [name, pin, role] of DEFAULT_OPERATORS) {
+    await db.exec("INSERT INTO operators (name, pin, role) VALUES (?, ?, ?) ON CONFLICT (name) DO NOTHING", [name, pin, role]);
   }
+  // ต้องมี admin อย่างน้อย 1 คนเสมอ ไม่งั้นไม่มีใครแก้สิทธิ์ได้เลย (ล็อกตัวเองออกจากระบบ)
+  try {
+    const admins = await dbAll("SELECT name FROM operators WHERE role = 'admin'", []);
+    if (!admins.length) await db.exec("UPDATE operators SET role = 'admin' WHERE name = ?", [DEFAULT_OPERATORS[0][0]]);
+  } catch { /* ช่างมัน */ }
   // migration: คอลัมน์แจ้งเตือนล่วงหน้าใน daily_tasks (วันที่ทำ/เตือนล่วงหน้า → Telegram)
   for (const [col, type] of [['remind_at', 'TEXT'], ['remind_lead', 'TEXT'], ['reminded', 'INTEGER DEFAULT 0']]) {
     try { await db.exec(`ALTER TABLE daily_tasks ADD COLUMN ${col} ${type}`); } catch { /* มีแล้ว */ }
@@ -1551,20 +1569,126 @@ app.post('/api/cip-summary', async (req, res) => {
   }
 });
 
-app.post('/api/login', (req, res) => {
-  const { pin } = req.body;
-  db.get("SELECT name FROM operators WHERE pin = ?", [pin], (err, row) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (row) res.json({ success: true, name: row.name });
-    else res.status(401).json({ success: false, message: 'PIN ไม่ถูกต้อง' });
-  });
+// 🔴 เดิมเช็กแค่ PIN ไม่ดูชื่อ — PIN เริ่มต้นเป็น 1234 เหมือนกันทุกคน แปลว่าใครก็ล็อกอิน
+//    เป็นใครก็ได้ · ตอนนี้ต้องตรงทั้งชื่อและ PIN (ไม่ส่งชื่อมา = พฤติกรรมเดิมไว้ให้ของเก่าไม่พัง)
+app.post('/api/login', async (req, res) => {
+  const { name, pin } = req.body || {};
+  try {
+    const row = name
+      ? (await dbAll('SELECT name, role FROM operators WHERE name = ? AND pin = ?', [name, pin]))[0]
+      : (await dbAll('SELECT name, role FROM operators WHERE pin = ?', [pin]))[0];
+    if (!row) return res.status(401).json({ success: false, message: 'ชื่อหรือ PIN ไม่ถูกต้อง' });
+    res.json({ success: true, name: row.name, role: row.role || 'operator' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/operators', (req, res) => {
-  db.all("SELECT name FROM operators", [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows.map(r => r.name));
-  });
+// รายชื่อผู้ปฏิบัติงาน — ค่าเริ่มต้นคืน "อาร์เรย์ของชื่อ" เหมือนเดิมเป๊ะ (หน้า login เดิมใช้อยู่)
+//   ?withRole=1 → คืน [{name, role, hasPin}] สำหรับหน้าจัดการสิทธิ์
+app.get('/api/operators', async (req, res) => {
+  try {
+    const rows = await dbAll('SELECT name, role, pin FROM operators ORDER BY name', []);
+    if (req.query.withRole !== '1') return res.json(rows.map(r => r.name));
+    res.json({
+      operators: rows.map(r => ({ name: r.name, role: r.role || 'operator', hasPin: !!r.pin })),
+      roles: ROLES,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ── สิทธิ์ผู้ใช้ (ERP เฟส 1) ─────────────────────────────────────────────────
+   operator   = ใช้งานหน้างานทั่วไป
+   supervisor = อนุมัติงาน/SOP ได้ (ตามแผน KM ข้อ 7)
+   admin      = แก้สิทธิ์คนอื่นได้
+   การบังคับสิทธิ์จริงมีเฉพาะเส้นในไฟล์นี้ที่เรียก requireRole() — ต้องแนบโทเคนจากหน้า Admin
+   (n8n เรียกแค่ /api/assistant · /api/cip-summary · /api/report/tick จึงไม่กระทบ)         */
+const ROLES = ['operator', 'supervisor', 'admin'];
+const ROLE_RANK = { operator: 1, supervisor: 2, admin: 3 };
+const newToken = () => require('crypto').randomBytes(24).toString('hex');
+
+// อ่านโทเคนจาก header → คืนแถวใน auth_tokens (null ถ้าไม่มี/ไม่รู้จัก)
+async function whoIs(req) {
+  const t = req.get('x-spp-token') || '';
+  if (!t) return null;
+  try { return (await dbAll('SELECT token, name, role FROM auth_tokens WHERE token = ?', [t]))[0] || null; }
+  catch { return null; }
+}
+// middleware: ต้องมีสิทธิ์อย่างน้อยระดับนี้
+const requireRole = (min) => async (req, res, next) => {
+  const who = await whoIs(req);
+  if (!who) return res.status(401).json({ error: 'ต้องเข้าหน้าผู้ดูแลก่อน (ไม่พบสิทธิ์)' });
+  if ((ROLE_RANK[who.role] || 0) < ROLE_RANK[min]) {
+    return res.status(403).json({ error: `ต้องเป็น ${min} ขึ้นไปถึงจะทำรายการนี้ได้` });
+  }
+  req.who = who;
+  next();
+};
+
+// เข้าหน้า Admin — 2 ทาง: (1) ชื่อ+PIN ของตัวเอง ต้องเป็น supervisor ขึ้นไป
+//                        (2) รหัสผู้ดูแลระบบจาก env (ทางเดิม กันล็อกตัวเองออก)
+// เดิมเทียบรหัสในโค้ดหน้าเว็บ ใครเปิดดูก็เห็น — ย้ายมาเช็กที่เซิร์ฟเวอร์แล้ว
+app.post('/api/auth/admin', async (req, res) => {
+  const { name, pin, pass } = req.body || {};
+  try {
+    let who = null;
+    if (name && pin) {
+      const row = (await dbAll('SELECT name, role FROM operators WHERE name = ? AND pin = ?', [name, pin]))[0];
+      if (!row) return res.status(401).json({ error: 'ชื่อหรือ PIN ไม่ถูกต้อง' });
+      if ((ROLE_RANK[row.role] || 0) < ROLE_RANK.supervisor) {
+        return res.status(403).json({ error: 'บัญชีนี้ยังไม่มีสิทธิ์เข้าหน้าผู้ดูแล — ให้ admin ตั้งสิทธิ์ให้ก่อน' });
+      }
+      who = { name: row.name, role: row.role };
+    } else if (pass != null) {
+      const ok = String(pass) === String(process.env.ADMIN_PASS || 'admin1234');
+      if (!ok) return res.status(401).json({ error: 'รหัสผู้ดูแลไม่ถูกต้อง' });
+      who = { name: 'ผู้ดูแลระบบ', role: 'admin' };
+    } else return res.status(400).json({ error: 'ต้องส่งชื่อ+PIN หรือรหัสผู้ดูแล' });
+
+    const token = newToken();
+    await db.exec('INSERT INTO auth_tokens (token, name, role, created_at) VALUES (?, ?, ?, ?)',
+      [token, who.name, who.role, nowBKK()]);
+    // เก็บแค่ 200 โทเคนล่าสุด กันตารางโตไม่รู้จบ
+    try { await db.exec('DELETE FROM auth_tokens WHERE token NOT IN (SELECT token FROM auth_tokens ORDER BY created_at DESC LIMIT 200)'); }
+    catch { /* ช่างมัน */ }
+    res.json({ token, name: who.name, role: who.role });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// เพิ่ม/แก้ผู้ใช้ (ชื่อ · PIN · สิทธิ์) — admin เท่านั้น
+app.post('/api/operators', requireRole('admin'), async (req, res) => {
+  const name = String(req.body.name || '').trim();
+  const role = ROLES.includes(req.body.role) ? req.body.role : 'operator';
+  const pin = req.body.pin == null ? null : String(req.body.pin).trim();
+  if (!name) return res.status(400).json({ error: 'ต้องมีชื่อ' });
+  if (pin != null && pin !== '' && !/^\d{4,6}$/.test(pin)) return res.status(400).json({ error: 'PIN ต้องเป็นตัวเลข 4-6 หลัก' });
+  try {
+    const cur = (await dbAll('SELECT name, role FROM operators WHERE name = ?', [name]))[0];
+    if (!cur) {
+      await db.exec('INSERT INTO operators (name, pin, role) VALUES (?, ?, ?)', [name, pin || '1234', role]);
+    } else {
+      // ถอด admin คนสุดท้ายไม่ได้ ไม่งั้นไม่เหลือใครแก้สิทธิ์
+      if (cur.role === 'admin' && role !== 'admin') {
+        const admins = await dbAll("SELECT name FROM operators WHERE role = 'admin'", []);
+        if (admins.length <= 1) return res.status(400).json({ error: 'ต้องเหลือ admin อย่างน้อย 1 คน' });
+      }
+      await db.exec('UPDATE operators SET role = ?, pin = COALESCE(NULLIF(?, \'\'), pin) WHERE name = ?', [role, pin || '', name]);
+    }
+    res.json({ success: true, name, role });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/operators/delete', requireRole('admin'), async (req, res) => {
+  const name = String(req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'ต้องมีชื่อ' });
+  try {
+    const cur = (await dbAll('SELECT role FROM operators WHERE name = ?', [name]))[0];
+    if (!cur) return res.status(404).json({ error: 'ไม่พบผู้ใช้นี้' });
+    if (cur.role === 'admin') {
+      const admins = await dbAll("SELECT name FROM operators WHERE role = 'admin'", []);
+      if (admins.length <= 1) return res.status(400).json({ error: 'ลบ admin คนสุดท้ายไม่ได้' });
+    }
+    await db.exec('DELETE FROM operators WHERE name = ?', [name]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/batches/start', (req, res) => {
