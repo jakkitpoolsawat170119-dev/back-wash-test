@@ -6072,7 +6072,8 @@ async function buildDuty(date, opts = {}) {
   for (const s of stateRows) stateMap[`${s.assignee}|${s.node_key}`] = s;
   // ลด egress: ไม่ดึงคอลัมน์ base64 (images/done_images) จาก Neon — คืนแค่ธงว่ามีรูปไหม
   // (รูปโหลดตอนกดดูจริงผ่าน GET /api/tasks/images) — Neon นับ transfer ทุกครั้งที่ข้อมูลออกจาก DB
-  const cols = `id, task_date, category, title, location, priority, status, handoff_from, assignee,
+  // machine/due_time ติดมาด้วย — บอร์ดซ่อมบำรุงจัดกลุ่มงานตามเครื่องจักร (คอลัมน์สั้น ไม่กระทบ egress)
+  const cols = `id, task_date, category, title, location, priority, status, handoff_from, assignee, machine, due_time,
        CASE WHEN images IS NULL OR images = '' OR images = '[]' THEN 0 ELSE 1 END AS has_images,
        CASE WHEN done_images IS NULL OR done_images = '' OR done_images = '[]' THEN 0 ELSE 1 END AS has_done_images`;
   const adhoc = await dbAll(
@@ -6112,6 +6113,7 @@ async function buildDuty(date, opts = {}) {
       .map(s => ({ ownerKey: s.assignee, fromName: dutyName(s.assignee), nodeKey: s.node_key, title: s.title, checked: !!s.checked }));
     const myAdhoc = adhoc.filter(t => t.assignee === p.key).map(t => ({
       id: t.id, title: t.title, category: t.category, location: t.location || null,
+      machine: t.machine || null, dueTime: t.due_time || null,
       priority: t.priority || 'normal', status: t.status, handoffFrom: t.handoff_from || null,
       hasImages: !!t.has_images, hasDoneImages: !!t.has_done_images, // รูปโหลด lazy ตอนกดดู
     }));

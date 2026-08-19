@@ -17,9 +17,15 @@ type Node = {
 };
 // งานที่คนอื่นข้ามแล้วมอบต่อมาให้คนนี้ (โครงเดียวกับบอร์ดกะ)
 type Received = { ownerKey: string; fromName: string; nodeKey: string; title: string; checked: boolean };
+// งานมอบหมายเฉพาะกิจ (daily_tasks source='assigned') — งานแทรกระหว่างวัน ไม่ใช่งาน PM ประจำ
+type Adhoc = {
+  id: number; title: string; category: string; location: string | null; machine: string | null;
+  dueTime: string | null; priority: string; status: string; handoffFrom: string | null;
+  hasImages?: boolean; hasDoneImages?: boolean;
+};
 type Person = {
   key: string; name: string; role: string; color?: string; wash?: string; initial?: string;
-  nodes: Node[]; watch: Node[]; received: Received[]; done: number; total: number; pct: number;
+  nodes: Node[]; watch: Node[]; received: Received[]; adhoc: Adhoc[]; done: number; total: number; pct: number;
 };
 const BYPASS_REASONS = ['ไม่มีการผลิต', 'เครื่องหยุด/ซ่อม', 'ทำล่วงหน้าแล้ว', 'ไม่ถึงรอบ', 'ให้คนอื่นทำแทน', 'อื่นๆ'];
 type Board = {
@@ -34,10 +40,11 @@ const ROLE: Record<Role, { label: string; c: string; w: string }> = {
   pd: { label: 'พนักงานผลิต', c: '#4b433c', w: '#f2ede8' },
 };
 const NO_MACHINE = 'งานเปิดกะ (ไม่ผูกเครื่องจักร)';
+const ADHOC_NO_MACHINE = 'งานมอบหมาย (ไม่ระบุเครื่อง)';
 const MACHINE_IC: Record<string, string> = {
   'เครื่องยิงวันที่': '🖨', 'เครื่องชั่ง Mettler1/2/Ishida': '⚖️', 'เครื่องจับโละ 900g/25kg/ปี๊บ': '📦',
   'เครื่องชั่งเล็กประจำไลน์': '🧮', 'ตั้งไลน์สำหรับผลิต': '🧰', 'เครื่องปิดลัง': '📮',
-  'เครื่องซีลแนวตั้ง': '🔥', 'เครน': '🏗', [NO_MACHINE]: '🗒',
+  'เครื่องซีลแนวตั้ง': '🔥', 'เครน': '🏗', [NO_MACHINE]: '🗒', [ADHOC_NO_MACHINE]: '📌',
 };
 const icOf = (m: string) => MACHINE_IC[m] || '🔩';
 
@@ -102,7 +109,12 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
   const [busy, setBusy] = useState('');            // node key ที่กำลังอัปโหลดรูป
   const [zoom, setZoom] = useState<string | null>(null);
   const [menu, setMenu] = useState('');            // "personKey|nodeKey" ที่กางเมนู ⋯ อยู่
-  const [drag, setDrag] = useState<{ from: string; nodeKey: string; title: string; x: number; y: number; over: string } | null>(null);
+  // ลากได้ทั้งงานประจำ (มอบต่อเฉพาะวันนั้น) และงานมอบหมาย (ย้ายเจ้าของถาวร)
+  type DragItem = { kind: 'node'; n: Node } | { kind: 'adhoc'; t: Adhoc };
+  const [drag, setDrag] = useState<{ from: string; item: DragItem; title: string; x: number; y: number; over: string } | null>(null);
+  const [machines, setMachines] = useState<string[]>([]);   // ทะเบียนเครื่องจักร — ใช้ในฟอร์มมอบงาน
+  // รูปของงานมอบหมายโหลดตอนกดดู (ลด egress ของ DB) — เก็บต่อ task id
+  const [taskImgs, setTaskImgs] = useState<Record<number, { images: string[]; doneImages: string[] } | 'loading'>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -113,6 +125,21 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
     } catch { setBoard(null); } finally { setLoading(false); }
   }, [date]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setTaskImgs({}); }, [date]);           // เปลี่ยนวัน = รูปเก่าคนละงาน
+  useEffect(() => {
+    fetch(`${apiUrl}/api/machines`).then(r => r.json())
+      .then(d => setMachines(Array.isArray(d?.machines) ? d.machines.map((m: { name: string }) => m.name) : []))
+      .catch(() => setMachines([]));
+  }, []);
+
+  const loadTaskImgs = async (id: number) => {
+    if (taskImgs[id]) return;
+    setTaskImgs(prev => ({ ...prev, [id]: 'loading' }));
+    try {
+      const d = await fetch(`${apiUrl}/api/tasks/images?id=${id}`).then(r => r.json());
+      setTaskImgs(prev => ({ ...prev, [id]: { images: d.images || [], doneImages: d.doneImages || [] } }));
+    } catch { setTaskImgs(prev => { const n = { ...prev }; delete n[id]; return n; }); }
+  };
 
   const post = async (url: string, body: Record<string, unknown>) => {
     await fetch(`${apiUrl}${url}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -121,14 +148,17 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
   const toggle = (pKey: string, n: Node) =>
     post('/api/routine/toggle', { date, assignee: pKey, nodeKey: n.key, title: n.title, checked: !n.checked });
 
-  // ลากงาน → วางบนการ์ดคนอื่น = ข้ามงานพร้อมมอบต่อ (เส้นทางเดียวกับเมนู ⋯ ให้คนอื่นทำแทน)
+  // ลากงาน → วางบนการ์ดคนอื่น
+  //   งานประจำ = ข้ามงานพร้อมมอบต่อเฉพาะวันนั้น (เส้นทางเดียวกับเมนู ⋯ ให้คนอื่นทำแทน)
+  //   งานมอบหมาย = ย้ายเจ้าของถาวร (/api/tasks/reassign — เส้นเดียวกับบอร์ดกะ)
   // ใช้ elementFromPoint หาการ์ดใต้นิ้ว เพราะเงาที่ลากอยู่ไม่รับ event (pointerEvents: none)
-  const startDrag = (e: React.PointerEvent, from: string, n: Node) => {
+  const startDrag = (e: React.PointerEvent, from: string, item: DragItem) => {
     if (people.length < 2) return;
     e.preventDefault();
     const hit = (x: number, y: number) =>
       (document.elementFromPoint(x, y)?.closest('[data-person]') as HTMLElement | null)?.dataset.person || '';
-    setDrag({ from, nodeKey: n.key, title: n.title, x: e.clientX, y: e.clientY, over: '' });
+    const title = item.kind === 'node' ? item.n.title : item.t.title;
+    setDrag({ from, item, title, x: e.clientX, y: e.clientY, over: '' });
     const move = (ev: PointerEvent) =>
       setDrag(d => (d ? { ...d, x: ev.clientX, y: ev.clientY, over: hit(ev.clientX, ev.clientY) } : d));
     const up = (ev: PointerEvent) => {
@@ -136,10 +166,33 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
       window.removeEventListener('pointerup', up);
       const to = hit(ev.clientX, ev.clientY);
       setDrag(null);
-      if (to && to !== from) doBypass(from, n, 'ให้คนอื่นทำแทน', to);
+      if (!to || to === from) return;
+      if (item.kind === 'node') doBypass(from, item.n, 'ให้คนอื่นทำแทน', to);
+      else reassign(item.t, to);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+  };
+  const dragging = (from: string, item: DragItem) =>
+    !!drag && drag.from === from
+    && (drag.item.kind === 'node' && item.kind === 'node' ? drag.item.n.key === item.n.key
+      : drag.item.kind === 'adhoc' && item.kind === 'adhoc' ? drag.item.t.id === item.t.id : false);
+
+  /* ── งานมอบหมายเฉพาะกิจ: ติ๊ก / ลบ / ย้ายเจ้าของ (ใช้เส้น /api/tasks เดิมทั้งหมด) ── */
+  const toggleAdhoc = (t: Adhoc) => post('/api/tasks/update', { id: t.id, status: t.status === 'done' ? 'pending' : 'done', doneBy: operatorName || undefined });
+  const delAdhoc = (t: Adhoc) => {
+    if (!window.confirm(`ลบงาน "${t.title}" ทิ้ง?`)) return;
+    return post('/api/tasks/delete-one', { id: t.id });
+  };
+  const reassign = async (t: Adhoc, to: string) => {
+    try {
+      const r = await fetch(`${apiUrl}/api/tasks/reassign`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: t.id, assignTo: to, operator: operatorName }),
+      });
+      if (!r.ok) { const d = await r.json().catch(() => null); setMsg(`⚠️ ${d?.message || 'ย้ายงานไม่สำเร็จ'}`); return; }
+      await load();
+    } catch { setMsg('❌ ย้ายงานไม่สำเร็จ — เช็คเน็ต'); }
   };
 
   const doBypass = (pKey: string, n: Node, reason: string, handoffTo?: string) => {
@@ -179,6 +232,8 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
     return out;
   }, [people]);
   const allMine = useMemo(() => people.flatMap(p => p.nodes.map(n => ({ n, p }))), [people]);
+  const allAdhoc = useMemo(() => people.flatMap(p => (p.adhoc || []).map(t => ({ t, p }))), [people]);
+  const adhocLeft = allAdhoc.filter(x => x.t.status !== 'done').length;
 
   /* ── การ์ดงาน 1 บรรทัด (ใช้ทั้งมุมมองตามคนและตามเครื่องจักร) ── */
   const TaskRow: React.FC<{ p: Person; n: Node; showWho?: boolean }> = ({ p, n, showWho }) => {
@@ -204,10 +259,10 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
       <div data-nodekey={n.key} style={{
         display: 'flex', gap: 9, alignItems: 'flex-start', padding: '8px 9px', borderRadius: 10,
         background: n.checked ? 'transparent' : '#fffaf5',
-        opacity: drag && drag.from === p.key && drag.nodeKey === n.key ? 0.4 : 1,
+        opacity: dragging(p.key, { kind: 'node', n }) ? 0.4 : 1,
       }}>
         {others.length > 0 && (
-          <span onPointerDown={e => startDrag(e, p.key, n)} title="ลากไปวางที่การ์ดของคนอื่นเพื่อมอบงานต่อ"
+          <span onPointerDown={e => startDrag(e, p.key, { kind: 'node', n })} title="ลากไปวางที่การ์ดของคนอื่นเพื่อมอบงานต่อ"
             style={{ flex: 'none', marginTop: 3, color: '#cfc4b8', fontSize: 13, cursor: 'grab', touchAction: 'none', userSelect: 'none' }}>⠿</span>
         )}
         <button onClick={() => toggle(p.key, n)} aria-label={n.checked ? 'เอาเครื่องหมายออก' : 'ติ๊กว่าทำแล้ว'}
@@ -261,6 +316,72 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
             </div>
           )}
         </div>
+      </div>
+    );
+  };
+
+  /* ── งานมอบหมายเฉพาะกิจ 1 บรรทัด — งานแทรกระหว่างวัน (ไม่ใช่ PM ประจำ) ──
+     ด่วน = ขีดแดงซ้าย · รูปโหลดตอนกดดู · ลากไปการ์ดคนอื่น = ย้ายเจ้าของถาวร        */
+  const AdhocRow: React.FC<{ p: Person; t: Adhoc; showWho?: boolean; showMachine?: boolean }> = ({ p, t, showWho, showMachine }) => {
+    const done = t.status === 'done';
+    const urgent = t.priority === 'urgent' && !done;
+    const others = people.filter(x => x.key !== p.key);
+    const im = taskImgs[t.id];
+    const meta = [
+      showMachine && t.machine ? `📌 ${t.machine}` : '',
+      t.location ? `📍 ${t.location}` : '',
+      t.dueTime ? `⏰ ${t.dueTime} น.` : '',
+      showWho ? `👤 ${p.name}` : '',
+      t.handoffFrom ? `↩ จาก ${people.find(x => x.key === t.handoffFrom)?.name || t.handoffFrom}` : '',
+    ].filter(Boolean).join('  ·  ');
+
+    return (
+      <div style={{
+        borderRadius: 10, marginBottom: 2, opacity: dragging(p.key, { kind: 'adhoc', t }) ? 0.4 : 1,
+        background: done ? 'transparent' : urgent ? '#fff5f2' : '#fffaf5',
+        boxShadow: urgent ? 'inset 3px 0 0 #d93025' : 'none',
+      }}>
+        <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', padding: '8px 9px' }}>
+          {others.length > 0 && (
+            <span onPointerDown={e => startDrag(e, p.key, { kind: 'adhoc', t })} title="ลากไปวางที่การ์ดของคนอื่นเพื่อย้ายงานให้เขา"
+              style={{ flex: 'none', marginTop: 3, color: '#cfc4b8', fontSize: 13, cursor: 'grab', touchAction: 'none', userSelect: 'none' }}>⠿</span>
+          )}
+          <button onClick={() => toggleAdhoc(t)} aria-label={done ? 'เอาเครื่องหมายออก' : 'ติ๊กว่าทำแล้ว'}
+            style={{
+              width: 20, height: 20, flex: 'none', marginTop: 3, borderRadius: 6, cursor: 'pointer',
+              border: `1.5px solid ${done ? '#1c8a4c' : urgent ? '#e6a79c' : '#ddd0c3'}`, background: done ? '#1c8a4c' : '#fff',
+              color: '#fff', fontSize: 11, lineHeight: 1, display: 'grid', placeItems: 'center',
+            }}>{done ? '✓' : ''}</button>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{
+              fontSize: 13.5, fontWeight: 600, lineHeight: 1.45,
+              color: done ? '#a89e94' : 'var(--ink,#2b2119)', textDecoration: done ? 'line-through' : 'none',
+            }}>
+              {urgent && <span style={{ fontSize: 11, fontWeight: 700, color: '#c62828', background: '#ffe9e5', borderRadius: 999, padding: '1px 7px', marginRight: 6 }}>🔴 ด่วน</span>}
+              {t.title}
+            </div>
+            {meta && <div style={{ fontSize: 11.5, color: 'var(--ink-soft,#6d6259)', lineHeight: 1.5 }}>{meta}</div>}
+          </div>
+          {(t.hasImages || t.hasDoneImages) && !im && (
+            <button onClick={() => loadTaskImgs(t.id)} title="ดูรูปของงานนี้"
+              style={{ ...btn, padding: '4px 9px', fontSize: 12, flex: 'none' }}>🖼</button>
+          )}
+          {im === 'loading' && <span style={{ fontSize: 12, color: '#a89e94', flex: 'none', marginTop: 5 }}>⏳</span>}
+          <button onClick={() => delAdhoc(t)} title="ลบงานนี้"
+            style={{ ...btn, padding: '4px 9px', fontSize: 12, flex: 'none', color: '#c0b6ac' }}>✕</button>
+        </div>
+        {typeof im === 'object' && (im.images.length > 0 || im.doneImages.length > 0) && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '0 9px 9px 38px' }}>
+            {im.images.map(src => (
+              <img key={src} src={src} alt="รูปงาน" onClick={() => setZoom(src)}
+                style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 8, cursor: 'zoom-in', border: '1px solid var(--line,#eee3d9)' }} />
+            ))}
+            {im.doneImages.map(src => (
+              <img key={src} src={src} alt="รูปหลังทำ" onClick={() => setZoom(src)} title="หลังทำ"
+                style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 8, cursor: 'zoom-in', border: '2px solid #1c8a4c' }} />
+            ))}
+          </div>
+        )}
       </div>
     );
   };
@@ -327,6 +448,12 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
             <i style={{ display: 'block', height: '100%', width: `${team.pct}%`, borderRadius: 999, background: 'linear-gradient(90deg,#ff6b00,#ffa34d)' }} />
           </div>
           <div style={{ fontFamily: 'Kanit, sans-serif', fontWeight: 600, fontSize: 15, color: '#c24f00' }}>{team.pct}%</div>
+          {allAdhoc.length > 0 && (
+            <div style={{
+              fontSize: 12, fontWeight: 600, color: adhocLeft ? '#b3261e' : '#1c8a4c',
+              background: adhocLeft ? '#fdece9' : '#e8f5ee', borderRadius: 999, padding: '4px 11px',
+            }}>🛠 งานมอบหมาย {adhocLeft ? `${adhocLeft} ค้าง` : 'เสร็จครบ'} <span style={{ color: 'var(--ink-soft,#6d6259)', fontWeight: 500 }}>/ {allAdhoc.length}</span></div>
+          )}
         </div>
       )}
 
@@ -360,11 +487,32 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
                 </div>
               </div>
               <div style={{ padding: '8px 10px 12px' }}>
-                {p.nodes.length === 0
-                  ? <div style={{ fontSize: 12.5, color: '#a89e94', padding: '10px 8px', lineHeight: 1.6 }}>
-                      ยังไม่มีงานประจำของคนนี้ — ตอนนี้งาน PM ทั้งหมดอยู่ที่หัวหน้าทีม
-                      <br />(หน้าทะเบียนงานสำหรับย้ายงานให้สมาชิกจะมาในรอบถัดไป)
+                {/* งานมอบหมายเฉพาะกิจมาก่อนงาน PM — งานแทรกมักด่วนกว่างานประจำ */}
+                {(p.adhoc || []).length > 0 && (
+                  <div style={{ marginBottom: 6 }}>
+                    <div style={{
+                      fontFamily: 'Kanit, sans-serif', fontSize: 11.5, fontWeight: 600, color: '#b3261e',
+                      padding: '9px 8px 3px', display: 'flex', alignItems: 'center', gap: 6,
+                    }}>
+                      🛠 งานมอบหมายวันนี้
+                      <span style={{ fontWeight: 500, color: 'var(--ink-soft,#6d6259)' }}>
+                        ค้าง {p.adhoc.filter(t => t.status !== 'done').length} จาก {p.adhoc.length}
+                      </span>
+                      <i style={{ flex: 1, height: 1, background: '#f7e2dd' }} />
                     </div>
+                    {[...p.adhoc].sort((a, b) =>
+                      (a.status === 'done' ? 1 : 0) - (b.status === 'done' ? 1 : 0)
+                      || (b.priority === 'urgent' ? 1 : 0) - (a.priority === 'urgent' ? 1 : 0),
+                    ).map(t => <AdhocRow key={t.id} p={p} t={t} showMachine />)}
+                  </div>
+                )}
+                {p.nodes.length === 0
+                  ? (p.adhoc || []).length === 0 && (
+                      <div style={{ fontSize: 12.5, color: '#a89e94', padding: '10px 8px', lineHeight: 1.6 }}>
+                        ยังไม่มีงานของคนนี้วันนี้
+                        <br />ย้ายงาน PM ให้เขาได้ที่หน้า “ทะเบียนงาน PM” หรือมอบงานเฉพาะกิจจากช่องด้านล่าง
+                      </div>
+                    )
                   : groupByMachine(p.nodes).map(g => (
                     <div key={g.name}>
                       <MachineHead name={g.name} />
@@ -401,25 +549,39 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
       {/* ── มุมมองตามเครื่องจักร ── */}
       {board && view === 'machine' && (
         <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', alignItems: 'start' }}>
-          {groupByMachine(allMine.map(x => x.n)).map(g => {
-            const rows = allMine.filter(x => (x.n.machine || NO_MACHINE) === g.name);
-            const done = rows.filter(x => x.n.checked).length;
-            const manyOwners = new Set(rows.map(x => x.p.key)).size > 1;
+          {/* ชื่อกลุ่ม = เครื่องจากงานประจำ (คงลำดับตาราง) + เครื่องที่มีแต่งานมอบหมาย ต่อท้าย */}
+          {(() => {
+            const names = groupByMachine(allMine.map(x => x.n)).map(g => g.name);
+            const adhocName = (t: Adhoc) => t.machine || ADHOC_NO_MACHINE;
+            for (const { t } of allAdhoc) if (!names.includes(adhocName(t))) names.push(adhocName(t));
+            return names;
+          })().map(name => {
+            const rows = allMine.filter(x => (x.n.machine || NO_MACHINE) === name);
+            const tasks = allAdhoc.filter(x => (x.t.machine || ADHOC_NO_MACHINE) === name);
+            const done = rows.filter(x => x.n.checked).length + tasks.filter(x => x.t.status === 'done').length;
+            const manyOwners = new Set([...rows.map(x => x.p.key), ...tasks.map(x => x.p.key)]).size > 1;
             return (
-              <article key={g.name} style={{ ...card, padding: '14px 16px' }}>
+              <article key={name} style={{ ...card, padding: '14px 16px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                   <h3 style={{ fontFamily: 'Kanit, sans-serif', fontSize: 15, fontWeight: 600, margin: 0, minWidth: 0 }}>
-                    {icOf(g.name)} {g.name}
+                    {icOf(name)} {name}
                   </h3>
                   <span style={{ marginLeft: 'auto', fontFamily: 'Kanit, sans-serif', fontSize: 13, fontWeight: 600, color: '#c24f00' }}>
-                    {done}/{rows.length}
+                    {done}/{rows.length + tasks.length}
                   </span>
                 </div>
+                {tasks.map(({ t, p }) => <AdhocRow key={t.id} p={p} t={t} showWho={manyOwners} />)}
                 {rows.map(({ n, p }) => <TaskRow key={`${p.key}|${n.key}`} p={p} n={n} showWho={manyOwners} />)}
               </article>
             );
           })}
         </div>
+      )}
+
+      {/* ── มอบงานเฉพาะกิจให้คนในทีม ── */}
+      {board && people.length > 0 && (
+        <AssignForm date={date} people={people} machines={machines} operatorName={operatorName}
+          reload={load} onMsg={setMsg} />
       )}
 
       {/* ── ทีมผลิตทำ เราแค่ตามผล ── */}
@@ -457,6 +619,134 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
           <img src={zoom} alt="ขยาย" style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 12 }} />
         </div>
       )}
+    </div>
+  );
+};
+
+/* ── มอบงานเฉพาะกิจ — งานแทรกระหว่างวันที่ไม่ได้อยู่ในทะเบียน PM ──
+   ใช้ POST /api/duty/assign เส้นเดียวกับบอร์ดกะ (เก็บลง daily_tasks source='assigned'
+   + ยิงแจ้งเข้า Telegram ให้อัตโนมัติ) ต่างแค่หมวดตั้งเป็น maintenance และเลือกเครื่องจักรได้  */
+const AssignForm: React.FC<{
+  date: string; people: Person[]; machines: string[]; operatorName: string | null;
+  reload: () => Promise<void>; onMsg: (s: string) => void;
+}> = ({ date, people, machines, operatorName, reload, onMsg }) => {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState('');
+  const [who, setWho] = useState<string[]>([]);
+  const [machine, setMachine] = useState('');
+  const [urgent, setUrgent] = useState(false);
+  const [workDate, setWorkDate] = useState(date);
+  const [dueTime, setDueTime] = useState('');
+  const [images, setImages] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { setWorkDate(date); }, [date]);
+  // ค่าเริ่มต้น = คนแรกในทีม (หัวหน้า) — เปิดฟอร์มแล้วกดส่งได้เลยโดยไม่ต้องเลือกคน
+  useEffect(() => { setWho(w => (w.length || !people.length ? w : [people[0].key])); }, [people]);
+
+  const toggleWho = (k: string) => setWho(w => (w.includes(k) ? w.filter(x => x !== k) : [...w, k]));
+  const addPhotos = async (files: FileList | null) => {
+    if (!files || !files.length) return;
+    setBusy(true);
+    try {
+      const urls: string[] = [];
+      for (const f of Array.from(files).slice(0, 4 - images.length)) {
+        urls.push(await uploadDutyImage((await resizePhoto(f)).preview));
+      }
+      setImages(prev => [...prev, ...urls].slice(0, 4));
+    } catch { onMsg('❌ แนบรูปไม่สำเร็จ'); } finally { setBusy(false); }
+  };
+
+  const submit = async () => {
+    if (!title.trim() || !who.length) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${apiUrl}/api/duty/assign`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date, workDate, title: title.trim(), assignees: who, category: 'maintenance',
+          machine: machine || null, priority: urgent ? 'urgent' : 'normal',
+          dueTime: dueTime || null, images, operator: operatorName,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) { onMsg(`❌ ${d.error || 'มอบงานไม่สำเร็จ'}`); return; }
+      setTitle(''); setMachine(''); setUrgent(false); setDueTime(''); setImages([]);
+      onMsg(workDate === date ? '✅ มอบงานแล้ว' : `✅ มอบงานแล้ว — งานไปอยู่ในกระดานวันที่ ${workDate}`);
+      await reload();
+    } catch { onMsg('❌ มอบงานไม่สำเร็จ — เช็คเน็ต'); } finally { setBusy(false); }
+  };
+
+  if (!open) return (
+    <button onClick={() => setOpen(true)} style={{
+      ...card, marginTop: 16, width: '100%', padding: '13px 16px', textAlign: 'left', cursor: 'pointer',
+      fontFamily: 'Kanit, sans-serif', fontSize: 14, fontWeight: 600, color: '#c24f00',
+    }}>＋ มอบงานเฉพาะกิจให้คนในทีม</button>
+  );
+
+  return (
+    <div style={{ ...card, marginTop: 16, padding: '16px 18px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <h3 style={{ fontFamily: 'Kanit, sans-serif', fontSize: 16, fontWeight: 600, margin: 0 }}>🛠 มอบงานเฉพาะกิจ</h3>
+        <span style={{ flex: 1 }} />
+        <button onClick={() => setOpen(false)} style={btn}>ปิด</button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 10 }}>
+        {people.map(p => {
+          const on = who.includes(p.key);
+          return (
+            <button key={p.key} onClick={() => toggleWho(p.key)} style={{
+              ...btn, background: on ? '#ff6b00' : '#fff', borderColor: on ? '#ff6b00' : 'var(--line,#eee3d9)',
+              color: on ? '#fff' : 'var(--ink-soft,#6d6259)',
+            }}>{on ? '✓ ' : ''}{p.name}</button>
+          );
+        })}
+      </div>
+
+      <input value={title} onChange={e => setTitle(e.target.value)} placeholder="งานที่ต้องทำ เช่น เปลี่ยนสายพานเครื่องปิดลัง"
+        onKeyDown={e => e.key === 'Enter' && submit()} style={{ ...inp, width: '100%', boxSizing: 'border-box', fontWeight: 500, marginBottom: 8 }} />
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+        <select value={machine} onChange={e => setMachine(e.target.value)} style={{ ...inp, fontWeight: 500, minWidth: 190 }}>
+          <option value="">— เครื่องจักร (ไม่บังคับ) —</option>
+          {machines.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <input type="date" value={workDate} onChange={e => setWorkDate(e.target.value)} title="วันที่ต้องทำ"
+          style={{ ...inp, fontSize: 13, fontWeight: 500 }} />
+        <input type="time" value={dueTime} onChange={e => setDueTime(e.target.value)} title="เวลากำหนด (ไม่บังคับ)"
+          style={{ ...inp, fontSize: 13, fontWeight: 500 }} />
+        <button onClick={() => setUrgent(v => !v)} style={{
+          ...btn, background: urgent ? '#c62828' : '#fff', borderColor: urgent ? '#c62828' : 'var(--line,#eee3d9)',
+          color: urgent ? '#fff' : 'var(--ink-soft,#6d6259)',
+        }}>🔴 ด่วน</button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        {images.map(u => (
+          <span key={u} style={{ position: 'relative', lineHeight: 0 }}>
+            <img src={u} alt="รูปงาน" style={{ width: 46, height: 46, objectFit: 'cover', borderRadius: 9, border: '1px solid var(--line,#eee3d9)' }} />
+            <button onClick={() => setImages(prev => prev.filter(x => x !== u))} aria-label="เอารูปออก"
+              style={{ position: 'absolute', top: -6, right: -6, width: 19, height: 19, borderRadius: '50%', border: 'none', background: '#c62828', color: '#fff', fontSize: 11, lineHeight: 1, cursor: 'pointer' }}>×</button>
+          </span>
+        ))}
+        {images.length < 4 && (
+          <button onClick={() => fileRef.current?.click()} disabled={busy}
+            style={{ width: 46, height: 46, borderRadius: 9, border: '1px dashed var(--line,#eee3d9)', background: '#fdfbf9', color: 'var(--ink-soft,#6d6259)', fontSize: 16, cursor: 'pointer' }}>
+            {busy ? '⏳' : '📷'}
+          </button>
+        )}
+        <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
+          onChange={e => { addPhotos(e.target.files); e.target.value = ''; }} />
+        <span style={{ flex: 1 }} />
+        <button onClick={submit} disabled={busy || !title.trim() || !who.length} style={{
+          ...btn, background: '#ff6b00', borderColor: '#ff6b00', color: '#fff', padding: '8px 20px',
+          opacity: busy || !title.trim() || !who.length ? 0.5 : 1,
+        }}>{busy ? 'กำลังส่ง…' : 'มอบงาน'}</button>
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--ink-soft,#6d6259)', marginTop: 9, lineHeight: 1.6 }}>
+        งานจะไปโผล่บนการ์ดของคนที่เลือกในวันที่กำหนด และแจ้งเข้า Telegram ให้อัตโนมัติ
+      </div>
     </div>
   );
 };
