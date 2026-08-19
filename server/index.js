@@ -656,6 +656,12 @@ async function initDb() {
   for (const col of ['images', 'result_images']) {
     try { await db.exec(`ALTER TABLE incidents ADD COLUMN ${col} TEXT`); } catch { /* มีแล้ว */ }
   }
+  // migration (ERP เฟส 3): เวลาที่เครื่องหยุด/กลับมาเดิน — เก็บเป็น 'YYYY-MM-DDTHH:MM' (wall clock BKK)
+  //   นาทีที่เสียคำนวณจากสองช่องนี้เสมอ ไม่เก็บซ้ำ (แก้เวลาแล้วตัวเลขตามทันทุกที่)
+  //   down_from มีแต่ down_to ว่าง = ยังหยุดอยู่ตอนนี้
+  for (const col of ['down_from', 'down_to']) {
+    try { await db.exec(`ALTER TABLE incidents ADD COLUMN ${col} TEXT`); } catch { /* มีแล้ว */ }
+  }
   // migration (KM): ที่อยู่ไฟล์โน้ตของเครื่องจักรใน vault — ใช้ย้าย/ลบไฟล์เก่าตอนเปลี่ยนชื่อเครื่อง
   try { await db.exec('ALTER TABLE machines ADD COLUMN vault_path TEXT'); } catch { /* มีแล้ว */ }
   // migration (โซนซ่อมบำรุง): ช่องใหม่ของงานประจำตามตารางจริง
@@ -5781,12 +5787,25 @@ function machineBlock(m, pmRows, incidents) {
   }
   L.push('');
   const open = incidents.filter(i => (i.status || 'open') !== 'closed').length;
+  // เวลาที่เครื่องนี้หยุดไปแล้วทั้งหมด (นับเฉพาะที่กรอกครบทั้งเวลาหยุดและเวลากลับมาเดิน)
+  const mins = incidents.map(i => downMinutes(i.down_from, i.down_to)).filter(m => m != null);
+  const stillDown = incidents.filter(i => i.down_from && !i.down_to).length;
+  if (mins.length || stillDown) {
+    const total = mins.reduce((a, b) => a + b, 0);
+    L.push('### เวลาที่เครื่องหยุด', '');
+    L.push(`- รวม **${downLabel(total)}** จาก ${mins.length} ครั้ง`
+      + (mins.length ? ` · เฉลี่ยครั้งละ ${downLabel(Math.round(total / mins.length))}` : ''));
+    if (stillDown) L.push(`- 🔴 ยังหยุดอยู่ ${stillDown} รายการ (ยังไม่ได้กรอกเวลากลับมาเดิน)`);
+    L.push('');
+  }
   L.push(`### เหตุการณ์ที่เคยเกิด (${incidents.length}${open ? ` · ยังไม่ปิด ${open}` : ''})`, '');
   if (!incidents.length) L.push('_ยังไม่มีเหตุการณ์ที่บันทึกไว้_');
   else for (const i of incidents) {
     const file = String(i.vault_path || '').replace(/^.*\//, '').replace(/\.md$/, '');
     const label = `${i.occurred_at || ''} ${i.title}`.trim();
-    L.push(`- ${(i.status || 'open') === 'closed' ? '✅' : '🔸'} ${file ? `[[${file}|${label}]]` : label}`);
+    const m = downMinutes(i.down_from, i.down_to);
+    const dt = m != null ? ` — ⏱ ${downLabel(m)}` : (i.down_from ? ' — 🔴 ยังหยุดอยู่' : '');
+    L.push(`- ${(i.status || 'open') === 'closed' ? '✅' : '🔸'} ${file ? `[[${file}|${label}]]` : label}${dt}`);
   }
   return L.join('\n');
 }
@@ -5805,7 +5824,8 @@ async function syncMachineNote(m) {
     const pmRows = await dbAll(
       'SELECT title, goal, owner_role FROM duty_routines WHERE active = 1 AND machine = ? ORDER BY sort_order, id', [m.name]);
     const incidents = await dbAll(
-      'SELECT title, occurred_at, status, vault_path FROM incidents WHERE machine = ? ORDER BY occurred_at DESC, id DESC', [m.name]);
+      `SELECT title, occurred_at, status, vault_path, down_from, down_to
+         FROM incidents WHERE machine = ? ORDER BY occurred_at DESC, id DESC`, [m.name]);
     const body = machineBlock(m, pmRows, incidents);
     let existing = null;
     try { const r = await vault.vaultRead(path); existing = r && r.content ? r.content : null; } catch { existing = null; }
@@ -5854,6 +5874,23 @@ async function syncIncident(inc) {
   } catch (e) { console.error('[vault] เขียนเหตุการณ์ไม่สำเร็จ', e.message); return { error: e.message }; }
 }
 
+// ── เวลาเครื่องหยุด (downtime) ────────────────────────────────────────────────
+// รับเฉพาะรูปแบบ 'YYYY-MM-DDTHH:MM' (ค่าจาก <input type="datetime-local">) — อย่างอื่นทิ้ง
+const DT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+const cleanDt = (v) => (typeof v === 'string' && DT_RE.test(v.trim()) ? v.trim() : null);
+// คิดเลขบน wall clock (ใส่ Z เข้า-ออก) เลี่ยง timezone ของเซิร์ฟเวอร์ที่ไม่ใช่ไทย
+const downMinutes = (from, to) => {
+  if (!cleanDt(from) || !cleanDt(to)) return null;
+  const m = Math.round((Date.parse(`${to}:00Z`) - Date.parse(`${from}:00Z`)) / 60000);
+  return Number.isFinite(m) && m >= 0 ? m : null;   // กรอกกลับหลัง = ถือว่ายังไม่ได้กรอก
+};
+// "2 ชม. 15 น." — ใช้ทั้งในโน้ต vault และข้อความ Telegram
+function downLabel(min) {
+  if (min == null) return '';
+  const h = Math.floor(min / 60), m = min % 60;
+  return h ? `${h} ชม.${m ? ` ${m} น.` : ''}` : `${m} น.`;
+}
+
 app.get('/api/incidents', async (req, res) => {
   const status = req.query.status;
   try {
@@ -5867,6 +5904,8 @@ app.get('/api/incidents', async (req, res) => {
         symptom: r.symptom || '', cause: r.cause || '', fix: r.fix || '', result: r.result || '',
         images: jsonList(r.images), resultImages: jsonList(r.result_images),
         status: r.status || 'open', vaultPath: r.vault_path || '',
+        downFrom: r.down_from || '', downTo: r.down_to || '',
+        downtimeMin: downMinutes(r.down_from, r.down_to),
       })),
       openCount: rows.filter(r => (r.status || 'open') !== 'closed').length,
     });
@@ -5879,6 +5918,10 @@ app.post('/api/incidents', async (req, res) => {
   const badPhoto = [...(Array.isArray(b.images) ? b.images : []), ...(Array.isArray(b.resultImages) ? b.resultImages : [])]
     .some(u => typeof u === 'string' && !u.startsWith('http'));
   if (badPhoto) return res.status(400).json({ error: 'อัปโหลดรูปไม่สำเร็จ (ยังไม่ได้ URL) — ลองแนบรูปใหม่อีกครั้ง' });
+  // เวลากลับมาเดินอยู่ก่อนเวลาหยุด = พิมพ์ผิดแน่ ๆ — ไม่รับ ไม่งั้นได้แถวที่คิดนาทีไม่ได้ค้างในสรุป
+  if (cleanDt(b.downFrom) && cleanDt(b.downTo) && downMinutes(b.downFrom, b.downTo) == null) {
+    return res.status(400).json({ error: 'เวลากลับมาเดินอยู่ก่อนเวลาที่เครื่องหยุด — ตรวจเวลาอีกครั้ง' });
+  }
   const row = {
     title: String(b.title).trim(), machine: b.machine || null, line_name: b.line || null,
     images: photoJson(b.images), result_images: photoJson(b.resultImages),
@@ -5886,6 +5929,7 @@ app.post('/api/incidents', async (req, res) => {
     occurred_at: b.occurredAt || todayBKK(),
     symptom: b.symptom || null, cause: b.cause || null, fix: b.fix || null, result: b.result || null,
     status: b.status === 'closed' ? 'closed' : 'open',
+    down_from: cleanDt(b.downFrom), down_to: cleanDt(b.downTo),
   };
   try {
     let id = b.id, prevPath = null, prevMachine = null;
@@ -5897,18 +5941,18 @@ app.post('/api/incidents', async (req, res) => {
       await db.exec(
         `UPDATE incidents SET title = ?, machine = ?, line_name = ?, batch_id = ?, operator = ?,
            occurred_at = ?, symptom = ?, cause = ?, fix = ?, result = ?, status = ?,
-           images = ?, result_images = ?, updated_at = ? WHERE id = ?`,
+           images = ?, result_images = ?, down_from = ?, down_to = ?, updated_at = ? WHERE id = ?`,
         [row.title, row.machine, row.line_name, row.batch_id, row.operator, row.occurred_at,
          row.symptom, row.cause, row.fix, row.result, row.status,
-         row.images, row.result_images, nowBKK(), id]);
+         row.images, row.result_images, row.down_from, row.down_to, nowBKK(), id]);
     } else {
       const r = await dbRun(
         `INSERT INTO incidents (title, machine, line_name, batch_id, operator, occurred_at,
-           symptom, cause, fix, result, status, images, result_images, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           symptom, cause, fix, result, status, images, result_images, down_from, down_to, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [row.title, row.machine, row.line_name, row.batch_id, row.operator, row.occurred_at,
          row.symptom, row.cause, row.fix, row.result, row.status,
-         row.images, row.result_images, nowBKK(), nowBKK()]);
+         row.images, row.result_images, row.down_from, row.down_to, nowBKK(), nowBKK()]);
       id = r.lastID;
     }
     const sync = await syncIncident({ ...row, id, vault_path: prevPath });
@@ -5936,6 +5980,47 @@ app.post('/api/incidents/delete', async (req, res) => {
     await db.exec('DELETE FROM incidents WHERE id = ?', [id]);
     touchMachineNote(cur.machine);
     res.json({ success: true, removedVault: cur.vault_path || null, vaultError });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── สรุปเวลาเครื่องหยุด (ERP เฟส 3) ─────────────────────────────────────────
+// ช่วงเวลา = อิง down_from (เวลาที่เริ่มหยุด) ไม่ใช่วันที่บันทึกเหตุการณ์
+// รวมยอดในโค้ดไม่ใช่ใน SQL — ข้อมูลหลักร้อยแถว และเลี่ยงฟังก์ชันวันที่ที่ SQLite/Postgres เขียนไม่เหมือนกัน
+app.get('/api/maint/downtime', async (req, res) => {
+  const today = todayBKK();
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : today;
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from
+    : new Date(Date.parse(`${to}T00:00:00Z`) - 29 * 86400000).toISOString().slice(0, 10);
+  try {
+    const all = await dbAll(
+      `SELECT id, title, machine, occurred_at, status, vault_path, down_from, down_to
+         FROM incidents ORDER BY down_from DESC, occurred_at DESC, id DESC`, []);
+    const inRange = (dt) => dt && dt >= `${from}T00:00` && dt <= `${to}T23:59`;
+    const rows = all.filter(r => inRange(r.down_from)).map(r => ({
+      id: r.id, title: r.title, machine: r.machine || '', occurredAt: r.occurred_at || '',
+      status: r.status || 'open', vaultPath: r.vault_path || '',
+      downFrom: r.down_from, downTo: r.down_to || '', minutes: downMinutes(r.down_from, r.down_to),
+    }));
+    const byMachine = {};
+    for (const r of rows) {
+      const name = r.machine || 'ไม่ระบุเครื่อง';
+      const m = byMachine[name] || (byMachine[name] = { name, count: 0, minutes: 0, openCount: 0, lastAt: '' });
+      m.count += 1;
+      if (r.minutes != null) m.minutes += r.minutes; else m.openCount += 1;   // ยังหยุดอยู่ = ยังไม่นับนาที
+      if (r.downFrom > m.lastAt) m.lastAt = r.downFrom;
+    }
+    const machines = Object.values(byMachine)
+      .map(m => ({ ...m, avgMin: m.count - m.openCount > 0 ? Math.round(m.minutes / (m.count - m.openCount)) : null }))
+      .sort((a, b) => b.minutes - a.minutes || b.count - a.count);
+    // เหตุการณ์ในช่วงที่ยังไม่ได้กรอกเวลาหยุดเลย — เตือนว่าตัวเลขยังไม่ครบ
+    const missing = all.filter(r => !r.down_from && (r.occurred_at || '') >= from && (r.occurred_at || '') <= to).length;
+    res.json({
+      from, to, rows, machines, missing,
+      totalCount: rows.length,
+      totalMin: rows.reduce((n, r) => n + (r.minutes || 0), 0),
+      openNow: all.filter(r => r.down_from && !r.down_to)
+        .map(r => ({ id: r.id, title: r.title, machine: r.machine || '', downFrom: r.down_from })),
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

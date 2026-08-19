@@ -16,10 +16,11 @@ import MaintenanceBoard from './MaintenanceBoard';
 import PmRegistry from './PmRegistry';
 import MachineRegistry from './MachineRegistry';
 import IncidentBoard from './IncidentBoard';
+import DowntimeReport from './DowntimeReport';
 import ErrorBoundary from './ErrorBoundary';
 
 type TodoTab = 'today' | 'audit' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs';
-type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline' | 'blog' | 'obsidian' | 'maint' | 'pmreg' | 'machines' | 'incidents';
+type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline' | 'blog' | 'obsidian' | 'maint' | 'pmreg' | 'downtime' | 'machines' | 'incidents';
 
 const TODO_TABS: string[] = ['today', 'audit', 'calendar', 'report', 'timeline', 'recurring', 'ai', 'specs'];
 
@@ -43,6 +44,7 @@ const MENU: MenuRow[] = [
   { head: 'งานซ่อมบำรุง', ic: '🔧' },
   { pane: 'maint', ic: '👷', label: 'กระดานทีมซ่อมบำรุง', sub: true },
   { pane: 'pmreg', ic: '🛠', label: 'ทะเบียนงาน PM', sub: true },
+  { pane: 'downtime', ic: '⏱', label: 'เวลาเครื่องหยุด', sub: true },
   { head: 'Knowledge management', ic: '📚', km: true },
   { pane: 'blog', ic: '✍️', label: 'บทความ / คู่มือ / SOP', sub: true },
   { pane: 'machines', ic: '⚙️', label: 'ทะเบียนเครื่องจักร', sub: true },
@@ -180,6 +182,9 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
             <ErrorBoundary label="admin-blog"><BlogEditor operatorName={operator} /></ErrorBoundary>
           )}
 
+          {pane === 'downtime' && (
+            <ErrorBoundary label="admin-downtime"><DowntimeReport /></ErrorBoundary>
+          )}
           {pane === 'maint' && (
             <ErrorBoundary label="admin-maint"><MaintenanceBoard operatorName={operator} /></ErrorBoundary>
           )}

@@ -11,7 +11,19 @@ type Incident = {
   id: number; title: string; machine: string; line: string; batchId: string; operator: string;
   occurredAt: string; symptom: string; cause: string; fix: string; result: string;
   images: string[]; resultImages: string[];
+  // เวลาเครื่องหยุด (ERP เฟส 3) — 'YYYY-MM-DDTHH:MM' · downFrom มีแต่ downTo ว่าง = ยังหยุดอยู่
+  downFrom: string; downTo: string; downtimeMin?: number | null;
   status: 'open' | 'closed'; vaultPath: string;
+};
+
+// เวลาปัจจุบันแบบไทยในรูปแบบที่ <input type="datetime-local"> รับได้
+const nowLocal = () => new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 16);
+const hhmm = (min: number) => (Math.floor(min / 60) ? `${Math.floor(min / 60)} ชม. ` : '') + `${min % 60} น.`;
+// นาทีที่เสีย — คิดบน wall clock เหมือนฝั่งเซิร์ฟเวอร์ (ใส่ Z เข้า-ออก) ไม่พึ่ง timezone ของเครื่อง
+const minsBetween = (a: string, b: string) => {
+  if (!a || !b) return null;
+  const m = Math.round((Date.parse(`${b}:00Z`) - Date.parse(`${a}:00Z`)) / 60000);
+  return Number.isFinite(m) && m >= 0 ? m : null;
 };
 
 const card: React.CSSProperties = {
@@ -32,7 +44,7 @@ const lbl: React.CSSProperties = { fontSize: 11.5, fontWeight: 700, color: 'var(
 const blank = (operator: string): Incident => ({
   id: 0, title: '', machine: '', line: '', batchId: '', operator,
   occurredAt: todayBKK(), symptom: '', cause: '', fix: '', result: '',
-  images: [], resultImages: [], status: 'open', vaultPath: '',
+  images: [], resultImages: [], downFrom: '', downTo: '', status: 'open', vaultPath: '',
 });
 
 /* แถบรูปแนบ — อัปขึ้น Supabase Storage แล้วเก็บแต่ URL (ห้ามเก็บ base64 ลง DB)
@@ -77,6 +89,101 @@ const PhotoStrip: React.FC<{
       )}
       <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
         onChange={e => { add(e.target.files); e.target.value = ''; }} />
+    </div>
+  );
+};
+
+/* ── ฟอร์มเหตุการณ์ ──────────────────────────────────────────────────────────
+ 🔴 ต้องนิยามไว้นอก IncidentBoard เท่านั้น! เดิมนิยามข้างใน ทำให้ทุกครั้งที่ตัวแม่
+ re-render (เช่น setMsg ตอนเซิร์ฟเวอร์ตอบ error) React มองว่าเป็นคอมโพเนนต์คนละตัว
+ → unmount ของเดิม → state ในฟอร์มหายเกลี้ยง คนกรอกมาทั้งหน้าต้องพิมพ์ใหม่หมด    */
+const IncidentForm: React.FC<{
+draft: Incident; machines: string[]; busy: boolean;
+onSave: (d: Incident) => void; onCancel: () => void;
+onZoom: (u: string) => void; onError: (m: string) => void;
+}> = ({ draft, machines, busy, onSave, onCancel, onZoom, onError }) => {
+  const [d, setD] = useState(draft);
+  const set = (patch: Partial<Incident>) => setD(v => ({ ...v, ...patch }));
+  const area = (k: 'symptom' | 'cause' | 'fix' | 'result', label: string, hint: string,
+    photoKey?: 'images' | 'resultImages') => (
+    <div>
+      <label style={{ ...lbl, display: 'block' }}>{label}
+        <textarea value={d[k]} onChange={e => set({ [k]: e.target.value } as Partial<Incident>)} rows={2} placeholder={hint}
+          style={{ ...inp, marginTop: 3, resize: 'vertical', fontWeight: 400 }} />
+      </label>
+      {photoKey && (
+        <PhotoStrip label={label} urls={d[photoKey]} onZoom={onZoom} onError={onError}
+          onChange={v => set({ [photoKey]: v } as Partial<Incident>)} />
+      )}
+    </div>
+  );
+  return (
+    <div style={{ ...card, padding: 16, marginBottom: 14, background: '#fffaf5' }}>
+      <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))' }}>
+        <label style={{ ...lbl, gridColumn: '1/-1' }}>หัวข้อเหตุการณ์
+          <input autoFocus value={d.title} onChange={e => set({ title: e.target.value })}
+            placeholder="เช่น เครื่องซีลแนวตั้งอุณหภูมิตก รอยซีลรั่ว" style={{ ...inp, marginTop: 3, fontWeight: 600 }} />
+        </label>
+        <label style={lbl}>เครื่องจักร
+          <input list="inc-machines" value={d.machine} onChange={e => set({ machine: e.target.value })} style={{ ...inp, marginTop: 3 }} />
+          <datalist id="inc-machines">{machines.map(m => <option key={m} value={m} />)}</datalist>
+        </label>
+        <label style={lbl}>ไลน์
+          <input value={d.line} onChange={e => set({ line: e.target.value })} placeholder="เช่น Line 2" style={{ ...inp, marginTop: 3 }} />
+        </label>
+        <label style={lbl}>Batch
+          <input value={d.batchId} onChange={e => set({ batchId: e.target.value })} style={{ ...inp, marginTop: 3 }} />
+        </label>
+        <label style={lbl}>วันที่เกิด
+          <input type="date" value={d.occurredAt} onChange={e => set({ occurredAt: e.target.value })} style={{ ...inp, marginTop: 3 }} />
+        </label>
+        <label style={lbl}>ผู้บันทึก
+          <input value={d.operator} onChange={e => set({ operator: e.target.value })} style={{ ...inp, marginTop: 3 }} />
+        </label>
+      </div>
+
+      {/* เวลาเครื่องหยุด — ไม่บังคับ แต่ถ้ากรอกจะไปรวมในหน้า "เวลาเครื่องหยุด" และโน้ตเครื่องจักร */}
+      <div style={{ marginTop: 10, background: '#fff', border: '1px dashed var(--line,#eee3d9)', borderRadius: 12, padding: '10px 12px' }}>
+        <div style={{ ...lbl, marginBottom: 7 }}>⏱ เวลาที่เครื่องหยุด <span style={{ fontWeight: 500 }}>(ไม่บังคับ — กรอกแล้วได้สรุปชั่วโมงเสียรายเครื่อง)</span></div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <label style={{ ...lbl, flex: '1 1 190px' }}>เครื่องหยุดเมื่อ
+            <div style={{ display: 'flex', gap: 5, marginTop: 3 }}>
+              <input type="datetime-local" value={d.downFrom} onChange={e => set({ downFrom: e.target.value })} style={inp} />
+              <button onClick={() => set({ downFrom: nowLocal() })} title="ใส่เวลาปัจจุบัน" style={{ ...btn, padding: '4px 10px', fontSize: 12, flex: 'none' }}>ตอนนี้</button>
+            </div>
+          </label>
+          <label style={{ ...lbl, flex: '1 1 190px' }}>กลับมาเดินเมื่อ
+            <div style={{ display: 'flex', gap: 5, marginTop: 3 }}>
+              <input type="datetime-local" value={d.downTo} onChange={e => set({ downTo: e.target.value })} style={inp} />
+              <button onClick={() => set({ downTo: nowLocal() })} title="ใส่เวลาปัจจุบัน" style={{ ...btn, padding: '4px 10px', fontSize: 12, flex: 'none' }}>ตอนนี้</button>
+            </div>
+          </label>
+          <div style={{ flex: '1 1 150px', fontSize: 13, fontWeight: 700, color: '#c24f00', paddingBottom: 7 }}>
+            {(() => {
+              const m = minsBetween(d.downFrom, d.downTo);
+              if (m != null) return `= เสียไป ${hhmm(m)}`;
+              if (d.downFrom && d.downTo) return '⚠️ เวลากลับมาเดินอยู่ก่อนเวลาหยุด';
+              if (d.downFrom) return '🔴 ยังหยุดอยู่ — กรอกเวลากลับมาเดินทีหลังได้';
+              return '';
+            })()}
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', marginTop: 10 }}>
+        {area('symptom', 'อาการ', 'เห็นอะไร วัดค่าได้เท่าไหร่', 'images')}
+        {area('cause', 'สาเหตุที่คาดว่าเป็น', 'เว้นว่างไว้ก่อนได้ ค่อยมาเติมทีหลัง')}
+        {area('fix', 'วิธีแก้ที่ใช้', 'ทำอะไรไปบ้าง')}
+        {area('result', 'ผลหลังแก้', 'หายไหม กลับมาอีกไหม', 'resultImages')}
+      </div>
+      <div style={{ display: 'flex', gap: 7, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button onClick={() => onSave(d)} disabled={busy || !d.title.trim()} style={{ ...btn, background: '#ff6b00', borderColor: '#ff6b00', color: '#fff' }}>
+          {busy ? 'กำลังบันทึก…' : 'บันทึก + เขียนโน้ตลง Obsidian'}
+        </button>
+        <button onClick={onCancel} style={btn}>ยกเลิก</button>
+        <span style={{ fontSize: 11.5, color: 'var(--ink-soft,#6d6259)' }}>
+          หนึ่งบรรทัด = หนึ่งข้อในโน้ต · เขียนทับไฟล์เดิมทุกครั้งที่บันทึก
+        </span>
+      </div>
     </div>
   );
 };
@@ -137,65 +244,6 @@ const IncidentBoard: React.FC<{ operatorName: string | null }> = ({ operatorName
   const shown = list.filter(i => (tab === 'open' ? i.status !== 'closed' : true));
   const openCount = list.filter(i => i.status !== 'closed').length;
 
-  const Form: React.FC<{ draft: Incident }> = ({ draft }) => {
-    const [d, setD] = useState(draft);
-    const set = (patch: Partial<Incident>) => setD(v => ({ ...v, ...patch }));
-    const area = (k: 'symptom' | 'cause' | 'fix' | 'result', label: string, hint: string,
-      photoKey?: 'images' | 'resultImages') => (
-      <div>
-        <label style={{ ...lbl, display: 'block' }}>{label}
-          <textarea value={d[k]} onChange={e => set({ [k]: e.target.value } as Partial<Incident>)} rows={2} placeholder={hint}
-            style={{ ...inp, marginTop: 3, resize: 'vertical', fontWeight: 400 }} />
-        </label>
-        {photoKey && (
-          <PhotoStrip label={label} urls={d[photoKey]} onZoom={setZoom} onError={setMsg}
-            onChange={v => set({ [photoKey]: v } as Partial<Incident>)} />
-        )}
-      </div>
-    );
-    return (
-      <div style={{ ...card, padding: 16, marginBottom: 14, background: '#fffaf5' }}>
-        <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))' }}>
-          <label style={{ ...lbl, gridColumn: '1/-1' }}>หัวข้อเหตุการณ์
-            <input autoFocus value={d.title} onChange={e => set({ title: e.target.value })}
-              placeholder="เช่น เครื่องซีลแนวตั้งอุณหภูมิตก รอยซีลรั่ว" style={{ ...inp, marginTop: 3, fontWeight: 600 }} />
-          </label>
-          <label style={lbl}>เครื่องจักร
-            <input list="inc-machines" value={d.machine} onChange={e => set({ machine: e.target.value })} style={{ ...inp, marginTop: 3 }} />
-            <datalist id="inc-machines">{machines.map(m => <option key={m} value={m} />)}</datalist>
-          </label>
-          <label style={lbl}>ไลน์
-            <input value={d.line} onChange={e => set({ line: e.target.value })} placeholder="เช่น Line 2" style={{ ...inp, marginTop: 3 }} />
-          </label>
-          <label style={lbl}>Batch
-            <input value={d.batchId} onChange={e => set({ batchId: e.target.value })} style={{ ...inp, marginTop: 3 }} />
-          </label>
-          <label style={lbl}>วันที่เกิด
-            <input type="date" value={d.occurredAt} onChange={e => set({ occurredAt: e.target.value })} style={{ ...inp, marginTop: 3 }} />
-          </label>
-          <label style={lbl}>ผู้บันทึก
-            <input value={d.operator} onChange={e => set({ operator: e.target.value })} style={{ ...inp, marginTop: 3 }} />
-          </label>
-        </div>
-        <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', marginTop: 10 }}>
-          {area('symptom', 'อาการ', 'เห็นอะไร วัดค่าได้เท่าไหร่', 'images')}
-          {area('cause', 'สาเหตุที่คาดว่าเป็น', 'เว้นว่างไว้ก่อนได้ ค่อยมาเติมทีหลัง')}
-          {area('fix', 'วิธีแก้ที่ใช้', 'ทำอะไรไปบ้าง')}
-          {area('result', 'ผลหลังแก้', 'หายไหม กลับมาอีกไหม', 'resultImages')}
-        </div>
-        <div style={{ display: 'flex', gap: 7, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          <button onClick={() => save(d)} disabled={busy || !d.title.trim()} style={{ ...btn, background: '#ff6b00', borderColor: '#ff6b00', color: '#fff' }}>
-            {busy ? 'กำลังบันทึก…' : 'บันทึก + เขียนโน้ตลง Obsidian'}
-          </button>
-          <button onClick={() => setEdit(null)} style={btn}>ยกเลิก</button>
-          <span style={{ fontSize: 11.5, color: 'var(--ink-soft,#6d6259)' }}>
-            หนึ่งบรรทัด = หนึ่งข้อในโน้ต · เขียนทับไฟล์เดิมทุกครั้งที่บันทึก
-          </span>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div style={{ fontFamily: 'Sarabun, sans-serif' }}>
       <div style={{
@@ -220,10 +268,16 @@ const IncidentBoard: React.FC<{ operatorName: string | null }> = ({ operatorName
         <button onClick={() => setEdit(blank(operatorName || ''))} style={{ ...btn, background: '#ff6b00', borderColor: '#ff6b00', color: '#fff' }}>＋ บันทึกเหตุการณ์</button>
       </div>
       {msg && <div style={{ fontSize: 12.5, color: msg.startsWith('✅') ? '#1c8a4c' : '#c62828', marginBottom: 10, wordBreak: 'break-all' }}>{msg}</div>}
-      {edit && edit.id === 0 && <Form draft={edit} />}
+      {edit && edit.id === 0 && (
+        <IncidentForm draft={edit} machines={machines} busy={busy}
+          onSave={save} onCancel={() => setEdit(null)} onZoom={setZoom} onError={setMsg} />
+      )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {shown.map(i => (edit && edit.id === i.id ? <Form key={i.id} draft={edit} /> : (
+        {shown.map(i => (edit && edit.id === i.id ? (
+          <IncidentForm key={i.id} draft={edit} machines={machines} busy={busy}
+            onSave={save} onCancel={() => setEdit(null)} onZoom={setZoom} onError={setMsg} />
+        ) : (
           <article key={i.id} style={{ ...card, padding: '14px 16px', borderLeft: `3px solid ${i.status === 'closed' ? '#1c8a4c' : '#c77700'}` }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
               <h3 style={{ fontFamily: 'Kanit, sans-serif', fontSize: 15, fontWeight: 600, margin: 0, flex: 1, minWidth: 180 }}>{i.title}</h3>
@@ -235,6 +289,16 @@ const IncidentBoard: React.FC<{ operatorName: string | null }> = ({ operatorName
             <div style={{ fontSize: 12, color: 'var(--ink-soft,#6d6259)', marginTop: 4, lineHeight: 1.7 }}>
               {i.occurredAt}{i.machine && <> · 🔩 {i.machine}</>}{i.line && <> · {i.line}</>}
               {i.batchId && <> · batch {i.batchId}</>}{i.operator && <> · โดย {i.operator}</>}
+              {i.downtimeMin != null && (
+                <span style={{ marginLeft: 8, fontWeight: 700, color: '#c24f00', background: '#fff3ea', borderRadius: 999, padding: '2px 9px' }}>
+                  ⏱ เสีย {hhmm(i.downtimeMin)}
+                </span>
+              )}
+              {i.downFrom && !i.downTo && (
+                <span style={{ marginLeft: 8, fontWeight: 700, color: '#c62828', background: '#fdecea', borderRadius: 999, padding: '2px 9px' }}>
+                  🔴 ยังหยุดอยู่ตั้งแต่ {i.downFrom.replace('T', ' ')} น.
+                </span>
+              )}
             </div>
             <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', marginTop: 10 }}>
               {([['อาการ', i.symptom, i.images], ['สาเหตุ', i.cause, []], ['วิธีแก้', i.fix, []],

@@ -453,10 +453,24 @@ function incidentMarkdown(inc) {
     const list = parseList(v).filter(u => typeof u === 'string' && u.startsWith('http'));
     return list.length ? ['', ...list.map(u => `![${alt}](${u})`)] : [];
   };
+  // เวลาที่เครื่องหยุด — คิดบน wall clock เหมือนฝั่งเซิร์ฟเวอร์ (ใส่ Z เข้า-ออก)
+  const dtOk = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v.trim()) ? v.trim() : null);
+  const downMin = (() => {
+    const a = dtOk(inc.down_from), b = dtOk(inc.down_to);
+    if (!a || !b) return null;
+    const m = Math.round((Date.parse(`${b}:00Z`) - Date.parse(`${a}:00Z`)) / 60000);
+    return Number.isFinite(m) && m >= 0 ? m : null;
+  })();
+  const downText = downMin == null
+    ? (dtOk(inc.down_from) ? `ยังหยุดอยู่ (ตั้งแต่ ${String(inc.down_from).replace('T', ' ')} น.)` : '')
+    : `${Math.floor(downMin / 60) ? `${Math.floor(downMin / 60)} ชม. ` : ''}${downMin % 60} น.`
+      + ` (${String(inc.down_from).replace('T', ' ')} → ${String(inc.down_to).replace('T', ' ')})`;
   return [
     '---',
     'tags: [เหตุการณ์]',
     `batch_id: ${inc.batch_id || ''}`,
+    `เครื่องหยุด: ${downText}`,
+    `downtime_min: ${downMin == null ? '' : downMin}`,
     `line: ${inc.line_name || ''}`,
     `operator: ${inc.operator || ''}`,
     `date: ${String(inc.occurred_at || '').slice(0, 10)}`,
@@ -466,6 +480,7 @@ function incidentMarkdown(inc) {
     '',
     `# เหตุการณ์: ${inc.title || ''}`,
     '',
+    ...(downText ? [`> [!${downMin == null ? 'warning' : 'info'}] เวลาที่เครื่องหยุด: **${downText}**`, ''] : []),
     '## อาการ', bullet(inc.symptom), ...photos(inc.images, 'อาการ'),
     '',
     '## สาเหตุที่คาดว่าเป็น', bullet(inc.cause),
