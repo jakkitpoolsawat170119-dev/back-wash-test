@@ -650,6 +650,8 @@ async function initDb() {
     try { await db.exec(`ALTER TABLE daily_tasks ADD COLUMN ${col} TEXT`); }
     catch { /* มีคอลัมน์อยู่แล้ว — ข้าม */ }
   }
+  // migration (KM): ที่อยู่ไฟล์โน้ตของเครื่องจักรใน vault — ใช้ย้าย/ลบไฟล์เก่าตอนเปลี่ยนชื่อเครื่อง
+  try { await db.exec('ALTER TABLE machines ADD COLUMN vault_path TEXT'); } catch { /* มีแล้ว */ }
   // migration (โซนซ่อมบำรุง): ช่องใหม่ของงานประจำตามตารางจริง
   //   machine = เครื่องจักร · goal = เป้าหมาย · owner_role/co_owner_role = บทบาทผู้รับผิดชอบหลัก/รอง
   //   ค่า role: 'mt' Maintenance · 'op' Operate · 'qc' QC · 'pd' พนักงานผลิต (NULL = งานเก่าที่ไม่ได้ระบุ)
@@ -5700,6 +5702,7 @@ app.get('/api/machines', async (req, res) => {
       machines: rows.map(r => ({
         id: r.id, code: r.code || '', name: r.name, line: r.line_name || '',
         installedAt: r.installed_at || '', lastPm: r.last_pm || '', note: r.note || '',
+        vaultPath: r.vault_path || '',
         pmCount: nOf(pm, r.name), openIncidents: nOf(inc, r.name),
       })),
     });
@@ -5709,25 +5712,121 @@ app.post('/api/machines', async (req, res) => {
   const { id, code, name, line, installedAt, lastPm, note } = req.body;
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'name จำเป็น' });
   try {
+    let rowId = id;
     if (id) {
       await db.exec('UPDATE machines SET code = ?, name = ?, line_name = ?, installed_at = ?, last_pm = ?, note = ? WHERE id = ?',
         [code || null, name.trim(), line || null, installedAt || null, lastPm || null, note || null, id]);
-      return res.json({ success: true, id });
+    } else {
+      const max = (await dbAll('SELECT MAX(sort_order) AS m FROM machines', []))[0];
+      const order = (max && max.m != null ? Number(max.m) : -1) + 1;
+      const r = await dbRun(
+        `INSERT INTO machines (code, name, line_name, installed_at, last_pm, note, sort_order, active, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+        [code || null, name.trim(), line || null, installedAt || null, lastPm || null, note || null, order, nowBKK()]);
+      rowId = r.lastID;
     }
-    const max = (await dbAll('SELECT MAX(sort_order) AS m FROM machines', []))[0];
-    const order = (max && max.m != null ? Number(max.m) : -1) + 1;
-    const r = await dbRun(
-      `INSERT INTO machines (code, name, line_name, installed_at, last_pm, note, sort_order, active, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-      [code || null, name.trim(), line || null, installedAt || null, lastPm || null, note || null, order, nowBKK()]);
-    res.json({ success: true, id: r.lastID });
+    // เขียนโน้ตให้ทันที — คนกดบันทึกแล้วต้องเห็นไฟล์ในวอลต์เลย ไม่ต้องกดซิงก์อีกที
+    const cur = (await dbAll('SELECT * FROM machines WHERE id = ?', [rowId]))[0];
+    const sync = cur ? await syncMachineNote(cur) : {};
+    res.json({ success: true, id: rowId, vaultPath: sync.path || null, vaultError: sync.error || null, vaultSkipped: sync.skipped || null });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+// ซิงก์โน้ตทุกเครื่องในทะเบียนเข้า vault รอบเดียว (ใช้ตอนเริ่มใช้งาน / หลังแก้ทะเบียนงาน PM)
+app.post('/api/machines/sync-notes', async (req, res) => {
+  try {
+    const rows = await dbAll('SELECT * FROM machines WHERE active = 1 ORDER BY sort_order, id', []);
+    const results = [];
+    for (const m of rows) results.push({ name: m.name, ...(await syncMachineNote(m)) });
+    res.json({
+      total: rows.length,
+      written: results.filter(r => r.path).length,
+      failed: results.filter(r => r.error).map(r => ({ name: r.name, error: r.error })),
+      skipped: results.find(r => r.skipped)?.skipped || null,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/machines/delete', async (req, res) => {
   if (!req.body.id) return res.status(400).json({ error: 'id จำเป็น' });
   try { await db.exec('UPDATE machines SET active = 0 WHERE id = ?', [req.body.id]); res.json({ success: true }); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// ── โน้ตเครื่องจักรใน vault (แผน KM ข้อ 4.1: 1 โน้ตต่อ 1 เครื่อง) ──────────────
+// ระบบเป็นเจ้าของเฉพาะ "ในเขต marker" — นอกเขตคนเขียนเองได้ (spec/รูป/บันทึกช่าง) ไม่โดนทับ
+const MACHINE_MARK = 'ข้อมูลเครื่องจักร';
+const ROLE_LABEL = { mt: 'Maintenance', op: 'Operate', qc: 'QC', pd: 'พนักงานผลิต' };
+
+function machineBlock(m, pmRows, incidents) {
+  const L = [];
+  L.push('> [!info] ส่วนนี้ระบบเขียนให้อัตโนมัติจากหน้า “ทะเบียนเครื่องจักร” — แก้ในแอปแล้วตรงนี้อัปเดตตาม');
+  L.push('');
+  L.push('| | |', '| --- | --- |');
+  L.push(`| รหัส | ${m.code || '—'} |`);
+  L.push(`| ไลน์ | ${m.line_name || '—'} |`);
+  L.push(`| วันที่ติดตั้ง | ${m.installed_at || '—'} |`);
+  L.push(`| PM ล่าสุด | ${m.last_pm || '—'} |`);
+  L.push('');
+  if (m.note) L.push('### จุดที่มักมีปัญหา', '', m.note, '');
+  L.push(`### งาน PM ประจำ (${pmRows.length})`, '');
+  if (!pmRows.length) L.push('_ยังไม่มีงาน PM ที่ผูกกับเครื่องนี้_');
+  else for (const r of pmRows) {
+    L.push(`- **${r.title}** — 🎯 ${r.goal || '—'} · ผู้รับผิดชอบหลัก: ${ROLE_LABEL[r.owner_role] || '—'}`);
+  }
+  L.push('');
+  const open = incidents.filter(i => (i.status || 'open') !== 'closed').length;
+  L.push(`### เหตุการณ์ที่เคยเกิด (${incidents.length}${open ? ` · ยังไม่ปิด ${open}` : ''})`, '');
+  if (!incidents.length) L.push('_ยังไม่มีเหตุการณ์ที่บันทึกไว้_');
+  else for (const i of incidents) {
+    const file = String(i.vault_path || '').replace(/^.*\//, '').replace(/\.md$/, '');
+    const label = `${i.occurred_at || ''} ${i.title}`.trim();
+    L.push(`- ${(i.status || 'open') === 'closed' ? '✅' : '🔸'} ${file ? `[[${file}|${label}]]` : label}`);
+  }
+  return L.join('\n');
+}
+function machineSkeleton(m, region) {
+  return [
+    '---', `title: ${m.name}`, 'tags: [เครื่องจักร]', 'ที่มา: SPP-MP', '---', '',
+    `# ${m.name}`, '', region, '', '## บันทึกของช่าง', '',
+    '_เขียนอะไรตรงนี้ก็ได้ ระบบไม่แตะส่วนนี้_', '',
+  ].join('\n');
+}
+// เขียน/อัปเดตโน้ตของเครื่องหนึ่ง · คืน {path} | {error} | {skipped} ไม่โยน error ออกไป
+async function syncMachineNote(m) {
+  if (!vault.vaultEnabled()) return { skipped: 'ยังไม่ได้ตั้งค่า vault' };
+  const path = vault.machinePath(m.name);
+  try {
+    const pmRows = await dbAll(
+      'SELECT title, goal, owner_role FROM duty_routines WHERE active = 1 AND machine = ? ORDER BY sort_order, id', [m.name]);
+    const incidents = await dbAll(
+      'SELECT title, occurred_at, status, vault_path FROM incidents WHERE machine = ? ORDER BY occurred_at DESC, id DESC', [m.name]);
+    const body = machineBlock(m, pmRows, incidents);
+    let existing = null;
+    try { const r = await vault.vaultRead(path); existing = r && r.content ? r.content : null; } catch { existing = null; }
+    const content = existing && vault.hasMarker(existing, MACHINE_MARK)
+      ? vault.replaceMarked(existing, MACHINE_MARK, body)
+      : existing
+        ? vault.replaceMarked(existing, MACHINE_MARK, body)      // ไฟล์มีอยู่แต่ยังไม่มีเขต → ต่อท้าย
+        : machineSkeleton(m, vault.replaceMarked('', MACHINE_MARK, body).trimEnd());
+    await vault.vaultWrite(path, content, `เครื่องจักร: ${m.name}`);
+    if (m.vault_path && m.vault_path !== path) {
+      try { await vault.vaultDelete(m.vault_path, `ย้ายชื่อไฟล์เครื่องจักร: ${m.vault_path} → ${path}`); }
+      catch { /* ไฟล์เก่าหายไปแล้วก็ช่าง */ }
+    }
+    await db.exec('UPDATE machines SET vault_path = ? WHERE id = ?', [path, m.id]);
+    return { path };
+  } catch (e) {
+    console.error('[vault] เขียนโน้ตเครื่องจักรไม่สำเร็จ', m.name, e.message);
+    return { error: e.message };
+  }
+}
+// อัปเดตโน้ตของเครื่องหนึ่งแบบไม่ให้ผู้ใช้รอ (ใช้ตอนบันทึก/ลบเหตุการณ์ — รายการเหตุการณ์ในโน้ตจะได้ตรง)
+function touchMachineNote(name) {
+  if (!name || !vault.vaultEnabled()) return;
+  dbAll('SELECT * FROM machines WHERE name = ? AND active = 1', [name])
+    .then(rows => (rows[0] ? syncMachineNote(rows[0]) : null))
+    .catch(e => console.error('[vault] touchMachineNote', e.message));
+}
 
 // ── เหตุการณ์ ────────────────────────────────────────────────────────────────
 // โน้ตใน vault ใช้เทมเพลตตาม "แผนพัฒนา ERP และ KM" ข้อ 4.2 เป๊ะ (อาการ/สาเหตุ/วิธีแก้/ผล/เกี่ยวข้อง)
@@ -5773,11 +5872,12 @@ app.post('/api/incidents', async (req, res) => {
     status: b.status === 'closed' ? 'closed' : 'open',
   };
   try {
-    let id = b.id, prevPath = null;
+    let id = b.id, prevPath = null, prevMachine = null;
     if (id) {
       const cur = (await dbAll('SELECT * FROM incidents WHERE id = ?', [id]))[0];
       if (!cur) return res.status(404).json({ error: 'ไม่พบเหตุการณ์นี้' });
       prevPath = cur.vault_path || null;
+      prevMachine = cur.machine || null;
       await db.exec(
         `UPDATE incidents SET title = ?, machine = ?, line_name = ?, batch_id = ?, operator = ?,
            occurred_at = ?, symptom = ?, cause = ?, fix = ?, result = ?, status = ?, updated_at = ? WHERE id = ?`,
@@ -5794,6 +5894,9 @@ app.post('/api/incidents', async (req, res) => {
     }
     const sync = await syncIncident({ ...row, id, vault_path: prevPath });
     if (sync.path) await db.exec('UPDATE incidents SET vault_path = ? WHERE id = ?', [sync.path, id]);
+    // รายการ "เหตุการณ์ที่เคยเกิด" ในโน้ตเครื่องจักรต้องตามให้ทัน (ทั้งเครื่องใหม่และเครื่องเดิมถ้าย้าย)
+    touchMachineNote(row.machine);
+    if (prevMachine && prevMachine !== row.machine) touchMachineNote(prevMachine);
     res.json({ success: true, id, vaultPath: sync.path || null, vaultError: sync.error || null, vaultSkipped: sync.skipped || null });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -5812,6 +5915,7 @@ app.post('/api/incidents/delete', async (req, res) => {
       catch (e) { vaultError = e.message; }        // ไฟล์หายไปแล้วก็ลบแถวต่อได้
     }
     await db.exec('DELETE FROM incidents WHERE id = ?', [id]);
+    touchMachineNote(cur.machine);
     res.json({ success: true, removedVault: cur.vault_path || null, vaultError });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

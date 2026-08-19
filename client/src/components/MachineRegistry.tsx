@@ -7,7 +7,7 @@ const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-t
    ([[ชื่อเครื่อง]]) — เปลี่ยนชื่อที่นี่แล้วต้องตามไปแก้ในทะเบียนงาน PM ด้วย        */
 type Machine = {
   id: number; code: string; name: string; line: string;
-  installedAt: string; lastPm: string; note: string;
+  installedAt: string; lastPm: string; note: string; vaultPath: string;
   pmCount: number; openIncidents: number;
 };
 
@@ -26,7 +26,7 @@ const inp: React.CSSProperties = {
 };
 const lbl: React.CSSProperties = { fontSize: 11.5, fontWeight: 700, color: 'var(--ink-soft,#6d6259)' };
 
-const blank = (): Machine => ({ id: 0, code: '', name: '', line: '', installedAt: '', lastPm: '', note: '', pmCount: 0, openIncidents: 0 });
+const blank = (): Machine => ({ id: 0, code: '', name: '', line: '', installedAt: '', lastPm: '', note: '', vaultPath: '', pmCount: 0, openIncidents: 0 });
 
 const MachineRegistry: React.FC = () => {
   const [list, setList] = useState<Machine[]>([]);
@@ -52,8 +52,23 @@ const MachineRegistry: React.FC = () => {
       });
       const d = await r.json();
       if (!r.ok) { setMsg(`❌ ${d.error || 'บันทึกไม่สำเร็จ'}`); return; }
-      setEdit(null); setMsg(''); await load();
+      setEdit(null);
+      setMsg(d.vaultPath ? `✅ บันทึกแล้ว · อัปเดตโน้ต ${d.vaultPath}`
+        : d.vaultSkipped ? `✅ บันทึกแล้ว (${d.vaultSkipped} — โน้ตยังไม่ถูกเขียน)`
+        : d.vaultError ? `✅ บันทึกแล้ว ⚠️ เขียนโน้ตไม่สำเร็จ: ${d.vaultError}` : '✅ บันทึกแล้ว');
+      await load();
     } catch { setMsg('❌ บันทึกไม่สำเร็จ'); } finally { setBusy(false); }
+  };
+  // เขียนโน้ตของทุกเครื่องรอบเดียว — ใช้ตอนเริ่มใช้งาน หรือหลังแก้ทะเบียนงาน PM ยกชุด
+  const syncAll = async () => {
+    setBusy(true); setMsg('กำลังเขียนโน้ตทุกเครื่อง…');
+    try {
+      const d = await fetch(`${apiUrl}/api/machines/sync-notes`, { method: 'POST' }).then(r => r.json());
+      setMsg(d.skipped ? `⚠️ ${d.skipped}`
+        : d.failed?.length ? `⚠️ เขียนได้ ${d.written}/${d.total} · พลาด: ${d.failed.map((f: { name: string }) => f.name).join(', ')}`
+        : `✅ เขียนโน้ตครบ ${d.written}/${d.total} เครื่อง ลงโฟลเดอร์ เครื่องจักร`);
+      await load();
+    } catch { setMsg('❌ ซิงก์ไม่สำเร็จ'); } finally { setBusy(false); }
   };
   const del = async (m: Machine) => {
     if (!window.confirm(`เอา "${m.name}" ออกจากทะเบียน?\n(งาน PM ที่อ้างชื่อนี้ยังอยู่เหมือนเดิม)`)) return;
@@ -109,9 +124,10 @@ const MachineRegistry: React.FC = () => {
         </h1>
         <span style={{ fontSize: 13, color: 'var(--ink-soft,#6d6259)' }}>{list.length} เครื่อง</span>
         <span style={{ flex: 1 }} />
+        <button onClick={syncAll} disabled={busy} style={btn}>🔄 ซิงก์โน้ตเข้า Obsidian</button>
         <button onClick={() => setEdit(blank())} style={{ ...btn, background: '#ff6b00', borderColor: '#ff6b00', color: '#fff' }}>＋ เพิ่มเครื่องจักร</button>
       </div>
-      {msg && <div style={{ fontSize: 12.5, color: '#c62828', marginBottom: 10 }}>{msg}</div>}
+      {msg && <div style={{ fontSize: 12.5, color: msg.startsWith('✅') ? '#1c8a4c' : msg.startsWith('⚠️') ? '#c77700' : '#c62828', marginBottom: 10, wordBreak: 'break-all' }}>{msg}</div>}
       {edit && edit.id === 0 && <Form draft={edit} />}
 
       <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', alignItems: 'start' }}>
@@ -135,6 +151,9 @@ const MachineRegistry: React.FC = () => {
               {m.lastPm && <> · PM ล่าสุด {m.lastPm}</>}
             </div>
             {m.note && <div style={{ fontSize: 12.5, color: 'var(--ink,#2b2119)', marginTop: 8, background: '#fbf7f3', borderRadius: 10, padding: '8px 10px', lineHeight: 1.6 }}>{m.note}</div>}
+            {m.vaultPath && (
+              <div style={{ fontSize: 11, color: 'var(--ink-soft,#6d6259)', marginTop: 8, wordBreak: 'break-all' }}>📄 {m.vaultPath}</div>
+            )}
             <div style={{ display: 'flex', gap: 7, marginTop: 12 }}>
               <button onClick={() => setEdit(m)} style={{ ...btn, padding: '4px 11px', fontSize: 12 }}>✏️ แก้ไข</button>
               <button onClick={() => del(m)} style={{ ...btn, padding: '4px 11px', fontSize: 12, color: '#c62828', background: '#fdecea', borderColor: '#f7d9d5' }}>🗑 เอาออก</button>

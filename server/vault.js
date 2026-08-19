@@ -423,6 +423,18 @@ function removeLine(text, rawLine) {
 
 
 /* ══════════════ เหตุการณ์ (KM) ══════════════ */
+/* ══════════════ โน้ตเครื่องจักร (แผน KM ข้อ 4.1) ══════════════ */
+// ชื่อไฟล์ต้องเท่ากับชื่อเครื่อง ลิงก์ [[ชื่อเครื่อง]] ถึงจะติด — แต่ชื่อจริงบางเครื่องมี "/"
+// (เครื่องจับโละ 900g/25kg/ปี๊บ) ซึ่ง Obsidian อ่านเป็นเส้นทางโฟลเดอร์ ลิงก์เลยไม่ติด
+// → แทนอักขระต้องห้ามด้วย "-" แล้วลิงก์ด้วย [[ชื่อไฟล์|ชื่อจริง]] ให้คนอ่านยังเห็นชื่อเต็ม
+const machineFileName = (name) => String(name || '').replace(/[/\\:*?"<>|#^[\]]/g, '-').replace(/\s+/g, ' ').trim();
+const machinePath = (name) => `เครื่องจักร/${machineFileName(name)}.md`;
+const machineLink = (name) => {
+  const f = machineFileName(name);
+  if (!f) return '';
+  return f !== String(name).trim() ? `[[${f}|${name}]]` : `[[${f}]]`;
+};
+
 // เทมเพลตตาม "แผนพัฒนา ERP และ KM" ข้อ 4.2 เป๊ะ — อาการ / สาเหตุ / วิธีแก้ / ผล / เกี่ยวข้อง
 // ระบบเป็นเจ้าของไฟล์นี้ทั้งไฟล์ (เขียนทับทุกครั้ง) ต่างจากบันทึกประจำวันที่แตะแค่ในเขต marker
 const incidentPath = (inc) => {
@@ -453,7 +465,7 @@ function incidentMarkdown(inc) {
     '## ผลหลังแก้', bullet(inc.result),
     '',
     '## เกี่ยวข้อง',
-    inc.machine ? `- [[${inc.machine}]]` : '- ',
+    inc.machine ? `- ${machineLink(inc.machine)}` : '- ',
     '',
   ].join('\n');
 }
@@ -466,4 +478,5 @@ module.exports = {
   syncPost, unsyncPost,
   TASK_MARK, dailyNotePath, taskLine, parseTaskLine, buildDailyNote, removeLine,
   incidentPath, incidentMarkdown,
+  machineFileName, machinePath, machineLink,
 };
