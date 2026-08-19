@@ -70,6 +70,19 @@ const IncidentBoard: React.FC<{ operatorName: string | null }> = ({ operatorName
     } catch { setMsg('❌ บันทึกไม่สำเร็จ'); } finally { setBusy(false); }
   };
   const setStatus = (i: Incident, status: 'open' | 'closed') => save({ ...i, status });
+  const del = async (i: Incident) => {
+    if (!window.confirm(`ลบเหตุการณ์ "${i.title}" ทิ้ง?\n${i.vaultPath ? `โน้ต ${i.vaultPath} ใน Obsidian จะถูกลบด้วย` : ''}`)) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${apiUrl}/api/incidents/delete`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: i.id }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setMsg(`❌ ${d.error || 'ลบไม่สำเร็จ'}`); return; }
+      setMsg(d.vaultError ? `✅ ลบแล้ว ⚠️ ลบโน้ตในวอลต์ไม่สำเร็จ: ${d.vaultError}` : '✅ ลบแล้ว');
+      await load();
+    } catch { setMsg('❌ ลบไม่สำเร็จ'); } finally { setBusy(false); }
+  };
 
   const shown = list.filter(i => (tab === 'open' ? i.status !== 'closed' : true));
   const openCount = list.filter(i => i.status !== 'closed').length;
@@ -181,6 +194,8 @@ const IncidentBoard: React.FC<{ operatorName: string | null }> = ({ operatorName
               {i.status === 'closed'
                 ? <button onClick={() => setStatus(i, 'open')} style={{ ...btn, padding: '4px 11px', fontSize: 12 }}>↩ เปิดใหม่</button>
                 : <button onClick={() => setStatus(i, 'closed')} style={{ ...btn, padding: '4px 11px', fontSize: 12, color: '#14653a', background: '#e6f4ec', borderColor: '#c9e6d5' }}>✓ ปิดเรื่อง</button>}
+              <button onClick={() => del(i)} disabled={busy} title="ลบทิ้ง (ลบโน้ตในวอลต์ด้วย)"
+                style={{ ...btn, padding: '4px 11px', fontSize: 12, color: '#c62828', background: '#fdecea', borderColor: '#f7d9d5' }}>🗑 ลบ</button>
               {i.vaultPath && <span style={{ fontSize: 11.5, color: 'var(--ink-soft,#6d6259)', wordBreak: 'break-all' }}>📄 {i.vaultPath}</span>}
             </div>
           </article>

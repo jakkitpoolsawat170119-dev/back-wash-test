@@ -5798,6 +5798,24 @@ app.post('/api/incidents', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ลบเหตุการณ์ทิ้ง (บันทึกผิด/ซ้ำ) — ลบทั้งแถวใน DB และไฟล์โน้ตใน vault
+// ลบจริง ไม่ใช่ soft delete: โน้ตที่ค้างอยู่ในวอลต์โดยไม่มีของคู่กันในแอปจะสับสนกว่า
+app.post('/api/incidents/delete', async (req, res) => {
+  const { id } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'id จำเป็น' });
+  try {
+    const cur = (await dbAll('SELECT * FROM incidents WHERE id = ?', [id]))[0];
+    if (!cur) return res.status(404).json({ error: 'ไม่พบเหตุการณ์นี้' });
+    let vaultError = null;
+    if (cur.vault_path && vault.vaultEnabled()) {
+      try { await vault.vaultDelete(cur.vault_path, `ลบโน้ตเหตุการณ์: ${cur.vault_path}`); }
+      catch (e) { vaultError = e.message; }        // ไฟล์หายไปแล้วก็ลบแถวต่อได้
+    }
+    await db.exec('DELETE FROM incidents WHERE id = ?', [id]);
+    res.json({ success: true, removedVault: cur.vault_path || null, vaultError });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ทะเบียนงาน PM — งานประจำ "ทุกแถว" ของทีมซ่อมบำรุง (บอร์ดโชว์แค่ owner_role='mt')
 app.get('/api/maint/routines', async (req, res) => {
   try {
