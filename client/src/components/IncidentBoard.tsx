@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { uploadDutyImage, resizePhoto } from '../lib/dutyImages';
 
 const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
 const todayBKK = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
@@ -9,6 +10,7 @@ const todayBKK = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/
 type Incident = {
   id: number; title: string; machine: string; line: string; batchId: string; operator: string;
   occurredAt: string; symptom: string; cause: string; fix: string; result: string;
+  images: string[]; resultImages: string[];
   status: 'open' | 'closed'; vaultPath: string;
 };
 
@@ -29,8 +31,55 @@ const lbl: React.CSSProperties = { fontSize: 11.5, fontWeight: 700, color: 'var(
 
 const blank = (operator: string): Incident => ({
   id: 0, title: '', machine: '', line: '', batchId: '', operator,
-  occurredAt: todayBKK(), symptom: '', cause: '', fix: '', result: '', status: 'open', vaultPath: '',
+  occurredAt: todayBKK(), symptom: '', cause: '', fix: '', result: '',
+  images: [], resultImages: [], status: 'open', vaultPath: '',
 });
+
+/* แถบรูปแนบ — อัปขึ้น Supabase Storage แล้วเก็บแต่ URL (ห้ามเก็บ base64 ลง DB)
+   ถ้าอัปไม่สำเร็จ uploadDutyImage จะคืน data URL กลับมา → ไม่รับ แล้วบอกผู้ใช้ตรง ๆ    */
+const PhotoStrip: React.FC<{
+  label: string; urls: string[]; onChange: (v: string[]) => void; onZoom: (u: string) => void; onError: (m: string) => void;
+}> = ({ label, urls, onChange, onZoom, onError }) => {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const add = async (files: FileList | null) => {
+    if (!files || !files.length) return;
+    setBusy(true);
+    try {
+      const out: string[] = [];
+      for (const f of Array.from(files).slice(0, 8 - urls.length)) {
+        const url = await uploadDutyImage((await resizePhoto(f)).preview);
+        if (url.startsWith('http')) out.push(url);
+        else onError('อัปโหลดรูปขึ้นที่เก็บไฟล์ไม่สำเร็จ — ยังบันทึกรูปไม่ได้');
+      }
+      if (out.length) onChange([...urls, ...out]);
+    } catch { onError('อ่านรูปไม่สำเร็จ'); } finally { setBusy(false); }
+  };
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 6 }}>
+      {urls.map((u, i) => (
+        <span key={u} style={{ position: 'relative', lineHeight: 0 }}>
+          <img src={u} alt={`${label} ${i + 1}`} onClick={() => onZoom(u)}
+            style={{ width: 54, height: 54, objectFit: 'cover', borderRadius: 9, cursor: 'zoom-in', border: '1px solid var(--line,#eee3d9)' }} />
+          <button onClick={() => onChange(urls.filter(x => x !== u))} aria-label="เอารูปออก"
+            style={{
+              position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: '50%',
+              border: 'none', background: '#c62828', color: '#fff', fontSize: 12, lineHeight: 1, cursor: 'pointer',
+            }}>×</button>
+        </span>
+      ))}
+      {urls.length < 8 && (
+        <button onClick={() => fileRef.current?.click()} disabled={busy}
+          style={{
+            width: 54, height: 54, borderRadius: 9, border: '1px dashed var(--line,#eee3d9)',
+            background: '#fdfbf9', color: 'var(--ink-soft,#6d6259)', fontSize: 18, cursor: 'pointer',
+          }}>{busy ? '⏳' : '📷'}</button>
+      )}
+      <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
+        onChange={e => { add(e.target.files); e.target.value = ''; }} />
+    </div>
+  );
+};
 
 const IncidentBoard: React.FC<{ operatorName: string | null }> = ({ operatorName }) => {
   const [list, setList] = useState<Incident[]>([]);
@@ -39,6 +88,7 @@ const IncidentBoard: React.FC<{ operatorName: string | null }> = ({ operatorName
   const [edit, setEdit] = useState<Incident | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [zoom, setZoom] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -58,7 +108,7 @@ const IncidentBoard: React.FC<{ operatorName: string | null }> = ({ operatorName
     try {
       const r = await fetch(`${apiUrl}/api/incidents`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...d, id: d.id || undefined, title: d.title.trim() }),
+        body: JSON.stringify({ ...d, id: d.id || undefined, title: d.title.trim(), images: d.images, resultImages: d.resultImages }),
       });
       const res = await r.json();
       if (!r.ok) { setMsg(`❌ ${res.error || 'บันทึกไม่สำเร็จ'}`); return; }
@@ -90,11 +140,18 @@ const IncidentBoard: React.FC<{ operatorName: string | null }> = ({ operatorName
   const Form: React.FC<{ draft: Incident }> = ({ draft }) => {
     const [d, setD] = useState(draft);
     const set = (patch: Partial<Incident>) => setD(v => ({ ...v, ...patch }));
-    const area = (k: 'symptom' | 'cause' | 'fix' | 'result', label: string, hint: string) => (
-      <label style={{ ...lbl, display: 'block' }}>{label}
-        <textarea value={d[k]} onChange={e => set({ [k]: e.target.value } as Partial<Incident>)} rows={2} placeholder={hint}
-          style={{ ...inp, marginTop: 3, resize: 'vertical', fontWeight: 400 }} />
-      </label>
+    const area = (k: 'symptom' | 'cause' | 'fix' | 'result', label: string, hint: string,
+      photoKey?: 'images' | 'resultImages') => (
+      <div>
+        <label style={{ ...lbl, display: 'block' }}>{label}
+          <textarea value={d[k]} onChange={e => set({ [k]: e.target.value } as Partial<Incident>)} rows={2} placeholder={hint}
+            style={{ ...inp, marginTop: 3, resize: 'vertical', fontWeight: 400 }} />
+        </label>
+        {photoKey && (
+          <PhotoStrip label={label} urls={d[photoKey]} onZoom={setZoom} onError={setMsg}
+            onChange={v => set({ [photoKey]: v } as Partial<Incident>)} />
+        )}
+      </div>
     );
     return (
       <div style={{ ...card, padding: 16, marginBottom: 14, background: '#fffaf5' }}>
@@ -121,10 +178,10 @@ const IncidentBoard: React.FC<{ operatorName: string | null }> = ({ operatorName
           </label>
         </div>
         <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', marginTop: 10 }}>
-          {area('symptom', 'อาการ', 'เห็นอะไร วัดค่าได้เท่าไหร่')}
+          {area('symptom', 'อาการ', 'เห็นอะไร วัดค่าได้เท่าไหร่', 'images')}
           {area('cause', 'สาเหตุที่คาดว่าเป็น', 'เว้นว่างไว้ก่อนได้ ค่อยมาเติมทีหลัง')}
           {area('fix', 'วิธีแก้ที่ใช้', 'ทำอะไรไปบ้าง')}
-          {area('result', 'ผลหลังแก้', 'หายไหม กลับมาอีกไหม')}
+          {area('result', 'ผลหลังแก้', 'หายไหม กลับมาอีกไหม', 'resultImages')}
         </div>
         <div style={{ display: 'flex', gap: 7, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           <button onClick={() => save(d)} disabled={busy || !d.title.trim()} style={{ ...btn, background: '#ff6b00', borderColor: '#ff6b00', color: '#fff' }}>
@@ -180,12 +237,21 @@ const IncidentBoard: React.FC<{ operatorName: string | null }> = ({ operatorName
               {i.batchId && <> · batch {i.batchId}</>}{i.operator && <> · โดย {i.operator}</>}
             </div>
             <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', marginTop: 10 }}>
-              {([['อาการ', i.symptom], ['สาเหตุ', i.cause], ['วิธีแก้', i.fix], ['ผลหลังแก้', i.result]] as const)
-                .filter(([, v]) => v)
-                .map(([k, v]) => (
+              {([['อาการ', i.symptom, i.images], ['สาเหตุ', i.cause, []], ['วิธีแก้', i.fix, []],
+                 ['ผลหลังแก้', i.result, i.resultImages]] as [string, string, string[]][])
+                .filter(([, v, ph]) => v || ph.length)
+                .map(([k, v, ph]) => (
                   <div key={k} style={{ background: '#fbf7f3', borderRadius: 10, padding: '8px 10px' }}>
                     <div style={{ ...lbl, marginBottom: 2 }}>{k}</div>
-                    <div style={{ fontSize: 12.5, whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{v}</div>
+                    {v && <div style={{ fontSize: 12.5, whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{v}</div>}
+                    {ph.length > 0 && (
+                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}>
+                        {ph.map(u => (
+                          <img key={u} src={u} alt={k} onClick={() => setZoom(u)}
+                            style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 8, cursor: 'zoom-in' }} />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
             </div>
@@ -200,6 +266,11 @@ const IncidentBoard: React.FC<{ operatorName: string | null }> = ({ operatorName
             </div>
           </article>
         )))}
+        {zoom && (
+          <div onClick={() => setZoom(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.82)', zIndex: 1000, display: 'grid', placeItems: 'center', padding: 20 }}>
+            <img src={zoom} alt="ขยาย" style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 12 }} />
+          </div>
+        )}
         {!shown.length && (
           <div style={{ ...card, padding: 20, textAlign: 'center', color: 'var(--ink-soft,#6d6259)', fontSize: 13, lineHeight: 1.7 }}>
             {tab === 'open' ? 'ไม่มีเหตุการณ์ที่ยังไม่ปิด 🎉' : 'ยังไม่มีเหตุการณ์ที่บันทึกไว้'}

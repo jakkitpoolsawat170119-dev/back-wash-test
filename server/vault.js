@@ -443,6 +443,16 @@ const incidentPath = (inc) => {
 };
 function incidentMarkdown(inc) {
   const bullet = (t) => String(t || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => `- ${l}`).join('\n') || '- ';
+  // รูปแนบเป็น URL ภายนอก (Supabase Storage) — Obsidian แสดง ![](https://…) ได้ตรง ๆ
+  // ไม่ฝัง base64 ลงโน้ต เพราะไฟล์จะบวมจนเปิดไม่ไหวและ sync ช้า
+  const parseList = (v) => {
+    if (Array.isArray(v)) return v;
+    try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; } catch { return []; }
+  };
+  const photos = (v, alt) => {
+    const list = parseList(v).filter(u => typeof u === 'string' && u.startsWith('http'));
+    return list.length ? ['', ...list.map(u => `![${alt}](${u})`)] : [];
+  };
   return [
     '---',
     'tags: [เหตุการณ์]',
@@ -456,13 +466,13 @@ function incidentMarkdown(inc) {
     '',
     `# เหตุการณ์: ${inc.title || ''}`,
     '',
-    '## อาการ', bullet(inc.symptom),
+    '## อาการ', bullet(inc.symptom), ...photos(inc.images, 'อาการ'),
     '',
     '## สาเหตุที่คาดว่าเป็น', bullet(inc.cause),
     '',
     '## วิธีแก้ที่ใช้', bullet(inc.fix),
     '',
-    '## ผลหลังแก้', bullet(inc.result),
+    '## ผลหลังแก้', bullet(inc.result), ...photos(inc.result_images, 'หลังแก้'),
     '',
     '## เกี่ยวข้อง',
     inc.machine ? `- ${machineLink(inc.machine)}` : '- ',

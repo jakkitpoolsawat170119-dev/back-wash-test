@@ -650,6 +650,12 @@ async function initDb() {
     try { await db.exec(`ALTER TABLE daily_tasks ADD COLUMN ${col} TEXT`); }
     catch { /* มีคอลัมน์อยู่แล้ว — ข้าม */ }
   }
+  // migration (KM): รูปแนบของเหตุการณ์ — JSON array ของ URL (Supabase Storage)
+  //   images = รูปตอนเจอปัญหา · result_images = รูปหลังแก้
+  //   เก็บ URL อย่างเดียว ไม่เก็บ base64 ลง DB (เคยทำให้ DB บวมมาแล้ว)
+  for (const col of ['images', 'result_images']) {
+    try { await db.exec(`ALTER TABLE incidents ADD COLUMN ${col} TEXT`); } catch { /* มีแล้ว */ }
+  }
   // migration (KM): ที่อยู่ไฟล์โน้ตของเครื่องจักรใน vault — ใช้ย้าย/ลบไฟล์เก่าตอนเปลี่ยนชื่อเครื่อง
   try { await db.exec('ALTER TABLE machines ADD COLUMN vault_path TEXT'); } catch { /* มีแล้ว */ }
   // migration (โซนซ่อมบำรุง): ช่องใหม่ของงานประจำตามตารางจริง
@@ -5828,6 +5834,10 @@ function touchMachineNote(name) {
     .catch(e => console.error('[vault] touchMachineNote', e.message));
 }
 
+// รูปแนบของเหตุการณ์เก็บเป็น JSON string (ใช้ได้ทั้ง SQLite และ Postgres เหมือน blocks/tags ของบทความ)
+const jsonList = (v) => { try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
+const photoJson = (v) => JSON.stringify((Array.isArray(v) ? v : []).filter(u => typeof u === 'string' && u.startsWith('http')).slice(0, 8));
+
 // ── เหตุการณ์ ────────────────────────────────────────────────────────────────
 // โน้ตใน vault ใช้เทมเพลตตาม "แผนพัฒนา ERP และ KM" ข้อ 4.2 เป๊ะ (อาการ/สาเหตุ/วิธีแก้/ผล/เกี่ยวข้อง)
 // เขียนทับทั้งไฟล์ทุกครั้ง — ระบบเป็นเจ้าของไฟล์นี้ ต่างจากบันทึกประจำวันที่แตะแค่ในเขต marker
@@ -5855,6 +5865,7 @@ app.get('/api/incidents', async (req, res) => {
         id: r.id, title: r.title, machine: r.machine || '', line: r.line_name || '',
         batchId: r.batch_id || '', operator: r.operator || '', occurredAt: r.occurred_at || '',
         symptom: r.symptom || '', cause: r.cause || '', fix: r.fix || '', result: r.result || '',
+        images: jsonList(r.images), resultImages: jsonList(r.result_images),
         status: r.status || 'open', vaultPath: r.vault_path || '',
       })),
       openCount: rows.filter(r => (r.status || 'open') !== 'closed').length,
@@ -5864,8 +5875,13 @@ app.get('/api/incidents', async (req, res) => {
 app.post('/api/incidents', async (req, res) => {
   const b = req.body || {};
   if (!b.title || !String(b.title).trim()) return res.status(400).json({ error: 'title จำเป็น' });
+  // รับเฉพาะ URL — ถ้าอัปโหลดขึ้น Supabase ไม่สำเร็จ client จะส่ง data: กลับมา ซึ่งห้ามลง DB
+  const badPhoto = [...(Array.isArray(b.images) ? b.images : []), ...(Array.isArray(b.resultImages) ? b.resultImages : [])]
+    .some(u => typeof u === 'string' && !u.startsWith('http'));
+  if (badPhoto) return res.status(400).json({ error: 'อัปโหลดรูปไม่สำเร็จ (ยังไม่ได้ URL) — ลองแนบรูปใหม่อีกครั้ง' });
   const row = {
     title: String(b.title).trim(), machine: b.machine || null, line_name: b.line || null,
+    images: photoJson(b.images), result_images: photoJson(b.resultImages),
     batch_id: b.batchId || null, operator: b.operator || null,
     occurred_at: b.occurredAt || todayBKK(),
     symptom: b.symptom || null, cause: b.cause || null, fix: b.fix || null, result: b.result || null,
@@ -5880,16 +5896,19 @@ app.post('/api/incidents', async (req, res) => {
       prevMachine = cur.machine || null;
       await db.exec(
         `UPDATE incidents SET title = ?, machine = ?, line_name = ?, batch_id = ?, operator = ?,
-           occurred_at = ?, symptom = ?, cause = ?, fix = ?, result = ?, status = ?, updated_at = ? WHERE id = ?`,
+           occurred_at = ?, symptom = ?, cause = ?, fix = ?, result = ?, status = ?,
+           images = ?, result_images = ?, updated_at = ? WHERE id = ?`,
         [row.title, row.machine, row.line_name, row.batch_id, row.operator, row.occurred_at,
-         row.symptom, row.cause, row.fix, row.result, row.status, nowBKK(), id]);
+         row.symptom, row.cause, row.fix, row.result, row.status,
+         row.images, row.result_images, nowBKK(), id]);
     } else {
       const r = await dbRun(
         `INSERT INTO incidents (title, machine, line_name, batch_id, operator, occurred_at,
-           symptom, cause, fix, result, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           symptom, cause, fix, result, status, images, result_images, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [row.title, row.machine, row.line_name, row.batch_id, row.operator, row.occurred_at,
-         row.symptom, row.cause, row.fix, row.result, row.status, nowBKK(), nowBKK()]);
+         row.symptom, row.cause, row.fix, row.result, row.status,
+         row.images, row.result_images, nowBKK(), nowBKK()]);
       id = r.lastID;
     }
     const sync = await syncIncident({ ...row, id, vault_path: prevPath });
