@@ -8,6 +8,7 @@ import { runJs, type RunHandle, type RunLine } from '../lib/runJs';
 import { verifyJs } from '../lib/jsVerify';
 import { ANIM_TEMPLATES } from '../lib/animTemplates';
 import { clearDrafts, draftIds, dropRescued, pruneDrafts, takeDraft, writeDraft, type BlogDraft } from '../lib/blogDraft';
+import { authHeaders, authRole } from '../lib/auth';
 import '../blog.css';
 
 const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
@@ -76,6 +77,8 @@ interface Post {
   vaultPath?: string;
   vaultSyncedAt?: string;
   vaultError?: string;
+  // เฉพาะหมวด "คู่มือ / SOP" — เวอร์ชันที่อนุมัติล่าสุด + มีของแก้ค้างรออนุมัติไหม
+  sop?: { version: number; approvedBy: string; approvedAt: string; pending: boolean };
 }
 
 // ผล sync ที่ server ส่งกลับมาหลังบันทึก — enabled=false คือเซิร์ฟเวอร์ยังไม่ได้ตั้ง token
@@ -869,6 +872,15 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
     } finally { setSyncing(false); }
   };
 
+  // ดึงเฉพาะสถานะ + ข้อมูลอนุมัติมาอัปเดต (ห้ามแตะ blocks ไม่งั้นของที่กำลังพิมพ์หาย)
+  const refreshSop = useCallback(async () => {
+    if (!post?.id) return;
+    try {
+      const j = await wakeFetch(`${apiUrl}/api/posts/${post.id}`).then(r => r.json());
+      if (j?.item) setPost(p => (p ? { ...p, status: j.item.status, sop: j.item.sop } : p));
+    } catch { /* ไม่ได้ก็ปล่อย เดี๋ยวเปิดหน้าใหม่ก็เห็น */ }
+  }, [post?.id]);
+
   const save = async (status?: Post['status']) => {
     if (!post) return;
     const title = post.title.trim();
@@ -902,6 +914,7 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
         : v.ok ? (v.removed ? ' · ถอนไฟล์ออกจาก vault แล้ว' : v.skipped ? ' · ไฟล์ใน vault เหมือนเดิม' : ' · เขียนลง vault แล้ว')
           : ' · แต่ sync เข้า vault ไม่ผ่าน'));
       if (isNew && j.id) onSaved(j.id);
+      if (body.category === SOP_CATEGORY) refreshSop();
     } catch (e) {
       alert('บันทึกไม่สำเร็จ — ' + (e instanceof Error ? e.message : ''));
     } finally { setSaving(false); }
@@ -1139,8 +1152,11 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
           </span>
         )}
         <button className="tlink" disabled={saving} onClick={() => save('draft')}>บันทึกร่าง</button>
-        <button className="tbtn primary" disabled={saving} onClick={() => save('published')}>
-          {saving ? 'กำลังบันทึก…' : 'เผยแพร่'}
+        {/* หมวดคู่มือ/SOP เผยแพร่เองไม่ได้ — ต้องผ่านการอนุมัติในแถบด้านขวา (เซิร์ฟเวอร์ก็กันไว้อีกชั้น) */}
+        <button className="tbtn primary" disabled={saving}
+          title={post.category === SOP_CATEGORY ? 'คู่มือ/SOP ขึ้นให้คนหน้างานอ่านได้เมื่อหัวหน้างานกดอนุมัติเท่านั้น' : undefined}
+          onClick={() => save(post.category === SOP_CATEGORY ? (post.status === 'published' ? 'published' : 'draft') : 'published')}>
+          {saving ? 'กำลังบันทึก…' : post.category === SOP_CATEGORY ? 'บันทึก' : 'เผยแพร่'}
         </button>
         {/* ดูตัวอย่างขนาดจอ — ไม่ได้เปลี่ยนเนื้อหา แค่ย่อความกว้างพื้นที่เขียนให้เห็นการตัดบรรทัดจริง */}
         <span className="devwrap">
@@ -1340,12 +1356,19 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
                 <h4>สถานะและการเผยแพร่</h4>
                 <div className="srow">
                   <label>สถานะ</label>
-                  <select className="sselect" value={post.status}
-                    onChange={e => setField('status', e.target.value as Post['status'])}>
-                    {(Object.keys(STATUS_LABEL) as Post['status'][]).map(s =>
-                      <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
-                  </select>
+                  {post.category === SOP_CATEGORY ? (
+                    <span className={`bl-badge ${post.status}`}>{STATUS_LABEL[post.status]}</span>
+                  ) : (
+                    <select className="sselect" value={post.status}
+                      onChange={e => setField('status', e.target.value as Post['status'])}>
+                      {(Object.keys(STATUS_LABEL) as Post['status'][]).map(s =>
+                        <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+                    </select>
+                  )}
                 </div>
+                {post.category === SOP_CATEGORY && (
+                  <div className="hintx">หมวดคู่มือ/SOP เปลี่ยนสถานะเองไม่ได้ — ต้องผ่านการอนุมัติข้างล่าง</div>
+                )}
                 <div className="srow">
                   <label>ผู้เขียน</label>
                   <input className="sinput" value={post.author} onChange={e => setField('author', e.target.value)} />
@@ -1354,6 +1377,10 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
                   <div className="hintx">เผยแพร่ครั้งแรก {String(post.publishedAt).slice(0, 16).replace('T', ' ')}</div>
                 )}
               </div>
+              {post.category === SOP_CATEGORY && post.id && (
+                <SopApproval postId={post.id} status={post.status} sop={post.sop}
+                  operatorName={operatorName} dirty={dirty} onChanged={refreshSop} />
+              )}
               <div className="sgrp">
                 <h4>ลิงก์ถาวร</h4>
                 <input className="sinput" style={{ width: '100%' }} value={post.slug}
@@ -1581,6 +1608,127 @@ interface BlockListProps {
   onPick: (blockId: string, kind: 'image' | 'pdf' | 'pid', source?: PickSource) => void;
   styleOf: (b: Block) => React.CSSProperties;
 }
+
+/* ══════════ แผงอนุมัติคู่มือ/SOP (แผน KM ข้อ 7) ══════════
+   ร่าง → ส่งขออนุมัติ → หัวหน้างานอนุมัติ (เก็บเป็นเวอร์ชัน) หรือตีกลับ
+   คนหน้างานเปิดอ่านได้เฉพาะฉบับที่อนุมัติแล้ว — แก้ร่างระหว่างวันไม่กระทบของที่เขาอ่านอยู่  */
+const SOP_CATEGORY = 'คู่มือ / SOP';
+type SopVersion = {
+  id: number; version: number; title: string; author: string;
+  approvedBy: string; approvedAt: string; note: string;
+};
+
+const SopApproval: React.FC<{
+  postId: number;
+  status: 'draft' | 'review' | 'published';
+  sop?: { version: number; approvedBy: string; approvedAt: string; pending: boolean };
+  operatorName: string;
+  dirty: boolean;
+  onChanged: () => void;
+}> = ({ postId, status, sop, operatorName, dirty, onChanged }) => {
+  const [versions, setVersions] = useState<SopVersion[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [openHist, setOpenHist] = useState(false);
+  const canApprove = ['supervisor', 'admin'].includes(authRole());
+
+  const loadVersions = useCallback(async () => {
+    try {
+      const j = await wakeFetch(`${apiUrl}/api/posts/${postId}/versions`).then(r => r.json());
+      setVersions(Array.isArray(j.versions) ? j.versions : []);
+    } catch { /* ไม่ได้ก็ไม่เป็นไร แค่ไม่มีประวัติให้ดู */ }
+  }, [postId]);
+  useEffect(() => { loadVersions(); }, [loadVersions]);
+
+  const call = async (url: string, body: Record<string, unknown>, ok: string) => {
+    setBusy(true); setMsg('');
+    try {
+      const r = await wakeFetch(`${apiUrl}${url}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (!r.ok) { setMsg(`❌ ${j.error || 'ทำรายการไม่สำเร็จ'}`); return; }
+      setMsg(`✅ ${ok}`);
+      await loadVersions();
+      onChanged();
+    } catch { setMsg('❌ ต่อเซิร์ฟเวอร์ไม่ได้'); } finally { setBusy(false); }
+  };
+
+  const submit = () => call('/api/posts/submit', { id: postId, by: operatorName }, 'ส่งขออนุมัติแล้ว');
+  const approve = () => {
+    const note = window.prompt('บันทึกการอนุมัติ (ไม่บังคับ) — เช่น แก้ขั้นตอนล้างถังตามที่คุยกัน') ?? '';
+    return call('/api/posts/approve', { id: postId, note }, 'อนุมัติแล้ว — คนหน้างานเห็นฉบับใหม่ได้เลย');
+  };
+  const reject = () => {
+    const reason = window.prompt('เหตุผลที่ตีกลับ (จะส่งเข้า Telegram ให้คนเขียนเห็น)') ?? '';
+    if (reason === null) return;
+    return call('/api/posts/reject', { id: postId, reason }, 'ตีกลับเป็นร่างแล้ว');
+  };
+  const restore = (v: SopVersion) => {
+    if (!window.confirm(`เอาเนื้อหาเวอร์ชัน ${v.version} กลับมาเป็นร่าง?\nฉบับที่คนหน้างานอ่านอยู่จะยังเป็นฉบับอนุมัติล่าสุดจนกว่าจะอนุมัติรอบใหม่`)) return;
+    return call('/api/posts/restore-version', { versionId: v.id }, `กู้เวอร์ชัน ${v.version} กลับมาเป็นร่างแล้ว — เปิดหน้านี้ใหม่เพื่อดูเนื้อหา`);
+  };
+
+  const approved = sop && sop.version > 0;
+  return (
+    <div className="sgrp">
+      <h4>📘 อนุมัติคู่มือ / SOP</h4>
+      <div className="hintx" style={{ marginTop: 0 }}>
+        {approved
+          ? <>อนุมัติแล้วถึง <b>เวอร์ชัน {sop!.version}</b> · โดย {sop!.approvedBy || '—'} {sop!.approvedAt ? `เมื่อ ${String(sop!.approvedAt).slice(0, 16).replace('T', ' ')}` : ''}</>
+          : <>ยังไม่เคยอนุมัติ — คนหน้างานยังเปิดอ่านไม่ได้</>}
+      </div>
+      {approved && sop!.pending && (
+        <div className="hintx" style={{ color: '#c77700', fontWeight: 700 }}>
+          ✏️ มีการแก้ที่ยังไม่ได้อนุมัติ — คนหน้างานยังเห็นเวอร์ชัน {sop!.version} อยู่
+        </div>
+      )}
+      {status === 'review' && <div className="hintx" style={{ color: '#0d47a1', fontWeight: 700 }}>⏳ รอหัวหน้างานตรวจ</div>}
+      {dirty && <div className="hintx" style={{ color: '#c77700' }}>บันทึกก่อนส่งขออนุมัติ ไม่งั้นหัวหน้าจะเห็นของเก่า</div>}
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+        {status !== 'review' && (
+          <button className="btn-o" disabled={busy} onClick={submit}>ส่งขออนุมัติ</button>
+        )}
+        {canApprove && (<>
+          <button className="btn-o" disabled={busy} onClick={approve}
+            style={{ borderColor: '#1c8a4c', color: '#1c8a4c' }}>✓ อนุมัติ</button>
+          <button className="btn-o" disabled={busy} onClick={reject}>↩ ตีกลับ</button>
+        </>)}
+      </div>
+      {!canApprove && (
+        <div className="hintx">อนุมัติได้เฉพาะหัวหน้างานขึ้นไป — เข้าหน้าผู้ดูแลด้วย PIN ของตัวเองถึงจะเห็นปุ่มอนุมัติ</div>
+      )}
+      {msg && <div className="hintx" style={{ fontWeight: 700 }}>{msg}</div>}
+
+      {versions.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <button className="btn-o" onClick={() => setOpenHist(v => !v)}>
+            ประวัติเวอร์ชัน ({versions.length}) {openHist ? '▲' : '▼'}
+          </button>
+          {openHist && (
+            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {versions.map(v => (
+                <div key={v.id} style={{ border: '1px solid #e6ddd4', borderRadius: 10, padding: '7px 9px' }}>
+                  <div style={{ fontWeight: 700, fontSize: '.82rem' }}>
+                    เวอร์ชัน {v.version}
+                    <span style={{ fontWeight: 400, color: '#8d8378' }}> · {String(v.approvedAt).slice(0, 16).replace('T', ' ')}</span>
+                  </div>
+                  <div className="hintx" style={{ margin: 0 }}>อนุมัติโดย {v.approvedBy || '—'}{v.note ? ` · ${v.note}` : ''}</div>
+                  {canApprove && (
+                    <button className="btn-o" style={{ marginTop: 5 }} disabled={busy} onClick={() => restore(v)}>
+                      เอาเนื้อหานี้กลับมาเป็นร่าง
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const BlockList: React.FC<BlockListProps> = ({ blocks, selId, onSelect, onPatch, onAct, onReplace, onInsertAfter, onPick, styleOf }) => {
   const [slash, setSlash] = useState<{ forId: string; top: number; left: number; q: string; cur: number } | null>(null);

@@ -578,6 +578,20 @@ const SCHEMA = [
       updated_at TEXT,
       published_at TEXT
     )`,
+  // ── เวอร์ชันของ SOP/คู่มือ (แผน KM ข้อ 7) ─────────────────────────────────
+  //   1 แถว = 1 ครั้งที่ "อนุมัติ" — เก็บเนื้อหาตอนนั้นไว้ทั้งชุด ย้อนดู/กู้คืนได้
+  //   บทความทั่วไปไม่แตะตารางนี้เลย
+  `CREATE TABLE IF NOT EXISTS post_versions (
+      id ${db.pk},
+      post_id INTEGER,
+      version INTEGER,
+      title TEXT,
+      blocks TEXT,
+      author TEXT,
+      approved_by TEXT,
+      approved_at TEXT,
+      note TEXT
+    )`,
   // ── sha ของไฟล์ที่ระบบเป็นคนเขียนเข้า vault ล่าสุด ─────────────────────────
   // ใช้แยกว่า push ที่เข้ามาเป็นฝีมือระบบเองหรือคน — ถ้า sha ตรงกับที่จดไว้ = ของเราเอง ข้ามไป
   // (ไม่งั้นจะวนลูป: ระบบเขียน → webhook → reconcile → เขียนอีก)
@@ -9314,6 +9328,27 @@ app.post('/api/batches/reset', (req, res) => {
 const POST_FIELDS = ['slug','title','blocks','status','author','category','tags','machine','excerpt',
   'cover_url','seo_keyword','seo_desc','script_head','script_body','obs_folder'];
 
+/* SOP: สิ่งที่คนอ่านเห็น = "ฉบับที่อนุมัติล่าสุด" ไม่ใช่ของที่กำลังแก้อยู่
+   posts.blocks = ฉบับร่างที่คนเขียนแก้ไปเรื่อย ๆ · post_versions = ฉบับที่ผ่านตาหัวหน้าแล้ว
+   → แก้คู่มือระหว่างวันได้โดยที่คนหน้างานยังเปิดอ่านฉบับที่อนุมัติไว้เหมือนเดิม             */
+async function latestVersion(postId) {
+  try {
+    return await dbGet(
+      'SELECT * FROM post_versions WHERE post_id = ? ORDER BY version DESC LIMIT 1', [postId]) || null;
+  } catch { return null; }
+}
+// คืน post object ที่พร้อมเอาไปเรนเดอร์/เขียนไฟล์ (ถ้าเป็น SOP ที่อนุมัติแล้วจะสลับเนื้อหาเป็นฉบับอนุมัติ)
+async function approvedPostView(row) {
+  const post = postFromRow(row);
+  if (!isSopPost(row)) return post;
+  const v = await latestVersion(row.id);
+  if (!v) return post;
+  let blocks = post.blocks;
+  try { blocks = JSON.parse(v.blocks || '[]'); } catch { /* พังก็ใช้ของเดิม */ }
+  return { ...post, title: v.title || post.title, blocks,
+    sopVersion: v.version, approvedBy: v.approved_by || '', approvedAt: v.approved_at || '' };
+}
+
 // แปลงแถวจาก DB → รูปที่ฝั่งหน้าเว็บใช้ (คลาย JSON ให้เรียบร้อย ไม่ให้หน้าเว็บต้อง parse เอง)
 function postFromRow(r) {
   if (!r) return null;
@@ -9361,7 +9396,8 @@ async function syncPostToVault(id) {
         ['', at, '', id]);
       return { enabled: true, ok: true, removed: !!post.vaultPath, at };
     }
-    const r = await vault.syncPost(post, post.vaultPath);
+    // SOP → เขียนฉบับที่อนุมัติแล้วลงไฟล์ (ไม่ใช่ฉบับร่างที่กำลังแก้)
+    const r = await vault.syncPost(await approvedPostView(row), post.vaultPath);
     await vaultRemember(r.path, r.sha);
     await db.exec('UPDATE posts SET vault_path = ?, vault_synced_at = ?, vault_error = ? WHERE id = ?',
       [r.path, at, '', id]);
@@ -9397,7 +9433,16 @@ app.get('/api/posts/:id', async (req, res) => {
   try {
     const row = await dbGet('SELECT * FROM posts WHERE id = ?', [req.params.id]);
     if (!row) return res.status(404).json({ error: 'ไม่พบบทความนี้' });
-    res.json({ item: postFromRow(row) });
+    const item = postFromRow(row);
+    // SOP: บอกด้วยว่าอนุมัติถึงเวอร์ชันไหน และตอนนี้มีของที่แก้ค้างรออนุมัติอยู่ไหม
+    if (isSopPost(row)) {
+      const v = await latestVersion(row.id);
+      item.sop = v
+        ? { version: v.version, approvedBy: v.approved_by || '', approvedAt: v.approved_at || '',
+            pending: String(v.blocks || '') !== String(row.blocks || '') || (v.title || '') !== (row.title || '') }
+        : { version: 0, approvedBy: '', approvedAt: '', pending: true };
+    }
+    res.json({ item });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -9425,6 +9470,17 @@ app.post('/api/posts', async (req, res) => {
     obs_folder: String(b.obsFolder || 'บทความ'),
   };
   try {
+    // ── SOP ต้องผ่านการอนุมัติ ─────────────────────────────────────────────
+    // ยังไม่เคยอนุมัติแล้วกดเผยแพร่เอง = ไม่ให้ (ต้องใช้ปุ่ม "ส่งขออนุมัติ")
+    // เคยอนุมัติแล้ว = แก้ต่อได้ตามสบาย เพราะคนอ่านยังเห็นฉบับที่อนุมัติไว้ (approvedPostView)
+    if (vals.category === SOP_CATEGORY && vals.status === 'published') {
+      const who = await whoIs(req);
+      const okRole = who && (ROLE_RANK[who.role] || 0) >= ROLE_RANK.supervisor;
+      const approved = b.id ? await latestVersion(b.id) : null;
+      if (!approved && !okRole) {
+        return res.status(403).json({ error: 'คู่มือ/SOP ต้องผ่านการอนุมัติก่อน — กด "ส่งขออนุมัติ" แล้วให้หัวหน้างานตรวจ' });
+      }
+    }
     if (b.id) {
       // published_at ตั้งครั้งแรกที่เผยแพร่เท่านั้น เผยแพร่ซ้ำไม่รีเซ็ตวันที่เดิม
       const cur = await dbGet('SELECT published_at, status FROM posts WHERE id = ?', [b.id]);
@@ -9451,6 +9507,113 @@ app.post('/api/posts', async (req, res) => {
     }
     const vaultRes = vals.status === 'published' && id ? await syncPostToVault(id) : undefined;
     res.json({ id, updatedAt: now, vault: vaultRes });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+/* ══════════ อนุมัติ + เวอร์ชันของคู่มือ/SOP (แผน KM ข้อ 7) ══════════
+   ร่าง → ส่งขออนุมัติ (review) → หัวหน้างานกดอนุมัติ (published + เก็บเวอร์ชัน) หรือตีกลับ
+   บทความหมวดอื่นไม่เปลี่ยนพฤติกรรมเลย — กดเผยแพร่เองได้เหมือนเดิม                */
+const SOP_CATEGORY = 'คู่มือ / SOP';
+const isSopPost = (row) => String((row || {}).category || '').trim() === SOP_CATEGORY;
+
+const sopNotify = (text) => { if (process.env.TELEGRAM_CHAT_ID) sendToTelegram(text); };
+
+// ส่งขออนุมัติ — ใครก็ส่งได้ (คนเขียนเอง)
+app.post('/api/posts/submit', async (req, res) => {
+  const { id, by } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'ต้องมี id' });
+  try {
+    const row = await dbGet('SELECT id, title, status, category FROM posts WHERE id = ?', [id]);
+    if (!row) return res.status(404).json({ error: 'ไม่พบบทความนี้' });
+    if (!isSopPost(row)) return res.status(400).json({ error: 'ใช้ได้เฉพาะหมวด "คู่มือ / SOP"' });
+    if (row.status === 'published') return res.status(400).json({ error: 'อนุมัติไปแล้ว — แก้เนื้อหาก่อนแล้วค่อยส่งใหม่' });
+    await db.exec("UPDATE posts SET status = 'review', updated_at = ? WHERE id = ?", [nowBKK(), id]);
+    sopNotify(`📝 <b>ขออนุมัติ SOP</b>\n${escapeHtml(row.title)}\n\n✍️ โดย ${escapeHtml(by || 'ไม่ระบุ')}\n👉 เปิดหน้า Admin → บทความ เพื่อตรวจและอนุมัติ`);
+    res.json({ success: true, status: 'review' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// อนุมัติ — หัวหน้างานขึ้นไปเท่านั้น · เก็บสำเนาเนื้อหาเป็นเวอร์ชันใหม่ แล้วเขียนลง vault
+app.post('/api/posts/approve', requireRole('supervisor'), async (req, res) => {
+  const { id, note } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'ต้องมี id' });
+  try {
+    const row = await dbGet('SELECT * FROM posts WHERE id = ?', [id]);
+    if (!row) return res.status(404).json({ error: 'ไม่พบบทความนี้' });
+    if (!isSopPost(row)) return res.status(400).json({ error: 'ใช้ได้เฉพาะหมวด "คู่มือ / SOP"' });
+    const last = await dbGet('SELECT MAX(version) AS v FROM post_versions WHERE post_id = ?', [id]);
+    const version = Number((last && last.v) || 0) + 1;
+    const at = nowBKK();
+    await db.exec(
+      `INSERT INTO post_versions (post_id, version, title, blocks, author, approved_by, approved_at, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, version, row.title, row.blocks, row.author || '', req.who.name, at, String(note || '').slice(0, 300)]);
+    await db.exec("UPDATE posts SET status = 'published', updated_at = ?, published_at = COALESCE(published_at, ?) WHERE id = ?",
+      [at, at, id]);
+    const vaultRes = await syncPostToVault(id);
+    sopNotify(`✅ <b>อนุมัติ SOP แล้ว</b> (เวอร์ชัน ${version})\n${escapeHtml(row.title)}\n\n👤 อนุมัติโดย ${escapeHtml(req.who.name)}${note ? `\n📝 ${escapeHtml(String(note))}` : ''}`);
+    res.json({ success: true, version, approvedBy: req.who.name, approvedAt: at, vault: vaultRes });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ตีกลับ — กลับเป็นร่าง พร้อมเหตุผล (เหตุผลไปอยู่ใน Telegram ให้คนเขียนเห็น)
+app.post('/api/posts/reject', requireRole('supervisor'), async (req, res) => {
+  const { id, reason } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'ต้องมี id' });
+  try {
+    const row = await dbGet('SELECT id, title, category, status FROM posts WHERE id = ?', [id]);
+    if (!row) return res.status(404).json({ error: 'ไม่พบบทความนี้' });
+    if (!isSopPost(row)) return res.status(400).json({ error: 'ใช้ได้เฉพาะหมวด "คู่มือ / SOP"' });
+    await db.exec("UPDATE posts SET status = 'draft', updated_at = ? WHERE id = ?", [nowBKK(), id]);
+    // เคยเผยแพร่แล้วถูกตีกลับ = ถอนไฟล์ออกจาก vault ด้วย (syncPostToVault จัดการให้เอง)
+    const vaultRes = await syncPostToVault(id);
+    sopNotify(`↩️ <b>ตีกลับ SOP</b>\n${escapeHtml(row.title)}\n\n👤 โดย ${escapeHtml(req.who.name)}${reason ? `\n📝 ${escapeHtml(String(reason))}` : ''}`);
+    res.json({ success: true, status: 'draft', vault: vaultRes });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ประวัติเวอร์ชัน (ไม่ส่งเนื้อหามาด้วย — รายการอย่างเดียว)
+app.get('/api/posts/:id/versions', async (req, res) => {
+  try {
+    const rows = await dbAll(
+      `SELECT id, version, title, author, approved_by, approved_at, note
+         FROM post_versions WHERE post_id = ? ORDER BY version DESC`, [req.params.id]);
+    res.json({
+      versions: rows.map(r => ({
+        id: r.id, version: r.version, title: r.title, author: r.author || '',
+        approvedBy: r.approved_by || '', approvedAt: r.approved_at || '', note: r.note || '',
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// เนื้อหาของเวอร์ชันหนึ่ง (กดดูย้อนหลัง)
+app.get('/api/posts/version/:vid', async (req, res) => {
+  try {
+    const r = await dbGet('SELECT * FROM post_versions WHERE id = ?', [req.params.vid]);
+    if (!r) return res.status(404).json({ error: 'ไม่พบเวอร์ชันนี้' });
+    let blocks = []; try { blocks = JSON.parse(r.blocks || '[]'); } catch { blocks = []; }
+    res.json({
+      version: {
+        id: r.id, postId: r.post_id, version: r.version, title: r.title, blocks,
+        author: r.author || '', approvedBy: r.approved_by || '', approvedAt: r.approved_at || '', note: r.note || '',
+      },
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// กู้คืนเวอร์ชันเก่า — เอาเนื้อหากลับมาเป็น "ร่าง" ต้องส่งอนุมัติใหม่อีกรอบ
+// (ไม่ทับของที่อนุมัติแล้วเงียบ ๆ — ของที่คนหน้างานเปิดอ่านต้องผ่านตาหัวหน้าเสมอ)
+app.post('/api/posts/restore-version', requireRole('supervisor'), async (req, res) => {
+  const { versionId } = req.body || {};
+  if (!versionId) return res.status(400).json({ error: 'ต้องมี versionId' });
+  try {
+    const v = await dbGet('SELECT * FROM post_versions WHERE id = ?', [versionId]);
+    if (!v) return res.status(404).json({ error: 'ไม่พบเวอร์ชันนี้' });
+    await db.exec("UPDATE posts SET title = ?, blocks = ?, status = 'draft', updated_at = ? WHERE id = ?",
+      [v.title, v.blocks, nowBKK(), v.post_id]);
+    const vaultRes = await syncPostToVault(v.post_id);
+    res.json({ success: true, postId: v.post_id, version: v.version, status: 'draft', vault: vaultRes });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -9591,7 +9754,7 @@ app.use(async (req, res, next) => {
     }
     const row = await dbGet("SELECT * FROM posts WHERE slug = ? AND status = 'published'", [slug]);
     if (!row) return send(articlePage.renderNotFound(), 404);
-    const post = postFromRow(row);
+    const post = await approvedPostView(row);   // SOP: โชว์ฉบับที่อนุมัติล่าสุด
     // กราฟต้องดึงข้อมูลก่อน (เป็นงาน async) ตัวเรนเดอร์หน้าเป็นฟังก์ชันธรรมดา
     for (const b of post.blocks || []) {
       if (b.type !== 'chart') continue;

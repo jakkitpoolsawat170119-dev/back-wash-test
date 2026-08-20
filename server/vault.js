@@ -200,8 +200,19 @@ function postToMarkdown(post) {
     `สถานะ: ${STATUS_LABEL[p.status] || 'ร่าง'}`,
     `ผู้เขียน: ${yamlStr(p.author || '')}`,
   ];
+  // SOP ที่ผ่านการอนุมัติแล้ว — บอกเวอร์ชันและคนอนุมัติไว้ในไฟล์ด้วย จะได้รู้ว่าอ่านฉบับไหนอยู่
+  if (p.sopVersion) {
+    L.push(`เวอร์ชัน: ${p.sopVersion}`);
+    if (p.approvedBy) L.push(`อนุมัติโดย: ${yamlStr(p.approvedBy)}`);
+    if (p.approvedAt) L.push(`อนุมัติเมื่อ: ${String(p.approvedAt).slice(0, 16).replace('T', ' ')}`);
+  }
   if (p.machine) L.push(`เครื่องจักร: "[[${p.machine}]]"`);
   L.push('ที่มา: SPP-MP editor', '---', '', `# ${title}`, '');
+  if (p.sopVersion) {
+    L.push(`> [!info] คู่มือฉบับอนุมัติ — เวอร์ชัน ${p.sopVersion}`
+      + (p.approvedBy ? ` · อนุมัติโดย ${p.approvedBy}` : '')
+      + (p.approvedAt ? ` · ${String(p.approvedAt).slice(0, 16).replace('T', ' ')}` : ''), '');
+  }
 
   (p.blocks || []).forEach((b) => {
     switch (b.type) {
