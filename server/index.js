@@ -578,6 +578,37 @@ const SCHEMA = [
       updated_at TEXT,
       published_at TEXT
     )`,
+  // ── คลังวัสดุ/สารเคมี (ERP เฟส 1-2 ในแผน) ────────────────────────────────
+  //   materials = ทะเบียนของ · material_moves = ทุกครั้งที่ของเข้า-ออก (ไม่ลบ ไม่ทับ)
+  //   ยอดคงเหลือเก็บไว้ที่ materials.stock เพื่อไม่ต้องบวกย้อนหลังทุกครั้งที่เปิดหน้า
+  //   แต่ทุกความเคลื่อนไหวจดยอดหลังทำ (balance_after) ไว้ตรวจย้อนได้ว่ายอดเพี้ยนตอนไหน
+  `CREATE TABLE IF NOT EXISTS materials (
+      id ${db.pk},
+      code TEXT,
+      name TEXT UNIQUE,
+      unit TEXT,
+      stock REAL DEFAULT 0,
+      reorder_point REAL DEFAULT 0,
+      cost_per_unit REAL DEFAULT 0,
+      supplier TEXT,
+      note TEXT,
+      active INTEGER DEFAULT 1,
+      created_at TEXT,
+      updated_at TEXT
+    )`,
+  `CREATE TABLE IF NOT EXISTS material_moves (
+      id ${db.pk},
+      material_id INTEGER,
+      kind TEXT,                      -- out=เบิกใช้ · in=รับเข้า · adjust=ปรับยอดตามที่นับได้
+      qty REAL,
+      unit_cost REAL,                 -- ราคาต่อหน่วย ณ ตอนนั้น (เก็บไว้กับรายการ ราคาขึ้นทีหลังไม่ทำให้ของเก่าเพี้ยน)
+      balance_after REAL,
+      batch_ref TEXT,                 -- เบิกไปใช้กับ batch ไหน (พิมพ์เอง — CIP หรือ batch ผลิตก็ได้)
+      cip_batch_id INTEGER,
+      note TEXT,
+      operator TEXT,
+      moved_at TEXT
+    )`,
   // ── เวอร์ชันของ SOP/คู่มือ (แผน KM ข้อ 7) ─────────────────────────────────
   //   1 แถว = 1 ครั้งที่ "อนุมัติ" — เก็บเนื้อหาตอนนั้นไว้ทั้งชุด ย้อนดู/กู้คืนได้
   //   บทความทั่วไปไม่แตะตารางนี้เลย
@@ -6119,6 +6150,167 @@ app.post('/api/incidents/delete', async (req, res) => {
     touchMachineNote(cur.machine);
     res.json({ success: true, removedVault: cur.vault_path || null, vaultError });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ══════════ คลังวัสดุ/สารเคมี (ERP เฟส 2) ══════════
+   ทะเบียนของ + บันทึกเบิกใช้ต่อ batch + เตือนเมื่อใกล้หมด + ต้นทุนวัสดุต่อช่วงเวลา
+   แก้ทะเบียน (เพิ่ม/แก้ราคา/จุดสั่งซื้อ) = หัวหน้างานขึ้นไป · เบิก-รับของ = ใครก็ได้ (ทำหน้างานทุกวัน) */
+const MOVE_KINDS = ['out', 'in', 'adjust'];
+const num = (v, d = 0) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
+const round2 = (n) => Math.round(num(n) * 100) / 100;
+const matRow = (r) => ({
+  id: r.id, code: r.code || '', name: r.name, unit: r.unit || '',
+  stock: round2(r.stock), reorderPoint: round2(r.reorder_point), costPerUnit: round2(r.cost_per_unit),
+  supplier: r.supplier || '', note: r.note || '',
+  low: num(r.reorder_point) > 0 && num(r.stock) <= num(r.reorder_point),
+  value: round2(num(r.stock) * num(r.cost_per_unit)),
+});
+
+app.get('/api/materials', async (req, res) => {
+  try {
+    const rows = await dbAll('SELECT * FROM materials WHERE active = 1 ORDER BY name', []);
+    const materials = rows.map(matRow);
+    res.json({
+      materials,
+      lowCount: materials.filter(m => m.low).length,
+      totalValue: round2(materials.reduce((n, m) => n + m.value, 0)),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// เพิ่ม/แก้ทะเบียนวัสดุ — ยอดคงเหลือแก้ที่นี่ไม่ได้ ต้องผ่าน /move เสมอ (ประวัติจะได้ไม่ขาด)
+app.post('/api/materials', requireRole('supervisor'), async (req, res) => {
+  const b = req.body || {};
+  const name = String(b.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'ต้องมีชื่อวัสดุ' });
+  const vals = [String(b.code || '').trim(), String(b.unit || '').trim() || 'หน่วย',
+    Math.max(0, num(b.reorderPoint)), Math.max(0, num(b.costPerUnit)),
+    String(b.supplier || '').trim(), String(b.note || '').trim(), nowBKK()];
+  try {
+    const cur = await dbGet('SELECT id FROM materials WHERE name = ?', [name]);
+    if (cur) {
+      await db.exec(`UPDATE materials SET code = ?, unit = ?, reorder_point = ?, cost_per_unit = ?,
+        supplier = ?, note = ?, updated_at = ?, active = 1 WHERE name = ?`, [...vals, name]);
+    } else {
+      await db.exec(`INSERT INTO materials (code, unit, reorder_point, cost_per_unit, supplier, note, updated_at, name, stock, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`, [...vals, name, nowBKK()]);
+    }
+    const row = await dbGet('SELECT * FROM materials WHERE name = ?', [name]);
+    res.json({ success: true, material: matRow(row) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// เอาออกจากทะเบียน = ปิดการใช้งาน ไม่ลบจริง (ประวัติการเบิกยังต้องอ่านได้)
+app.post('/api/materials/delete', requireRole('supervisor'), async (req, res) => {
+  if (!req.body.id) return res.status(400).json({ error: 'ต้องมี id' });
+  try {
+    await db.exec('UPDATE materials SET active = 0, updated_at = ? WHERE id = ?', [nowBKK(), req.body.id]);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// เบิกใช้ / รับเข้า / ปรับยอด — จุดเดียวที่ยอดคงเหลือเปลี่ยนได้
+app.post('/api/materials/move', async (req, res) => {
+  const b = req.body || {};
+  const kind = MOVE_KINDS.includes(b.kind) ? b.kind : null;
+  const qty = num(b.qty);
+  if (!b.materialId || !kind) return res.status(400).json({ error: 'ต้องมี materialId และประเภทรายการ' });
+  if (kind !== 'adjust' && qty <= 0) return res.status(400).json({ error: 'จำนวนต้องมากกว่า 0' });
+  if (kind === 'adjust' && qty < 0) return res.status(400).json({ error: 'ยอดที่นับได้ติดลบไม่ได้' });
+  try {
+    const m = await dbGet('SELECT * FROM materials WHERE id = ?', [b.materialId]);
+    if (!m) return res.status(404).json({ error: 'ไม่พบวัสดุนี้' });
+    const before = num(m.stock);
+    // ราคาต่อหน่วย: รับเข้าใช้ราคาที่กรอกมา (ถ้ามี) · เบิก/ปรับยอดใช้ราคาล่าสุดในทะเบียน
+    const unitCost = kind === 'in' && b.unitCost != null && num(b.unitCost) > 0
+      ? round2(b.unitCost) : round2(m.cost_per_unit);
+    const after = kind === 'in' ? before + qty : kind === 'out' ? before - qty : qty;
+    await db.exec(
+      `INSERT INTO material_moves (material_id, kind, qty, unit_cost, balance_after, batch_ref, cip_batch_id, note, operator, moved_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [m.id, kind, kind === 'adjust' ? round2(qty - before) : round2(qty), unitCost, round2(after),
+       String(b.batchRef || '').trim().slice(0, 40) || null,
+       b.cipBatchId ? Number(b.cipBatchId) : null,
+       String(b.note || '').trim().slice(0, 200) || null,
+       String(b.operator || '').trim().slice(0, 60) || null, nowBKK()]);
+    // รับเข้าพร้อมราคาใหม่ = อัปเดตราคาล่าสุดในทะเบียนด้วย
+    if (kind === 'in' && b.unitCost != null && num(b.unitCost) > 0) {
+      await db.exec('UPDATE materials SET stock = ?, cost_per_unit = ?, updated_at = ? WHERE id = ?',
+        [round2(after), unitCost, nowBKK(), m.id]);
+    } else {
+      await db.exec('UPDATE materials SET stock = ?, updated_at = ? WHERE id = ?', [round2(after), nowBKK(), m.id]);
+    }
+    // เตือนเฉพาะ "ตอนที่เพิ่งตกลงมาถึงจุดสั่งซื้อ" ไม่ใช่ทุกครั้งที่เบิกตอนของน้อยอยู่แล้ว
+    const rp = num(m.reorder_point);
+    const justCrossed = rp > 0 && before > rp && after <= rp;
+    if (justCrossed && process.env.TELEGRAM_CHAT_ID) {
+      sendToTelegram(`⚠️ <b>วัสดุใกล้หมด</b>\n${escapeHtml(m.name)}\n\n`
+        + `📦 เหลือ <b>${round2(after)} ${escapeHtml(m.unit || '')}</b> (จุดสั่งซื้อ ${rp} ${escapeHtml(m.unit || '')})\n`
+        + (m.supplier ? `🏭 ผู้ขาย: ${escapeHtml(m.supplier)}\n` : '')
+        + `✍️ ${escapeHtml(String(b.operator || 'ไม่ระบุ'))}`);
+    }
+    const row = await dbGet('SELECT * FROM materials WHERE id = ?', [m.id]);
+    res.json({ success: true, material: matRow(row), alerted: justCrossed, negative: after < 0 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ประวัติความเคลื่อนไหว (ค่าเริ่มต้น 30 วันล่าสุด)
+app.get('/api/materials/moves', async (req, res) => {
+  const today = todayBKK();
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : today;
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from
+    : new Date(Date.parse(`${to}T00:00:00Z`) - 29 * 86400000).toISOString().slice(0, 10);
+  try {
+    const rows = await dbAll(
+      `SELECT mv.*, m.name AS material_name, m.unit AS material_unit
+         FROM material_moves mv LEFT JOIN materials m ON m.id = mv.material_id
+        WHERE mv.moved_at >= ? AND mv.moved_at <= ?
+        ORDER BY mv.moved_at DESC, mv.id DESC`, [`${from}T00:00`, `${to}T23:59`]);
+    const pick = req.query.materialId ? Number(req.query.materialId) : null;
+    const moves = rows.filter(r => !pick || r.material_id === pick).map(r => ({
+      id: r.id, materialId: r.material_id, name: r.material_name || '(ถูกลบแล้ว)', unit: r.material_unit || '',
+      kind: r.kind, qty: round2(r.qty), unitCost: round2(r.unit_cost), balanceAfter: round2(r.balance_after),
+      cost: r.kind === 'out' ? round2(num(r.qty) * num(r.unit_cost)) : 0,
+      batchRef: r.batch_ref || '', note: r.note || '', operator: r.operator || '', movedAt: r.moved_at,
+    }));
+    res.json({ from, to, moves: moves.slice(0, 300), total: moves.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ต้นทุนวัสดุที่เบิกใช้ในช่วงเวลา — รายวัสดุ / รายวัน / ราย batch
+app.get('/api/materials/summary', async (req, res) => {
+  const today = todayBKK();
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : today;
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from
+    : new Date(Date.parse(`${to}T00:00:00Z`) - 29 * 86400000).toISOString().slice(0, 10);
+  try {
+    const rows = await dbAll(
+      `SELECT mv.material_id, mv.qty, mv.unit_cost, mv.moved_at, mv.batch_ref, m.name, m.unit
+         FROM material_moves mv LEFT JOIN materials m ON m.id = mv.material_id
+        WHERE mv.kind = 'out' AND mv.moved_at >= ? AND mv.moved_at <= ?`, [`${from}T00:00`, `${to}T23:59`]);
+    const byMat = {}, byDay = {}, byBatch = {};
+    for (const r of rows) {
+      const cost = num(r.qty) * num(r.unit_cost);
+      const day = String(r.moved_at || '').slice(0, 10);
+      const name = r.name || '(ถูกลบแล้ว)';
+      const mm = byMat[name] || (byMat[name] = { name, unit: r.unit || '', qty: 0, cost: 0, times: 0 });
+      mm.qty += num(r.qty); mm.cost += cost; mm.times += 1;
+      byDay[day] = round2((byDay[day] || 0) + cost);
+      if (r.batch_ref) {
+        const bb = byBatch[r.batch_ref] || (byBatch[r.batch_ref] = { batchRef: r.batch_ref, cost: 0, items: 0 });
+        bb.cost += cost; bb.items += 1;
+      }
+    }
+    const materials = Object.values(byMat)
+      .map(m => ({ ...m, qty: round2(m.qty), cost: round2(m.cost) })).sort((a, b) => b.cost - a.cost);
+    res.json({
+      from, to, materials,
+      byDay: Object.entries(byDay).map(([date, cost]) => ({ date, cost })).sort((a, b) => a.date.localeCompare(b.date)),
+      byBatch: Object.values(byBatch).map(b => ({ ...b, cost: round2(b.cost) })).sort((a, b) => b.cost - a.cost).slice(0, 20),
+      totalCost: round2(materials.reduce((n, m) => n + m.cost, 0)),
+      totalMoves: rows.length,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── สรุปเวลาเครื่องหยุด (ERP เฟส 3) ─────────────────────────────────────────
