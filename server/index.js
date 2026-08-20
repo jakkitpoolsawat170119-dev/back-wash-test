@@ -609,6 +609,14 @@ const SCHEMA = [
       operator TEXT,
       moved_at TEXT
     )`,
+  // ── อัตราค่าใช้จ่ายสำหรับคิดต้นทุน (ERP เฟส 3) — แถวเดียว ─────────────────
+  //   downtime_per_hour = ค่าเสียโอกาสต่อชั่วโมงที่เครื่องหยุด (ตั้งเองได้ · รายเครื่องตั้งทับได้ที่ machines.downtime_cost)
+  `CREATE TABLE IF NOT EXISTS cost_config (
+      id ${db.pk},
+      downtime_per_hour REAL DEFAULT 0,
+      note TEXT,
+      updated_at TEXT
+    )`,
   // ── เวอร์ชันของ SOP/คู่มือ (แผน KM ข้อ 7) ─────────────────────────────────
   //   1 แถว = 1 ครั้งที่ "อนุมัติ" — เก็บเนื้อหาตอนนั้นไว้ทั้งชุด ย้อนดู/กู้คืนได้
   //   บทความทั่วไปไม่แตะตารางนี้เลย
@@ -718,6 +726,14 @@ async function initDb() {
   }
   // migration (KM): ที่อยู่ไฟล์โน้ตของเครื่องจักรใน vault — ใช้ย้าย/ลบไฟล์เก่าตอนเปลี่ยนชื่อเครื่อง
   try { await db.exec('ALTER TABLE machines ADD COLUMN vault_path TEXT'); } catch { /* มีแล้ว */ }
+  // migration (ERP เฟส 3): ค่าเสียโอกาสต่อชั่วโมงของเครื่องนี้ (ว่าง = ใช้ค่ากลางจาก cost_config)
+  try { await db.exec('ALTER TABLE machines ADD COLUMN downtime_cost REAL'); } catch { /* มีแล้ว */ }
+  // seed แถวตั้งค่าต้นทุน (แถวเดียว เหมือน report_config)
+  try {
+    const cc = await dbAll('SELECT id FROM cost_config LIMIT 1', []);
+    if (!cc.length) await db.exec('INSERT INTO cost_config (downtime_per_hour, note, updated_at) VALUES (0, ?, ?)',
+      ['ยังไม่ได้ตั้งค่าเสียโอกาสต่อชั่วโมง', nowBKK()]);
+  } catch { /* ช่างมัน */ }
   // migration (โซนซ่อมบำรุง): ช่องใหม่ของงานประจำตามตารางจริง
   //   machine = เครื่องจักร · goal = เป้าหมาย · owner_role/co_owner_role = บทบาทผู้รับผิดชอบหลัก/รอง
   //   ค่า role: 'mt' Maintenance · 'op' Operate · 'qc' QC · 'pd' พนักงานผลิต (NULL = งานเก่าที่ไม่ได้ระบุ)
@@ -6150,6 +6166,158 @@ app.post('/api/incidents/delete', async (req, res) => {
     touchMachineNote(cur.machine);
     res.json({ success: true, removedVault: cur.vault_path || null, vaultError });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ══════════ ต้นทุนรวมต่อ batch (ERP เฟส 3 — ส่วนที่เหลือ) ══════════
+   ต้นทุน 1 batch = ค่าวัสดุที่เบิกไปใช้ + ค่าเสียโอกาสจากเวลาที่เครื่องหยุด
+   ผูกกันด้วย "เลข batch" ที่คนกรอก: material_moves.batch_ref ↔ incidents.batch_id
+   (เทียบแบบตัดช่องว่างและไม่สนตัวพิมพ์ใหญ่เล็ก — คนพิมพ์ CIP-88 กับ cip-88 ต้องเป็นก้อนเดียวกัน) */
+const batchKey = (v) => String(v || '').trim().toUpperCase();
+
+async function costRates() {
+  const cfg = await dbGet('SELECT * FROM cost_config ORDER BY id LIMIT 1', []) || {};
+  const machines = await dbAll('SELECT name, downtime_cost FROM machines WHERE active = 1', []);
+  const perMachine = {};
+  for (const m of machines) if (m.downtime_cost != null && m.downtime_cost !== '') perMachine[m.name] = num(m.downtime_cost);
+  return { base: num(cfg.downtime_per_hour), perMachine };
+}
+const rateFor = (rates, machine) => (rates.perMachine[machine] != null ? rates.perMachine[machine] : rates.base);
+
+app.get('/api/cost/config', async (req, res) => {
+  try {
+    const cfg = await dbGet('SELECT * FROM cost_config ORDER BY id LIMIT 1', []) || {};
+    const machines = await dbAll('SELECT id, name, downtime_cost FROM machines WHERE active = 1 ORDER BY sort_order, id', []);
+    res.json({
+      downtimePerHour: round2(cfg.downtime_per_hour),
+      note: cfg.note || '',
+      machines: machines.map(m => ({ id: m.id, name: m.name, downtimeCost: m.downtime_cost == null ? null : round2(m.downtime_cost) })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ตั้งอัตรา — ค่ากลาง และ/หรือ ค่าเฉพาะเครื่อง (ส่ง machineId + downtimeCost=null เพื่อกลับไปใช้ค่ากลาง)
+app.post('/api/cost/config', requireRole('supervisor'), async (req, res) => {
+  const b = req.body || {};
+  try {
+    if (b.downtimePerHour != null) {
+      const row = await dbGet('SELECT id FROM cost_config ORDER BY id LIMIT 1', []);
+      const v = Math.max(0, num(b.downtimePerHour));
+      if (row) await db.exec('UPDATE cost_config SET downtime_per_hour = ?, updated_at = ? WHERE id = ?', [v, nowBKK(), row.id]);
+      else await db.exec('INSERT INTO cost_config (downtime_per_hour, updated_at) VALUES (?, ?)', [v, nowBKK()]);
+    }
+    if (b.machineId) {
+      const v = b.downtimeCost == null || b.downtimeCost === '' ? null : Math.max(0, num(b.downtimeCost));
+      await db.exec('UPDATE machines SET downtime_cost = ? WHERE id = ?', [v, b.machineId]);
+    }
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ต้นทุนรายก้อน batch ในช่วงเวลา — วัสดุ + เวลาเสีย
+app.get('/api/cost/batches', async (req, res) => {
+  const today = todayBKK();
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : today;
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from
+    : new Date(Date.parse(`${to}T00:00:00Z`) - 29 * 86400000).toISOString().slice(0, 10);
+  try {
+    const rates = await costRates();
+    const moves = await dbAll(
+      `SELECT mv.batch_ref, mv.qty, mv.unit_cost, mv.moved_at, m.name, m.unit
+         FROM material_moves mv LEFT JOIN materials m ON m.id = mv.material_id
+        WHERE mv.kind = 'out' AND mv.batch_ref IS NOT NULL AND mv.batch_ref <> ''
+          AND mv.moved_at >= ? AND mv.moved_at <= ?`, [`${from}T00:00`, `${to}T23:59`]);
+    const incidents = await dbAll(
+      `SELECT title, machine, batch_id, occurred_at, down_from, down_to, status
+         FROM incidents WHERE batch_id IS NOT NULL AND batch_id <> ''`, []);
+
+    const box = {};   // key = เลข batch แบบตัดช่องว่าง/ตัวพิมพ์
+    const get = (raw) => {
+      const k = batchKey(raw);
+      return box[k] || (box[k] = {
+        batchRef: String(raw).trim(), materialCost: 0, materialItems: 0,
+        downtimeMin: 0, downtimeCost: 0, incidents: 0, openDowntime: 0,
+        firstAt: '', machines: [],
+      });
+    };
+    for (const r of moves) {
+      const b = get(r.batch_ref);
+      b.materialCost += num(r.qty) * num(r.unit_cost);
+      b.materialItems += 1;
+      if (!b.firstAt || String(r.moved_at) < b.firstAt) b.firstAt = String(r.moved_at || '');
+    }
+    for (const i of incidents) {
+      // เหตุการณ์นับเข้าช่วงเวลาด้วยเวลาที่เครื่องหยุด (ไม่มีก็ใช้วันที่เกิด)
+      const when = i.down_from || i.occurred_at || '';
+      if (!(when >= from && when <= `${to}T23:59`)) continue;
+      const b = get(i.batch_id);
+      b.incidents += 1;
+      const mins = downMinutes(i.down_from, i.down_to);
+      if (mins == null) { if (i.down_from) b.openDowntime += 1; }
+      else {
+        b.downtimeMin += mins;
+        b.downtimeCost += (mins / 60) * rateFor(rates, i.machine);
+      }
+      if (i.machine && !b.machines.includes(i.machine)) b.machines.push(i.machine);
+      if (!b.firstAt || String(when) < b.firstAt) b.firstAt = String(when);
+    }
+    const batches = Object.values(box).map(b => ({
+      ...b,
+      materialCost: round2(b.materialCost),
+      downtimeCost: round2(b.downtimeCost),
+      downtimeMin: Math.round(b.downtimeMin),
+      total: round2(b.materialCost + b.downtimeCost),
+    })).sort((a, b2) => b2.total - a.total);
+    res.json({
+      from, to, batches, rates: { base: rates.base, perMachine: rates.perMachine },
+      totalMaterial: round2(batches.reduce((n, b) => n + b.materialCost, 0)),
+      totalDowntime: round2(batches.reduce((n, b) => n + b.downtimeCost, 0)),
+      totalCost: round2(batches.reduce((n, b) => n + b.total, 0)),
+      // เตือนว่ายังคิดต้นทุนไม่ครบ: ของที่เบิกโดยไม่ระบุ batch + เวลาเสียที่ไม่ผูก batch
+      unassignedMaterialCost: round2((await dbAll(
+        `SELECT qty, unit_cost FROM material_moves
+          WHERE kind = 'out' AND (batch_ref IS NULL OR batch_ref = '') AND moved_at >= ? AND moved_at <= ?`,
+        [`${from}T00:00`, `${to}T23:59`])).reduce((n, r) => n + num(r.qty) * num(r.unit_cost), 0)),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// รายละเอียดของ batch เดียว — เบิกอะไรไปบ้าง เครื่องไหนหยุดกี่นาที
+app.get('/api/cost/batch', async (req, res) => {
+  const ref = batchKey(req.query.ref);
+  if (!ref) return res.status(400).json({ error: 'ต้องระบุเลข batch' });
+  try {
+    const rates = await costRates();
+    const moves = (await dbAll(
+      `SELECT mv.*, m.name, m.unit FROM material_moves mv LEFT JOIN materials m ON m.id = mv.material_id
+        WHERE mv.kind = 'out' AND mv.batch_ref IS NOT NULL AND mv.batch_ref <> ''
+        ORDER BY mv.moved_at DESC`, []))
+      .filter(r => batchKey(r.batch_ref) === ref)
+      .map(r => ({
+        id: r.id, name: r.name || '(ถูกลบแล้ว)', unit: r.unit || '', qty: round2(r.qty),
+        unitCost: round2(r.unit_cost), cost: round2(num(r.qty) * num(r.unit_cost)),
+        operator: r.operator || '', note: r.note || '', movedAt: r.moved_at,
+      }));
+    const incidents = (await dbAll(
+      `SELECT id, title, machine, batch_id, occurred_at, down_from, down_to, status, vault_path
+         FROM incidents WHERE batch_id IS NOT NULL AND batch_id <> '' ORDER BY occurred_at DESC`, []))
+      .filter(r => batchKey(r.batch_id) === ref)
+      .map(r => {
+        const mins = downMinutes(r.down_from, r.down_to);
+        return {
+          id: r.id, title: r.title, machine: r.machine || '', status: r.status || 'open',
+          occurredAt: r.occurred_at || '', downFrom: r.down_from || '', downTo: r.down_to || '',
+          minutes: mins, ratePerHour: round2(rateFor(rates, r.machine)),
+          cost: mins == null ? 0 : round2((mins / 60) * rateFor(rates, r.machine)),
+        };
+      });
+    const materialCost = round2(moves.reduce((n, m) => n + m.cost, 0));
+    const downtimeCost = round2(incidents.reduce((n, i) => n + i.cost, 0));
+    res.json({
+      batchRef: ref, moves, incidents, materialCost, downtimeCost,
+      downtimeMin: incidents.reduce((n, i) => n + (i.minutes || 0), 0),
+      total: round2(materialCost + downtimeCost),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 /* ══════════ คลังวัสดุ/สารเคมี (ERP เฟส 2) ══════════

@@ -20,10 +20,11 @@ import IncidentBoard from './IncidentBoard';
 import DowntimeReport from './DowntimeReport';
 import UsersAdmin from './UsersAdmin';
 import MaterialsBoard from './MaterialsBoard';
+import CostBoard from './CostBoard';
 import ErrorBoundary from './ErrorBoundary';
 
 type TodoTab = 'today' | 'audit' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs';
-type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline' | 'blog' | 'obsidian' | 'maint' | 'pmreg' | 'downtime' | 'machines' | 'incidents' | 'users' | 'materials';
+type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline' | 'blog' | 'obsidian' | 'maint' | 'pmreg' | 'downtime' | 'machines' | 'incidents' | 'users' | 'materials' | 'cost';
 
 const TODO_TABS: string[] = ['today', 'audit', 'calendar', 'report', 'timeline', 'recurring', 'ai', 'specs'];
 
@@ -45,6 +46,7 @@ const MENU: MenuRow[] = [
   { pane: 'recurring', ic: '🔁', label: 'งานประจำ' },
   { pane: 'ai', ic: '🤖', label: 'AI ผู้ช่วย' },
   { pane: 'materials', ic: '🧪', label: 'คลังวัสดุ / สารเคมี' },
+  { pane: 'cost', ic: '💰', label: 'ต้นทุนต่อ batch', sub: true },
   { head: 'งานซ่อมบำรุง', ic: '🔧' },
   { pane: 'maint', ic: '👷', label: 'กระดานทีมซ่อมบำรุง', sub: true },
   { pane: 'pmreg', ic: '🛠', label: 'ทะเบียนงาน PM', sub: true },
@@ -187,6 +189,9 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
             <ErrorBoundary label="admin-blog"><BlogEditor operatorName={operator} /></ErrorBoundary>
           )}
 
+          {pane === 'cost' && (
+            <ErrorBoundary label="admin-cost"><CostBoard /></ErrorBoundary>
+          )}
           {pane === 'materials' && (
             <ErrorBoundary label="admin-materials"><MaterialsBoard operatorName={operator} /></ErrorBoundary>
           )}
