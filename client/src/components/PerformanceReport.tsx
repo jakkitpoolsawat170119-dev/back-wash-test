@@ -27,11 +27,13 @@ type ShiftRow = {
 };
 type Grp = { name: string; n: number; median: number | null; avg: number; min: number; max: number; vsMedian: number | null };
 type Round = { line: string; operator: string; item: string; day: string; at: string; shift: string; minutes: number; backwash: boolean };
-type OpRow = { name: string; batches: number; days: number; perDay: number | null; shifts: Record<string, number>; cipRounds: number };
+type OpRow = { name: string; batches: number; days: number; perDay: number | null; shifts: Record<string, number>; cipRounds: number; crew: string };
+type CrewRow = { crew: string; batches: number; cipRounds: number; days: number; perDay: number | null; people: { name: string; n: number }[] };
 type Report = {
   from: string; to: string; countedDays: number; firstDay: string; lastDay: string;
   people: Person[]; team: { done: number; total: number; pct: number | null };
   shifts: ShiftRow[]; operators: OpRow[];
+  crews: CrewRow[]; crewUnlinked: { batches: number; people: { name: string; n: number }[] };
   cip: {
     rounds: Round[]; count: number; sessions: number; openCount: number;
     open: { line: string; operator: string; day: string; at: string }[];
@@ -243,6 +245,39 @@ const PerformanceReport: React.FC = () => {
           )}
       </div>
 
+      {/* ── ผลงานรายทีมกะจริง (ผูกจากบัญชีผู้ใช้ ไม่ใช่เวลา) ── */}
+      {data && (data.crews.length > 0 || data.crewUnlinked.batches > 0) && (
+        <div style={{ ...card, padding: '14px 16px', marginBottom: 14 }}>
+          <div style={{ fontFamily: kanit, fontSize: 15, fontWeight: 600, marginBottom: 2 }}>ผลงานรายทีมกะ</div>
+          <div style={{ fontSize: 11.5, color: soft, marginBottom: 10 }}>
+            อันนี้คือ <b>ทีมกะไหนเป็นคนทำจริง</b> — ดูจากทีมของคนที่ลงยอด (ผูกไว้ที่หน้า <b>ผู้ใช้และสิทธิ์</b>)
+            ไม่ใช่เวลาที่ลงเหมือนตารางข้างบน
+          </div>
+          <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))' }}>
+            {data.crews.map(c => (
+              <div key={c.crew} style={{ background: '#fbf7f3', borderRadius: 12, padding: '10px 12px' }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600 }}>{c.crew}</div>
+                <div style={{ fontFamily: kanit, fontSize: 18, fontWeight: 600, color: '#c24f00' }}>
+                  {c.batches} batch
+                  {c.perDay != null && <span style={{ fontSize: 12, color: soft, fontWeight: 500 }}> ({c.perDay}/วัน)</span>}
+                </div>
+                <div style={{ fontSize: 11.5, color: soft, lineHeight: 1.6 }}>
+                  {c.days} วันที่มีงาน{c.cipRounds > 0 && <> · CIP {c.cipRounds} รอบ</>}
+                  <br />{c.people.map(p => `${p.name} (${p.n})`).join(' · ')}
+                </div>
+              </div>
+            ))}
+          </div>
+          {data.crewUnlinked.batches > 0 && (
+            <div style={{ fontSize: 12, color: '#a15c00', marginTop: 10, lineHeight: 1.7 }}>
+              ⚠️ อีก {data.crewUnlinked.batches} batch ยังไม่รู้ว่าเป็นของทีมไหน เพราะคนที่ลงยังไม่ได้ผูกทีมกะ:
+              {' '}{data.crewUnlinked.people.map(p => `${p.name} (${p.n})`).join(' · ')}
+              <br />ไปผูกได้ที่หน้า <b>ผู้ใช้และสิทธิ์</b> → เลือกทีมกะให้คนนั้น
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── เวลาต่อรอบ CIP ── */}
       <div style={{ ...card, padding: '14px 16px', marginBottom: 14, overflowX: 'auto' }}>
         <div style={{ fontFamily: kanit, fontSize: 15, fontWeight: 600, marginBottom: 2 }}>เวลาที่ใช้ต่อรอบ CIP</div>
@@ -345,6 +380,7 @@ const PerformanceReport: React.FC = () => {
                 <th style={th}>วันที่ลง</th>
                 <th style={th}>เฉลี่ย/วัน</th>
                 <th style={th}>รอบ CIP</th>
+                <th style={{ ...th, textAlign: 'left' }}>ทีมกะ</th>
                 <th style={{ ...th, textAlign: 'left' }}>ลงในกะ</th>
               </tr>
             </thead>
@@ -356,6 +392,9 @@ const PerformanceReport: React.FC = () => {
                   <td style={td}>{o.days}</td>
                   <td style={td}>{o.perDay ?? '—'}</td>
                   <td style={td}>{o.cipRounds || '—'}</td>
+                  <td style={{ ...td, textAlign: 'left', fontSize: 12, color: o.crew ? '#c24f00' : '#a15c00', fontWeight: 600 }}>
+                    {o.crew || 'ยังไม่ผูก'}
+                  </td>
                   <td style={{ ...td, textAlign: 'left', fontSize: 12, color: soft, whiteSpace: 'normal' }}>
                     {Object.entries(o.shifts).map(([k, n]) => `กะ${k} ${n}`).join(' · ')}
                   </td>

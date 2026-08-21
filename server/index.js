@@ -690,6 +690,64 @@ const DEFAULT_SHIFT_CREW = [
   ['กะ3', 'พัฒน์พริศร์ อ่ำอยู่'], ['กะ3', 'ไพรวรรณ ย้อนเพชร'], ['กะ3', 'รัชพล รัตนานนท์'], ['กะ3', 'สมเจตน์ การภักดี'],
 ];
 
+/* ── จับคู่ชื่อคนไทยแบบ "พอเดาได้" ────────────────────────────────────────────
+   ชื่อเดียวกันในระบบสะกดไม่ตรงกันเป็นเรื่องปกติ (ไม้เอก/ไม้โท/การันต์/ค-ศ-ษ-ส หาย)
+   nameKey() ตัดสิ่งที่มักพิมพ์ต่างกันออก แล้วค่อยเทียบ — ใช้ "เดา" เท่านั้น
+   ตัวจริงที่ระบบยึดคือคอลัมน์ operators.shift ที่คนกดยืนยันเอง                */
+const THAI_MARKS = /[ัิ-ฺ็-๎\s.\-]/g;   // สระบน/ล่าง · วรรณยุกต์ · การันต์ · ช่องว่าง
+function nameKey(s) {
+  return String(s || '').replace(THAI_MARKS, '')
+    .replace(/[ทฑธ]/g, 'ท').replace(/[ศษส]/g, 'ส').replace(/[คขฆ]/g, 'ค')   // เสียงเดียวกัน เขียนได้หลายตัว
+    .replace(/[ณน]/g, 'น').replace(/[ฏต]/g, 'ต').replace(/[รล]/g, 'ร')
+    .toLowerCase();
+}
+// ระยะแก้คำ (Levenshtein) — ตัวอักษรหาย/เกิน/สลับไม่กี่ตัวยังถือว่าคนเดียวกัน
+function editDistance(a, b) {
+  if (a === b) return 0;
+  const m = a.length, n = b.length;
+  if (Math.abs(m - n) > 3) return 99;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+/* หาคนในรายชื่อทีมกะที่ "น่าจะเป็นคนเดียวกัน"
+   ตรงเป๊ะก่อน → ถ้าไม่เจอค่อยยอมให้ต่างได้ ≤2 ตัว (ชื่อไทยตกการันต์/ศ-ค กันบ่อยมาก)
+   ⚠️ ถ้าใกล้เคียงหลายคนพอ ๆ กัน = **ไม่เดา** ปล่อยให้คนเลือกเอง ดีกว่านับยอดผิดทีม */
+function matchCrew(name, crewRows) {
+  const k = nameKey(name);
+  if (!k) return null;
+  const exact = crewRows.find(c => nameKey(c.name) === k);
+  if (exact) return { shift: exact.shift, name: exact.name, distance: 0 };
+  if (k.length < 6) return null;                   // ชื่อสั้นเกินไป เดาแล้วเสี่ยงชนคนอื่น
+  const scored = crewRows.map(c => ({ c, d: editDistance(k, nameKey(c.name)) }))
+    .filter(x => x.d <= 2).sort((a, b) => a.d - b.d);
+  if (!scored.length) return null;
+  if (scored.length > 1 && scored[0].d === scored[1].d) return null;   // ก้ำกึ่ง = ไม่เดา
+  return { shift: scored[0].c.shift, name: scored[0].c.name, distance: scored[0].d };
+}
+// เดาว่าผู้ใช้แต่ละคนอยู่ทีมกะไหน จากรายชื่อ shift_crew (เติมให้เฉพาะคนที่ยังไม่ได้ตั้ง)
+async function autoLinkOperatorShifts() {
+  try {
+    const [ops, crew] = await Promise.all([
+      dbAll('SELECT name, shift FROM operators', []),
+      dbAll('SELECT shift, name FROM shift_crew WHERE active = 1', []),
+    ]);
+    let n = 0;
+    for (const o of ops) {
+      if (o.shift) continue;                       // คนตั้งไว้เองแล้ว ห้ามทับ
+      const guess = matchCrew(o.name, crew);
+      if (guess) { await db.exec('UPDATE operators SET shift = ? WHERE name = ?', [guess.shift, o.name]); n += 1; }
+    }
+    if (n) console.log(`[db] ผูกผู้ใช้เข้าทีมกะอัตโนมัติ ${n} คน`);
+  } catch (e) { console.error('[db] autoLinkOperatorShifts failed', e.message); }
+}
+
 // ⚠️ DEFAULT_SKUS ถูกถอดออก 2026-08-07 พร้อมกับชีตจับคู่ทำมือ (121Xch…)
 //    เหตุผล: มันเป็น "แหล่งความจริงที่ 3" ที่ขัดกับชีตหลัก — ชื่อไม่ตรงกัน (Syrup 1.8 vs Syrup1.8)
 //    และถูก seed ใหม่ทุกครั้งที่บูต ทำให้ลบทิ้งไม่ได้จริง
@@ -781,6 +839,11 @@ async function initDb() {
     const admins = await dbAll("SELECT name FROM operators WHERE role = 'admin'", []);
     if (!admins.length) await db.exec("UPDATE operators SET role = 'admin' WHERE name = ?", [DEFAULT_OPERATORS[0][0]]);
   } catch { /* ช่างมัน */ }
+  // migration: ผูกผู้ใช้เข้ากับทีมกะ (กะ1/กะ2/กะ3) — ทำให้รู้ว่ายอดที่คนนี้ลงเป็นผลงานของกะไหน
+  //   เดิมต้องเดาจากชื่อ ซึ่งใช้ไม่ได้จริงเพราะ operators กับ shift_crew สะกดไม่ตรงกัน 3 ใน 4 คน
+  //   (ศราวุติ/ศราวุธ · พัฒพริศ/พัฒน์พริศร์ · สุวรรณวงค์/สุวรรณวงศ์)
+  try { await db.exec('ALTER TABLE operators ADD COLUMN shift TEXT'); } catch { /* มีแล้ว */ }
+  await autoLinkOperatorShifts();
   // migration: คอลัมน์แจ้งเตือนล่วงหน้าใน daily_tasks (วันที่ทำ/เตือนล่วงหน้า → Telegram)
   for (const [col, type] of [['remind_at', 'TEXT'], ['remind_lead', 'TEXT'], ['reminded', 'INTEGER DEFAULT 0']]) {
     try { await db.exec(`ALTER TABLE daily_tasks ADD COLUMN ${col} ${type}`); } catch { /* มีแล้ว */ }
@@ -1647,11 +1710,19 @@ app.post('/api/login', async (req, res) => {
 //   ?withRole=1 → คืน [{name, role, hasPin}] สำหรับหน้าจัดการสิทธิ์
 app.get('/api/operators', async (req, res) => {
   try {
-    const rows = await dbAll('SELECT name, role, pin FROM operators ORDER BY name', []);
+    const rows = await dbAll('SELECT name, role, pin, shift FROM operators ORDER BY name', []);
     if (req.query.withRole !== '1') return res.json(rows.map(r => r.name));
+    const crew = await dbAll('SELECT shift, name FROM shift_crew WHERE active = 1', []);
     res.json({
-      operators: rows.map(r => ({ name: r.name, role: r.role || 'operator', hasPin: !!r.pin })),
-      roles: ROLES,
+      operators: rows.map(r => {
+        const guess = matchCrew(r.name, crew);
+        return {
+          name: r.name, role: r.role || 'operator', hasPin: !!r.pin, shift: r.shift || '',
+          // ชื่อในรายชื่อทีมกะที่ "น่าจะใช่คนเดียวกัน" — โชว์ให้เห็นว่าสะกดต่างกันตรงไหน
+          crewGuess: guess ? { shift: guess.shift, name: guess.name, sameSpelling: guess.distance === 0 } : null,
+        };
+      }),
+      roles: ROLES, shifts: SHIFT_CODES,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1664,6 +1735,7 @@ app.get('/api/operators', async (req, res) => {
    (n8n เรียกแค่ /api/assistant · /api/cip-summary · /api/report/tick จึงไม่กระทบ)         */
 const ROLES = ['operator', 'supervisor', 'admin'];
 const ROLE_RANK = { operator: 1, supervisor: 2, admin: 3 };
+const SHIFT_CODES = ['กะ1', 'กะ2', 'กะ3'];   // ตรงกับ shift_crew + ฟอร์มลงยอดผลิต
 const newToken = () => require('crypto').randomBytes(24).toString('hex');
 
 // อ่านโทเคนจาก header → คืนแถวใน auth_tokens (null ถ้าไม่มี/ไม่รู้จัก)
@@ -1732,6 +1804,12 @@ app.post('/api/operators', requireRole('admin'), async (req, res) => {
         if (admins.length <= 1) return res.status(400).json({ error: 'ต้องเหลือ admin อย่างน้อย 1 คน' });
       }
       await db.exec('UPDATE operators SET role = ?, pin = COALESCE(NULLIF(?, \'\'), pin) WHERE name = ?', [role, pin || '', name]);
+    }
+    // ทีมกะ: ส่ง shift มา = ตั้งค่า · ส่ง '' = ล้างการผูก · ไม่ส่งเลย = ไม่แตะของเดิม
+    if (req.body.shift !== undefined) {
+      const sh = String(req.body.shift || '').trim();
+      if (sh && !SHIFT_CODES.includes(sh)) return res.status(400).json({ error: 'กะต้องเป็น กะ1 / กะ2 / กะ3' });
+      await db.exec('UPDATE operators SET shift = ? WHERE name = ?', [sh || null, name]);
     }
     res.json({ success: true, name, role });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -2808,12 +2886,65 @@ app.get('/api/sku/review', async (req, res) => {
 });
 
 // ทีมงานประจำกะ (ให้ฟอร์มติ๊กเลือก แล้วนับเป็นจำนวนคนผลิต)
+//   คีย์ `shifts` = รูปแบบเดิมเป๊ะ (ฟอร์มลงยอดผลิตใช้อยู่) · `members` = ของใหม่สำหรับหน้าแก้ไข
 app.get('/api/shift-crew', async (req, res) => {
   try {
-    const rows = await dbAll('SELECT shift, name FROM shift_crew WHERE active = 1 ORDER BY sort_order', []);
+    const rows = await dbAll('SELECT id, shift, name, sort_order FROM shift_crew WHERE active = 1 ORDER BY sort_order, id', []);
     const byShift = {};
     for (const r of rows) (byShift[r.shift] = byShift[r.shift] || []).push(r.name);
-    res.json({ shifts: byShift });
+    if (req.query.detail !== '1') return res.json({ shifts: byShift });
+    const ops = await dbAll('SELECT name, shift FROM operators', []);
+    res.json({
+      shifts: byShift, codes: SHIFT_CODES,
+      members: rows.map(r => {
+        const m = matchCrew(r.name, ops.map(o => ({ shift: o.shift || '', name: o.name })));
+        const op = m ? ops.find(o => o.name === m.name) : null;
+        return {
+          id: r.id, shift: r.shift, name: r.name, sortOrder: r.sort_order,
+          // มีบัญชีผู้ใช้ในระบบไหม + ผูกกะตรงกันไหม (ผูกคนละกะ = ต้องมีคนไปแก้)
+          account: op ? { name: op.name, shift: op.shift || '', mismatch: !!op.shift && op.shift !== r.shift } : null,
+        };
+      }),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// แก้รายชื่อทีมกะ — เดิมแก้ได้แต่ในโค้ด (DEFAULT_SHIFT_CREW) คนหน้างานเปลี่ยนเองไม่ได้
+//   action: add | rename | move | remove   (remove = ปิด active ไม่ลบจริง — ยอดเก่ายังอ้างชื่อนี้อยู่)
+app.post('/api/shift-crew', requireRole('supervisor'), async (req, res) => {
+  const b = req.body || {};
+  const action = String(b.action || '').trim();
+  const name = String(b.name || '').trim();
+  const shift = String(b.shift || '').trim();
+  if (!name) return res.status(400).json({ error: 'ต้องมีชื่อ' });
+  if (shift && !SHIFT_CODES.includes(shift)) return res.status(400).json({ error: 'กะต้องเป็น กะ1 / กะ2 / กะ3' });
+  try {
+    if (action === 'add') {
+      if (!shift) return res.status(400).json({ error: 'ต้องเลือกกะ' });
+      const dup = (await dbAll('SELECT id, active FROM shift_crew WHERE shift = ? AND name = ?', [shift, name]))[0];
+      if (dup && dup.active) return res.status(409).json({ error: `${name} อยู่ใน${shift} อยู่แล้ว` });
+      if (dup) await db.exec('UPDATE shift_crew SET active = 1 WHERE id = ?', [dup.id]);   // เคยเอาออก → เอากลับเข้ามา
+      else {
+        const mx = (await dbAll('SELECT MAX(sort_order) AS m FROM shift_crew', []))[0] || {};
+        await db.exec('INSERT INTO shift_crew (shift, name, sort_order) VALUES (?, ?, ?)', [shift, name, Number(mx.m || 0) + 1]);
+      }
+    } else if (action === 'rename') {
+      const to = String(b.newName || '').trim();
+      if (!to) return res.status(400).json({ error: 'ต้องมีชื่อใหม่' });
+      await db.exec('UPDATE shift_crew SET name = ? WHERE name = ?', [to, name]);
+    } else if (action === 'move') {
+      if (!shift) return res.status(400).json({ error: 'ต้องเลือกกะปลายทาง' });
+      await db.exec('UPDATE shift_crew SET shift = ? WHERE name = ?', [shift, name]);
+    } else if (action === 'remove') {
+      await db.exec('UPDATE shift_crew SET active = 0 WHERE name = ?', [name]);
+    } else return res.status(400).json({ error: 'action ต้องเป็น add / rename / move / remove' });
+
+    // แก้รายชื่อทีมกะแล้ว ลองผูกบัญชีผู้ใช้ที่ยังไม่มีกะให้ใหม่ (คนที่ตั้งเองไว้แล้วไม่ถูกแตะ)
+    await autoLinkOperatorShifts();
+    const rows = await dbAll('SELECT shift, name FROM shift_crew WHERE active = 1 ORDER BY sort_order, id', []);
+    const byShift = {};
+    for (const r of rows) (byShift[r.shift] = byShift[r.shift] || []).push(r.name);
+    res.json({ success: true, shifts: byShift });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -8626,14 +8757,17 @@ async function buildPerfSummary({ from, to } = {}) {
   const trees = {};
   for (const p of people) trees[p.person_key] = flattenRoutine(await buildRoutineTree(p.person_key));
 
-  const [states, tasks, prodRows, cip] = await Promise.all([
+  const [states, tasks, prodRows, cip, opRows] = await Promise.all([
     dbAll('SELECT state_date, assignee, node_key, checked, bypassed, handoff_to, updated_at FROM routine_state WHERE state_date BETWEEN ? AND ?', [from, to]),
     dbAll("SELECT task_date, assignee, status, category FROM daily_tasks WHERE task_date BETWEEN ? AND ? AND source = 'assigned'", [from, to]),
     // ช่วงวันทำงาน 06:00→06:00 (แบบเดียวกับ fetchProductionByWorkday) — กะดึกคาบเที่ยงคืน
     dbAll('SELECT timestamp, line_name, flavor, operator_name FROM production_logs WHERE timestamp >= ? AND timestamp < ?',
       [`${from}T06:00:00`, `${addDaysStr(to, 1)}T06:00:00`]),
     fetchCipRounds(from, to),
+    dbAll('SELECT name, shift FROM operators', []),
   ]);
+  // ใครอยู่ทีมกะไหน (จาก operators.shift ที่คนตั้งเอง) — คนละเรื่องกับ "เกิดในช่วงเวลาของกะไหน"
+  const crewOf = {}; for (const o of opRows || []) if (o.shift) crewOf[o.name] = o.shift;
 
   // ── (1) งานประจำรายคน ────────────────────────────────────────────────────
   // วันที่ "นับ" = วันที่มีคนแตะระบบจริง (ติ๊ก/ข้าม/มีงานมอบหมาย) — วันที่เงียบสนิท
@@ -8711,7 +8845,7 @@ async function buildPerfSummary({ from, to } = {}) {
     if (workDay) s.days[workDay] = true;
     return s;
   };
-  const operators = {};
+  const operators = {}, crewMap = {}, noCrew = { batches: 0, people: {} };
   for (const r of prodRows) {
     const ts = String(r.timestamp || '');
     const day = ts.slice(0, 10), hour = Number(ts.slice(11, 13));
@@ -8722,8 +8856,18 @@ async function buildPerfSummary({ from, to } = {}) {
     s.lines[r.line_name || '-'] = (s.lines[r.line_name || '-'] || 0) + 1;
     s.flavors[r.flavor || '-'] = (s.flavors[r.flavor || '-'] || 0) + 1;
     const op = r.operator_name || '(ไม่ระบุ)';
-    const o = operators[op] || (operators[op] = { name: op, batches: 0, days: {}, shifts: {}, cipRounds: 0 });
+    const o = operators[op] || (operators[op] = { name: op, batches: 0, days: {}, shifts: {}, cipRounds: 0, crew: crewOf[op] || '' });
     o.batches += 1; o.days[sh.workDay] = true; o.shifts[sh.key] = (o.shifts[sh.key] || 0) + 1;
+    // ผลงาน "ของทีมกะ" จริง ๆ = ดูจากทีมของคนที่ลงยอด ไม่ใช่เวลาที่ลง
+    const crew = crewOf[op];
+    if (crew) {
+      const c = crewMap[crew] || (crewMap[crew] = { crew, batches: 0, days: {}, people: {}, cipRounds: 0 });
+      c.batches += 1; c.days[sh.workDay] = true; c.people[op] = (c.people[op] || 0) + 1;
+    } else { noCrew.batches += 1; noCrew.people[op] = (noCrew.people[op] || 0) + 1; }
+  }
+  for (const r of cip.rounds) {
+    const crew = crewOf[r.operator];
+    if (crew && crewMap[crew]) crewMap[crew].cipRounds += 1;
   }
   for (const s of states) {
     if (!s.checked || !s.updated_at) continue;
@@ -8746,6 +8890,20 @@ async function buildPerfSummary({ from, to } = {}) {
     };
   }).sort((a, b) => (shiftOrder[a.shift] ?? 9) - (shiftOrder[b.shift] ?? 9));
 
+  // ── (2ข) ผลงานรายทีมกะจริง — ใช้ operators.shift (ต้องผูกบัญชีกับทีมกะไว้ก่อน) ──
+  const crews = Object.values(crewMap).map((c) => {
+    const days = Object.keys(c.days).length;
+    return {
+      crew: c.crew, batches: c.batches, cipRounds: c.cipRounds, days,
+      perDay: days ? round2(c.batches / days) : null,
+      people: Object.entries(c.people).map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n),
+    };
+  }).sort((a, b) => a.crew.localeCompare(b.crew));
+  const crewUnlinked = {
+    batches: noCrew.batches,
+    people: Object.entries(noCrew.people).map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n),
+  };
+
   // ── (3) เวลาต่อรอบ CIP เทียบค่ากลาง ──────────────────────────────────────
   const mins = cip.rounds.map(r => r.minutes);
   const overallMedian = medianOf(mins);
@@ -8767,7 +8925,7 @@ async function buildPerfSummary({ from, to } = {}) {
   const opList = Object.values(operators).map(o => ({
     name: o.name, batches: o.batches, days: Object.keys(o.days).length,
     perDay: Object.keys(o.days).length ? round2(o.batches / Object.keys(o.days).length) : null,
-    shifts: o.shifts,
+    shifts: o.shifts, crew: o.crew || '',
   })).sort((a, b) => b.batches - a.batches);
   for (const o of opList) o.cipRounds = cip.rounds.filter(r => r.operator === o.name).length;
 
@@ -8780,7 +8938,7 @@ async function buildPerfSummary({ from, to } = {}) {
       total: persons.reduce((n, p) => n + p.total, 0),
       pct: pctOf(persons.reduce((n, p) => n + p.done, 0), persons.reduce((n, p) => n + p.total, 0)),
     },
-    shifts,
+    shifts, crews, crewUnlinked,
     operators: opList,
     cip: {
       rounds: cip.rounds.slice(0, 200), count: cip.rounds.length, sessions: cip.sessions,
