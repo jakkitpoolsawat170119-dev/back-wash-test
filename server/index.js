@@ -8538,6 +8538,266 @@ app.get('/api/quality/history', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 4-f เทียบประสิทธิภาพรายคน / รายกะ — 3 มุมจากข้อมูลที่มีจริง
+//  (1) งานประจำรายคน — `routine_state` + งานมอบหมาย เทียบเช็กลิสต์ปัจจุบัน
+//  (2) รายกะ — bucket "เวลาที่เกิดเรื่อง" ด้วย `factoryShiftsForWeekday`
+//      (ผลิต/รอบ CIP/เวลาที่ติ๊กงาน) · **ไม่ใช่** ทีมกะไหนเป็นคนทำ
+//      เพราะระบบไม่ได้เก็บว่าใครอยู่กะไหนในวันนั้น (`shift_crew` = รายชื่อปัจจุบัน ไม่ใช่ประวัติ)
+//  (3) เวลาต่อรอบ CIP — จาก rows ของ cip_line1/2 เทียบ **ค่ากลาง (median)** ไม่ใช่ค่าเฉลี่ย
+//      เพราะรอบที่ลืมกด Stop/ทิ้งไว้ข้ามคืน ทำให้ค่าเฉลี่ยเพี้ยนง่าย
+// รวมยอดใน JS ทั้งหมด (dialect-safe) · วันที่ไม่มีใครแตะระบบเลย = ไม่นับ ไม่ใช่ 0%
+// ═══════════════════════════════════════════════════════════════════════════
+
+// กะที่ครอบเวลานั้น (ตามตารางโรงงาน เดินจริง 7 วัน) + วันทำงานของมัน (06:00→06:00)
+function shiftAt(dateStr, hour) {
+  const workDay = hour < 6 ? addDaysStr(dateStr, -1) : dateStr;
+  const shifts = factoryShiftsForWeekday(weekdayOf(workDay));
+  for (const s of shifts) {
+    const hit = s.start < s.end ? (hour >= s.start && hour < s.end) : (hour >= s.start || hour < s.end);
+    if (hit) return { workDay, key: s.key };
+  }
+  return { workDay, key: (shifts[shifts.length - 1] || {}).key || 'ดึก' };
+}
+const medianOf = (a) => {
+  if (!a.length) return null;
+  const s = [...a].sort((x, y) => x - y), m = s.length >> 1;
+  return s.length % 2 ? round2(s[m]) : round2((s[m - 1] + s[m]) / 2);
+};
+const pctOf = (done, total) => (total ? Math.round((done / total) * 100) : null);
+
+// ── (3) รอบ CIP ที่ทำเสร็จในช่วง พร้อมเวลาที่ใช้ ────────────────────────────
+// ⚠️ `data` ของ cip_line2_rows อาจมีรูป base64 อยู่ข้างใน — ดึงเฉพาะ session ที่อยู่ในช่วง
+//    เท่านั้น (อย่าดึงทั้งตาราง) แล้วแกะในเซิร์ฟเวอร์ ไม่ส่งต่อให้ client
+async function fetchCipRounds(from, to) {
+  const [l1, l2] = await Promise.all([
+    dbAll('SELECT id, operator_name, date, sku, created_at FROM cip_line1_sessions', []),
+    dbAll('SELECT id, operator_name, date, line, flavor, created_at FROM cip_line2_sessions', []),
+  ]);
+  const dayOf = (s) => String(s.date || s.created_at || '').slice(0, 10);
+  const inRange = (s) => { const d = dayOf(s); return d >= from && d <= to; };
+  const s1 = l1.filter(inRange), s2 = l2.filter(inRange);
+  const grab = async (table, ids) => {
+    if (!ids.length) return [];
+    return dbAll(`SELECT session_id, data FROM ${table} WHERE session_id IN (${ids.map(() => '?').join(',')})`, ids);
+  };
+  const [r1, r2] = await Promise.all([
+    grab('cip_line1_rows', s1.map(s => s.id)),
+    grab('cip_line2_rows', s2.map(s => s.id)),
+  ]);
+  const meta = {};
+  for (const s of s1) meta[`1|${s.id}`] = { line: 'Line 1', operator: s.operator_name || '(ไม่ระบุ)', day: dayOf(s), item: s.sku || '' };
+  for (const s of s2) meta[`2|${s.id}`] = { line: s.line || 'Line 2', operator: s.operator_name || '(ไม่ระบุ)', day: dayOf(s), item: s.flavor || '' };
+
+  const rounds = [], open = [];
+  const push = (kind, rows) => {
+    for (const row of rows) {
+      const m = meta[`${kind}|${row.session_id}`];
+      if (!m) continue;
+      let d; try { d = JSON.parse(row.data); } catch { continue; }
+      // เวลาเริ่มจริง: Line 1 เก็บเป็น ISO (UTC) · Line 2 เก็บ epoch ms ใน startRaw
+      let startedAt = null;
+      if (typeof d.startRaw === 'number' && d.startRaw > 0) startedAt = new Date(d.startRaw);
+      else if (typeof d.startTime === 'string' && d.startTime.length > 10) { const t = new Date(d.startTime); if (!isNaN(t)) startedAt = t; }
+      const local = startedAt ? new Date(startedAt.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' })) : null;
+      const day = local ? local.toLocaleDateString('sv-SE') : m.day;
+      const sh = local ? shiftAt(day, local.getHours()) : null;
+      const minutes = Number(d.duration);
+      const base = {
+        line: m.line, operator: m.operator, item: m.item, day,
+        at: local ? `${day}T${pad2(local.getHours())}:${pad2(local.getMinutes())}` : '',
+        shift: sh ? sh.key : '', workDay: sh ? sh.workDay : day,
+        backwash: !!d.backwash,
+      };
+      if (d.endTime && Number.isFinite(minutes) && minutes > 0) rounds.push({ ...base, minutes });
+      else if (d.startTime) open.push(base);            // เริ่มแล้วแต่ไม่มีเวลาจบ = ลืมกด Stop
+    }
+  };
+  push('1', r1); push('2', r2);
+  rounds.sort((a, b) => String(b.at || b.day).localeCompare(String(a.at || a.day)));
+  return { rounds, open, sessions: s1.length + s2.length };
+}
+
+async function buildPerfSummary({ from, to } = {}) {
+  const people = getPeople().filter(p => (p.kind || 'shift') === 'shift');
+  const trees = {};
+  for (const p of people) trees[p.person_key] = flattenRoutine(await buildRoutineTree(p.person_key));
+
+  const [states, tasks, prodRows, cip] = await Promise.all([
+    dbAll('SELECT state_date, assignee, node_key, checked, bypassed, handoff_to, updated_at FROM routine_state WHERE state_date BETWEEN ? AND ?', [from, to]),
+    dbAll("SELECT task_date, assignee, status, category FROM daily_tasks WHERE task_date BETWEEN ? AND ? AND source = 'assigned'", [from, to]),
+    // ช่วงวันทำงาน 06:00→06:00 (แบบเดียวกับ fetchProductionByWorkday) — กะดึกคาบเที่ยงคืน
+    dbAll('SELECT timestamp, line_name, flavor, operator_name FROM production_logs WHERE timestamp >= ? AND timestamp < ?',
+      [`${from}T06:00:00`, `${addDaysStr(to, 1)}T06:00:00`]),
+    fetchCipRounds(from, to),
+  ]);
+
+  // ── (1) งานประจำรายคน ────────────────────────────────────────────────────
+  // วันที่ "นับ" = วันที่มีคนแตะระบบจริง (ติ๊ก/ข้าม/มีงานมอบหมาย) — วันที่เงียบสนิท
+  // ไม่ใช่ 0% แต่คือ "ไม่ได้ใช้งาน" ถ้าเอามาเฉลี่ยด้วยจะกดคะแนนทุกคนโดยไม่มีความหมาย
+  const dayHits = {};
+  for (const s of states) if (s.checked || s.bypassed) dayHits[s.state_date] = true;
+  for (const t of tasks) dayHits[t.task_date] = true;
+  const countedDays = Object.keys(dayHits).sort();
+
+  const perDay = {};                                    // person → date → ตัวเลขของวันนั้น
+  const blank = () => ({ done: 0, total: 0, bypassed: 0, received: 0, receivedDone: 0, adhoc: 0, adhocDone: 0 });
+  for (const p of people) {
+    perDay[p.person_key] = {};
+    for (const day of countedDays) perDay[p.person_key][day] = { ...blank(), total: trees[p.person_key].length };
+  }
+  const keyOk = (pk, day) => perDay[pk] && perDay[pk][day];
+  for (const s of states) {
+    const d = perDay[s.assignee] && perDay[s.assignee][s.state_date];
+    if (d) {
+      if (s.bypassed) { d.bypassed += 1; d.total -= 1; }  // ข้ามงาน = ตัดออกจากตัวหาร (เหมือนบอร์ด)
+      else if (s.checked) d.done += 1;
+    }
+    // งานที่ถูกมอบต่อไปให้คนอื่น → ไปเพิ่มภาระของ "คนรับ" ในวันนั้น
+    if (s.bypassed && s.handoff_to && keyOk(s.handoff_to, s.state_date)) {
+      const r = perDay[s.handoff_to][s.state_date];
+      r.received += 1; r.total += 1;
+      if (s.checked) { r.receivedDone += 1; r.done += 1; }
+    }
+  }
+  for (const t of tasks) {
+    const d = keyOk(t.assignee, t.task_date) ? perDay[t.assignee][t.task_date] : null;
+    if (!d) continue;
+    d.adhoc += 1; d.total += 1;
+    if (t.status === 'done') { d.adhocDone += 1; d.done += 1; }
+  }
+
+  const persons = people.map((p) => {
+    const days = countedDays.map(day => {
+      const d = perDay[p.person_key][day];
+      return { date: day, ...d, pct: pctOf(d.done, d.total) };
+    });
+    const worked = days.filter(d => d.done > 0 || d.bypassed > 0 || d.adhoc > 0);
+    const sum = (f) => days.reduce((n, d) => n + f(d), 0);
+    const done = sum(d => d.done), total = sum(d => d.total);
+    // เทรนด์: ครึ่งแรกเทียบครึ่งหลังของวันที่นับ (ต้องมีอย่างน้อย 4 วัน ไม่งั้นเป็นเสียงรบกวน)
+    let trend = null;
+    if (days.length >= 4) {
+      const h = Math.floor(days.length / 2);
+      const avg = (arr) => { const t = arr.reduce((n, d) => n + d.total, 0); return t ? Math.round(arr.reduce((n, d) => n + d.done, 0) / t * 100) : null; };
+      const first = avg(days.slice(0, h)), last = avg(days.slice(days.length - h));
+      if (first != null && last != null) trend = { first, last, delta: last - first, dir: Math.abs(last - first) < 5 ? 'flat' : (last > first ? 'up' : 'down') };
+    }
+    const ranked = days.filter(d => d.pct != null).sort((a, b) => b.pct - a.pct || b.total - a.total);
+    return {
+      key: p.person_key, name: p.name, role: p.role || '', dot: p.dot || '👤', color: p.color || '',
+      done, total, pct: pctOf(done, total),
+      daysCounted: days.length, daysWorked: worked.length,
+      full: days.filter(d => d.total > 0 && d.done === d.total).length,   // วันที่ปิดครบ 100%
+      zero: days.filter(d => d.total > 0 && d.done === 0).length,
+      bypassed: sum(d => d.bypassed), received: sum(d => d.received), receivedDone: sum(d => d.receivedDone),
+      adhoc: sum(d => d.adhoc), adhocDone: sum(d => d.adhocDone),
+      routineNodes: trees[p.person_key].length,
+      trend, days,
+      best: ranked[0] ? { date: ranked[0].date, pct: ranked[0].pct } : null,
+      // โชว์ "วันที่แย่สุด" เฉพาะตอนที่แย่กว่าวันที่ดีสุดจริง ๆ (ไม่งั้นคนที่ปิดครบทุกวันจะมีวันแย่สุด 100%)
+      worst: ranked.length > 1 && ranked[ranked.length - 1].pct < ranked[0].pct
+        ? { date: ranked[ranked.length - 1].date, pct: ranked[ranked.length - 1].pct } : null,
+    };
+  }).sort((a, b) => (b.pct || 0) - (a.pct || 0) || b.done - a.done);
+
+  // ── (2) รายกะ ────────────────────────────────────────────────────────────
+  const shiftMap = {};
+  const bucket = (key, workDay) => {
+    const s = shiftMap[key] || (shiftMap[key] = { shift: key, batches: 0, cipRounds: 0, ticks: 0, days: {}, lines: {}, flavors: {} });
+    if (workDay) s.days[workDay] = true;
+    return s;
+  };
+  const operators = {};
+  for (const r of prodRows) {
+    const ts = String(r.timestamp || '');
+    const day = ts.slice(0, 10), hour = Number(ts.slice(11, 13));
+    if (!day) continue;
+    const sh = shiftAt(day, hour);
+    const s = bucket(sh.key, sh.workDay);
+    s.batches += 1;
+    s.lines[r.line_name || '-'] = (s.lines[r.line_name || '-'] || 0) + 1;
+    s.flavors[r.flavor || '-'] = (s.flavors[r.flavor || '-'] || 0) + 1;
+    const op = r.operator_name || '(ไม่ระบุ)';
+    const o = operators[op] || (operators[op] = { name: op, batches: 0, days: {}, shifts: {}, cipRounds: 0 });
+    o.batches += 1; o.days[sh.workDay] = true; o.shifts[sh.key] = (o.shifts[sh.key] || 0) + 1;
+  }
+  for (const s of states) {
+    if (!s.checked || !s.updated_at) continue;
+    const day = String(s.updated_at).slice(0, 10), hour = Number(String(s.updated_at).slice(11, 13));
+    if (!day || !Number.isFinite(hour)) continue;
+    bucket(shiftAt(day, hour).key, null).ticks += 1;
+  }
+  for (const r of cip.rounds) if (r.shift) bucket(r.shift, r.workDay).cipRounds += 1;
+
+  const shiftOrder = { 'เช้า': 0, 'บ่าย': 1, 'ดึก': 2 };
+  const shifts = Object.values(shiftMap).map((s) => {
+    const days = Object.keys(s.days).length;
+    const topLine = Object.entries(s.lines).sort((a, b) => b[1] - a[1])[0];
+    const topFlavor = Object.entries(s.flavors).sort((a, b) => b[1] - a[1])[0];
+    return {
+      shift: s.shift, batches: s.batches, cipRounds: s.cipRounds, ticks: s.ticks, days,
+      perDay: days ? round2(s.batches / days) : null,
+      topLine: topLine ? { line: topLine[0], n: topLine[1] } : null,
+      topFlavor: topFlavor ? { flavor: topFlavor[0], n: topFlavor[1] } : null,
+    };
+  }).sort((a, b) => (shiftOrder[a.shift] ?? 9) - (shiftOrder[b.shift] ?? 9));
+
+  // ── (3) เวลาต่อรอบ CIP เทียบค่ากลาง ──────────────────────────────────────
+  const mins = cip.rounds.map(r => r.minutes);
+  const overallMedian = medianOf(mins);
+  const groupRounds = (keyFn) => {
+    const g = {};
+    for (const r of cip.rounds) { const k = keyFn(r); (g[k] = g[k] || []).push(r); }
+    return Object.entries(g).map(([name, rs]) => {
+      const m = rs.map(r => r.minutes);
+      const med = medianOf(m);
+      return {
+        name, n: rs.length, median: med,
+        avg: round2(m.reduce((a, b) => a + b, 0) / m.length),
+        min: Math.min(...m), max: Math.max(...m),
+        vsMedian: overallMedian && med != null ? Math.round((med - overallMedian) / overallMedian * 100) : null,
+      };
+    }).sort((a, b) => b.n - a.n);
+  };
+
+  const opList = Object.values(operators).map(o => ({
+    name: o.name, batches: o.batches, days: Object.keys(o.days).length,
+    perDay: Object.keys(o.days).length ? round2(o.batches / Object.keys(o.days).length) : null,
+    shifts: o.shifts,
+  })).sort((a, b) => b.batches - a.batches);
+  for (const o of opList) o.cipRounds = cip.rounds.filter(r => r.operator === o.name).length;
+
+  return {
+    from, to,
+    countedDays: countedDays.length, firstDay: countedDays[0] || '', lastDay: countedDays[countedDays.length - 1] || '',
+    people: persons,
+    team: {
+      done: persons.reduce((n, p) => n + p.done, 0),
+      total: persons.reduce((n, p) => n + p.total, 0),
+      pct: pctOf(persons.reduce((n, p) => n + p.done, 0), persons.reduce((n, p) => n + p.total, 0)),
+    },
+    shifts,
+    operators: opList,
+    cip: {
+      rounds: cip.rounds.slice(0, 200), count: cip.rounds.length, sessions: cip.sessions,
+      openCount: cip.open.length, open: cip.open.slice(0, 20),
+      median: overallMedian,
+      avg: mins.length ? round2(mins.reduce((a, b) => a + b, 0) / mins.length) : null,
+      byOperator: groupRounds(r => r.operator),
+      byLine: groupRounds(r => r.line),
+      // ตัวอย่างน้อยเกินไป = อย่าเพิ่งสรุปว่าใครช้าใครเร็ว
+      thin: cip.rounds.length < 10,
+    },
+  };
+}
+
+app.get('/api/perf/summary', async (req, res) => {
+  const { from, to } = rangeFromQuery(req.query);
+  try { res.json(await buildPerfSummary({ from, to })); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // แถบความคืบหน้าแบบ block (เพิ่มลูกเล่นให้ข้อความ Telegram)
 function progressBar(pct, blocks = 10) {
   const filled = Math.max(0, Math.min(blocks, Math.round(pct / 100 * blocks)));
@@ -9339,6 +9599,10 @@ const ASSISTANT_TOOLS = [
     input_schema: { type: 'object', properties: {
       from: { type: 'string' }, to: { type: 'string' },
       line: { type: 'string' }, flavor: { type: 'string' } } } },
+  { name: 'get_performance', description: 'เทียบประสิทธิภาพย้อนหลัง — % งานประจำรายคน · ยอดผลิต/รอบ CIP แยกตามกะ · เวลาที่ใช้ต่อรอบ CIP เทียบค่ากลาง · ใช้เมื่อถูกถามว่า "ใครทำได้ดี/ตกงานประจำ" "กะไหนผลิตได้มากสุด" "ล้างรอบนึงใช้เวลาเท่าไหร่"',
+    input_schema: { type: 'object', properties: {
+      from: { type: 'string', description: 'วันเริ่ม YYYY-MM-DD (ไม่ระบุ = 30 วันย้อนหลัง)' },
+      to: { type: 'string', description: 'วันสิ้นสุด YYYY-MM-DD' } } } },
   { name: 'get_quality_history', description: 'วิเคราะห์คุณภาพย้อนหลัง — สรุปว่าช่วงนี้ค่าหลุดสเปกกี่ครั้ง รสไหน/ไลน์ไหนบ่อยสุด และค่าเลื่อนไปทางไหน (เทรนด์) · ใช้เมื่อถูกถามภาพรวมย้อนหลัง เช่น "เดือนนี้หลุดสเปกกี่ครั้ง" "รสไหนมีปัญหาบ่อย" "ค่า pH เลื่อนขึ้นไหม" — ต่างจาก get_quality ที่คืนค่าดิบทีละรายการ',
     input_schema: { type: 'object', properties: {
       from: { type: 'string', description: 'วันเริ่ม YYYY-MM-DD (ไม่ระบุ = 30 วันย้อนหลัง)' },
@@ -9541,6 +9805,16 @@ async function runAssistantTool(name, input, operator, ctx = {}) {
     const specs = await getQualitySpecs(); // แนบสเปกไปด้วย → เทียบได้ว่าค่าไหนออกนอกสเปกจริง
     return { from, to, count: rows.length, rows, specs, note: 'เตือน "ผิดปกติ" เฉพาะรสที่มีสเปกใน specs และค่าออกนอกช่วงเท่านั้น รสที่ไม่มีสเปกอย่าเดาว่าปกติ/ผิด' };
   }
+  if (name === 'get_performance') {
+    const { from, to } = rangeFromQuery({ from: input.from, to: input.to });
+    const r = await buildPerfSummary({ from, to });
+    return {
+      ...r,
+      people: r.people.map(({ days, ...rest }) => rest),   // ตัดรายวันออก สรุปพอ
+      cip: { ...r.cip, rounds: r.cip.rounds.slice(0, 20) },
+      note: 'countedDays = วันที่มีคนใช้ระบบจริงเท่านั้น (วันเงียบไม่นับเป็น 0%) · shifts = แบ่งตาม "เวลาที่เกิดเรื่อง" ไม่ใช่ทีมกะไหนทำ (ระบบไม่ได้เก็บว่าใครอยู่กะไหน) ห้ามบอกว่าเป็นผลงานของทีมกะนั้น · cip.thin = true แปลว่าจำนวนรอบน้อยเกินจะสรุปว่าใครเร็วช้า ให้บอกตรง ๆ · เทียบเวลา CIP ด้วย median ไม่ใช่ค่าเฉลี่ย',
+    };
+  }
   if (name === 'get_quality_history') {
     const { from, to } = rangeFromQuery({ from: input.from, to: input.to });
     const h = await buildQualityHistory({ from, to, flavor: input.flavor, line: input.line });
@@ -9654,6 +9928,7 @@ async function buildAssistantSystem(operator) {
     '• บันทึกงาน: create_task (category ผลิต=production, ทำความสะอาด=cip, backwash=backwash, ซ่อมบำรุง=maintenance) · ปิดงาน: complete_task',
     '• ข้อมูลวันเดียว: get_production_summary / get_cip_summary / get_timeline / list_tasks',
     '• ข้ามวัน/ช่วงเวลา/แนวโน้ม: query_production_range (from,to) เช่น "สัปดาห์นี้", "3 วันก่อน", "เดือนนี้"',
+    '• ประสิทธิภาพ/เทียบคน-กะ: get_performance (% งานประจำรายคน · ผลิตแยกกะ · เวลาต่อรอบ CIP เทียบค่ากลาง)',
     '• คุณภาพ: get_quality (Brix/pH — แนบสเปกมาด้วย) เตือน "ผิดปกติ" เฉพาะรสที่มีสเปกและค่าออกนอกช่วง · ถามภาพรวมย้อนหลัง/หลุดกี่ครั้ง/รสไหนบ่อย/เทรนด์ ใช้ get_quality_history · ตั้งสเปกด้วย set_quality_spec (เช่นผู้ใช้บอก "สเปกส้ม pH 3.2-4") · ดูสเปกที่ตั้งไว้ด้วย get_quality_specs',
     '• ความรู้เรื่องแอป/กะ/ขั้นตอน/ทีม: search_knowledge — ถูกถามเรื่องวิธีใช้/ระบบ/กะทำงาน/บุคคล ให้ค้นก่อนตอบเสมอ ถ้าครั้งแรกไม่เจอ ให้เปลี่ยนคำค้น (สั้นลง/คำพ้อง/ชื่อที่ถูกถาม) ลองอีก 1-2 ครั้งก่อนจะสรุปว่าไม่พบ',
     '• คำถามข้อมูลที่ tool สรุปไม่ครอบคลุม: query_database (SELECT อย่างเดียว) — schema ทั้งหมด:',
