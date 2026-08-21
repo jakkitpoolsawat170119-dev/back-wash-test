@@ -206,7 +206,7 @@ const AdminOverview: React.FC<Props> = ({ onOpen, onPane }) => {
             <>
               <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))' }}>
                 <Card icon="🏭" title="ผลิตได้" status={dash.production.status}
-                  value={dash.production.status === 'empty' ? 'ยังไม่มี' : `${dash.production.actual} batch`}
+                  value={dash.production.status === 'empty' ? '—' : `${dash.production.actual} batch`}
                   sub={dash.production.status === 'empty' ? 'ยังไม่มีการลงยอดผลิตในช่วงนี้' : <>
                     {dash.production.pct != null ? <>เทียบแผน {dash.production.pct}% ({dash.production.planned} batch)</> : 'ยังไม่ได้ลงแผนในช่วงนี้'}
                     {dash.production.topFlavor && <><br />มากสุด: {dash.production.topFlavor.name} ({dash.production.topFlavor.n})</>}
@@ -214,7 +214,7 @@ const AdminOverview: React.FC<Props> = ({ onOpen, onPane }) => {
                   onClick={() => go('calendar')} />
 
                 <Card icon="🔬" title="คุณภาพหลุดสเปก" status={dash.quality.status}
-                  value={dash.quality.status === 'empty' ? 'ยังไม่มี' : `${dash.quality.out} ครั้ง`}
+                  value={dash.quality.status === 'empty' ? '—' : `${dash.quality.out} ครั้ง`}
                   sub={dash.quality.status === 'empty'
                     ? 'ยังไม่มีค่าที่ตรวจเทียบสเปกได้'
                     : <>จาก {dash.quality.checked} ครั้งที่ตรวจได้ ({dash.quality.rate}%)
@@ -223,7 +223,7 @@ const AdminOverview: React.FC<Props> = ({ onOpen, onPane }) => {
                   onClick={() => go('quality')} />
 
                 <Card icon="👥" title="งานประจำทั้งทีม" status={dash.duty.status}
-                  value={dash.duty.status === 'empty' || dash.duty.pct == null ? 'ยังไม่มี' : `${dash.duty.pct}%`}
+                  value={dash.duty.status === 'empty' || dash.duty.pct == null ? '—' : `${dash.duty.pct}%`}
                   sub={dash.duty.status === 'empty'
                     ? 'ยังไม่มีการติ๊กงานในช่วงนี้'
                     : <>{dash.duty.done}/{dash.duty.total} งาน · {dash.duty.countedDays} วันที่ใช้งานจริง
@@ -233,7 +233,7 @@ const AdminOverview: React.FC<Props> = ({ onOpen, onPane }) => {
                   onClick={() => go('perf')} />
 
                 <Card icon="🧼" title="เวลาต่อรอบ CIP" status={dash.cip.status}
-                  value={dash.cip.status === 'empty' || dash.cip.median == null ? 'ยังไม่มี' : `${Math.round(dash.cip.median)} นาที`}
+                  value={dash.cip.status === 'empty' || dash.cip.median == null ? '—' : `${Math.round(dash.cip.median)} นาที`}
                   sub={dash.cip.status === 'empty'
                     ? 'ยังไม่มีรอบที่กดเริ่ม–จบครบ'
                     : <>ค่ากลางจาก {dash.cip.count} รอบ
@@ -242,7 +242,7 @@ const AdminOverview: React.FC<Props> = ({ onOpen, onPane }) => {
                   onClick={() => go('perf')} />
 
                 <Card icon="⏱" title="เวลาเครื่องหยุด" status={dash.downtime.status}
-                  value={dash.downtime.status === 'empty' ? 'ยังไม่มี' : hours(dash.downtime.totalMin)}
+                  value={dash.downtime.status === 'empty' ? '—' : hours(dash.downtime.totalMin)}
                   sub={dash.downtime.status === 'empty'
                     ? 'ยังไม่มีเหตุการณ์ที่กรอกเวลาไว้'
                     : <>{dash.downtime.totalCount} ครั้ง
@@ -251,7 +251,7 @@ const AdminOverview: React.FC<Props> = ({ onOpen, onPane }) => {
                   onClick={() => go('downtime')} />
 
                 <Card icon="💰" title="ต้นทุนต่อ batch" status={dash.cost.status}
-                  value={dash.cost.status === 'empty' ? 'ยังไม่มี' : `${money(dash.cost.totalCost)} บาท`}
+                  value={dash.cost.status === 'empty' ? '—' : `${money(dash.cost.totalCost)} บาท`}
                   sub={dash.cost.status === 'empty'
                     ? 'ยังไม่มีการเบิกของที่ระบุ batch'
                     : <>{dash.cost.batches} batch · วัสดุ {money(dash.cost.totalMaterial)} + เวลา {money(dash.cost.totalDowntime)}</>}
@@ -261,7 +261,7 @@ const AdminOverview: React.FC<Props> = ({ onOpen, onPane }) => {
                   onClick={() => go('cost')} />
 
                 <Card icon="🧪" title="คลังวัสดุ" status={dash.materials.status}
-                  value={dash.materials.status === 'empty' ? 'ยังไม่มี' : (dash.materials.lowCount ? `ใกล้หมด ${dash.materials.lowCount} รายการ` : `ครบ ${dash.materials.items} รายการ`)}
+                  value={dash.materials.status === 'empty' ? '—' : (dash.materials.lowCount ? `ใกล้หมด ${dash.materials.lowCount} รายการ` : `ครบ ${dash.materials.items} รายการ`)}
                   sub={dash.materials.status === 'empty'
                     ? 'ยังไม่ได้ใส่วัสดุเข้าคลัง'
                     : <>มูลค่าคงคลัง {money(dash.materials.stockValue)} บาท · เบิกใช้ {money(dash.materials.usedCost)} บาท
