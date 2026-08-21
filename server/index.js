@@ -10932,6 +10932,131 @@ app.post('/api/posts/restore-version', requireRole('supervisor'), async (req, re
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   คิวคู่มือ/SOP ที่รออนุมัติ + เทียบเวอร์ชัน (diff)
+   เดิมมีระบบอนุมัติแล้วแต่ต้องเปิดบทความทีละเรื่องถึงจะรู้ว่ามีอะไรค้าง
+   และเวลาอนุมัติก็ไม่เห็นว่า "แก้อะไรไปบ้าง" — ต้องอ่านทั้งเรื่องใหม่ทุกครั้ง
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+// บล็อกบทความ → ข้อความบรรทัดต่อบรรทัด (ใช้เทียบ diff และให้คนอ่านรู้เรื่อง)
+const stripTags = (h) => String(h || '')
+  .replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li|h[1-6])>/gi, '\n')
+  .replace(/<[^>]*>/g, '')
+  .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+  .replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+function blocksToLines(blocks) {
+  const out = [];
+  for (const b of (Array.isArray(blocks) ? blocks : [])) {
+    const t = b.type || 'p';
+    const push = (s) => String(s || '').split('\n').map(x => x.trim()).filter(Boolean).forEach(x => out.push(x));
+    if (t === 'h1') push(`# ${stripTags(b.html)}`);
+    else if (t === 'h2') push(`## ${stripTags(b.html)}`);
+    else if (t === 'h3') push(`### ${stripTags(b.html)}`);
+    else if (t === 'p' || t === 'quote' || t === 'callout') push(stripTags(b.html));
+    else if (t === 'list' || t === 'checklist') (b.items || []).forEach(i => push(`- ${stripTags(i.html || i)}`));
+    else if (t === 'image') push(`[รูป] ${b.caption || b.src || ''}`);
+    else if (t === 'video') push(`[วิดีโอ] ${b.caption || b.src || ''}`);
+    else if (t === 'file' || t === 'pdf') push(`[ไฟล์] ${b.caption || b.src || ''}`);
+    else if (t === 'table') (b.cells || []).forEach(row => push(`| ${(row || []).join(' | ')}`));
+    else if (t === 'code' || t === 'js') push(`[โค้ด] ${String(b.code || '').split('\n')[0] || ''}`);
+    else if (t === 'chart') push(`[กราฟ] ${b.title || b.chartKind || ''}`);
+    else if (t === 'divider') push('———');
+    else push(stripTags(b.html || b.text || ''));
+  }
+  return out;
+}
+
+/* diff แบบบรรทัดต่อบรรทัด (LCS) — คู่มือยาวไม่กี่ร้อยบรรทัด ใช้ตารางตรง ๆ ได้สบาย
+   คืนลำดับ same/del/add ตามที่คนอ่านเห็นในหน้าเทียบ                              */
+function diffLines(a, b) {
+  const n = a.length, m = b.length;
+  const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const out = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push({ t: 'same', text: a[i] }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ t: 'del', text: a[i] }); i++; }
+    else { out.push({ t: 'add', text: b[j] }); j++; }
+  }
+  while (i < n) out.push({ t: 'del', text: a[i++] });
+  while (j < m) out.push({ t: 'add', text: b[j++] });
+  return out;
+}
+
+const parseBlocks = (raw) => { try { return JSON.parse(raw || '[]'); } catch { return []; } };
+
+// คิวงาน: อะไรบ้างที่รอหัวหน้าตรวจ — เรียงเรื่องที่ส่งมาขออนุมัติไว้บนสุด
+app.get('/api/sop/queue', async (req, res) => {
+  try {
+    const rows = await dbAll(
+      `SELECT id, title, slug, author, status, category, blocks, updated_at
+         FROM posts WHERE category = ? ORDER BY updated_at DESC`, [SOP_CATEGORY]);
+    const items = [];
+    for (const r of rows) {
+      const v = await latestVersion(r.id);
+      const changed = !v || String(v.blocks || '') !== String(r.blocks || '') || (v.title || '') !== (r.title || '');
+      let state = '';
+      if (r.status === 'review') state = 'review';                    // ส่งมาขออนุมัติ รอตรวจ
+      else if (!v) state = 'never';                                   // ยังไม่เคยอนุมัติสักรอบ
+      else if (changed) state = 'edited';                             // อนุมัติแล้วแต่มีของแก้ค้าง
+      else continue;                                                  // ตรงกับฉบับอนุมัติ = ไม่ต้องทำอะไร
+      const cur = blocksToLines(parseBlocks(r.blocks));
+      const old = v ? blocksToLines(parseBlocks(v.blocks)) : [];
+      const d = diffLines(old, cur);
+      items.push({
+        id: r.id, title: r.title, slug: r.slug, author: r.author || '', status: r.status,
+        updatedAt: r.updated_at || '', state,
+        version: v ? v.version : 0,
+        approvedBy: v ? v.approved_by || '' : '', approvedAt: v ? v.approved_at || '' : '',
+        added: d.filter(x => x.t === 'add').length, removed: d.filter(x => x.t === 'del').length,
+      });
+    }
+    const rank = { review: 0, never: 1, edited: 2 };
+    items.sort((a, b) => rank[a.state] - rank[b.state] || String(b.updatedAt).localeCompare(String(a.updatedAt)));
+    res.json({ items, count: items.length, waiting: items.filter(i => i.state === 'review').length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+/* เทียบเนื้อหา 2 ฝั่ง — ค่าเริ่มต้น: ฉบับอนุมัติล่าสุด → ฉบับปัจจุบัน
+   ระบุเวอร์ชันเองได้ด้วย ?from=<version>&to=<version|current>                */
+app.get('/api/sop/diff', async (req, res) => {
+  const id = req.query.id;
+  if (!id) return res.status(400).json({ error: 'ต้องมี id' });
+  try {
+    const post = await dbGet('SELECT id, title, blocks, status, category FROM posts WHERE id = ?', [id]);
+    if (!post) return res.status(404).json({ error: 'ไม่พบบทความนี้' });
+    const versions = await dbAll(
+      'SELECT id, version, title, blocks, approved_by, approved_at FROM post_versions WHERE post_id = ? ORDER BY version', [id]);
+    const pick = (want, fallbackLatest) => {
+      if (want === 'current') return { label: 'ฉบับปัจจุบัน', title: post.title, blocks: parseBlocks(post.blocks) };
+      const n = Number(want);
+      const v = versions.find(x => Number(x.version) === n) || (fallbackLatest ? versions[versions.length - 1] : null);
+      return v
+        ? { label: `เวอร์ชัน ${v.version}`, title: v.title, blocks: parseBlocks(v.blocks),
+            approvedBy: v.approved_by || '', approvedAt: v.approved_at || '', version: v.version }
+        : { label: 'ยังไม่มีฉบับอนุมัติ', title: '', blocks: [] };
+    };
+    const left = pick(req.query.from == null ? 'latest' : req.query.from, true);
+    const right = pick(req.query.to == null ? 'current' : req.query.to, false);
+    const lines = diffLines(blocksToLines(left.blocks), blocksToLines(right.blocks));
+    res.json({
+      id: Number(id), title: post.title, status: post.status,
+      left, right,
+      versions: versions.map(v => ({ version: v.version, approvedBy: v.approved_by || '', approvedAt: v.approved_at || '' })).reverse(),
+      lines,
+      added: lines.filter(l => l.t === 'add').length,
+      removed: lines.filter(l => l.t === 'del').length,
+      same: lines.filter(l => l.t === 'same').length,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ปุ่ม "sync เดี๋ยวนี้" — เขียนไฟล์ใหม่จากข้อมูลที่อยู่ใน DB ตอนนี้
 app.post('/api/posts/:id/sync', async (req, res) => {
   try {

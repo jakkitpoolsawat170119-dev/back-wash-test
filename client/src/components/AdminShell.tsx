@@ -12,6 +12,7 @@ import ProductionApprovalBoard from './ProductionApprovalBoard';
 import SkuReviewPanel from './SkuReviewPanel';
 import ProductionTimeline from './ProductionTimeline';
 import BlogEditor from './BlogEditor';
+import SopQueue from './SopQueue';
 import ObsidianInbox from './ObsidianInbox';
 import MaintenanceBoard from './MaintenanceBoard';
 import PmRegistry from './PmRegistry';
@@ -27,7 +28,7 @@ import MediaPane from './MediaPane';
 import ErrorBoundary from './ErrorBoundary';
 
 type TodoTab = 'today' | 'audit' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs';
-type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline' | 'blog' | 'obsidian' | 'maint' | 'pmreg' | 'downtime' | 'machines' | 'incidents' | 'users' | 'materials' | 'cost' | 'quality' | 'perf' | 'media';
+type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline' | 'blog' | 'obsidian' | 'maint' | 'pmreg' | 'downtime' | 'machines' | 'incidents' | 'users' | 'materials' | 'cost' | 'quality' | 'perf' | 'media' | 'sopqueue';
 
 const TODO_TABS: string[] = ['today', 'audit', 'calendar', 'report', 'timeline', 'recurring', 'ai', 'specs'];
 
@@ -57,6 +58,7 @@ const MENU: MenuRow[] = [
   { pane: 'downtime', ic: '⏱', label: 'เวลาเครื่องหยุด', sub: true },
   { head: 'Knowledge management', ic: '📚', km: true },
   { pane: 'blog', ic: '✍️', label: 'บทความ / คู่มือ / SOP', sub: true },
+  { pane: 'sopqueue', ic: '📋', label: 'คู่มือรออนุมัติ', sub: true },
   { pane: 'media', ic: '🗂', label: 'คลังไฟล์', sub: true },
   { pane: 'machines', ic: '⚙️', label: 'ทะเบียนเครื่องจักร', sub: true },
   { pane: 'incidents', ic: '⚡', label: 'เหตุการณ์', sub: true },
@@ -193,6 +195,12 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
               />
             </ErrorBoundary>
           </div>
+
+          {pane === 'sopqueue' && (
+            <ErrorBoundary label="admin-sopqueue">
+              <SopQueue onOpenPost={(id) => navigate({ tab: 'blog', item: String(id) })} />
+            </ErrorBoundary>
+          )}
 
           {pane === 'blog' && (
             <ErrorBoundary label="admin-blog"><BlogEditor operatorName={operator} /></ErrorBoundary>
