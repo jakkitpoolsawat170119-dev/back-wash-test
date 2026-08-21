@@ -1435,7 +1435,7 @@ const CalendarTab: React.FC<{ card: React.CSSProperties; onOpenDate: (date: stri
 };
 
 // ─── Report scheduling ─────────────────────────────────────────
-type ReportCfg = { autoEnabled: boolean; times: string[]; weekdays: number[]; onlyIfPending: boolean; autoAtShiftEnd: boolean; kpiWeeklyEnabled: boolean; kpiMonthlyEnabled: boolean; kpiAlertEnabled: boolean; kpiAlertStreakDays: number; kpiAlertCipStaleHours: number; once: { id: number; run_at: string }[] };
+type ReportCfg = { autoEnabled: boolean; times: string[]; weekdays: number[]; onlyIfPending: boolean; autoAtShiftEnd: boolean; kpiWeeklyEnabled: boolean; kpiMonthlyEnabled: boolean; kpiAlertEnabled: boolean; kpiAlertStreakDays: number; kpiAlertCipStaleHours: number; qualityWatchEnabled: boolean; once: { id: number; run_at: string }[] };
 const SHIFT_TIMES: [string, string][] = [['14:00', '14:00'], ['18:00', '18:00'], ['22:00', '22:00'], ['06:00', '06:00']];
 const WEEKDAY_OPTS: [number, string][] = [[1, 'จ'], [2, 'อ'], [3, 'พ'], [4, 'พฤ'], [5, 'ศ'], [6, 'ส'], [0, 'อา']];
 
@@ -1551,9 +1551,26 @@ const ReportTab: React.FC<{ card: React.CSSProperties }> = ({ card }) => {
   useEffect(() => { load(); }, [load]);
 
   const [kpiMsg, setKpiMsg] = useState('');
+  const [watchMsg, setWatchMsg] = useState('');
+  // ตรวจค่าหลุดสเปกย้อนหลัง 7 วัน — dry = ดูเฉย ๆ ไม่เปิดเหตุการณ์
+  const runWatch = async (dry: boolean) => {
+    setWatchMsg(dry ? 'กำลังตรวจ…' : 'กำลังตรวจและเปิดเหตุการณ์…');
+    try {
+      const r = await fetch(`${apiUrl}/api/quality/watch?hours=168${dry ? '&dryRun=1' : ''}`, { method: 'POST' });
+      const d = await r.json();
+      if (!r.ok) { setWatchMsg(`❌ ${d.error || 'ตรวจไม่สำเร็จ'}`); return; }
+      const n = (d.created || []).length;
+      setWatchMsg(d.found === 0
+        ? `✅ 7 วันที่ผ่านมาไม่มีค่าหลุดสเปก (ตรวจได้ ${d.checked} ครั้ง)`
+        : dry
+          ? `พบ ${d.found} กลุ่มที่หลุดสเปก — ยังไม่ได้เปิดเหตุการณ์ (กดปุ่มขวาถ้าจะเปิดจริง)`
+          : n ? `✅ เปิดเหตุการณ์ใหม่ ${n} เรื่อง${d.skipped.length ? ` · มีอยู่แล้ว ${d.skipped.length}` : ''}`
+              : `ทุกกลุ่มเปิดเหตุการณ์ไว้แล้ว (${d.skipped.length} เรื่อง)`);
+    } catch { setWatchMsg('❌ ต่อเซิร์ฟเวอร์ไม่ได้'); }
+  };
   const saveCfg = async (patch: Partial<ReportCfg>) => {
     if (!cfg) return; const next = { ...cfg, ...patch }; setCfg(next);
-    await fetch(`${apiUrl}/api/report/config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ autoEnabled: next.autoEnabled, times: next.times, weekdays: next.weekdays, onlyIfPending: next.onlyIfPending, autoAtShiftEnd: next.autoAtShiftEnd, kpiWeeklyEnabled: next.kpiWeeklyEnabled, kpiMonthlyEnabled: next.kpiMonthlyEnabled, kpiAlertEnabled: next.kpiAlertEnabled, kpiAlertStreakDays: next.kpiAlertStreakDays, kpiAlertCipStaleHours: next.kpiAlertCipStaleHours }) });
+    await fetch(`${apiUrl}/api/report/config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ autoEnabled: next.autoEnabled, times: next.times, weekdays: next.weekdays, onlyIfPending: next.onlyIfPending, autoAtShiftEnd: next.autoAtShiftEnd, kpiWeeklyEnabled: next.kpiWeeklyEnabled, kpiMonthlyEnabled: next.kpiMonthlyEnabled, kpiAlertEnabled: next.kpiAlertEnabled, kpiAlertStreakDays: next.kpiAlertStreakDays, kpiAlertCipStaleHours: next.kpiAlertCipStaleHours, qualityWatchEnabled: next.qualityWatchEnabled }) });
   };
   const sendNow = async () => { setMsg('กำลังส่ง…'); try { const r = await fetch(`${apiUrl}/api/duty/telegram`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: todayBKK() }) }); const d = await r.json(); setMsg(d.sent ? '✅ ส่งเข้า Telegram แล้ว' : '⚠️ ยังไม่ได้ตั้งค่า Telegram บนเซิร์ฟเวอร์'); } catch { setMsg('❌ ส่งไม่สำเร็จ'); } };
   const sendKpiNow = async (period: 'weekly' | 'monthly') => {
@@ -1676,6 +1693,25 @@ const ReportTab: React.FC<{ card: React.CSSProperties }> = ({ card }) => {
         </div>
         <button onClick={testAlert} style={{ width: '100%', border: '1px solid #eee', background: '#fff', borderRadius: 12, padding: 11, fontWeight: 800, fontSize: '.8rem', color: '#546e7a', cursor: 'pointer', marginTop: 12 }}>🔍 ตรวจสอบตอนนี้ (ไม่ส่ง Telegram)</button>
         {alertMsg && <div style={{ textAlign: 'center', fontSize: '.8rem', color: '#78828a', marginTop: 8 }}>{alertMsg}</div>}
+      </div>
+
+      {eyebrow('เฝ้าค่าคุณภาพ')}
+      <div style={{ ...card }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: '.88rem', fontWeight: 800 }}>🔬 ค่าหลุดสเปก → เปิดเหตุการณ์ให้เอง</div>
+            <div style={{ fontSize: '.68rem', color: '#9aa0a6', lineHeight: 1.5 }}>
+              ตรวจตอนสิ้นกะ — เจอ Brix/pH หลุดสเปกแล้วเปิดเหตุการณ์ + เขียนโน้ตเข้า Obsidian ให้อัตโนมัติ
+              <br />(1 เหตุการณ์ต่อ วัน+รส+ค่าที่หลุด · ไม่สร้างซ้ำ)
+            </div>
+          </div>
+          <Toggle on={cfg.qualityWatchEnabled} onClick={() => saveCfg({ qualityWatchEnabled: !cfg.qualityWatchEnabled })} />
+        </div>
+        <div style={{ display: 'flex', gap: 8, borderTop: '1px solid #eee', paddingTop: 12 }}>
+          <button onClick={() => runWatch(true)} style={{ flex: 1, border: '1px solid #eee', background: '#fff', borderRadius: 12, padding: 11, fontWeight: 800, fontSize: '.8rem', color: '#546e7a', cursor: 'pointer' }}>🔍 ลองดูก่อน (ไม่เขียน)</button>
+          <button onClick={() => runWatch(false)} style={{ flex: 1, border: '1px solid #eee', background: '#fff', borderRadius: 12, padding: 11, fontWeight: 800, fontSize: '.8rem', color: '#546e7a', cursor: 'pointer' }}>⚡ ตรวจย้อนหลัง 7 วัน</button>
+        </div>
+        {watchMsg && <div style={{ textAlign: 'center', fontSize: '.8rem', color: '#78828a', marginTop: 8, lineHeight: 1.6 }}>{watchMsg}</div>}
       </div>
 
       <div style={{ fontSize: '.72rem', color: '#9aa0a6', textAlign: 'center', marginTop: 4, lineHeight: 1.6 }}>บันทึกอัตโนมัติเมื่อแก้ไข · เซิร์ฟเวอร์เช็กทุกนาที</div>

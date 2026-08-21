@@ -452,6 +452,12 @@ const SCHEMA = [
       alert_key TEXT UNIQUE,
       last_sent_at TEXT
     )`,
+  // ── กันสร้างเหตุการณ์ "ค่าหลุดสเปก" ซ้ำ — 1 แถวต่อ (วัน+รส+ค่าที่หลุด) ─────
+  `CREATE TABLE IF NOT EXISTS quality_watch_log (
+      watch_key TEXT UNIQUE,
+      incident_id INTEGER,
+      created_at TEXT
+    )`,
   // ── ค่ามาตรฐานคุณภาพ (baseline) ต่อรสชาติ — ผู้ใช้ตั้งเอง ให้เตือน Brix/pH เฉพาะที่ผิดจริง
   `CREATE TABLE IF NOT EXISTS quality_specs (
       flavor TEXT UNIQUE,
@@ -824,6 +830,8 @@ async function initDb() {
   try { await db.exec('ALTER TABLE report_config ADD COLUMN kpi_monthly_enabled INTEGER DEFAULT 0'); } catch { /* มีแล้ว */ }
   // migration (KPI report เฟส 4): แจ้งเตือนเฉพาะจุดต้องระวัง (exception-based)
   try { await db.exec('ALTER TABLE report_config ADD COLUMN kpi_alert_enabled INTEGER DEFAULT 0'); } catch { /* มีแล้ว */ }
+  // เฝ้าค่าคุณภาพ: ค่าหลุดสเปก → เปิดเหตุการณ์ให้อัตโนมัติ (แผน KM ข้อ 5) — ปิดไว้ก่อนเป็นค่าเริ่มต้น
+  try { await db.exec('ALTER TABLE report_config ADD COLUMN quality_watch_enabled INTEGER DEFAULT 0'); } catch { /* มีแล้ว */ }
   try { await db.exec('ALTER TABLE report_config ADD COLUMN kpi_alert_streak_days INTEGER DEFAULT 2'); } catch { /* มีแล้ว */ }
   try { await db.exec('ALTER TABLE report_config ADD COLUMN kpi_alert_cip_stale_hours INTEGER DEFAULT 30'); } catch { /* มีแล้ว */ }
   // migration (ERP เฟส 1): สิทธิ์ผู้ใช้ — 'operator' | 'supervisor' | 'admin'
@@ -7713,6 +7721,7 @@ async function getReportConfig() {
     kpiAlertEnabled: !!r.kpi_alert_enabled,
     kpiAlertStreakDays: r.kpi_alert_streak_days == null ? 2 : Number(r.kpi_alert_streak_days),
     kpiAlertCipStaleHours: r.kpi_alert_cip_stale_hours == null ? 30 : Number(r.kpi_alert_cip_stale_hours),
+    qualityWatchEnabled: !!r.quality_watch_enabled,
   };
   return _reportConfigCache;
 }
@@ -7724,7 +7733,7 @@ app.get('/api/report/config', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.post('/api/report/config', async (req, res) => {
-  const { autoEnabled, times, weekdays, onlyIfPending, autoAtShiftEnd, shiftAnalysisEnabled, kpiWeeklyEnabled, kpiMonthlyEnabled, kpiAlertEnabled, kpiAlertStreakDays, kpiAlertCipStaleHours } = req.body;
+  const { autoEnabled, times, weekdays, onlyIfPending, autoAtShiftEnd, shiftAnalysisEnabled, kpiWeeklyEnabled, kpiMonthlyEnabled, kpiAlertEnabled, kpiAlertStreakDays, kpiAlertCipStaleHours, qualityWatchEnabled } = req.body;
   try {
     const cfg = await getReportConfig();
     const sae = shiftAnalysisEnabled == null ? cfg.shiftAnalysisEnabled : shiftAnalysisEnabled;
@@ -7733,8 +7742,9 @@ app.post('/api/report/config', async (req, res) => {
     const ka = kpiAlertEnabled == null ? cfg.kpiAlertEnabled : kpiAlertEnabled;
     const ksd = kpiAlertStreakDays == null ? cfg.kpiAlertStreakDays : Math.max(1, Number(kpiAlertStreakDays) || 2);
     const kch = kpiAlertCipStaleHours == null ? cfg.kpiAlertCipStaleHours : Math.max(1, Number(kpiAlertCipStaleHours) || 30);
-    await db.exec('UPDATE report_config SET auto_enabled = ?, times = ?, weekdays = ?, only_if_pending = ?, auto_at_shift_end = ?, shift_analysis_enabled = ?, kpi_weekly_enabled = ?, kpi_monthly_enabled = ?, kpi_alert_enabled = ?, kpi_alert_streak_days = ?, kpi_alert_cip_stale_hours = ?, updated_at = ? WHERE id = ?',
-      [autoEnabled ? 1 : 0, JSON.stringify(times || []), JSON.stringify(weekdays || []), onlyIfPending ? 1 : 0, autoAtShiftEnd ? 1 : 0, sae ? 1 : 0, kw ? 1 : 0, km ? 1 : 0, ka ? 1 : 0, ksd, kch, nowBKK(), cfg.id]);
+    const qw = qualityWatchEnabled == null ? cfg.qualityWatchEnabled : qualityWatchEnabled;
+    await db.exec('UPDATE report_config SET auto_enabled = ?, times = ?, weekdays = ?, only_if_pending = ?, auto_at_shift_end = ?, shift_analysis_enabled = ?, kpi_weekly_enabled = ?, kpi_monthly_enabled = ?, kpi_alert_enabled = ?, kpi_alert_streak_days = ?, kpi_alert_cip_stale_hours = ?, quality_watch_enabled = ?, updated_at = ? WHERE id = ?',
+      [autoEnabled ? 1 : 0, JSON.stringify(times || []), JSON.stringify(weekdays || []), onlyIfPending ? 1 : 0, autoAtShiftEnd ? 1 : 0, sae ? 1 : 0, kw ? 1 : 0, km ? 1 : 0, ka ? 1 : 0, ksd, kch, qw ? 1 : 0, nowBKK(), cfg.id]);
     invalidateReportConfig(); // ให้ tick อ่านค่าใหม่
     _sentAutoKeys.clear();     // เปลี่ยนเวลาส่ง → ยอมส่งซ้ำในเวลาใหม่ได้
     res.json({ success: true });
@@ -7853,6 +7863,7 @@ app.post('/api/report/tick', async (req, res) => {
   await shiftAnalysisTick();
   await kpiReportTick();
   await kpiAlertTick();
+  await qualityWatchTick();
   await sheetSyncTick(); // ให้ tick ที่ n8n ยิงครบเท่า setInterval (สำคัญเมื่อ Render หลับนอกช่วง window)
   await vaultTick();     // ตาข่ายกันพลาดของ Obsidian — ทำงานจริงชั่วโมงละครั้ง
   res.json({ ok: true, at: new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }) });
@@ -8671,6 +8682,133 @@ app.get('/api/quality/history', async (req, res) => {
     res.json(await buildQualityHistory({ from, to, flavor: req.query.flavor, line: req.query.line }));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   เฝ้าค่าคุณภาพ → เปิดเหตุการณ์ให้อัตโนมัติ (แผน KM ข้อ 5)
+   ต่อยอดจาก 4-e: buildQualityHistory() บอกอยู่แล้วว่าค่าไหนหลุดสเปกไปเท่าไหร่
+   ที่นี่แค่ "จัดกลุ่ม → เปิดเหตุการณ์ → เขียนโน้ตเข้าวอลต์ → บอก Telegram"
+
+   🔑 กันซ้ำด้วย `quality_watch_log` คีย์ = วัน|รส|ค่าที่หลุด
+      (ยิงซ้ำกี่รอบก็ได้ ไม่เกิดเหตุการณ์ซ้ำ — n8n/tick เรียกทับกันได้ปลอดภัย)
+   🔑 ไม่แตะรสที่ยังไม่ได้ตั้งสเปก (buildQualityHistory ไม่นับให้อยู่แล้ว)
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function insertIncidentRow(row) {
+  const r = await dbRun(
+    `INSERT INTO incidents (title, machine, line_name, batch_id, operator, occurred_at,
+       symptom, cause, fix, result, status, images, result_images, down_from, down_to, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [row.title, row.machine || null, row.line_name || null, row.batch_id || null, row.operator || null,
+     row.occurred_at || todayBKK(), row.symptom || null, row.cause || null, row.fix || null, row.result || null,
+     row.status || 'open', row.images || null, row.result_images || null,
+     row.down_from || null, row.down_to || null, nowBKK(), nowBKK()]);
+  const id = r.lastID;
+  const sync = await syncIncident({ ...row, id });
+  if (sync.path) await db.exec('UPDATE incidents SET vault_path = ? WHERE id = ?', [sync.path, id]);
+  touchMachineNote(row.machine);
+  return { id, vaultPath: sync.path || null, vaultError: sync.error || null };
+}
+
+// ข้อความอธิบายอาการ — เขียนให้คนอ่านรู้เรื่องโดยไม่ต้องเปิดหน้าคุณภาพ
+function watchSymptom(metric, rows, spec) {
+  const unit = metric === 'ph' ? 'pH' : 'Brix';
+  const range = metric === 'ph'
+    ? `${spec.phMin == null ? '–' : spec.phMin}–${spec.phMax == null ? '–' : spec.phMax}`
+    : `${spec.brixMin == null ? '–' : spec.brixMin}–${spec.brixMax == null ? '–' : spec.brixMax}`;
+  const lines = rows.slice(0, 12).map(r => {
+    const v = metric === 'ph' ? r.ph : r.brix;
+    const side = metric === 'ph' ? r.phSide : r.brixSide;
+    const off = metric === 'ph' ? r.phOff : r.brixOff;
+    return `- ${String(r.at).slice(11, 16)} น. · ${r.line}${r.batch ? ` · Batch ${r.batch}` : ''} · ${unit} ${v} ` +
+      `(${side === 'low' ? 'ต่ำกว่า' : 'สูงกว่า'}สเปก ${off})${r.operator ? ` · ${r.operator}` : ''}`;
+  });
+  return [`${unit} หลุดสเปก ${rows.length} ครั้ง (สเปก ${range})`, ...lines,
+    rows.length > 12 ? `- …อีก ${rows.length - 12} ครั้ง` : ''].filter(Boolean).join('\n');
+}
+
+async function runQualityWatch({ from, to, dryRun = false, minOut = 1 } = {}) {
+  const h = await buildQualityHistory({ from, to });
+  // จัดกลุ่ม: วัน × รส × ค่าที่หลุด (Brix กับ pH แยกกัน — คนละสาเหตุ)
+  const groups = {};
+  for (const r of h.rows) {
+    for (const metric of ['brix', 'ph']) {
+      const side = metric === 'ph' ? r.phSide : r.brixSide;
+      if (side !== 'low' && side !== 'high') continue;
+      const key = `${r.day}|${r.flavor}|${metric}`;
+      (groups[key] = groups[key] || { key, day: r.day, flavor: r.flavor, metric, rows: [] }).rows.push(r);
+    }
+  }
+  const found = Object.values(groups).filter(g => g.rows.length >= minOut);
+  if (!found.length) return { from: h.from, to: h.to, checked: h.checked, out: h.out, created: [], skipped: [], found: 0 };
+
+  const keys = found.map(g => g.key);
+  const done = await dbAll(
+    `SELECT watch_key FROM quality_watch_log WHERE watch_key IN (${keys.map(() => '?').join(',')})`, keys);
+  const doneSet = new Set(done.map(d => d.watch_key));
+
+  const created = [], skipped = [];
+  for (const g of found) {
+    if (doneSet.has(g.key)) { skipped.push(g.key); continue; }
+    const unit = g.metric === 'ph' ? 'pH' : 'Brix';
+    const spec = (h.flavors.find(f => f.flavor === g.flavor) || {}).spec || {};
+    const lines = {}; for (const r of g.rows) lines[r.line] = (lines[r.line] || 0) + 1;
+    const topLine = Object.entries(lines).sort((a, b) => b[1] - a[1])[0];
+    const inc = {
+      title: `${unit} หลุดสเปก — ${g.flavor} ${formatThaiDate(g.day)} (${g.rows.length} ครั้ง)`,
+      machine: null, line_name: topLine ? topLine[0] : null,
+      batch_id: g.rows[0].batch || null,
+      operator: 'ระบบตรวจอัตโนมัติ',
+      occurred_at: g.day,
+      symptom: watchSymptom(g.metric, g.rows, spec),
+      cause: null, fix: null, result: null, status: 'open',
+    };
+    if (dryRun) { created.push({ key: g.key, title: inc.title, dryRun: true }); continue; }
+    // จองคีย์ก่อนสร้างจริง — ถ้ามีคนยิงพร้อมกัน อีกฝั่งจะ insert ไม่ผ่านแล้วข้ามไป
+    try { await db.exec('INSERT INTO quality_watch_log (watch_key, created_at) VALUES (?, ?)', [g.key, nowBKK()]); }
+    catch { skipped.push(g.key); continue; }
+    const res = await insertIncidentRow(inc);
+    await db.exec('UPDATE quality_watch_log SET incident_id = ? WHERE watch_key = ?', [res.id, g.key]);
+    created.push({ key: g.key, id: res.id, title: inc.title, vaultPath: res.vaultPath, vaultError: res.vaultError });
+  }
+
+  if (created.length && !dryRun && process.env.TELEGRAM_CHAT_ID) {
+    const L = ['🔬 <b>พบค่าหลุดสเปก — เปิดเหตุการณ์ให้แล้ว</b>', ''];
+    for (const c of created) L.push(`• ${escapeHtml(c.title)}`);
+    L.push('', 'เปิดหน้า <b>เหตุการณ์</b> ในแอปเพื่อกรอกสาเหตุ/วิธีแก้');
+    await sendToTelegram(L.join('\n'));
+  }
+  return { from: h.from, to: h.to, checked: h.checked, out: h.out, found: found.length, created, skipped };
+}
+
+/* ให้ n8n (หรือปุ่มในแอป) เรียกได้ — ?hours=12 ดูย้อนหลังกี่ชั่วโมง · dryRun=1 ดูเฉย ๆ ไม่เขียน
+   ยิงซ้ำได้ปลอดภัย: คีย์กันซ้ำทำให้ครั้งที่ 2 เป็น no-op                                */
+app.post('/api/quality/watch', async (req, res) => {
+  const b = { ...req.query, ...(req.body || {}) };
+  const hours = Math.max(1, Math.min(24 * 30, Number(b.hours) || 12));
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(b.to || '') ? b.to : todayBKK();
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(b.from || '') ? b.from
+    : new Date(Date.parse(`${to}T00:00:00Z`) - Math.ceil(hours / 24) * 86400000).toISOString().slice(0, 10);
+  try {
+    res.json(await runQualityWatch({ from, to, dryRun: b.dryRun === '1' || b.dryRun === true }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ตัวจับเวลา: ตรวจตอนสิ้นกะของวันนั้น (ตามตารางกะจริง) — เปิด/ปิดที่หน้ารายงาน
+const _qualityWatchRan = new Set();
+async function qualityWatchTick() {
+  try {
+    const cfg = await getReportConfig();
+    if (!cfg.qualityWatchEnabled) return;
+    const bkk = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' });
+    const today = bkk.slice(0, 10), hm = bkk.slice(11, 16);
+    const wd = weekdayOf((Number(hm.slice(0, 2)) < 6) ? addDaysStr(today, -1) : today);
+    if (!shiftEndsForWeekday(wd).includes(hm)) return;      // ไม่ใช่เวลาสิ้นกะ = ไม่ต้องทำอะไร
+    const key = `${today} ${hm}`;
+    if (_qualityWatchRan.has(key)) return;
+    _qualityWatchRan.add(key);
+    const r = await runQualityWatch({ from: addDaysStr(today, -1), to: today });
+    console.log(`[quality-watch] ${key} → เจอ ${r.found} กลุ่ม · เปิดใหม่ ${r.created.length}`);
+  } catch (e) { console.error('[quality-watch] tick error', e.message); }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 4-f เทียบประสิทธิภาพรายคน / รายกะ — 3 มุมจากข้อมูลที่มีจริง
@@ -11489,7 +11627,7 @@ if (require.main === module) {
         // (แต่ต้องปิด Telegram Trigger ใน n8n v4 ก่อน เพราะใช้บอทตัวเดียวกัน)
         registerSppWebhook();
         // ตัวจับเวลาส่งรายงานอัตโนมัติ + วิเคราะห์สิ้นกะ (เฟส 1) — เช็กทุกนาที (ต้องให้เซิร์ฟเวอร์ตื่นอยู่; มี Keep-Warm ping ช่วย)
-        setInterval(() => { reportTick(); reminderTick(); shiftAnalysisTick(); kpiReportTick(); kpiAlertTick(); sheetSyncTick(); sppShiftNudgeTick(); vaultTick(); }, 60 * 1000);
+        setInterval(() => { reportTick(); reminderTick(); shiftAnalysisTick(); kpiReportTick(); kpiAlertTick(); qualityWatchTick(); sheetSyncTick(); sppShiftNudgeTick(); vaultTick(); }, 60 * 1000);
         console.log('[report] scheduler started (every 60s) + shift-analysis');
       });
     })
