@@ -442,6 +442,22 @@ figure.chart .chart-scroll svg{min-width:600px}
   border-radius:999px;cursor:pointer;transition:background-color .15s ease,color .15s ease}
 .playbtn:hover{background:#f7f1ea;color:var(--ink)}
 
+/* ช่องค้นหา + แบ่งหน้า */
+.asearch{display:flex;gap:8px;align-items:center;margin:0 0 12px;flex-wrap:wrap}
+.asearch input[type=search]{flex:1 1 260px;min-width:0;border:1px solid var(--line);background:var(--card);
+  border-radius:12px;padding:11px 14px;font-family:'Sarabun',sans-serif;font-size:14px;color:var(--ink)}
+.asearch input[type=search]:focus{outline:2px solid #ffb877;outline-offset:1px}
+.asearch button{border:1px solid var(--line);background:var(--ink);color:#fff;border-radius:12px;
+  padding:11px 20px;font-family:'Kanit',sans-serif;font-size:14px;font-weight:600;cursor:pointer}
+.asearch .clr{color:var(--ink-soft);text-decoration:none;font-size:13px;padding:6px 4px}
+.pager{display:flex;gap:6px;justify-content:center;align-items:center;flex-wrap:wrap;margin:26px 0 4px}
+.pg{border:1px solid var(--line);background:var(--card);color:var(--ink-soft);text-decoration:none;
+  min-width:38px;text-align:center;border-radius:10px;padding:8px 12px;font-family:'Kanit',sans-serif;
+  font-size:13.5px;font-weight:600}
+.pg:hover{background:#f7f1ea;color:var(--ink)}
+.pg.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.pgdot{color:var(--ink-soft);padding:0 2px}
+
 /* แถบกรองหมวด */
 .chips{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none;padding:2px 0 6px}
 .chips::-webkit-scrollbar{display:none}
@@ -745,7 +761,7 @@ const JS_RUNTIME = () => `<script>
 
 /* ══════════════ หน้าต่าง ๆ ══════════════ */
 
-function renderArticle(post, baseUrl) {
+function renderArticle(post, baseUrl, opts = {}) {
   // ติดจุดยึดให้หัวข้อทุกอันก่อน แล้วค่อยทำสารบัญชี้มา (คนเขียนตั้ง anchor เองไว้ก็ใช้ของเขา)
   const src = (post.blocks || []).map((b, i) =>
     (['h1', 'h2', 'h3'].includes(b.type) && !b.anchor) ? { ...b, anchor: `sec-${i}` } : b);
@@ -758,8 +774,15 @@ function renderArticle(post, baseUrl) {
   const firstImg = (post.blocks || []).find(b => b.type === 'image' && b.src);
   const desc = post.excerpt || plain((post.blocks || []).find(b => b.type === 'p')?.html).slice(0, 180);
   const when = thaiDate(post.publishedAt || post.updatedAt);
+  // ดูร่าง: บอกให้ชัดว่านี่ยังไม่เผยแพร่ คนที่ได้ลิงก์ไปจะได้ไม่เข้าใจผิดว่าขึ้นเว็บแล้ว
+  const draftBar = opts.draft
+    ? `<div style="background:#fff3ea;border:1px solid #f0d8c0;border-radius:12px;padding:10px 14px;
+         margin-bottom:16px;font-size:14px;color:#a15c00">
+         👀 <b>นี่คือฉบับร่าง</b> — ยังไม่ได้เผยแพร่ คนอื่นเปิดลิงก์ปกติจะยังไม่เห็นเรื่องนี้
+       </div>` : '';
   const body = `<main>
     <a class="back" href="/บทความ">← บทความทั้งหมด</a>
+    ${draftBar}
     ${post.category ? `<div class="eyebrow">${esc(post.category)}</div>` : ''}
     <h1>${esc(post.title)}</h1>
     <div class="meta">${post.author ? `โดย ${esc(post.author)}` : ''}${post.author && when ? '<span class="dot">·</span>' : ''}${when || ''}${post.machine ? `<span class="dot">·</span>${esc(post.machine)}` : ''}</div>
@@ -884,14 +907,35 @@ const CAR_SCRIPT = `<script>
 })();
 </script>`;
 
-function renderIndex(all, baseUrl, cat = '') {
+const PER_PAGE = 12;   // การ์ดต่อหน้า — มากกว่านี้หน้าเริ่มยาวเกินไปบนมือถือ
+// ค้นจากหัวข้อ/เกริ่น/หมวด/แท็ก/เครื่องจักร/ผู้เขียน — พิมพ์คำเดียวก็เจอ ไม่ต้องตรงเป๊ะ
+function postMatches(p, q) {
+  if (!q) return true;
+  const hay = [p.title, p.excerpt, p.category, p.machine, p.author, (p.tags || []).join(' ')]
+    .join(' ').toLowerCase();
+  return q.toLowerCase().split(/\s+/).filter(Boolean).every(w => hay.includes(w));
+}
+const listHref = (o) => {
+  const qs = [];
+  if (o.cat) qs.push(`cat=${encodeURIComponent(o.cat)}`);
+  if (o.q) qs.push(`q=${encodeURIComponent(o.q)}`);
+  if (o.page && o.page > 1) qs.push(`p=${o.page}`);
+  return `/บทความ${qs.length ? `?${qs.join('&')}` : ''}`;
+};
+
+function renderIndex(all, baseUrl, opts = '') {
+  const o = typeof opts === 'string' ? { cat: opts } : (opts || {});
+  const cat = o.cat || '', q = o.q || '';
   const counts = {};
   all.forEach(p => { if (p.category) counts[p.category] = (counts[p.category] || 0) + 1; });
-  const posts = cat ? all.filter(p => p.category === cat) : all;
+  const filtered = all.filter(p => (!cat || p.category === cat) && postMatches(p, q));
+  const pages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const page = Math.min(Math.max(1, Number(o.page) || 1), pages);
+  const posts = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
   // บทความแนะนำ = 5 เรื่องล่าสุด (รายการเรียงใหม่→เก่ามาแล้วจากคำสั่ง SQL)
   // โชว์เฉพาะตอนดูทั้งหมดและมีของให้เลื่อนจริง ๆ — กรองหมวดอยู่แล้วเอาการ์ดล้วนพอ
-  const feat = !cat && all.length >= 2 ? all.slice(0, 5) : [];
+  const feat = (!cat && !q && page === 1 && all.length >= 2) ? all.slice(0, 5) : [];
   const carousel = feat.length ? `
     <div class="shead">
       <div><span class="eyebrow">⭐ แนะนำ</span><h2 style="margin-top:8px">${feat.length} เรื่องล่าสุด</h2></div>
@@ -907,13 +951,33 @@ function renderIndex(all, baseUrl, cat = '') {
       </div>
     </div>` : '';
 
-  const chip = (name, n, color) => `<a class="chip${(cat === name || (!cat && !name)) ? ' on' : ''}" href="${esc(catHref(name))}">${
+  const chip = (name, n, color) => `<a class="chip${(cat === name || (!cat && !name)) ? ' on' : ''}" href="${esc(listHref({ cat: name, q }))}">${
     color ? `<span class="cdot" style="background:${color}"></span>` : ''}${esc(name || 'ทั้งหมด')} <span class="n">${n}</span></a>`;
   const chips = [chip('', all.length, '')]
     .concat(CATS.filter(c => counts[c.name]).map(c => chip(c.name, counts[c.name], c.color)))
     .join('');
 
-  const heading = cat ? `หมวด “${esc(cat)}”` : 'ทุกบทความ';
+  const heading = q ? `ผลการค้นหา “${esc(q)}”` : cat ? `หมวด “${esc(cat)}”` : 'ทุกบทความ';
+  // กล่องค้นหาเป็นฟอร์ม GET ธรรมดา — ไม่ต้องพึ่ง JS หน้านี้เปิดอ่านเฉย ๆ ก็ทำงานได้
+  const searchBox = `<form class="asearch" method="get" action="/บทความ">
+    ${cat ? `<input type="hidden" name="cat" value="${esc(cat)}">` : ''}
+    <input type="search" name="q" value="${esc(q)}" placeholder="🔎 ค้นหาบทความ — หัวข้อ · หมวด · เครื่องจักร · ผู้เขียน">
+    <button type="submit">ค้นหา</button>
+    ${q ? `<a class="clr" href="${esc(listHref({ cat }))}">✕ ล้าง</a>` : ''}
+  </form>`;
+  // แบ่งหน้า: โชว์เลขหน้ารอบ ๆ หน้าปัจจุบัน + ปุ่มก่อนหน้า/ถัดไป
+  const pageLink = (n, label, on) =>
+    `<a class="pg${on ? ' on' : ''}" href="${esc(listHref({ cat, q, page: n }))}">${esc(label == null ? String(n) : label)}</a>`;
+  const nums = [];
+  for (let n = 1; n <= pages; n++) {
+    if (n === 1 || n === pages || Math.abs(n - page) <= 1) nums.push(pageLink(n, null, n === page));
+    else if (nums[nums.length - 1] !== '<span class="pgdot">…</span>') nums.push('<span class="pgdot">…</span>');
+  }
+  const pager = pages > 1 ? `<nav class="pager">
+    ${page > 1 ? pageLink(page - 1, '‹ ก่อนหน้า') : ''}
+    ${nums.join('')}
+    ${page < pages ? pageLink(page + 1, 'ถัดไป ›') : ''}
+  </nav>` : '';
   const body = `<div class="hero"><div class="in">
     <span class="eyebrow">📖 อ่านได้เลย ไม่ต้องล็อกอิน</span>
     <h1>บทความ / คู่มือระบบ</h1>
@@ -922,17 +986,22 @@ function renderIndex(all, baseUrl, cat = '') {
   <main class="wide">
     ${carousel}
     <div class="shead">
-      <div><h2>${heading}</h2><div class="sub">${cat ? `${posts.length} เรื่องในหมวดนี้` : 'กรองตามหมวดหมู่ได้จากแถบด้านล่าง'}</div></div>
+      <div><h2>${heading}</h2><div class="sub">${
+        q || cat
+          ? `พบ ${filtered.length} เรื่อง${pages > 1 ? ` · หน้า ${page}/${pages}` : ''}`
+          : `ทั้งหมด ${all.length} เรื่อง${pages > 1 ? ` · หน้า ${page}/${pages}` : ''}`}</div></div>
     </div>
+    ${searchBox}
     ${all.length > 1 ? `<div class="chips">${chips}</div>` : ''}
     ${posts.length
       ? `<div class="agrid">${posts.map(articleCard).join('')}</div>`
-      : `<div class="empty">${cat ? 'ยังไม่มีบทความในหมวดนี้' : 'ยังไม่มีบทความที่เผยแพร่'}</div>`}
+      : `<div class="empty">${q ? `ไม่พบบทความที่ตรงกับ “${esc(q)}”` : cat ? 'ยังไม่มีบทความในหมวดนี้' : 'ยังไม่มีบทความที่เผยแพร่'}</div>`}
+    ${pager}
   </main>
   <div class="foot wide">เอกสารภายในของทีมผลิต SPP-MP</div>`;
 
   return shell({
-    title: cat ? `บทความหมวด ${cat} — SPP-MP` : 'บทความ / คู่มือระบบ — SPP-MP',
+    title: q ? `ค้นหา “${q}” — SPP-MP` : cat ? `บทความหมวด ${cat} — SPP-MP` : 'บทความ / คู่มือระบบ — SPP-MP',
     desc: 'คลังความรู้ของทีมผลิต SPP-MP',
     image: (all.find(p => p.coverUrl) || {}).coverUrl || '',
     url: `${baseUrl}/บทความ`,

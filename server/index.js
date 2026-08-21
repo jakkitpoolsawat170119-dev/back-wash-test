@@ -10739,9 +10739,26 @@ app.get('/api/posts/:id', async (req, res) => {
             pending: String(v.blocks || '') !== String(row.blocks || '') || (v.title || '') !== (row.title || '') }
         : { version: 0, approvedBy: '', approvedAt: '', pending: true };
     }
+    // ลิงก์ดูร่างเป็นหน้าอ่านจริง (ใช้ได้ทั้งตอนยังไม่เผยแพร่และหลังเผยแพร่)
+    item.previewUrl = `${PUBLIC_URL}/บทความ/${encodeURIComponent(item.slug || '')}?preview=${previewToken(row.id)}`;
     res.json({ item });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+/* ทำ slug ให้ใช้งานได้เสมอ — เดิมเซิร์ฟเวอร์รับ slug ว่างได้ แล้วบทความนั้นเปิดไม่ได้เลย
+   (ลิงก์กลายเป็น /บทความ/ ซึ่งเป็นหน้ารวม) · ว่าง → เอาจากหัวข้อ → ยังว่างอีก → ตั้งให้เอง
+   ซ้ำกับเรื่องอื่น → ต่อท้าย -2, -3 (ไม่งั้นสองเรื่องแย่งลิงก์เดียวกัน เปิดได้เรื่องเดียว) */
+const slugNorm = (s) => String(s || '').trim().toLowerCase()
+  .replace(/[\s_/]+/g, '-').replace(/[^฀-๿a-z0-9-]/g, '')
+  .replace(/-+/g, '-').replace(/^-|-$/g, '');
+async function uniquePostSlug(raw, title, selfId) {
+  const base = slugNorm(raw) || slugNorm(title) || `post-${Date.now().toString(36)}`;
+  const rows = await dbAll('SELECT id, slug FROM posts WHERE slug LIKE ?', [`${base}%`]);
+  const taken = new Set(rows.filter(r => String(r.id) !== String(selfId || '')).map(r => r.slug));
+  if (!taken.has(base)) return base;
+  for (let i = 2; i < 500; i++) if (!taken.has(`${base}-${i}`)) return `${base}-${i}`;
+  return `${base}-${Date.now().toString(36)}`;
+}
 
 // สร้างใหม่ (ไม่ส่ง id มา) หรือแก้ของเดิม (ส่ง id มา) — คืน id กลับไปเสมอ
 app.post('/api/posts', async (req, res) => {
@@ -10750,7 +10767,7 @@ app.post('/api/posts', async (req, res) => {
   if (!title) return res.status(400).json({ error: 'ต้องมีหัวข้อบทความ' });
   const now = nowBKK();
   const vals = {
-    slug: String(b.slug || '').trim(),
+    slug: '',                       // เติมทีหลังด้วย uniquePostSlug() (ต้อง await)
     title,
     blocks: JSON.stringify(Array.isArray(b.blocks) ? b.blocks : []),
     status: ['draft', 'review', 'published'].includes(b.status) ? b.status : 'draft',
@@ -10767,6 +10784,7 @@ app.post('/api/posts', async (req, res) => {
     obs_folder: String(b.obsFolder || 'บทความ'),
   };
   try {
+    vals.slug = await uniquePostSlug(b.slug, title, b.id);
     // ── SOP ต้องผ่านการอนุมัติ ─────────────────────────────────────────────
     // ยังไม่เคยอนุมัติแล้วกดเผยแพร่เอง = ไม่ให้ (ต้องใช้ปุ่ม "ส่งขออนุมัติ")
     // เคยอนุมัติแล้ว = แก้ต่อได้ตามสบาย เพราะคนอ่านยังเห็นฉบับที่อนุมัติไว้ (approvedPostView)
@@ -10789,7 +10807,7 @@ app.post('/api/posts', async (req, res) => {
       // sync หลังบันทึกสำเร็จเท่านั้น — เคยเผยแพร่แล้วก็ sync ต่อ (แก้แล้วไฟล์ใน vault ต้องตามด้วย)
       const vaultRes = (vals.status === 'published' || cur.status === 'published')
         ? await syncPostToVault(b.id) : undefined;
-      return res.json({ id: Number(b.id), updatedAt: now, vault: vaultRes });
+      return res.json({ id: Number(b.id), slug: vals.slug, updatedAt: now, vault: vaultRes });
     }
     const publishedAt = vals.status === 'published' ? now : null;
     const r = await db.exec(
@@ -10803,7 +10821,7 @@ app.post('/api/posts', async (req, res) => {
       id = row && row.id;
     }
     const vaultRes = vals.status === 'published' && id ? await syncPostToVault(id) : undefined;
-    res.json({ id, updatedAt: now, vault: vaultRes });
+    res.json({ id, slug: vals.slug, updatedAt: now, vault: vaultRes });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -11031,6 +11049,12 @@ app.get('/api/chart.svg', async (req, res) => {
 // ใช้ middleware แทน app.get('/บทความ') เพราะ path ภาษาไทยที่เบราว์เซอร์ส่งมาเป็น
 // percent-encoded ตัว router จับคู่กับสตริงไทยตรง ๆ ไม่ติด — decode เองก่อนแล้วค่อยแยกทาง
 const ARTICLE_BASE = '/บทความ';
+/* ลิงก์ดูร่าง — เดิมร่างเปิดหน้าอ่านจริงไม่ได้เลย ต้องเผยแพร่ก่อนถึงจะเห็นของจริง
+   โทเคนผูกกับ id ของเรื่องนั้น (HMAC ด้วยรหัสผู้ดูแล) — เดาไม่ได้ ไม่ต้องล็อกอิน
+   ⚠️ ใครได้ลิงก์ไปก็เปิดได้ ตั้งใจให้เป็นแบบนั้น (ส่งให้หัวหน้าดูก่อนเผยแพร่) */
+const previewToken = (id) => require('crypto')
+  .createHmac('sha256', String(process.env.ADMIN_PASS || 'admin1234') + '|preview')
+  .update(String(id)).digest('hex').slice(0, 20);
 app.use(async (req, res, next) => {
   if (req.method !== 'GET') return next();
   let path;
@@ -11046,11 +11070,19 @@ app.use(async (req, res, next) => {
            FROM posts WHERE status = 'published'
           ORDER BY COALESCE(published_at, updated_at) DESC`, []);
       // ?cat=<หมวด> = กรองหมวด · ส่งรายการเต็มเข้าไปเสมอเพราะต้องนับจำนวนต่อหมวดให้เมนู/ชิป
+      const q = String((req.query && req.query.q) || '').trim();
       const cat = String((req.query && req.query.cat) || '').trim();
-      return send(articlePage.renderIndex(rows.map(postFromRow), PUBLIC_URL, cat));
+      const page = Math.max(1, Number((req.query && req.query.p) || 1) || 1);
+      return send(articlePage.renderIndex(rows.map(postFromRow), PUBLIC_URL, { cat, q, page }));
     }
-    const row = await dbGet("SELECT * FROM posts WHERE slug = ? AND status = 'published'", [slug]);
+    const row = await dbGet('SELECT * FROM posts WHERE slug = ?', [slug]);
     if (!row) return send(articlePage.renderNotFound(), 404);
+    // ยังไม่เผยแพร่ = เปิดได้เฉพาะคนที่ถือลิงก์ดูร่าง
+    const isDraft = row.status !== 'published';
+    if (isDraft) {
+      const t = String((req.query && req.query.preview) || '');
+      if (!t || t !== previewToken(row.id)) return send(articlePage.renderNotFound(), 404);
+    }
     const post = await approvedPostView(row);   // SOP: โชว์ฉบับที่อนุมัติล่าสุด
     // กราฟต้องดึงข้อมูลก่อน (เป็นงาน async) ตัวเรนเดอร์หน้าเป็นฟังก์ชันธรรมดา
     for (const b of post.blocks || []) {
@@ -11062,7 +11094,7 @@ app.use(async (req, res, next) => {
         });
       } catch (e) { console.error('[chart] ดึงข้อมูลไม่สำเร็จ', e.message); }
     }
-    return send(articlePage.renderArticle(post, PUBLIC_URL));
+    return send(articlePage.renderArticle(post, PUBLIC_URL, { draft: isDraft }));
   } catch (e) {
     console.error('[บทความ] เปิดหน้าไม่สำเร็จ', e.message);
     return send(articlePage.renderNotFound(), 500);

@@ -79,6 +79,8 @@ interface Post {
   vaultError?: string;
   // เฉพาะหมวด "คู่มือ / SOP" — เวอร์ชันที่อนุมัติล่าสุด + มีของแก้ค้างรออนุมัติไหม
   sop?: { version: number; approvedBy: string; approvedAt: string; pending: boolean };
+  // ลิงก์ดูร่างเป็นหน้าอ่านจริง (เซิร์ฟเวอร์สร้างให้ตอนโหลดบทความ)
+  previewUrl?: string;
 }
 
 // ผล sync ที่ server ส่งกลับมาหลังบันทึก — enabled=false คือเซิร์ฟเวอร์ยังไม่ได้ตั้ง token
@@ -901,7 +903,8 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       const v: VaultResult | undefined = j.vault;
-      setPost(p => (p ? { ...p, id: j.id, status: body.status, slug: body.slug, ...vaultFields(p, v) } : p));
+      // ใช้ slug ที่เซิร์ฟเวอร์ตอบกลับ — มันอาจแก้ให้ (ว่าง/ซ้ำกับเรื่องอื่น) ลิงก์อ่านจะได้ตรงของจริง
+      setPost(p => (p ? { ...p, id: j.id, status: body.status, slug: j.slug || body.slug, ...vaultFields(p, v) } : p));
       setDirty(false);
       // ขึ้นเซิร์ฟเวอร์แล้ว = ไม่มีอะไรค้างให้กู้อีก (บทความใหม่เก็บร่างไว้ที่คีย์ 'new' ด้วย)
       if (draftTimer.current) { window.clearTimeout(draftTimer.current); draftTimer.current = null; }
@@ -1078,6 +1081,15 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
   // ไม่ encode ตอนโชว์/คัดลอก — ลิงก์ภาษาไทยอ่านออกและแปะใน LINE/Telegram ได้ตรง ๆ
   // (เบราว์เซอร์แปลงเป็น %E0%B8… ให้เองตอนเปิด ฝั่งเซิร์ฟเวอร์ decode กลับอยู่แล้ว)
   const readerUrl = `${apiUrl}/บทความ/${slugify(post?.slug || post?.title || '')}`;
+  const [copiedPv, setCopiedPv] = useState(false);
+  // ลิงก์ดูร่าง — เปิดหน้าอ่านจริงได้ทั้งที่ยังไม่เผยแพร่ (โทเคนมาจากเซิร์ฟเวอร์)
+  const copyPreview = () => {
+    const u = post?.previewUrl || '';
+    if (!u) return;
+    navigator.clipboard.writeText(u)
+      .then(() => { setCopiedPv(true); window.setTimeout(() => setCopiedPv(false), 1600); })
+      .catch(() => window.prompt('คัดลอกลิงก์นี้', u));
+  };
   const [copied, setCopied] = useState(false);
   const copyLink = () => {
     navigator.clipboard.writeText(readerUrl)
@@ -1396,7 +1408,20 @@ const PostEditor: React.FC<EditorProps> = ({ postId, operatorName, onBack, onSav
                     <div className="hintx">ส่งลิงก์นี้ให้ใครก็ได้ เปิดอ่านได้เลยไม่ต้องล็อกอิน</div>
                   </>
                 ) : (
-                  <div className="hintx">ลิงก์นี้จะเปิดได้หลังกด "เผยแพร่" — ตอนนี้ยังเป็น{STATUS_LABEL[post.status]}</div>
+                  <>
+                    {post.previewUrl && (
+                      <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <a className="btn-o" href={post.previewUrl} target="_blank" rel="noopener noreferrer">👀 ดูหน้าอ่านจริง ↗</a>
+                        <button className="btn-o" onClick={copyPreview}>{copiedPv ? '✓ คัดลอกแล้ว' : 'คัดลอกลิงก์ดูร่าง'}</button>
+                      </div>
+                    )}
+                    <div className="hintx">
+                      ลิงก์ถาวรด้านบนจะเปิดได้หลังกด "เผยแพร่" — ตอนนี้ยังเป็น{STATUS_LABEL[post.status]}
+                      {post.previewUrl
+                        ? <><br />ระหว่างนี้ใช้ <b>ลิงก์ดูร่าง</b> ส่งให้หัวหน้าดูหน้าอ่านจริงก่อนได้ (ไม่ต้องล็อกอิน · คนอื่นที่ไม่มีลิงก์เปิดไม่เจอ)</>
+                        : <><br />กดบันทึกก่อน 1 ครั้ง แล้วจะมีลิงก์ดูร่างให้</>}
+                    </div>
+                  </>
                 )}
               </div>
               <div className="sgrp">
