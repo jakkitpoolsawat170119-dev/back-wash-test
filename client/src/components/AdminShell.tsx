@@ -23,10 +23,11 @@ import MaterialsBoard from './MaterialsBoard';
 import CostBoard from './CostBoard';
 import QualityReport from './QualityReport';
 import PerformanceReport from './PerformanceReport';
+import MediaPane from './MediaPane';
 import ErrorBoundary from './ErrorBoundary';
 
 type TodoTab = 'today' | 'audit' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs';
-type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline' | 'blog' | 'obsidian' | 'maint' | 'pmreg' | 'downtime' | 'machines' | 'incidents' | 'users' | 'materials' | 'cost' | 'quality' | 'perf';
+type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline' | 'blog' | 'obsidian' | 'maint' | 'pmreg' | 'downtime' | 'machines' | 'incidents' | 'users' | 'materials' | 'cost' | 'quality' | 'perf' | 'media';
 
 const TODO_TABS: string[] = ['today', 'audit', 'calendar', 'report', 'timeline', 'recurring', 'ai', 'specs'];
 
@@ -56,6 +57,7 @@ const MENU: MenuRow[] = [
   { pane: 'downtime', ic: '⏱', label: 'เวลาเครื่องหยุด', sub: true },
   { head: 'Knowledge management', ic: '📚', km: true },
   { pane: 'blog', ic: '✍️', label: 'บทความ / คู่มือ / SOP', sub: true },
+  { pane: 'media', ic: '🗂', label: 'คลังไฟล์', sub: true },
   { pane: 'machines', ic: '⚙️', label: 'ทะเบียนเครื่องจักร', sub: true },
   { pane: 'incidents', ic: '⚡', label: 'เหตุการณ์', sub: true },
   { pane: 'obsidian', ic: '📥', label: 'จาก Obsidian', sub: true },
@@ -204,6 +206,9 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
           )}
           {pane === 'users' && (
             <ErrorBoundary label="admin-users"><UsersAdmin /></ErrorBoundary>
+          )}
+          {pane === 'media' && (
+            <ErrorBoundary label="admin-media"><MediaPane operatorName={operator} onExit={() => go('overview')} /></ErrorBoundary>
           )}
           {pane === 'perf' && (
             <ErrorBoundary label="admin-perf"><PerformanceReport /></ErrorBoundary>
