@@ -1442,6 +1442,89 @@ const WEEKDAY_OPTS: [number, string][] = [[1, 'จ'], [2, 'อ'], [3, 'พ'], [4
 // ── สเปกคุณภาพ (baseline Brix/pH ต่อรส) — ตั้งเองเพื่อให้เตือนสิ้นกะแม่น ไม่ false alarm ──
 type QSpec = { brix_min: number | null; brix_max: number | null; ph_min: number | null; ph_max: number | null };
 const SPEC_FIELDS: (keyof QSpec)[] = ['brix_min', 'brix_max', 'ph_min', 'ph_max'];
+/* ── สเปกน้ำล้าง CIP ต่อไลน์ (คนละเรื่องกับสเปกสินค้าต่อรส) ──────────────────
+   น้ำด่างมี pH 12-14 เป็นเรื่องปกติ — ถ้าเอาไปเทียบสเปกน้ำหวานจะเตือนผิดทั้งตาราง
+   จึงแยกตาราง cip_specs: pH / แรงดันปั๊ม / เวลาต่อรอบที่ยอมรับได้                */
+type CSpec = { ph_min: number | null; ph_max: number | null; pressure_min: number | null; pressure_max: number | null; max_minutes: number | null };
+const CIP_FIELDS: [keyof CSpec, string][] = [
+  ['ph_min', 'pH ต่ำ'], ['ph_max', 'pH สูง'],
+  ['pressure_min', 'แรงดันต่ำ'], ['pressure_max', 'แรงดันสูง'], ['max_minutes', 'นาที/รอบ ไม่เกิน'],
+];
+const CipSpecsCard: React.FC<{ card: React.CSSProperties }> = ({ card }) => {
+  const [lines, setLines] = useState<string[]>([]);
+  const [specs, setSpecs] = useState<Record<string, CSpec>>({});
+  const [dirty, setDirty] = useState<Set<string>>(new Set());
+  const [msg, setMsg] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch(`${apiUrl}/api/cip-specs`);
+      const d = await r.json();
+      setLines(d.lines || []); setSpecs(d.specs || {}); setDirty(new Set());
+    } catch { setMsg('❌ โหลดสเปก CIP ไม่สำเร็จ'); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const val = (ln: string, f: keyof CSpec) => { const v = specs[ln]?.[f]; return v == null ? '' : String(v); };
+  const setField = (ln: string, f: keyof CSpec, raw: string) => {
+    const num = raw.trim() === '' ? null : Number(raw);
+    setSpecs(prev => {
+      const cur: CSpec = prev[ln] || { ph_min: null, ph_max: null, pressure_min: null, pressure_max: null, max_minutes: null };
+      return { ...prev, [ln]: { ...cur, [f]: (num == null || isNaN(num)) ? null : num } };
+    });
+    setDirty(prev => new Set(prev).add(ln));
+  };
+  const save = async () => {
+    if (!dirty.size) return;
+    setSaving(true); setMsg('กำลังบันทึก…');
+    try {
+      const items = Array.from(dirty).map(ln => ({ line: ln, ...specs[ln] }));
+      const r = await fetch(`${apiUrl}/api/cip-specs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }) });
+      if (!r.ok) throw new Error();
+      setDirty(new Set()); setMsg(`✅ บันทึกแล้ว ${items.length} ไลน์`);
+    } catch { setMsg('❌ บันทึกไม่สำเร็จ'); } finally { setSaving(false); }
+  };
+
+  const inp: React.CSSProperties = { width: '100%', border: '1px solid #dde3e7', borderRadius: 8, padding: '7px 6px', fontSize: '.82rem', textAlign: 'center', boxSizing: 'border-box' };
+  const hcell: React.CSSProperties = { fontSize: '.62rem', fontWeight: 800, color: '#90a4ae', textAlign: 'center', letterSpacing: '.02em' };
+  const grid = 'minmax(0,1.2fr) repeat(5, minmax(0,1fr))';
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div style={{ ...card }}>
+        <div style={{ fontWeight: 800, marginBottom: 4 }}>🧼 สเปกน้ำล้าง CIP (ต่อไลน์)</div>
+        <div style={{ fontSize: '.76rem', color: '#9aa0a6', lineHeight: 1.5 }}>
+          ค่าที่วัดตอนล้างเป็น <b>ค่าน้ำล้าง ไม่ใช่ค่าสินค้า</b> จึงใช้สเปกคนละชุดกับด้านบน · เว้นว่าง = ไม่เช็กด้านนั้น
+          <br />ตั้งแล้วดูผลย้อนหลังได้ที่หน้า <b>วิเคราะห์คุณภาพ</b> หัวข้อ “น้ำล้าง (CIP)”
+        </div>
+      </div>
+      <div style={{ ...card, padding: '10px 12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: grid, gap: 6, alignItems: 'end', paddingBottom: 8, borderBottom: '1px solid #eee' }}>
+          <div style={{ ...hcell, textAlign: 'left' }}>ไลน์</div>
+          {CIP_FIELDS.map(([f, label]) => <div key={f} style={hcell}>{label}</div>)}
+        </div>
+        {lines.map(ln => (
+          <div key={ln} style={{ display: 'grid', gridTemplateColumns: grid, gap: 6, alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #f4f4f4' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: specs[ln] && CIP_FIELDS.some(([f]) => specs[ln][f] != null) ? '#2e7d32' : '#d3dae0' }} />
+              <span style={{ fontSize: '.8rem', fontWeight: 600, color: '#37474f' }}>{ln}</span>
+            </div>
+            {CIP_FIELDS.map(([f]) => (
+              <input key={f} type="number" step="0.01" inputMode="decimal" value={val(ln, f)} placeholder="–"
+                onChange={e => setField(ln, f, e.target.value)} style={inp} />
+            ))}
+          </div>
+        ))}
+      </div>
+      <button onClick={save} disabled={!dirty.size || saving}
+        style={{ width: '100%', border: 'none', borderRadius: 12, padding: 12, marginTop: 10, fontWeight: 800, fontSize: '.88rem', color: '#fff', cursor: dirty.size ? 'pointer' : 'default', background: dirty.size ? 'linear-gradient(135deg,#0277bd,#0288d1)' : '#cfd8dc' }}>
+        {saving ? 'กำลังบันทึก…' : dirty.size ? `💾 บันทึกสเปก CIP ${dirty.size} ไลน์` : '💾 บันทึกสเปก CIP'}
+      </button>
+      {msg && <div style={{ textAlign: 'center', fontSize: '.8rem', color: '#78828a', marginTop: 8 }}>{msg}</div>}
+    </div>
+  );
+};
+
 const SpecsTab: React.FC<{ card: React.CSSProperties }> = ({ card }) => {
   const [flavors, setFlavors] = useState<string[]>([]);
   const [extra, setExtra] = useState<string[]>([]);   // รสที่ผลิตจริงแต่ไม่อยู่ในลิสต์ตั้งต้น
@@ -1529,6 +1612,8 @@ const SpecsTab: React.FC<{ card: React.CSSProperties }> = ({ card }) => {
           </div>
         ))}
       </div>
+
+      <CipSpecsCard card={card} />
 
       <div style={{ position: 'sticky', bottom: 8, marginTop: 12 }}>
         <button onClick={save} disabled={!dirty.size || saving}

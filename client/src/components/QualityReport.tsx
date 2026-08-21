@@ -42,6 +42,24 @@ type Report = {
   specCount: number;
 };
 
+/* ── น้ำล้าง CIP (สเปกคนละชุดกับสินค้า) ── */
+type CipSide = 'ok' | 'low' | 'high' | null;
+type CipMetric = { n: number; avg: number | null; median: number | null; low: number; high: number };
+type CipLine = {
+  line: string; n: number; checked: number; out: number; rate: number | null; slow: number;
+  spec: { phMin: number | null; phMax: number | null; prMin: number | null; prMax: number | null; maxMin: number | null } | null;
+  ph: CipMetric; pressure: CipMetric; minutes: { n: number; median: number | null; max: number | null };
+};
+type CipRow = {
+  at: string; day: string; line: string; operator: string; item: string; row: number | null; shift: string;
+  minutes: number; ph: number | null; pressure: number | null;
+  phSide: CipSide; prSide: CipSide; slow: boolean; phOff: number; prOff: number; overMin: number;
+};
+type CipReport = {
+  from: string; to: string; rounds: number; checked: number; out: number; rate: number | null;
+  lines: CipLine[]; noSpec: { line: string; n: number }[]; openCount: number; rows: CipRow[]; specCount: number;
+};
+
 const card: React.CSSProperties = {
   background: 'var(--card,#fff)', border: '1px solid var(--line,#eee3d9)', borderRadius: 16,
   boxShadow: '0 1px 2px rgba(63,37,10,.06),0 6px 18px -6px rgba(63,37,10,.12)',
@@ -120,11 +138,17 @@ const QualityReport: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [pick, setPick] = useState('');            // รสที่กดเลือก (กรองรายการล่าง)
 
+  const [cip, setCip] = useState<CipReport | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const d = await fetch(`${apiUrl}/api/quality/history?from=${from}&to=${to}`).then(r => r.json());
+      const [d, c] = await Promise.all([
+        fetch(`${apiUrl}/api/quality/history?from=${from}&to=${to}`).then(r => r.json()),
+        fetch(`${apiUrl}/api/cip/quality?from=${from}&to=${to}`).then(r => r.json()).catch(() => null),
+      ]);
       setData(d && Array.isArray(d.flavors) ? d : null);
+      setCip(c && Array.isArray(c.lines) ? c : null);
     } catch { setData(null); } finally { setLoading(false); }
   }, [from, to]);
   useEffect(() => { load(); }, [load]);
@@ -345,6 +369,121 @@ const QualityReport: React.FC = () => {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ── น้ำล้าง CIP ── */}
+      {cip && (
+        <div style={{ ...card, padding: '14px 16px', marginTop: 14, overflowX: 'auto' }}>
+          <div style={{ fontFamily: 'Kanit, sans-serif', fontSize: 15, fontWeight: 600, marginBottom: 2 }}>
+            น้ำล้าง (CIP)
+          </div>
+          <div style={{ fontSize: 11.5, color: soft, marginBottom: 10, lineHeight: 1.7 }}>
+            ค่าที่วัดตอนล้างเป็น <b>ค่าน้ำล้าง ไม่ใช่ค่าสินค้า</b> (น้ำด่าง pH 12–14 เป็นเรื่องปกติ)
+            จึงเทียบกับ <b>สเปก CIP ของไลน์นั้น</b> คนละชุดกับตารางด้านบน — ตั้งได้ที่หน้า <b>สเปคคุณภาพ</b>
+          </div>
+          {cip.rounds === 0
+            ? <div style={{ fontSize: 13, color: '#a89e94', lineHeight: 1.7 }}>
+                ยังไม่มีรอบ CIP ที่กดเริ่ม–จบครบในช่วงนี้
+              </div>
+            : (
+              <>
+                <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', marginBottom: 12 }}>
+                  {([
+                    ['รอบที่ล้าง', `${cip.rounds} รอบ`, `ตรวจเทียบสเปกได้ ${cip.checked} รอบ`],
+                    ['หลุดสเปก', cip.checked ? `${cip.out} รอบ` : '—', cip.checked ? `${cip.rate}% ของรอบที่ตรวจได้` : 'ยังไม่ได้ตั้งสเปก CIP'],
+                  ] as [string, string, string][]).map(([k, v, sub]) => (
+                    <div key={k} style={{ background: '#fbf7f3', borderRadius: 12, padding: '10px 12px' }}>
+                      <div style={{ fontSize: 11.5, color: soft, fontWeight: 600 }}>{k}</div>
+                      <div style={{ fontFamily: 'Kanit, sans-serif', fontSize: 18, fontWeight: 600, color: '#c24f00' }}>{v}</div>
+                      <div style={{ fontSize: 11.5, color: soft }}>{sub}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {cip.noSpec.length > 0 && (
+                  <div style={{ background: '#fffaf0', border: '1px solid #f0dcc0', borderRadius: 10, padding: '9px 12px', fontSize: 12.5, color: '#a15c00', marginBottom: 10 }}>
+                    ⚠️ ยังไม่ได้ตั้งสเปก CIP ของ {cip.noSpec.map(l => `${l.line} (${l.n} รอบ)`).join(' · ')} — รอบพวกนี้ยังไม่ถูกตรวจ
+                  </div>
+                )}
+
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 620 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--line,#eee3d9)' }}>
+                      <th style={{ ...th, textAlign: 'left' }}>ไลน์</th>
+                      <th style={th}>รอบ</th>
+                      <th style={th}>หลุด</th>
+                      <th style={{ ...th, textAlign: 'left' }}>pH เฉลี่ย (สเปก)</th>
+                      <th style={{ ...th, textAlign: 'left' }}>แรงดัน (สเปก)</th>
+                      <th style={{ ...th, textAlign: 'left' }}>เวลา/รอบ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cip.lines.map(l => (
+                      <tr key={l.line} style={{ borderBottom: '1px solid #f6efe8' }}>
+                        <td style={{ ...td, textAlign: 'left', fontWeight: 600 }}>
+                          {l.line}
+                          {!l.spec && <div style={{ fontSize: 11, color: '#a15c00', fontWeight: 400 }}>ยังไม่ได้ตั้งสเปก</div>}
+                        </td>
+                        <td style={td}>{l.n}</td>
+                        <td style={{ ...td, fontWeight: 700, color: l.out ? '#c62828' : '#7a9b6e' }}>
+                          {l.checked ? <>{l.out}<span style={{ fontSize: 11, fontWeight: 500, color: soft }}> ({l.rate}%)</span></> : '—'}
+                        </td>
+                        <td style={{ ...td, textAlign: 'left' }}>
+                          {l.ph.n ? <>{l.ph.avg} <span style={{ fontSize: 11.5, color: soft }}>({range(l.spec?.phMin ?? null, l.spec?.phMax ?? null)})</span></> : '—'}
+                          {(l.ph.low > 0 || l.ph.high > 0) && (
+                            <div style={{ fontSize: 11, color: '#c62828' }}>
+                              {l.ph.low > 0 && <>ต่ำ {l.ph.low} </>}{l.ph.high > 0 && <>สูง {l.ph.high}</>}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ ...td, textAlign: 'left' }}>
+                          {l.pressure.n ? <>{l.pressure.avg} <span style={{ fontSize: 11.5, color: soft }}>({range(l.spec?.prMin ?? null, l.spec?.prMax ?? null)})</span></> : <span style={{ color: '#bdb5ad' }}>ไม่ได้กรอก</span>}
+                          {(l.pressure.low > 0 || l.pressure.high > 0) && (
+                            <div style={{ fontSize: 11, color: '#c62828' }}>
+                              {l.pressure.low > 0 && <>ต่ำ {l.pressure.low} </>}{l.pressure.high > 0 && <>สูง {l.pressure.high}</>}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ ...td, textAlign: 'left' }}>
+                          {l.minutes.median != null ? <>กลาง {Math.round(l.minutes.median)} น.</> : '—'}
+                          {l.spec?.maxMin != null && <span style={{ fontSize: 11.5, color: soft }}> (ไม่เกิน {l.spec.maxMin})</span>}
+                          {l.slow > 0 && <div style={{ fontSize: 11, color: '#c62828' }}>ช้าเกินกำหนด {l.slow} รอบ</div>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {cip.rows.length > 0 && (
+                  <details style={{ marginTop: 12 }}>
+                    <summary style={{ cursor: 'pointer', fontSize: 12.5, color: soft, fontWeight: 600 }}>
+                      ดูรอบที่หลุดสเปก ({cip.rows.length})
+                    </summary>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                      {cip.rows.map((r, i) => (
+                        <div key={`${r.at}-${i}`} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: '#fbf7f3', borderRadius: 10, padding: '8px 11px' }}>
+                          <span style={{ flex: 'none', fontSize: 13 }}>🧼</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>
+                              {r.line}{r.row ? ` · แถว ${r.row}` : ''}{r.item && <span style={{ color: soft, fontWeight: 400 }}> · {r.item}</span>}
+                            </div>
+                            <div style={{ fontSize: 11.5, color: soft }}>
+                              {(r.at || r.day).replace('T', ' ')}{r.shift && ` · กะ${r.shift}`}{r.operator && ` · ${r.operator}`}
+                            </div>
+                          </div>
+                          <div style={{ flex: 'none', textAlign: 'right', fontSize: 12.5, lineHeight: 1.6, color: '#c62828', fontWeight: 600 }}>
+                            {(r.phSide === 'low' || r.phSide === 'high') && <div>pH {r.ph} {r.phSide === 'low' ? '▼' : '▲'} {r.phOff}</div>}
+                            {(r.prSide === 'low' || r.prSide === 'high') && <div>แรงดัน {r.pressure} {r.prSide === 'low' ? '▼' : '▲'} {r.prOff}</div>}
+                            {r.slow && <div>ช้าเกิน {r.overMin} น. ({r.minutes} น.)</div>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </>
+            )}
         </div>
       )}
 

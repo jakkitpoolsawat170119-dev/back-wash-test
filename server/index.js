@@ -467,6 +467,17 @@ const SCHEMA = [
       ph_max REAL,
       updated_at TEXT
     )`,
+  // ── สเปกน้ำล้าง CIP ต่อไลน์ — pH / แรงดันปั๊ม / เวลาต่อรอบที่ยอมรับได้ ─────────
+  //    คนละเรื่องกับ quality_specs (นั่นคือค่าของ "สินค้า" ต่อรส) — ห้ามเอามาปนกัน
+  `CREATE TABLE IF NOT EXISTS cip_specs (
+      line TEXT UNIQUE,
+      ph_min REAL,
+      ph_max REAL,
+      pressure_min REAL,
+      pressure_max REAL,
+      max_minutes REAL,
+      updated_at TEXT
+    )`,
   // ── สถานะ "กำลังรอรูปหลังทำ" ต่อผู้ใช้ Telegram — กดปุ่ม 📸 แล้วส่งรูปงานเข้ามา
   // 1 แถวต่อ (chat_id, user_id) — เก็บว่ากำลังแนบรูปของงาน task_id ไหน (เก็บ DB กัน Render restart หาย)
   // ── ร่างเหตุการณ์ที่กำลังแจ้งผ่าน Telegram (1 แถวต่อ 1 คนในแชตนั้น) ─────────
@@ -8690,6 +8701,124 @@ function rangeFromQuery(q = {}) {
   return { from, to };
 }
 
+
+/* ══════════ สเปกน้ำล้าง CIP + วิเคราะห์ย้อนหลัง (ต่อยอดจาก 4-e ฝั่งสินค้า) ══════════
+   🔴 ค่าใน CIP คือ "ค่าน้ำล้าง" ไม่ใช่ค่าสินค้า — เทียบกับ quality_specs (ต่อรส) ไม่ได้เด็ดขาด
+      (น้ำด่างมี pH 12-14 เป็นเรื่องปกติ ถ้าเอาไปเทียบสเปกน้ำหวานจะเตือนผิดทั้งตาราง)
+      จึงมีตารางสเปกของตัวเอง: cip_specs ต่อไลน์                                      */
+async function getCipSpecs() {
+  const rows = await dbAll('SELECT line, ph_min, ph_max, pressure_min, pressure_max, max_minutes, updated_at FROM cip_specs', []);
+  const map = {};
+  for (const r of rows) map[r.line] = r;
+  return map;
+}
+async function setCipSpec(line, spec = {}) {
+  const L = String(line || '').trim();
+  if (!L) throw new Error('ต้องระบุไลน์');
+  const num = (v) => (v === '' || v == null || isNaN(Number(v)) ? null : Number(v));
+  const row = {
+    ph_min: num(spec.ph_min), ph_max: num(spec.ph_max),
+    pressure_min: num(spec.pressure_min), pressure_max: num(spec.pressure_max),
+    max_minutes: num(spec.max_minutes),
+  };
+  await db.exec(
+    `INSERT INTO cip_specs (line, ph_min, ph_max, pressure_min, pressure_max, max_minutes, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(line) DO UPDATE SET ph_min = excluded.ph_min, ph_max = excluded.ph_max,
+       pressure_min = excluded.pressure_min, pressure_max = excluded.pressure_max,
+       max_minutes = excluded.max_minutes, updated_at = excluded.updated_at`,
+    [L, row.ph_min, row.ph_max, row.pressure_min, row.pressure_max, row.max_minutes, nowBKK()]);
+  return { line: L, ...row };
+}
+const CIP_LINES = ['Line 1', 'Line 2', 'Line 3'];
+
+app.get('/api/cip-specs', async (req, res) => {
+  try { res.json({ lines: CIP_LINES, specs: await getCipSpecs() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/cip-specs', async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (Array.isArray(b.items)) {
+      const out = [];
+      for (const it of b.items) out.push(await setCipSpec(it.line, it));
+      return res.json({ ok: true, saved: out.length, items: out });
+    }
+    res.json({ ok: true, saved: await setCipSpec(b.line, b) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.delete('/api/cip-specs/:line', async (req, res) => {
+  try { await db.exec('DELETE FROM cip_specs WHERE line = ?', [req.params.line]); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// วิเคราะห์รอบ CIP ย้อนหลังเทียบสเปกของไลน์นั้น — โครงเดียวกับ 4-e ฝั่งสินค้า
+async function buildCipQuality({ from, to, line } = {}) {
+  const [cip, specs] = await Promise.all([fetchCipRounds(from, to), getCipSpecs()]);
+  const all = [...cip.rounds].filter(r => !line || r.line === line);
+  const byLine = {}, out = [];
+  let checked = 0, outCount = 0;
+  for (const r of all) {
+    const sp = specs[r.line] || null;
+    const phSide = sp ? specSide(r.ph, sp.ph_min, sp.ph_max) : null;
+    const prSide = sp ? specSide(r.pressure, sp.pressure_min, sp.pressure_max) : null;
+    // เวลาต่อรอบ: มีแต่ขอบบน (ล้างเร็วกว่ากำหนดไม่ใช่ปัญหา — ช้าเกินถึงจะผิด)
+    const tmSide = sp && sp.max_minutes != null && Number.isFinite(Number(r.minutes))
+      ? (Number(r.minutes) > Number(sp.max_minutes) ? 'high' : 'ok') : null;
+    const isChecked = phSide != null || prSide != null || tmSide != null;
+    const isOut = [phSide, prSide, tmSide].some(v => v === 'low' || v === 'high');
+    if (isChecked) checked += 1;
+    if (isOut) outCount += 1;
+
+    const L = byLine[r.line] || (byLine[r.line] = {
+      line: r.line, n: 0, checked: 0, out: 0, phVals: [], prVals: [], minVals: [],
+      phOut: { low: 0, high: 0 }, prOut: { low: 0, high: 0 }, slow: 0,
+      spec: sp ? { phMin: sp.ph_min, phMax: sp.ph_max, prMin: sp.pressure_min, prMax: sp.pressure_max, maxMin: sp.max_minutes } : null,
+    });
+    L.n += 1;
+    if (isChecked) L.checked += 1;
+    if (isOut) L.out += 1;
+    if (r.ph != null) L.phVals.push(r.ph);
+    if (r.pressure != null) L.prVals.push(r.pressure);
+    if (Number.isFinite(Number(r.minutes))) L.minVals.push(Number(r.minutes));
+    if (phSide === 'low' || phSide === 'high') L.phOut[phSide] += 1;
+    if (prSide === 'low' || prSide === 'high') L.prOut[prSide] += 1;
+    if (tmSide === 'high') L.slow += 1;
+
+    if (isOut) out.push({
+      at: r.at || r.day, day: r.day, line: r.line, operator: r.operator, item: r.item,
+      row: r.row, shift: r.shift, minutes: r.minutes, ph: r.ph, pressure: r.pressure,
+      phSide, prSide, slow: tmSide === 'high',
+      phOff: phSide ? specOff(r.ph, sp.ph_min, sp.ph_max, phSide) : 0,
+      prOff: prSide ? specOff(r.pressure, sp.pressure_min, sp.pressure_max, prSide) : 0,
+      overMin: tmSide === 'high' ? round2(Number(r.minutes) - Number(sp.max_minutes)) : 0,
+    });
+  }
+  const lines = Object.values(byLine).map((L) => ({
+    line: L.line, n: L.n, checked: L.checked, out: L.out,
+    rate: L.checked ? Math.round((L.out / L.checked) * 100) : null,
+    spec: L.spec, slow: L.slow,
+    ph: { n: L.phVals.length, avg: L.phVals.length ? round2(avgOf(L.phVals)) : null, median: medianOf(L.phVals), low: L.phOut.low, high: L.phOut.high },
+    pressure: { n: L.prVals.length, avg: L.prVals.length ? round2(avgOf(L.prVals)) : null, median: medianOf(L.prVals), low: L.prOut.low, high: L.prOut.high },
+    minutes: { n: L.minVals.length, median: medianOf(L.minVals), max: L.minVals.length ? Math.max(...L.minVals) : null },
+  })).sort((a, b) => b.out - a.out || b.n - a.n);
+
+  const noSpec = lines.filter(l => !l.spec).map(l => ({ line: l.line, n: l.n }));
+  return {
+    from, to, rounds: all.length, checked, out: outCount,
+    rate: checked ? Math.round((outCount / checked) * 100) : null,
+    lines, noSpec, openCount: cip.open.length,
+    rows: out.sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 200),
+    specCount: Object.keys(specs).length,
+  };
+}
+
+app.get('/api/cip/quality', async (req, res) => {
+  const { from, to } = rangeFromQuery(req.query);
+  try { res.json(await buildCipQuality({ from, to, line: req.query.line })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/quality/history', async (req, res) => {
   const { from, to } = rangeFromQuery(req.query);
   try {
@@ -8889,11 +9018,17 @@ async function fetchCipRounds(from, to) {
       const day = local ? local.toLocaleDateString('sv-SE') : m.day;
       const sh = local ? shiftAt(day, local.getHours()) : null;
       const minutes = Number(d.duration);
+      // ค่าที่วัดในรอบนั้น — Line 2/3 มีแรงดันปั๊ม 2 ตัว เอาตัวที่กรอกมาเป็นหลัก
+      const numOrNull = (v) => (v === '' || v == null || isNaN(Number(v)) ? null : Number(v));
+      const p1 = numOrNull(d.pump1Pressure), p2 = numOrNull(d.pump2Pressure);
       const base = {
         line: m.line, operator: m.operator, item: m.item, day,
         at: local ? `${day}T${pad2(local.getHours())}:${pad2(local.getMinutes())}` : '',
         shift: sh ? sh.key : '', workDay: sh ? sh.workDay : day,
         backwash: !!d.backwash,
+        row: Number(d.rowNo) || null,
+        ph: numOrNull(d.ph), brix: numOrNull(d.brix),
+        pressure: p1 != null ? p1 : p2, pressure2: p1 != null ? p2 : null,
       };
       if (d.endTime && Number.isFinite(minutes) && minutes > 0) rounds.push({ ...base, minutes });
       else if (d.startTime) open.push(base);            // เริ่มแล้วแต่ไม่มีเวลาจบ = ลืมกด Stop
