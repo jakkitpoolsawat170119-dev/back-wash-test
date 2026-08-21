@@ -1444,6 +1444,7 @@ type QSpec = { brix_min: number | null; brix_max: number | null; ph_min: number 
 const SPEC_FIELDS: (keyof QSpec)[] = ['brix_min', 'brix_max', 'ph_min', 'ph_max'];
 const SpecsTab: React.FC<{ card: React.CSSProperties }> = ({ card }) => {
   const [flavors, setFlavors] = useState<string[]>([]);
+  const [extra, setExtra] = useState<string[]>([]);   // รสที่ผลิตจริงแต่ไม่อยู่ในลิสต์ตั้งต้น
   const [specs, setSpecs] = useState<Record<string, QSpec>>({});
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState('');
@@ -1455,6 +1456,7 @@ const SpecsTab: React.FC<{ card: React.CSSProperties }> = ({ card }) => {
       const r = await fetch(`${apiUrl}/api/quality-specs`);
       const d = await r.json();
       setFlavors(d.flavors || []);
+      setExtra(d.extraFlavors || []);
       setSpecs(d.specs || {});
       setDirty(new Set());
     } catch { setMsg('❌ โหลดสเปกไม่สำเร็จ'); }
@@ -1515,6 +1517,10 @@ const SpecsTab: React.FC<{ card: React.CSSProperties }> = ({ card }) => {
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
               <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: hasAny(specs[fl]) ? '#2e7d32' : '#d3dae0' }} />
               <span style={{ fontSize: '.8rem', fontWeight: 600, color: '#37474f', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={fl}>{fl}</span>
+              {extra.includes(fl) && (
+                <span title="รสนี้มีในบันทึกการผลิตจริง แต่ไม่อยู่ในลิสต์รสตั้งต้น"
+                  style={{ flexShrink: 0, fontSize: '.6rem', fontWeight: 700, color: '#a15c00', background: '#fff3e0', borderRadius: 999, padding: '1px 6px' }}>ผลิตจริง</span>
+              )}
             </div>
             {SPEC_FIELDS.map(f => (
               <input key={f} type="number" step="0.01" inputMode="decimal" value={val(fl, f)} placeholder="–"

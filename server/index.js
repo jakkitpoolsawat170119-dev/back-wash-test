@@ -8319,7 +8319,18 @@ app.post('/api/kpi/alert/run', async (req, res) => {
 app.get('/api/quality-specs', async (req, res) => {
   try {
     const specs = await getQualitySpecs();
-    res.json({ flavors: ASSISTANT_FLAVORS.split(', '), specs });
+    // รสที่ "ผลิตจริง" บางตัวไม่อยู่ในลิสต์ ASSISTANT_FLAVORS (เช่น Freshy Passion fruit)
+    // ถ้าไม่เอามารวม จะตั้งสเปกให้รสนั้นไม่ได้เลย → ค่าของมันไม่มีวันถูกตรวจ
+    let produced = [];
+    try {
+      produced = (await dbAll(
+        'SELECT DISTINCT flavor FROM production_logs WHERE flavor IS NOT NULL AND flavor != \'\'', []))
+        .map((r) => r.flavor);
+    } catch { /* ไม่มีตาราง/DB มีปัญหา — ใช้ลิสต์ตั้งต้นก็ยังทำงานได้ */ }
+    const known = ASSISTANT_FLAVORS.split(', ');
+    const extra = [...new Set([...produced, ...Object.keys(specs)])]
+      .filter((f) => !known.includes(f)).sort((a, b) => a.localeCompare(b));
+    res.json({ flavors: [...known, ...extra], specs, extraFlavors: extra });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.post('/api/quality-specs', async (req, res) => {
