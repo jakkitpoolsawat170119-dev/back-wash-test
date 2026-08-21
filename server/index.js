@@ -8339,6 +8339,194 @@ app.delete('/api/quality-specs/:flavor', async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 4-e วิเคราะห์คุณภาพย้อนหลัง — เทียบ Brix/pH ที่บันทึกจริง กับสเปกต่อรส
+// ตอบ 3 คำถาม: หลุดสเปกกี่ครั้ง · รส/ไลน์ไหนบ่อยสุด · ค่าเลื่อนไปทางไหน
+//
+// 🔑 แหล่งข้อมูล = `production_logs` (ค่าที่กรอกตอนกด Done ทุก batch) เท่านั้น
+//    ไม่เอา `cip_step_logs` มาปนแม้แผนจะเขียนไว้ — ค่าใน CIP คือ "ค่าน้ำล้าง"
+//    (เจอ pH 15 ได้เพราะเป็นน้ำด่าง) ไม่ใช่ค่าสินค้า เอามาเทียบสเปกรสไม่ได้
+//    และตารางนั้นก็ไม่มีช่องรสชาติ + บน prod ยังว่างอยู่
+// รวมยอดใน JS ไม่ใช่ SQL — เลี่ยงฟังก์ชันสถิติ/วันที่ที่ SQLite กับ Postgres ต่างกัน
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ค่าหนึ่งค่าเทียบช่วงสเปก → null = ไม่มีสเปกด้านนั้น (ไม่ตัดสิน) · ok/low/high
+function specSide(v, min, max) {
+  if (v == null || !Number.isFinite(Number(v))) return null;
+  const has = (x) => x != null && Number.isFinite(Number(x));
+  if (!has(min) && !has(max)) return null;                // ไม่ได้ตั้งสเปกไว้ = ไม่เตือน
+  if (has(min) && Number(v) < Number(min)) return 'low';
+  if (has(max) && Number(v) > Number(max)) return 'high';
+  return 'ok';
+}
+// ห่างจากขอบสเปกเท่าไหร่ (บวกเสมอ) — ใช้เรียงว่าครั้งไหนหลุดแรงสุด
+function specOff(v, min, max, side) {
+  if (side === 'low') return round2(Number(min) - Number(v));
+  if (side === 'high') return round2(Number(v) - Number(max));
+  return 0;
+}
+const avgOf = (a) => (a.length ? a.reduce((s, n) => s + n, 0) / a.length : null);
+// ค่าเฉลี่ยอยู่ตรงไหนในช่วงสเปก: 0 = ขอบล่าง, 1 = ขอบบน (null ถ้าสเปกไม่ครบสองด้าน)
+function bandPos(avg, min, max) {
+  if (avg == null || min == null || max == null || Number(max) <= Number(min)) return null;
+  return round2((avg - Number(min)) / (Number(max) - Number(min)));
+}
+// เทรนด์: เทียบค่าเฉลี่ยครึ่งแรกกับครึ่งหลังของช่วงที่ดู (ต้องมีอย่างน้อย 6 ค่า)
+// ถือว่า "นิ่ง" ถ้าขยับน้อยกว่า 10% ของความกว้างสเปก (ไม่มีสเปก = 2% ของค่าเฉลี่ย)
+function halfTrend(values, min, max) {
+  if (values.length < 6) return null;
+  const half = Math.floor(values.length / 2);
+  const first = avgOf(values.slice(0, half)), last = avgOf(values.slice(values.length - half));
+  const delta = last - first;
+  const width = (min != null && max != null && Number(max) > Number(min)) ? Number(max) - Number(min) : null;
+  const flatAt = width != null ? width * 0.1 : Math.abs(first) * 0.02;
+  return {
+    first: round2(first), last: round2(last), delta: round2(delta),
+    dir: Math.abs(delta) < flatAt ? 'flat' : (delta > 0 ? 'up' : 'down'),
+  };
+}
+
+async function buildQualityHistory({ from, to, flavor, line } = {}) {
+  const cond = ['substr(timestamp,1,10) BETWEEN ? AND ?', '(brix IS NOT NULL OR ph IS NOT NULL)'];
+  const args = [from, to];
+  if (flavor) { cond.push('flavor = ?'); args.push(flavor); }
+  if (line) { cond.push('line_name = ?'); args.push(line); }
+  const [logs, specs] = await Promise.all([
+    dbAll(`SELECT timestamp, line_name, flavor, batch, operator_name, brix, ph
+             FROM production_logs WHERE ${cond.join(' AND ')} ORDER BY timestamp`, args),
+    getQualitySpecs(),
+  ]);
+
+  const byFlavor = {}, byLine = {}, byDay = {}, noSpec = {}, out = [];
+  let checked = 0, outCount = 0;
+  for (const r of logs) {
+    const fl = r.flavor || '(ไม่ระบุรส)';
+    const sp = specs[fl] || null;
+    const brix = r.brix == null ? null : Number(r.brix);
+    const ph = r.ph == null ? null : Number(r.ph);
+    const bSide = sp ? specSide(brix, sp.brix_min, sp.brix_max) : null;
+    const pSide = sp ? specSide(ph, sp.ph_min, sp.ph_max) : null;
+    const isChecked = bSide != null || pSide != null;     // มีอย่างน้อย 1 ด้านที่ตรวจได้
+    const isOut = bSide === 'low' || bSide === 'high' || pSide === 'low' || pSide === 'high';
+    if (isChecked) checked += 1; else if (!sp) noSpec[fl] = (noSpec[fl] || 0) + 1;
+    if (isOut) outCount += 1;
+
+    const f = byFlavor[fl] || (byFlavor[fl] = {
+      flavor: fl, n: 0, checked: 0, out: 0, brixVals: [], phVals: [],
+      brixOut: { low: 0, high: 0 }, phOut: { low: 0, high: 0 },
+      spec: sp ? { brixMin: sp.brix_min, brixMax: sp.brix_max, phMin: sp.ph_min, phMax: sp.ph_max } : null,
+    });
+    f.n += 1;
+    if (isChecked) f.checked += 1;
+    if (isOut) f.out += 1;
+    if (brix != null) f.brixVals.push(brix);
+    if (ph != null) f.phVals.push(ph);
+    if (bSide === 'low' || bSide === 'high') f.brixOut[bSide] += 1;
+    if (pSide === 'low' || pSide === 'high') f.phOut[pSide] += 1;
+
+    const ln = r.line_name || '(ไม่ระบุไลน์)';
+    const L = byLine[ln] || (byLine[ln] = { line: ln, n: 0, checked: 0, out: 0, flavors: {} });
+    L.n += 1; if (isChecked) L.checked += 1;
+    if (isOut) { L.out += 1; L.flavors[fl] = (L.flavors[fl] || 0) + 1; }
+
+    const day = String(r.timestamp || '').slice(0, 10);
+    const d = byDay[day] || (byDay[day] = { day, n: 0, checked: 0, out: 0 });
+    d.n += 1; if (isChecked) d.checked += 1; if (isOut) d.out += 1;
+
+    if (isOut) out.push({
+      at: r.timestamp, day, line: ln, flavor: fl, batch: r.batch || '',
+      operator: r.operator_name || '',
+      brix, ph, brixSide: bSide, phSide: pSide,
+      off: Math.max(
+        bSide ? specOff(brix, sp.brix_min, sp.brix_max, bSide) : 0,
+        pSide ? specOff(ph, sp.ph_min, sp.ph_max, pSide) : 0),
+      brixOff: bSide === 'low' || bSide === 'high' ? specOff(brix, sp.brix_min, sp.brix_max, bSide) : 0,
+      phOff: pSide === 'low' || pSide === 'high' ? specOff(ph, sp.ph_min, sp.ph_max, pSide) : 0,
+    });
+  }
+
+  const flavors = Object.values(byFlavor).map((f) => {
+    const sp = f.spec || {};
+    const bAvg = avgOf(f.brixVals), pAvg = avgOf(f.phVals);
+    return {
+      flavor: f.flavor, n: f.n, checked: f.checked, out: f.out,
+      rate: f.checked ? Math.round((f.out / f.checked) * 100) : null,
+      spec: f.spec,
+      brix: {
+        n: f.brixVals.length, avg: bAvg == null ? null : round2(bAvg),
+        min: f.brixVals.length ? round2(Math.min(...f.brixVals)) : null,
+        max: f.brixVals.length ? round2(Math.max(...f.brixVals)) : null,
+        low: f.brixOut.low, high: f.brixOut.high,
+        pos: bandPos(bAvg, sp.brixMin, sp.brixMax),
+        trend: halfTrend(f.brixVals, sp.brixMin, sp.brixMax),
+      },
+      ph: {
+        n: f.phVals.length, avg: pAvg == null ? null : round2(pAvg),
+        min: f.phVals.length ? round2(Math.min(...f.phVals)) : null,
+        max: f.phVals.length ? round2(Math.max(...f.phVals)) : null,
+        low: f.phOut.low, high: f.phOut.high,
+        pos: bandPos(pAvg, sp.phMin, sp.phMax),
+        trend: halfTrend(f.phVals, sp.phMin, sp.phMax),
+      },
+    };
+  }).sort((a, b) => b.out - a.out || (b.rate || 0) - (a.rate || 0) || b.n - a.n);
+
+  const lines = Object.values(byLine).map((L) => {
+    const top = Object.entries(L.flavors).sort((a, b) => b[1] - a[1])[0];
+    return {
+      line: L.line, n: L.n, checked: L.checked, out: L.out,
+      rate: L.checked ? Math.round((L.out / L.checked) * 100) : null,
+      topFlavor: top ? { flavor: top[0], out: top[1] } : null,
+    };
+  }).sort((a, b) => b.out - a.out || b.n - a.n);
+
+  const worst = flavors.find((f) => f.out > 0) || null;
+  const worstLine = lines.find((l) => l.out > 0) || null;
+  // รสที่เลื่อนออกนอกกลางสเปกชัดเจน (ยังไม่หลุดก็เตือนได้) — เรียงจากที่เลื่อนแรงสุด
+  const drifting = [];
+  for (const f of flavors) {
+    for (const [k, label] of [['brix', 'Brix'], ['ph', 'pH']]) {
+      const m = f[k];
+      if (m.trend && m.trend.dir !== 'flat') {
+        drifting.push({ flavor: f.flavor, metric: label, ...m.trend, pos: m.pos, n: m.n });
+      }
+    }
+  }
+  drifting.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+
+  return {
+    from, to,
+    filter: { flavor: flavor || '', line: line || '' },
+    readings: logs.length, checked, out: outCount,
+    rate: checked ? Math.round((outCount / checked) * 100) : null,
+    flavors, lines,
+    byDay: Object.values(byDay).sort((a, b) => a.day.localeCompare(b.day)),
+    rows: out.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 300),
+    worstFlavor: worst ? { flavor: worst.flavor, out: worst.out, rate: worst.rate } : null,
+    worstLine: worstLine ? { line: worstLine.line, out: worstLine.out, rate: worstLine.rate } : null,
+    drifting: drifting.slice(0, 8),
+    // ค่าที่ยังไม่ถูกตรวจเลยเพราะรสนั้นไม่มีสเปก — บอกตรงๆ ว่าตัวเลขข้างบนยังไม่ครอบคลุมทั้งหมด
+    noSpec: Object.entries(noSpec).map(([f, n]) => ({ flavor: f, n })).sort((a, b) => b.n - a.n),
+    specCount: Object.keys(specs).length,
+  };
+}
+
+// ช่วงเวลาเริ่มต้น = 30 วันย้อนหลัง (แบบเดียวกับหน้า downtime/ต้นทุน)
+function rangeFromQuery(q = {}) {
+  const today = todayBKK();
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(q.to || '') ? q.to : today;
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(q.from || '') ? q.from
+    : new Date(Date.parse(`${to}T00:00:00Z`) - 29 * 86400000).toISOString().slice(0, 10);
+  return { from, to };
+}
+
+app.get('/api/quality/history', async (req, res) => {
+  const { from, to } = rangeFromQuery(req.query);
+  try {
+    res.json(await buildQualityHistory({ from, to, flavor: req.query.flavor, line: req.query.line }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // แถบความคืบหน้าแบบ block (เพิ่มลูกเล่นให้ข้อความ Telegram)
 function progressBar(pct, blocks = 10) {
   const filled = Math.max(0, Math.min(blocks, Math.round(pct / 100 * blocks)));
@@ -9140,6 +9328,12 @@ const ASSISTANT_TOOLS = [
     input_schema: { type: 'object', properties: {
       from: { type: 'string' }, to: { type: 'string' },
       line: { type: 'string' }, flavor: { type: 'string' } } } },
+  { name: 'get_quality_history', description: 'วิเคราะห์คุณภาพย้อนหลัง — สรุปว่าช่วงนี้ค่าหลุดสเปกกี่ครั้ง รสไหน/ไลน์ไหนบ่อยสุด และค่าเลื่อนไปทางไหน (เทรนด์) · ใช้เมื่อถูกถามภาพรวมย้อนหลัง เช่น "เดือนนี้หลุดสเปกกี่ครั้ง" "รสไหนมีปัญหาบ่อย" "ค่า pH เลื่อนขึ้นไหม" — ต่างจาก get_quality ที่คืนค่าดิบทีละรายการ',
+    input_schema: { type: 'object', properties: {
+      from: { type: 'string', description: 'วันเริ่ม YYYY-MM-DD (ไม่ระบุ = 30 วันย้อนหลัง)' },
+      to: { type: 'string', description: 'วันสิ้นสุด YYYY-MM-DD' },
+      flavor: { type: 'string', description: 'เจาะจงรส (ถ้าต้องการ)' },
+      line: { type: 'string', description: 'เจาะจง Line (ถ้าต้องการ)' } } } },
   // ── สมองรวม: ค้นคู่มือ + สืบค้น DB ทุกตาราง ──────────────────────────────
   { name: 'search_knowledge', description: 'ค้นคู่มือ/ความรู้ของแอป (ภาพรวมระบบ, ตารางกะ, ขั้นตอนงาน, โครงสร้างข้อมูล) — ใช้เมื่อถูกถามเรื่องวิธีใช้แอป กะทำงาน ขั้นตอน หรือสิ่งที่ไม่ใช่ตัวเลขใน DB ห้ามเดาถ้ายังไม่ค้น',
     input_schema: { type: 'object', properties: {
@@ -9336,6 +9530,16 @@ async function runAssistantTool(name, input, operator, ctx = {}) {
     const specs = await getQualitySpecs(); // แนบสเปกไปด้วย → เทียบได้ว่าค่าไหนออกนอกสเปกจริง
     return { from, to, count: rows.length, rows, specs, note: 'เตือน "ผิดปกติ" เฉพาะรสที่มีสเปกใน specs และค่าออกนอกช่วงเท่านั้น รสที่ไม่มีสเปกอย่าเดาว่าปกติ/ผิด' };
   }
+  if (name === 'get_quality_history') {
+    const { from, to } = rangeFromQuery({ from: input.from, to: input.to });
+    const h = await buildQualityHistory({ from, to, flavor: input.flavor, line: input.line });
+    return {
+      ...h,
+      rows: h.rows.slice(0, 30),                     // ตัดรายการดิบให้สั้น — สรุปอยู่ในคีย์อื่นครบแล้ว
+      flavors: h.flavors.slice(0, 15),
+      note: 'checked = จำนวนครั้งที่ตรวจได้จริง (รสนั้นตั้งสเปกไว้) · out = หลุดสเปก · rate = %จาก checked เท่านั้น ห้ามคิดจาก readings · noSpec = รสที่วัดค่าแล้วแต่ยังไม่ได้ตั้งสเปก อย่าบอกว่าปกติ ให้ชวนไปตั้งสเปก · pos = ค่าเฉลี่ยอยู่ตรงไหนในช่วงสเปก (0=ขอบล่าง 1=ขอบบน) · trend.dir up/down/flat = เทียบครึ่งแรกกับครึ่งหลังของช่วงที่ดู',
+    };
+  }
   if (name === 'set_quality_spec') {
     const saved = await setQualitySpec(input.flavor, input);
     return { ok: true, saved, note: 'บันทึกสเปกแล้ว (มีผลกับการเตือนสิ้นกะทันที)' };
@@ -9439,7 +9643,7 @@ async function buildAssistantSystem(operator) {
     '• บันทึกงาน: create_task (category ผลิต=production, ทำความสะอาด=cip, backwash=backwash, ซ่อมบำรุง=maintenance) · ปิดงาน: complete_task',
     '• ข้อมูลวันเดียว: get_production_summary / get_cip_summary / get_timeline / list_tasks',
     '• ข้ามวัน/ช่วงเวลา/แนวโน้ม: query_production_range (from,to) เช่น "สัปดาห์นี้", "3 วันก่อน", "เดือนนี้"',
-    '• คุณภาพ: get_quality (Brix/pH — แนบสเปกมาด้วย) เตือน "ผิดปกติ" เฉพาะรสที่มีสเปกและค่าออกนอกช่วง · ตั้งสเปกด้วย set_quality_spec (เช่นผู้ใช้บอก "สเปกส้ม pH 3.2-4") · ดูสเปกที่ตั้งไว้ด้วย get_quality_specs',
+    '• คุณภาพ: get_quality (Brix/pH — แนบสเปกมาด้วย) เตือน "ผิดปกติ" เฉพาะรสที่มีสเปกและค่าออกนอกช่วง · ถามภาพรวมย้อนหลัง/หลุดกี่ครั้ง/รสไหนบ่อย/เทรนด์ ใช้ get_quality_history · ตั้งสเปกด้วย set_quality_spec (เช่นผู้ใช้บอก "สเปกส้ม pH 3.2-4") · ดูสเปกที่ตั้งไว้ด้วย get_quality_specs',
     '• ความรู้เรื่องแอป/กะ/ขั้นตอน/ทีม: search_knowledge — ถูกถามเรื่องวิธีใช้/ระบบ/กะทำงาน/บุคคล ให้ค้นก่อนตอบเสมอ ถ้าครั้งแรกไม่เจอ ให้เปลี่ยนคำค้น (สั้นลง/คำพ้อง/ชื่อที่ถูกถาม) ลองอีก 1-2 ครั้งก่อนจะสรุปว่าไม่พบ',
     '• คำถามข้อมูลที่ tool สรุปไม่ครอบคลุม: query_database (SELECT อย่างเดียว) — schema ทั้งหมด:',
     SCHEMA_SUMMARY,

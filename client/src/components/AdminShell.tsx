@@ -21,10 +21,11 @@ import DowntimeReport from './DowntimeReport';
 import UsersAdmin from './UsersAdmin';
 import MaterialsBoard from './MaterialsBoard';
 import CostBoard from './CostBoard';
+import QualityReport from './QualityReport';
 import ErrorBoundary from './ErrorBoundary';
 
 type TodoTab = 'today' | 'audit' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs';
-type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline' | 'blog' | 'obsidian' | 'maint' | 'pmreg' | 'downtime' | 'machines' | 'incidents' | 'users' | 'materials' | 'cost';
+type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline' | 'blog' | 'obsidian' | 'maint' | 'pmreg' | 'downtime' | 'machines' | 'incidents' | 'users' | 'materials' | 'cost' | 'quality';
 
 const TODO_TABS: string[] = ['today', 'audit', 'calendar', 'report', 'timeline', 'recurring', 'ai', 'specs'];
 
@@ -59,6 +60,7 @@ const MENU: MenuRow[] = [
   { pane: 'line4', ic: '📋', label: 'คู่มือ Line 4' },
   { pane: 'stickeradmin', ic: '🗂️', label: 'QC Record' },
   { pane: 'specs', ic: '📐', label: 'สเปคคุณภาพ', sub: true },
+  { pane: 'quality', ic: '🔬', label: 'วิเคราะห์คุณภาพ', sub: true },
   { pane: 'users', ic: '🔐', label: 'ผู้ใช้และสิทธิ์' },
 ];
 
@@ -197,6 +199,9 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
           )}
           {pane === 'users' && (
             <ErrorBoundary label="admin-users"><UsersAdmin /></ErrorBoundary>
+          )}
+          {pane === 'quality' && (
+            <ErrorBoundary label="admin-quality"><QualityReport /></ErrorBoundary>
           )}
           {pane === 'downtime' && (
             <ErrorBoundary label="admin-downtime"><DowntimeReport /></ErrorBoundary>
