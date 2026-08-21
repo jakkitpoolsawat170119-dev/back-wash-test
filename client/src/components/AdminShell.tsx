@@ -169,10 +169,13 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
 
         <div className="abody">
           {pane === 'overview' && (
-            <AdminOverview onOpen={(v) => {
-              if (v === 'today') go('today');
-              else onNavOut(v);
-            }} />
+            <AdminOverview
+              onOpen={(v) => {
+                if (v === 'today') go('today');
+                else onNavOut(v);
+              }}
+              onPane={(p) => { if ((PANES as string[]).includes(p)) go(p as Pane); }}
+            />
           )}
 
           {/* TodoBoard stays mounted so AI chat / drafts survive pane switches */}

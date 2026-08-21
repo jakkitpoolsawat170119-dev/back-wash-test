@@ -6214,12 +6214,8 @@ app.post('/api/cost/config', requireRole('supervisor'), async (req, res) => {
 });
 
 // ต้นทุนรายก้อน batch ในช่วงเวลา — วัสดุ + เวลาเสีย
-app.get('/api/cost/batches', async (req, res) => {
-  const today = todayBKK();
-  const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : today;
-  const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from
-    : new Date(Date.parse(`${to}T00:00:00Z`) - 29 * 86400000).toISOString().slice(0, 10);
-  try {
+async function buildCostRange(from, to) {
+  {
     const rates = await costRates();
     const moves = await dbAll(
       `SELECT mv.batch_ref, mv.qty, mv.unit_cost, mv.moved_at, m.name, m.unit
@@ -6267,7 +6263,7 @@ app.get('/api/cost/batches', async (req, res) => {
       downtimeMin: Math.round(b.downtimeMin),
       total: round2(b.materialCost + b.downtimeCost),
     })).sort((a, b2) => b2.total - a.total);
-    res.json({
+    return {
       from, to, batches, rates: { base: rates.base, perMachine: rates.perMachine },
       totalMaterial: round2(batches.reduce((n, b) => n + b.materialCost, 0)),
       totalDowntime: round2(batches.reduce((n, b) => n + b.downtimeCost, 0)),
@@ -6277,8 +6273,13 @@ app.get('/api/cost/batches', async (req, res) => {
         `SELECT qty, unit_cost FROM material_moves
           WHERE kind = 'out' AND (batch_ref IS NULL OR batch_ref = '') AND moved_at >= ? AND moved_at <= ?`,
         [`${from}T00:00`, `${to}T23:59`])).reduce((n, r) => n + num(r.qty) * num(r.unit_cost), 0)),
-    });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    };
+  }
+}
+app.get('/api/cost/batches', async (req, res) => {
+  const { from, to } = rangeFromQuery(req.query);
+  try { res.json(await buildCostRange(from, to)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // รายละเอียดของ batch เดียว — เบิกอะไรไปบ้าง เครื่องไหนหยุดกี่นาที
@@ -6446,12 +6447,8 @@ app.get('/api/materials/moves', async (req, res) => {
 });
 
 // ต้นทุนวัสดุที่เบิกใช้ในช่วงเวลา — รายวัสดุ / รายวัน / ราย batch
-app.get('/api/materials/summary', async (req, res) => {
-  const today = todayBKK();
-  const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : today;
-  const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from
-    : new Date(Date.parse(`${to}T00:00:00Z`) - 29 * 86400000).toISOString().slice(0, 10);
-  try {
+async function buildMaterialUsage(from, to) {
+  {
     const rows = await dbAll(
       `SELECT mv.material_id, mv.qty, mv.unit_cost, mv.moved_at, mv.batch_ref, m.name, m.unit
          FROM material_moves mv LEFT JOIN materials m ON m.id = mv.material_id
@@ -6471,25 +6468,26 @@ app.get('/api/materials/summary', async (req, res) => {
     }
     const materials = Object.values(byMat)
       .map(m => ({ ...m, qty: round2(m.qty), cost: round2(m.cost) })).sort((a, b) => b.cost - a.cost);
-    res.json({
+    return {
       from, to, materials,
       byDay: Object.entries(byDay).map(([date, cost]) => ({ date, cost })).sort((a, b) => a.date.localeCompare(b.date)),
       byBatch: Object.values(byBatch).map(b => ({ ...b, cost: round2(b.cost) })).sort((a, b) => b.cost - a.cost).slice(0, 20),
       totalCost: round2(materials.reduce((n, m) => n + m.cost, 0)),
       totalMoves: rows.length,
-    });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    };
+  }
+}
+app.get('/api/materials/summary', async (req, res) => {
+  const { from, to } = rangeFromQuery(req.query);
+  try { res.json(await buildMaterialUsage(from, to)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── สรุปเวลาเครื่องหยุด (ERP เฟส 3) ─────────────────────────────────────────
 // ช่วงเวลา = อิง down_from (เวลาที่เริ่มหยุด) ไม่ใช่วันที่บันทึกเหตุการณ์
 // รวมยอดในโค้ดไม่ใช่ใน SQL — ข้อมูลหลักร้อยแถว และเลี่ยงฟังก์ชันวันที่ที่ SQLite/Postgres เขียนไม่เหมือนกัน
-app.get('/api/maint/downtime', async (req, res) => {
-  const today = todayBKK();
-  const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : today;
-  const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from
-    : new Date(Date.parse(`${to}T00:00:00Z`) - 29 * 86400000).toISOString().slice(0, 10);
-  try {
+async function buildDowntimeRange(from, to) {
+  {
     const all = await dbAll(
       `SELECT id, title, machine, occurred_at, status, vault_path, down_from, down_to
          FROM incidents ORDER BY down_from DESC, occurred_at DESC, id DESC`, []);
@@ -6512,14 +6510,19 @@ app.get('/api/maint/downtime', async (req, res) => {
       .sort((a, b) => b.minutes - a.minutes || b.count - a.count);
     // เหตุการณ์ในช่วงที่ยังไม่ได้กรอกเวลาหยุดเลย — เตือนว่าตัวเลขยังไม่ครบ
     const missing = all.filter(r => !r.down_from && (r.occurred_at || '') >= from && (r.occurred_at || '') <= to).length;
-    res.json({
+    return {
       from, to, rows, machines, missing,
       totalCount: rows.length,
       totalMin: rows.reduce((n, r) => n + (r.minutes || 0), 0),
       openNow: all.filter(r => r.down_from && !r.down_to)
         .map(r => ({ id: r.id, title: r.title, machine: r.machine || '', downFrom: r.down_from })),
-    });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    };
+  }
+}
+app.get('/api/maint/downtime', async (req, res) => {
+  const { from, to } = rangeFromQuery(req.query);
+  try { res.json(await buildDowntimeRange(from, to)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ทะเบียนงาน PM — งานประจำ "ทุกแถว" ของทีมซ่อมบำรุง (บอร์ดโชว์แค่ owner_role='mt')
@@ -8795,6 +8798,154 @@ async function buildPerfSummary({ from, to } = {}) {
 app.get('/api/perf/summary', async (req, res) => {
   const { from, to } = rangeFromQuery(req.query);
   try { res.json(await buildPerfSummary({ from, to })); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 4-g แดชบอร์ดรวมหน้าเดียว — ดึงจาก builder ของแต่ละโมดูลที่มีอยู่แล้ว
+// ไม่คำนวณเลขใหม่เอง (ไม่งั้นตัวเลขหน้ารวมกับหน้าย่อยจะเริ่มไม่ตรงกัน)
+// 🔑 กติกาของหน้านี้: **ช่องไหนยังไม่มีข้อมูลจริง ต้องบอกว่า "ยังไม่มี" ไม่ใช่โชว์ 0 เฉย ๆ**
+//    ทุกก้อนมี status: ok | thin (มีแต่น้อยเกินจะเชื่อ) | empty | error
+//    + dataSince = วันแรกที่ระบบมีข้อมูลนั้นจริง (โมดูลที่เพิ่งเริ่มเก็บจะได้ไม่ถูกอ่านผิด)
+// ก้อนไหนพังก็ยังโชว์ก้อนที่เหลือได้ (Promise.allSettled) — หน้ารวมต้องไม่ล่มทั้งหน้า
+// ═══════════════════════════════════════════════════════════════════════════
+async function buildDashboard({ from, to } = {}) {
+  const val = (r, d = null) => (r.status === 'fulfilled' ? r.value : d);
+  const err = (r) => (r.status === 'rejected' ? String(r.reason && r.reason.message || r.reason) : null);
+
+  const [rPerf, rQual, rDown, rCost, rMat, rStock, rProd, rPlan, rSince] = await Promise.allSettled([
+    buildPerfSummary({ from, to }),
+    buildQualityHistory({ from, to }),
+    buildDowntimeRange(from, to),
+    buildCostRange(from, to),
+    buildMaterialUsage(from, to),
+    dbAll('SELECT * FROM materials WHERE active = 1 ORDER BY name', []),
+    fetchProductionByWorkday(from, to),
+    dbAll('SELECT plan_date, SUM(planned_batches) planned FROM production_plans WHERE plan_date BETWEEN ? AND ? GROUP BY plan_date', [from, to]),
+    Promise.all([
+      dbAll('SELECT MIN(moved_at) AS a FROM material_moves', []),
+      dbAll('SELECT MIN(occurred_at) AS a FROM incidents', []),
+      dbAll('SELECT MIN(timestamp) AS a FROM production_logs', []),
+    ]),
+  ]);
+
+  const perf = val(rPerf), qual = val(rQual), down = val(rDown), cost = val(rCost);
+  const matUse = val(rMat), stockRows = val(rStock, []) || [], prodRows = val(rProd, []) || [], planRows = val(rPlan, []) || [];
+  const since = val(rSince, [[], [], []]) || [[], [], []];
+  const day10 = (v) => String((v && v[0] && v[0].a) || '').slice(0, 10) || null;
+  const dataSince = { materials: day10(since[0]), incidents: day10(since[1]), production: day10(since[2]) };
+
+  // ── ผลิต ────────────────────────────────────────────────────────────────
+  const byDayMap = {};
+  const dayB = (k) => byDayMap[k] || (byDayMap[k] = { workDay: k, actual: 0, planned: 0 });
+  for (const r of prodRows) dayB(r.work_day).actual += Number(r.actual);
+  for (const r of planRows) dayB(r.plan_date).planned += Number(r.planned || 0);
+  const lineMap = {}, flavorMap = {};
+  for (const r of prodRows) {
+    lineMap[r.line_name] = (lineMap[r.line_name] || 0) + Number(r.actual);
+    flavorMap[r.flavor] = (flavorMap[r.flavor] || 0) + Number(r.actual);
+  }
+  const top = (m) => { const e = Object.entries(m).sort((a, b) => b[1] - a[1])[0]; return e ? { name: e[0], n: e[1] } : null; };
+  const actual = prodRows.reduce((n, r) => n + Number(r.actual), 0);
+  const planned = planRows.reduce((n, r) => n + Number(r.planned || 0), 0);
+  const production = {
+    status: rProd.status === 'rejected' ? 'error' : (actual ? 'ok' : 'empty'), error: err(rProd),
+    actual, planned, pct: planned > 0 ? Math.round((actual / planned) * 100) : null,
+    byDay: Object.values(byDayMap).sort((a, b) => a.workDay.localeCompare(b.workDay)),
+    topLine: top(lineMap), topFlavor: top(flavorMap), dataSince: dataSince.production,
+  };
+
+  // ── คุณภาพ (4-e) ────────────────────────────────────────────────────────
+  const noSpecReadings = qual ? qual.noSpec.reduce((n, s) => n + s.n, 0) : 0;
+  const quality = qual ? {
+    // ตรวจได้น้อยกว่าที่ยังไม่ได้ตรวจ = ตัวเลขยังเชื่อไม่ได้เต็มปาก
+    status: qual.checked === 0 ? 'empty' : (noSpecReadings > qual.checked ? 'thin' : 'ok'),
+    readings: qual.readings, checked: qual.checked, out: qual.out, rate: qual.rate,
+    worstFlavor: qual.worstFlavor, noSpecFlavors: qual.noSpec.length, noSpecReadings,
+    drifting: qual.drifting.slice(0, 3),
+  } : { status: 'error', error: err(rQual) };
+
+  // ── งานประจำ + กะ + เวลาต่อรอบ CIP (4-f) ────────────────────────────────
+  const duty = perf ? {
+    status: perf.countedDays === 0 ? 'empty' : 'ok',
+    pct: perf.team.pct, done: perf.team.done, total: perf.team.total,
+    countedDays: perf.countedDays,
+    people: perf.people.filter(p => p.pct != null).map(p => ({ name: p.name, pct: p.pct, dot: p.dot, trend: p.trend ? p.trend.dir : null })),
+  } : { status: 'error', error: err(rPerf) };
+  const shifts = perf ? perf.shifts : [];
+  const cipTime = perf ? {
+    status: perf.cip.count === 0 ? 'empty' : (perf.cip.thin ? 'thin' : 'ok'),
+    count: perf.cip.count, median: perf.cip.median, openCount: perf.cip.openCount,
+    slowest: perf.cip.byLine.slice().sort((a, b) => (b.median || 0) - (a.median || 0))[0] || null,
+  } : { status: 'error', error: err(rPerf) };
+
+  // ── เวลาเครื่องหยุด (เฟส 3) ─────────────────────────────────────────────
+  const downtime = down ? {
+    status: down.totalCount === 0 ? 'empty' : 'ok',
+    totalMin: down.totalMin, totalCount: down.totalCount, missing: down.missing,
+    openNow: down.openNow.length, openList: down.openNow.slice(0, 3),
+    worstMachine: down.machines[0] ? { name: down.machines[0].name, minutes: down.machines[0].minutes, count: down.machines[0].count } : null,
+    dataSince: dataSince.incidents,
+  } : { status: 'error', error: err(rDown) };
+
+  // ── ต้นทุนต่อ batch (เฟส 3) ─────────────────────────────────────────────
+  const rateBase = cost ? Number(cost.rates.base || 0) : 0;
+  const costCard = cost ? {
+    // ยังไม่ตั้งค่าเสียโอกาส/ชม. = ค่าเวลาที่เสียคิดออกมาเป็น 0 เสมอ ตัวเลขจึงยังไม่ครบ
+    status: cost.batches.length === 0 ? 'empty' : (rateBase <= 0 || cost.unassignedMaterialCost > 0 ? 'thin' : 'ok'),
+    totalCost: cost.totalCost, totalMaterial: cost.totalMaterial, totalDowntime: cost.totalDowntime,
+    batches: cost.batches.length, unassigned: cost.unassignedMaterialCost, rateBase,
+    top: cost.batches.slice(0, 3).map(b => ({ batchRef: b.batchRef, total: b.total })),
+    dataSince: dataSince.materials,
+  } : { status: 'error', error: err(rCost) };
+
+  // ── คลังวัสดุ (เฟส 2) ───────────────────────────────────────────────────
+  const stock = stockRows.map(matRow);
+  const lowItems = stock.filter(m => m.low);
+  const materials = {
+    status: rStock.status === 'rejected' ? 'error' : (stock.length === 0 ? 'empty' : (lowItems.length ? 'thin' : 'ok')),
+    error: err(rStock),
+    items: stock.length, lowCount: lowItems.length,
+    low: lowItems.slice(0, 5).map(m => ({ name: m.name, stock: m.stock, unit: m.unit, reorderPoint: m.reorderPoint })),
+    stockValue: round2(stock.reduce((n, m) => n + m.value, 0)),
+    usedCost: matUse ? matUse.totalCost : null, moves: matUse ? matUse.totalMoves : 0,
+    dataSince: dataSince.materials,
+  };
+
+  // ── สิ่งที่ต้องสนใจตอนนี้ (รวมข้ามโมดูล) ─────────────────────────────────
+  // เรียงจากเรื่องที่ "ทำให้ตัวเลขผิด/ของขาด" ก่อน แล้วค่อยเรื่องคุณภาพ/ประสิทธิภาพ
+  const alerts = [];
+  const push = (level, icon, text, pane) => alerts.push({ level, icon, text, pane });
+  if (downtime.status !== 'error' && downtime.openNow > 0)
+    push('crit', '🔴', `มีเครื่องที่ยังไม่ได้กรอกเวลากลับมาเดิน ${downtime.openNow} รายการ — ชั่วโมงเสียยังนับไม่ครบ`, 'downtime');
+  if (materials.lowCount > 0)
+    push('crit', '🧪', `วัสดุถึงจุดสั่งซื้อแล้ว ${materials.lowCount} รายการ: ${materials.low.map(m => m.name).join(' · ')}`, 'materials');
+  if (cipTime.status !== 'error' && cipTime.openCount > 0)
+    push('warn', '🧼', `รอบ CIP ที่กดเริ่มแล้วไม่ได้กดจบ ${cipTime.openCount} รอบ — คิดเวลาต่อรอบไม่ได้`, 'perf');
+  if (costCard.status !== 'error' && rateBase <= 0)
+    push('warn', '💰', 'ยังไม่ได้ตั้งค่าเสียโอกาสต่อชั่วโมง — ต้นทุนส่วน "เวลาที่เสีย" ยังคิดออกมาเป็น 0', 'cost');
+  if (costCard.status !== 'error' && costCard.unassigned > 0)
+    push('warn', '📦', `มีของที่เบิกโดยไม่ระบุ batch มูลค่า ${costCard.unassigned} บาท — ต้นทุนต่อ batch ยังไม่ครบ`, 'cost');
+  if (quality.status !== 'error' && quality.out > 0)
+    push('warn', '🔬', `ค่าหลุดสเปก ${quality.out} ครั้ง${quality.worstFlavor ? ` — บ่อยสุดคือ ${quality.worstFlavor.flavor}` : ''}`, 'quality');
+  if (quality.status !== 'error' && quality.noSpecFlavors > 0)
+    push('info', '📐', `อีก ${quality.noSpecReadings} ค่ายังไม่ถูกตรวจ (${quality.noSpecFlavors} รสยังไม่ได้ตั้งสเปก)`, 'quality');
+  if (duty.status === 'ok' && duty.pct != null && duty.pct < 70)
+    push('warn', '👥', `งานประจำทั้งทีมอยู่ที่ ${duty.pct}% ในช่วงนี้`, 'perf');
+  if (downtime.status !== 'error' && downtime.missing > 0)
+    push('info', '⏱', `เหตุการณ์ ${downtime.missing} เรื่องยังไม่ได้กรอกเวลาเครื่องหยุด`, 'downtime');
+  const rank = { crit: 0, warn: 1, info: 2 };
+  alerts.sort((a, b) => rank[a.level] - rank[b.level]);
+
+  return {
+    from, to, dataSince,
+    production, quality, duty, shifts, cip: cipTime, downtime, cost: costCard, materials, alerts,
+  };
+}
+
+app.get('/api/dashboard/summary', async (req, res) => {
+  const { from, to } = rangeFromQuery(req.query);
+  try { res.json(await buildDashboard({ from, to })); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
