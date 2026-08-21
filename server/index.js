@@ -469,6 +469,20 @@ const SCHEMA = [
     )`,
   // ── สถานะ "กำลังรอรูปหลังทำ" ต่อผู้ใช้ Telegram — กดปุ่ม 📸 แล้วส่งรูปงานเข้ามา
   // 1 แถวต่อ (chat_id, user_id) — เก็บว่ากำลังแนบรูปของงาน task_id ไหน (เก็บ DB กัน Render restart หาย)
+  // ── ร่างเหตุการณ์ที่กำลังแจ้งผ่าน Telegram (1 แถวต่อ 1 คนในแชตนั้น) ─────────
+  //    เก็บใน DB ไม่ใช่ตัวแปรในหน่วยความจำ — Render รีสตาร์ตบ่อย ร่างต้องไม่หาย
+  `CREATE TABLE IF NOT EXISTS tg_incident_draft (
+      chat_id TEXT,
+      user_id TEXT,
+      step TEXT,
+      title TEXT,
+      machine TEXT,
+      symptom TEXT,
+      images TEXT,
+      operator TEXT,
+      created_at TEXT,
+      UNIQUE(chat_id, user_id)
+    )`,
   `CREATE TABLE IF NOT EXISTS tg_photo_wait (
       chat_id TEXT,
       user_id TEXT,
@@ -9263,6 +9277,7 @@ function buildDutyHome(duty, auditOpen = 0) {
     return [{ text: clip(`👤 ${p.name}　${p.done}/${p.total}${done ? ' ✅' : ''}`), callback_data: `p:${p.key}` }];
   });
   rows.push([{ text: '✈ ส่งสรุปเข้ากลุ่ม', callback_data: 'sum' }]);
+  rows.push([{ text: '⚡ แจ้งเหตุการณ์', callback_data: 'inc:new' }]);
   rows.push(auditRow);
   const text =
     `📋 <b>งานตามหน้าที่วันนี้</b> · ${duty.date}\n` +
@@ -9456,6 +9471,100 @@ async function downloadTelegramFile(fileId) {
 
 // รับ raw Telegram update (ข้อความสั่ง "งานค้าง" หรือปุ่ม callback) — n8n forward มาที่นี่
 // server จัดการ Telegram API เอง (send/edit/answerCallback) ไม่ต้องต่อ node เพิ่มใน n8n
+
+/* ══════════ แจ้งเหตุการณ์ผ่าน Telegram (เดิมต้องเปิดหน้า Admin เท่านั้น) ══════════
+   ถาม 3 อย่างทีละข้อ: หัวข้อ → เครื่องจักร (ปุ่ม) → อาการ  แล้วค่อยถามรูป
+   ร่างเก็บใน tg_incident_draft (คนละแถวต่อคน) — Render รีสตาร์ตกลางทางแล้วยังคุยต่อได้
+   จบแล้วเขียนลง incidents + โน้ตในวอลต์ ผ่านทางเดียวกับหน้าเว็บ (createIncident)      */
+const INC_TTL_MIN = 30;
+async function getIncDraft(chatId, userId) {
+  const cutoff = new Date(Date.now() - INC_TTL_MIN * 60000).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
+  try { await db.exec('DELETE FROM tg_incident_draft WHERE created_at < ?', [cutoff]); } catch { /* ช่างมัน */ }
+  const rows = await dbAll('SELECT * FROM tg_incident_draft WHERE chat_id = ? AND user_id = ?', [String(chatId), String(userId)]);
+  return rows[0] || null;
+}
+async function setIncDraft(chatId, userId, patch) {
+  const cur = await getIncDraft(chatId, userId) || {};
+  const row = {
+    step: patch.step ?? cur.step ?? 'title',
+    title: patch.title ?? cur.title ?? '',
+    machine: patch.machine ?? cur.machine ?? '',
+    symptom: patch.symptom ?? cur.symptom ?? '',
+    images: patch.images ?? cur.images ?? '[]',
+    operator: patch.operator ?? cur.operator ?? '',
+  };
+  await db.exec(
+    `INSERT INTO tg_incident_draft (chat_id, user_id, step, title, machine, symptom, images, operator, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(chat_id, user_id) DO UPDATE SET step = excluded.step, title = excluded.title,
+       machine = excluded.machine, symptom = excluded.symptom, images = excluded.images, operator = excluded.operator`,
+    [String(chatId), String(userId), row.step, row.title, row.machine, row.symptom, row.images, row.operator, nowBKK()]);
+  return row;
+}
+const clearIncDraft = (chatId, userId) =>
+  db.exec('DELETE FROM tg_incident_draft WHERE chat_id = ? AND user_id = ?', [String(chatId), String(userId)]);
+
+// ปุ่มเลือกเครื่องจักรจากทะเบียน (เรียงตามที่ใช้บ่อย = มีเหตุการณ์เยอะ) + ช่องพิมพ์เอง
+async function incMachineKeyboard() {
+  const [machines, hits] = await Promise.all([
+    dbAll('SELECT name FROM machines WHERE active = 1 ORDER BY name', []),
+    dbAll('SELECT machine, COUNT(*) n FROM incidents WHERE machine IS NOT NULL GROUP BY machine', []),
+  ]);
+  const score = {}; for (const h of hits) score[h.machine] = Number(h.n || 0);
+  const names = machines.map(m => m.name).sort((a, b) => (score[b] || 0) - (score[a] || 0)).slice(0, 10);
+  const rows = [];
+  for (let i = 0; i < names.length; i += 2) {
+    rows.push(names.slice(i, i + 2).map((n, j) => ({ text: clip(`🔩 ${n}`), callback_data: `inc:m:${i + j}` })));
+  }
+  rows.push([{ text: '⌨️ พิมพ์ชื่อเครื่องเอง', callback_data: 'inc:mtype' },
+             { text: '➖ ไม่ระบุเครื่อง', callback_data: 'inc:mskip' }]);
+  rows.push([{ text: '✕ ยกเลิก', callback_data: 'inc:cancel' }]);
+  return { names, keyboard: rows };
+}
+
+// บันทึกเหตุการณ์ 1 เรื่อง (ใช้ร่วมกับหน้าเว็บ: เขียน DB → โน้ตวอลต์ → อัปเดตโน้ตเครื่องจักร)
+async function createIncidentRow(row) {
+  const r = await dbRun(
+    `INSERT INTO incidents (title, machine, line_name, batch_id, operator, occurred_at,
+       symptom, cause, fix, result, status, images, result_images, down_from, down_to, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [row.title, row.machine || null, null, null, row.operator || null, row.occurredAt || todayBKK(),
+     row.symptom || null, null, null, null, 'open', photoJson(row.images), photoJson([]), null, null, nowBKK(), nowBKK()]);
+  const id = r.lastID;
+  const sync = await syncIncident({ ...row, id, images: photoJson(row.images), result_images: photoJson([]), status: 'open',
+    occurred_at: row.occurredAt || todayBKK(), symptom: row.symptom || null });
+  if (sync.path) await db.exec('UPDATE incidents SET vault_path = ? WHERE id = ?', [sync.path, id]);
+  touchMachineNote(row.machine);
+  return { id, vaultPath: sync.path || null, vaultError: sync.error || null };
+}
+
+// ถามข้อถัดไปตามสถานะของร่าง
+async function incAsk(chatId, draft) {
+  const send = (text, keyboard) => tgApi('sendMessage', {
+    chat_id: chatId, text, parse_mode: 'HTML',
+    ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
+  });
+  const cancelRow = [[{ text: '✕ ยกเลิก', callback_data: 'inc:cancel' }]];
+  if (draft.step === 'title') return send('⚡ <b>แจ้งเหตุการณ์</b>\n\nเกิดอะไรขึ้นครับ? พิมพ์สั้น ๆ พอ เช่น <i>ปั๊มน้ำดิบรั่ว</i>', cancelRow);
+  if (draft.step === 'machine') {
+    const { keyboard } = await incMachineKeyboard();
+    return send(`🔩 <b>เครื่องไหน?</b>\nเรื่อง: ${escapeHtml(draft.title)}`, keyboard);
+  }
+  if (draft.step === 'mtype') return send('⌨️ พิมพ์ชื่อเครื่องมาได้เลย', cancelRow);
+  if (draft.step === 'symptom') {
+    return send(
+      `📝 <b>อาการเป็นยังไง?</b>\nพิมพ์รายละเอียดมาได้เลย (หลายบรรทัดก็ได้)`,
+      [[{ text: '➖ ไม่มีรายละเอียดเพิ่ม', callback_data: 'inc:nosym' }], ...cancelRow]);
+  }
+  if (draft.step === 'photo') {
+    const n = parseImgs(draft.images).length;
+    return send(
+      `📸 <b>ส่งรูปเข้ามาได้เลย</b> (จะส่งกี่รูปก็ได้)${n ? `\nตอนนี้มี ${n} รูปแล้ว` : ''}\nหรือกดบันทึกเลยถ้าไม่มีรูป`,
+      [[{ text: '✅ บันทึกเหตุการณ์', callback_data: 'inc:save' }], ...cancelRow]);
+  }
+  return null;
+}
+
 app.post('/api/telegram/duty-update', (req, res) => {
   res.sendStatus(200);
   (async () => {
@@ -9465,6 +9574,65 @@ app.post('/api/telegram/duty-update', (req, res) => {
       if (upd.callback_query) {
         const cq = upd.callback_query;
         const data = cq.data || '';
+        // ── แจ้งเหตุการณ์ (wizard) ──
+        if (data.startsWith('inc:')) {
+          const chatId = cq.message?.chat?.id, userId = cq.from?.id;
+          const ack = (text) => tgApi('answerCallbackQuery', { callback_query_id: cq.id, ...(text ? { text } : {}) });
+          const who = [cq.from?.first_name, cq.from?.last_name].filter(Boolean).join(' ');
+          if (data === 'inc:new') {
+            await clearIncDraft(chatId, userId);
+            const d = await setIncDraft(chatId, userId, { step: 'title', operator: who });
+            await ack('แจ้งเหตุการณ์'); await incAsk(chatId, d);
+            return;
+          }
+          if (data === 'inc:cancel') {
+            await clearIncDraft(chatId, userId); await ack('ยกเลิกแล้ว');
+            await tgApi('sendMessage', { chat_id: chatId, text: '✕ ยกเลิกการแจ้งเหตุการณ์แล้ว' });
+            return;
+          }
+          const draft = await getIncDraft(chatId, userId);
+          if (!draft) { await ack('ร่างหมดอายุแล้ว กด "⚡ แจ้งเหตุการณ์" ใหม่'); return; }
+          if (data.startsWith('inc:m:')) {
+            const { names } = await incMachineKeyboard();
+            const pick = names[Number(data.slice(6))] || '';
+            const d = await setIncDraft(chatId, userId, { machine: pick, step: 'symptom' });
+            await ack(pick || 'เลือกแล้ว'); await incAsk(chatId, d);
+            return;
+          }
+          if (data === 'inc:mskip') {
+            const d = await setIncDraft(chatId, userId, { machine: '', step: 'symptom' });
+            await ack('ไม่ระบุเครื่อง'); await incAsk(chatId, d); return;
+          }
+          if (data === 'inc:mtype') {
+            const d = await setIncDraft(chatId, userId, { step: 'mtype' });
+            await ack(); await incAsk(chatId, d); return;
+          }
+          if (data === 'inc:nosym') {
+            const d = await setIncDraft(chatId, userId, { symptom: '', step: 'photo' });
+            await ack(); await incAsk(chatId, d); return;
+          }
+          if (data === 'inc:save') {
+            const imgs = parseImgs(draft.images);
+            const saved = await createIncidentRow({
+              title: draft.title, machine: draft.machine, symptom: draft.symptom,
+              images: imgs, operator: draft.operator || who,
+            });
+            await clearIncDraft(chatId, userId);
+            await ack('บันทึกแล้ว ✅');
+            await tgApi('sendMessage', {
+              chat_id: chatId, parse_mode: 'HTML',
+              text: `✅ <b>บันทึกเหตุการณ์แล้ว</b>\n⚡ ${escapeHtml(draft.title)}`
+                + (draft.machine ? `\n🔩 ${escapeHtml(draft.machine)}` : '')
+                + (imgs.length ? `\n📸 แนบรูป ${imgs.length} รูป` : '')
+                + (saved.vaultPath ? `\n📓 เขียนโน้ตไว้ที่ <code>${escapeHtml(saved.vaultPath)}</code>` : '')
+                + (saved.vaultError ? `\n⚠️ เขียนโน้ตไม่สำเร็จ: ${escapeHtml(saved.vaultError)}` : '')
+                + `\n\nไปเติมสาเหตุ/วิธีแก้/เวลาเครื่องหยุดต่อได้ที่หน้า <b>เหตุการณ์</b> ในเว็บ`,
+            });
+            return;
+          }
+          await ack();
+          return;
+        }
         // ส่งสรุปเข้ากลุ่ม
         if (data === 'sum') {
           await sendToTelegram(buildDutyText(await buildDuty(date)));
@@ -9558,6 +9726,27 @@ app.post('/api/telegram/duty-update', (req, res) => {
       // รับรูป "หลังทำ" — เฉพาะผู้ใช้ที่กด 📸 ค้างไว้ (มี wait row)
       if (upd.message?.photo?.length) {
         const chatId = upd.message.chat?.id, userId = upd.message.from?.id;
+        // กำลังแจ้งเหตุการณ์อยู่ = รูปนี้เป็นของเหตุการณ์ ไม่ใช่รูปงานประจำ (เช็กก่อนเสมอ)
+        const incD = await getIncDraft(chatId, userId);
+        if (incD && incD.step === 'photo') {
+          const best0 = upd.message.photo[upd.message.photo.length - 1];
+          const url = await downloadTelegramFile(best0.file_id);
+          // incidents รับเฉพาะ URL — ถ้าไม่มี Supabase จะได้ base64 กลับมา ซึ่งลง DB ไม่ได้
+          if (!url || !url.startsWith('http')) {
+            await tgApi('sendMessage', { chat_id: chatId, text: '⚠️ เก็บรูปไม่สำเร็จ (ที่เก็บไฟล์ไม่พร้อม) — กดบันทึกโดยไม่มีรูปไปก่อนได้' });
+            return;
+          }
+          const imgs = [...parseImgs(incD.images), url].slice(-8);
+          await setIncDraft(chatId, userId, { images: JSON.stringify(imgs) });
+          await tgApi('sendMessage', {
+            chat_id: chatId, parse_mode: 'HTML',
+            text: `📸 รับรูปแล้ว (${imgs.length} รูป) — ส่งเพิ่มได้ หรือกดบันทึก`,
+            reply_markup: { inline_keyboard: [
+              [{ text: '✅ บันทึกเหตุการณ์', callback_data: 'inc:save' }],
+              [{ text: '✕ ยกเลิก', callback_data: 'inc:cancel' }]] },
+          });
+          return;
+        }
         const wait = await getPhotoWait(chatId, userId);
         if (!wait) return; // ไม่ได้ขอแนบรูปไว้ → ปล่อยผ่าน (ไม่ยุ่งรูปทั่วไปในกลุ่ม)
         const best = upd.message.photo[upd.message.photo.length - 1]; // ความละเอียดสูงสุด
@@ -9605,6 +9794,46 @@ app.post('/api/telegram/duty-update', (req, res) => {
         return;
       }
       const text = upd.message?.text || '';
+      // ── กำลังกรอกเหตุการณ์อยู่ → ข้อความถัดไปคือคำตอบของขั้นนั้น ──
+      if (upd.message && text) {
+        const chatId = upd.message.chat?.id, userId = upd.message.from?.id;
+        const who = [upd.message.from?.first_name, upd.message.from?.last_name].filter(Boolean).join(' ');
+        if (/^\/?(ยกเลิก|cancel)$/i.test(text.trim())) {
+          const d0 = await getIncDraft(chatId, userId);
+          if (d0) {
+            await clearIncDraft(chatId, userId);
+            await tgApi('sendMessage', { chat_id: chatId, text: '✕ ยกเลิกการแจ้งเหตุการณ์แล้ว' });
+            return;
+          }
+        }
+        // "แจ้งเหตุ ปั๊มรั่ว" = ใส่หัวข้อมาในบรรทัดเดียวเลย ไม่ต้องถามซ้ำ
+        const m = text.trim().match(/^\/?(?:แจ้งเหตุ(?:การณ์)?|เหตุการณ์|incident)\s*(.*)$/i);
+        if (m) {
+          await clearIncDraft(chatId, userId);
+          const title = (m[1] || '').trim();
+          const d = await setIncDraft(chatId, userId, title
+            ? { step: 'machine', title, operator: who }
+            : { step: 'title', operator: who });
+          await incAsk(chatId, d);
+          return;
+        }
+        const draft = await getIncDraft(chatId, userId);
+        if (draft) {
+          if (draft.step === 'title') { await incAsk(chatId, await setIncDraft(chatId, userId, { title: text.trim(), step: 'machine' })); return; }
+          if (draft.step === 'mtype') { await incAsk(chatId, await setIncDraft(chatId, userId, { machine: text.trim(), step: 'symptom' })); return; }
+          if (draft.step === 'symptom') { await incAsk(chatId, await setIncDraft(chatId, userId, { symptom: text.trim(), step: 'photo' })); return; }
+          // step = photo แล้วพิมพ์ข้อความมา → เติมเป็นรายละเอียดเพิ่ม (คนมักพิมพ์ต่อ)
+          if (draft.step === 'photo') {
+            const more = [draft.symptom, text.trim()].filter(Boolean).join('\n');
+            await setIncDraft(chatId, userId, { symptom: more });
+            await tgApi('sendMessage', { chat_id: chatId, text: '📝 เพิ่มรายละเอียดแล้ว — ส่งรูปต่อ หรือกดบันทึกได้เลย',
+              reply_markup: { inline_keyboard: [
+                [{ text: '✅ บันทึกเหตุการณ์', callback_data: 'inc:save' }],
+                [{ text: '✕ ยกเลิก', callback_data: 'inc:cancel' }]] } });
+            return;
+          }
+        }
+      }
       if (/ปิดงาน|งานค้าง|เช็[กค]งาน|เช็[กค]\s*งาน|หน้าที่/.test(text)) {
         const kb = buildDutyHome(await buildDuty(date), await countAuditOpen());
         await tgApi('sendMessage', {
