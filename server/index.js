@@ -9674,22 +9674,38 @@ async function createIncidentRow(row) {
 }
 
 // ถามข้อถัดไปตามสถานะของร่าง
-async function incAsk(chatId, draft) {
-  const send = (text, keyboard) => tgApi('sendMessage', {
-    chat_id: chatId, text, parse_mode: 'HTML',
-    ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
+/* ⚠️ ขั้นที่ต้อง "พิมพ์ตอบ" ต้องส่งแบบ force_reply เสมอ
+   บอทตัวนี้ n8n เป็นเจ้าของ webhook แล้วมีโหนด Duty Gate กรองว่าอะไรจะถูกส่งต่อมาที่แอป
+   (callback_query · รูป · ข้อความที่มีคำสั่ง) — ข้อความพิมพ์ทั่วไปจะถูกทิ้ง ไม่มีวันมาถึงที่นี่
+   force_reply ทำให้คำตอบมี reply_to_message ติดมา ซึ่ง gate ใช้เป็นเงื่อนไขส่งต่อได้แบบไม่ต้องจำสถานะ
+   → แก้ gate แล้ว: `($json.callback_query || $json.message?.photo || $json.message?.reply_to_message)` */
+async function incAsk(chatId, draft, who = {}) {
+  // ⚠️ ในกลุ่ม: force_reply + selective จะเด้งช่องตอบให้ "เฉพาะคนที่ถูก mention ในข้อความ" เท่านั้น
+  //    ถ้าไม่ mention ใครเลย = ไม่เด้งให้ใครสักคน (เสียเปล่า) → ต้องแปะ inline mention ของคนถามไว้เสมอ
+  const mention = who.userId
+    ? `<a href="tg://user?id=${who.userId}">${escapeHtml(who.name || 'คุณ')}</a> ` : '';
+  const send = (text, keyboard, forceReply) => tgApi('sendMessage', {
+    chat_id: chatId, text: (forceReply ? mention : '') + text, parse_mode: 'HTML',
+    ...(who.replyTo ? { reply_to_message_id: who.replyTo } : {}),
+    ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } }
+      : forceReply ? { reply_markup: { force_reply: true, selective: true, input_field_placeholder: forceReply } }
+      : {}),
   });
   const cancelRow = [[{ text: '✕ ยกเลิก', callback_data: 'inc:cancel' }]];
-  if (draft.step === 'title') return send('⚡ <b>แจ้งเหตุการณ์</b>\n\nเกิดอะไรขึ้นครับ? พิมพ์สั้น ๆ พอ เช่น <i>ปั๊มน้ำดิบรั่ว</i>', cancelRow);
+  const cancelTip = '\n\n<i>พิมพ์ “ยกเลิก” เพื่อเลิกแจ้ง</i>';
+  if (draft.step === 'title') {
+    return send('⚡ <b>แจ้งเหตุการณ์</b>\n\nเกิดอะไรขึ้นครับ? พิมพ์สั้น ๆ พอ เช่น <i>ปั๊มน้ำดิบรั่ว</i>' + cancelTip,
+      null, 'เกิดอะไรขึ้น…');
+  }
   if (draft.step === 'machine') {
     const { keyboard } = await incMachineKeyboard();
     return send(`🔩 <b>เครื่องไหน?</b>\nเรื่อง: ${escapeHtml(draft.title)}`, keyboard);
   }
-  if (draft.step === 'mtype') return send('⌨️ พิมพ์ชื่อเครื่องมาได้เลย', cancelRow);
+  if (draft.step === 'mtype') return send('⌨️ พิมพ์ชื่อเครื่องมาได้เลย' + cancelTip, null, 'ชื่อเครื่อง…');
   if (draft.step === 'symptom') {
     return send(
-      `📝 <b>อาการเป็นยังไง?</b>\nพิมพ์รายละเอียดมาได้เลย (หลายบรรทัดก็ได้)`,
-      [[{ text: '➖ ไม่มีรายละเอียดเพิ่ม', callback_data: 'inc:nosym' }], ...cancelRow]);
+      `📝 <b>อาการเป็นยังไง?</b>\nพิมพ์รายละเอียดมาได้เลย (หลายบรรทัดก็ได้)\nไม่มีอะไรเพิ่ม พิมพ์ <b>-</b> ก็ได้` + cancelTip,
+      null, 'อาการที่เจอ…');
   }
   if (draft.step === 'photo') {
     const n = parseImgs(draft.images).length;
@@ -9717,7 +9733,7 @@ app.post('/api/telegram/duty-update', (req, res) => {
           if (data === 'inc:new') {
             await clearIncDraft(chatId, userId);
             const d = await setIncDraft(chatId, userId, { step: 'title', operator: who });
-            await ack('แจ้งเหตุการณ์'); await incAsk(chatId, d);
+            await ack('แจ้งเหตุการณ์'); await incAsk(chatId, d, { userId, name: who });
             return;
           }
           if (data === 'inc:cancel') {
@@ -9731,20 +9747,20 @@ app.post('/api/telegram/duty-update', (req, res) => {
             const { names } = await incMachineKeyboard();
             const pick = names[Number(data.slice(6))] || '';
             const d = await setIncDraft(chatId, userId, { machine: pick, step: 'symptom' });
-            await ack(pick || 'เลือกแล้ว'); await incAsk(chatId, d);
+            await ack(pick || 'เลือกแล้ว'); await incAsk(chatId, d, { userId, name: who });
             return;
           }
           if (data === 'inc:mskip') {
             const d = await setIncDraft(chatId, userId, { machine: '', step: 'symptom' });
-            await ack('ไม่ระบุเครื่อง'); await incAsk(chatId, d); return;
+            await ack('ไม่ระบุเครื่อง'); await incAsk(chatId, d, { userId, name: who }); return;
           }
           if (data === 'inc:mtype') {
             const d = await setIncDraft(chatId, userId, { step: 'mtype' });
-            await ack(); await incAsk(chatId, d); return;
+            await ack(); await incAsk(chatId, d, { userId, name: who }); return;
           }
           if (data === 'inc:nosym') {
             const d = await setIncDraft(chatId, userId, { symptom: '', step: 'photo' });
-            await ack(); await incAsk(chatId, d); return;
+            await ack(); await incAsk(chatId, d, { userId, name: who }); return;
           }
           if (data === 'inc:save') {
             const imgs = parseImgs(draft.images);
@@ -9949,14 +9965,18 @@ app.post('/api/telegram/duty-update', (req, res) => {
           const d = await setIncDraft(chatId, userId, title
             ? { step: 'machine', title, operator: who }
             : { step: 'title', operator: who });
-          await incAsk(chatId, d);
+          await incAsk(chatId, d, { userId, name: who, replyTo: upd.message.message_id });
           return;
         }
         const draft = await getIncDraft(chatId, userId);
         if (draft) {
-          if (draft.step === 'title') { await incAsk(chatId, await setIncDraft(chatId, userId, { title: text.trim(), step: 'machine' })); return; }
-          if (draft.step === 'mtype') { await incAsk(chatId, await setIncDraft(chatId, userId, { machine: text.trim(), step: 'symptom' })); return; }
-          if (draft.step === 'symptom') { await incAsk(chatId, await setIncDraft(chatId, userId, { symptom: text.trim(), step: 'photo' })); return; }
+          const asWho = { userId, name: who, replyTo: upd.message.message_id };
+          if (draft.step === 'title') { await incAsk(chatId, await setIncDraft(chatId, userId, { title: text.trim(), step: 'machine' }), asWho); return; }
+          if (draft.step === 'mtype') { await incAsk(chatId, await setIncDraft(chatId, userId, { machine: text.trim(), step: 'symptom' }), asWho); return; }
+          if (draft.step === 'symptom') {
+            const sym = text.trim() === '-' ? '' : text.trim();   // "-" = ไม่มีรายละเอียดเพิ่ม
+            await incAsk(chatId, await setIncDraft(chatId, userId, { symptom: sym, step: 'photo' }), asWho); return;
+          }
           // step = photo แล้วพิมพ์ข้อความมา → เติมเป็นรายละเอียดเพิ่ม (คนมักพิมพ์ต่อ)
           if (draft.step === 'photo') {
             const more = [draft.symptom, text.trim()].filter(Boolean).join('\n');
