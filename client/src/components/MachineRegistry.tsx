@@ -3,8 +3,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
 
 /* ทะเบียนเครื่องจักร — Master Data ของแผน ERP เฟส 1
-   ชื่อเครื่องที่นี่คือ "ชื่อจริง" ที่ทะเบียนงาน PM และโน้ตเหตุการณ์ใน Obsidian อ้างถึง
-   ([[ชื่อเครื่อง]]) — เปลี่ยนชื่อที่นี่แล้วต้องตามไปแก้ในทะเบียนงาน PM ด้วย        */
+   ชื่อเครื่องที่นี่คือ "ชื่อจริง" ที่ทะเบียนงานรูทีน และโน้ตเหตุการณ์ใน Obsidian อ้างถึง
+   ([[ชื่อเครื่อง]]) — เปลี่ยนชื่อที่นี่แล้วต้องตามไปแก้ในทะเบียนงานรูทีน ด้วย        */
 type Machine = {
   id: number; code: string; name: string; line: string;
   installedAt: string; lastPm: string; note: string; vaultPath: string;
@@ -59,7 +59,7 @@ const MachineRegistry: React.FC = () => {
       await load();
     } catch { setMsg('❌ บันทึกไม่สำเร็จ'); } finally { setBusy(false); }
   };
-  // เขียนโน้ตของทุกเครื่องรอบเดียว — ใช้ตอนเริ่มใช้งาน หรือหลังแก้ทะเบียนงาน PM ยกชุด
+  // เขียนโน้ตของทุกเครื่องรอบเดียว — ใช้ตอนเริ่มใช้งาน หรือหลังแก้ทะเบียนงานรูทีนยกชุด
   const syncAll = async () => {
     setBusy(true); setMsg('กำลังเขียนโน้ตทุกเครื่อง…');
     try {

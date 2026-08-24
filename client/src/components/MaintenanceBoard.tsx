@@ -510,7 +510,7 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
                   ? (p.adhoc || []).length === 0 && (
                       <div style={{ fontSize: 12.5, color: '#a89e94', padding: '10px 8px', lineHeight: 1.6 }}>
                         ยังไม่มีงานของคนนี้วันนี้
-                        <br />ย้ายงาน PM ให้เขาได้ที่หน้า “ทะเบียนงาน PM” หรือมอบงานเฉพาะกิจจากช่องด้านล่าง
+                        <br />ย้ายงานรูทีนให้เขาได้ที่หน้า “ทะเบียนงานรูทีน” หรือมอบงานเฉพาะกิจจากช่องด้านล่าง
                       </div>
                     )
                   : groupByMachine(p.nodes).map(g => (
