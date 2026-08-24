@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const crypto = require('crypto');
+const { AsyncLocalStorage } = require('node:async_hooks');
 const axios = require('axios');
 const FormData = require('form-data');
 const Anthropic = require('@anthropic-ai/sdk');
@@ -1328,9 +1329,44 @@ const sendToN8n = async (data) => {
   }
 };
 
+/* ══════════ บอท Telegram หลายตัวในแอปเดียว ══════════
+   ปัญหาเดิม: ตัวส่ง Telegram ทุกตัวอ่าน TELEGRAM_BOT_TOKEN แบบตายตัว → มีบอทได้ตัวเดียว
+   วิธีแก้: จำ "บอทที่กำลังคุยอยู่" ไว้ใน AsyncLocalStorage แล้วให้ตัวส่งทุกตัวอ่านจากตรงนั้น
+   ไม่ได้อยู่ในบริบทของบอทไหน = บอทหลัก (ของเดิม) → ทุกจุดที่มีอยู่พฤติกรรมไม่เปลี่ยนเลย
+   ยังไม่ตั้ง env ของบอทซ่อมบำรุง → fallback ไปบอท/กลุ่มเดิม เพื่อไม่ให้ของที่ใช้อยู่เงียบ    */
+const TG_BOTS = {
+  main: { token: () => process.env.TELEGRAM_BOT_TOKEN, chat: () => process.env.TELEGRAM_CHAT_ID },
+  maint: {
+    token: () => process.env.MAINT_TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN,
+    chat: () => process.env.MAINT_TELEGRAM_CHAT_ID || process.env.TELEGRAM_CHAT_ID,
+  },
+};
+const botCtx = new AsyncLocalStorage();
+const curBot = () => TG_BOTS[botCtx.getStore()] || TG_BOTS.main;
+const tgToken = () => curBot().token();
+const tgChatId = () => curBot().chat();
+// รันโค้ดชุดหนึ่ง "ในนามบอทตัวที่ระบุ" — ตัวส่งข้างในทุกตัวจะใช้ token/chat ของบอทนั้นเอง
+// (บริบทติดข้าม await ไปเองทั้งสาย ไม่ต้องส่งพารามิเตอร์ผ่าน 60 กว่าจุด)
+const runAsBot = (name, fn) => botCtx.run(TG_BOTS[name] ? name : 'main', fn);
+
+/* ปลายทางแจ้งเตือน: เรื่องไหนเข้ากลุ่มไหน — แก้ที่นี่ที่เดียว
+   'maint' = กลุ่มซ่อมบำรุง · 'main' = กลุ่มผลิตเดิม
+   (ยังไม่ตั้ง env ของบอทซ่อมบำรุง → 'maint' ตกไปกลุ่มเดิมอยู่ดี ปลอดภัย)                */
+const NOTIFY_ROUTE = {
+  duty: 'maint',      // กระดานงานประจำ/งานมอบหมาย · เตือนงาน · ย้ายงาน · การ์ดก่อน-หลัง
+  material: 'maint',  // วัสดุใกล้หมด
+  incident: 'maint',  // เหตุการณ์ + ค่าหลุดสเปกเปิดเหตุการณ์ให้
+  sop: 'maint',       // คู่มือ/SOP รออนุมัติ
+  production: 'main', // ยอดผลิต · CIP · KPI · ส่ง/รับกะ · ผู้ช่วย AI
+};
+// ส่งข้อความตามหัวข้อ — ใช้แทน sendToTelegram ตรง ๆ ในจุดที่ต้องเลือกกลุ่ม
+const notify = (topic, ...args) => runAsBot(NOTIFY_ROUTE[topic] || 'main', () => sendToTelegram(...args));
+// ใช้ห่อโค้ดหลายบรรทัด (เช่นส่งรูป+ข้อความ) ให้ทั้งก้อนไปกลุ่มเดียวกัน
+const inTopic = (topic, fn) => runAsBot(NOTIFY_ROUTE[topic] || 'main', fn);
+
 const sendToTelegram = async (message) => {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const token = tgToken();
+  const chatId = tgChatId();
   console.log(`[Telegram] sendToTelegram called. hasToken=${!!token} hasChatId=${!!chatId} msgLen=${message?.length}`);
   if (!token || !chatId) { console.error('[Telegram] Missing token or chatId'); return; }
   try {
@@ -1347,7 +1383,7 @@ const sendToTelegram = async (message) => {
 
 // เรียก Telegram Bot API แบบ generic (sendMessage/editMessageText/answerCallbackQuery ฯลฯ)
 const tgApi = async (method, payload) => {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const token = tgToken();
   if (!token) { console.log(`[TG] ${method} skipped (no token)`); return null; }
   try { const r = await axios.post(`https://api.telegram.org/bot${token}/${method}`, payload); return r.data; }
   catch (e) { console.error(`[TG] ${method} error`, e.response?.data || e.message); return null; }
@@ -1411,8 +1447,8 @@ const dataUrlToBuffer = (dataUrl) => {
 
 // toChatId: ส่งเข้าแชทที่ระบุ (ปุ่มดูรูปต้องตอบในแชทที่กด) — ไม่ระบุ = กลุ่มหลักเหมือนเดิม
 const sendPhotoBufferToTelegram = async (buffer, mimeType, caption, toChatId) => {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = toChatId || process.env.TELEGRAM_CHAT_ID;
+  const token = tgToken();
+  const chatId = toChatId || tgChatId();
   if (!token || !chatId) { console.error('[TG Photo] missing token/chatId'); return; }
   console.log(`[TG Photo] sending buffer size=${buffer?.length} mime=${mimeType}`);
   try {
@@ -1436,8 +1472,8 @@ const sendPhotoBufferToTelegram = async (buffer, mimeType, caption, toChatId) =>
 // ส่งรูปหลายรูปเป็นอัลบั้มเดียว (sendMediaGroup) — caption อยู่รูปแรก · รับ data URL array
 // 0 รูป=ไม่ทำ · 1 รูป=ใช้ sendPhoto เดิม · ≥2=อัลบั้ม (cap 6) · กันพังด้วย try/catch
 const sendMediaGroupToTelegram = async (dataUrls, caption) => {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const token = tgToken();
+  const chatId = tgChatId();
   const bufs = (dataUrls || []).map(dataUrlToBuffer).filter(Boolean).slice(0, 6);
   if (!bufs.length) { if (caption) await sendToTelegram(caption); return; }
   if (!token || !chatId) { console.error('[TG Album] missing token/chatId'); return; }
@@ -1463,8 +1499,8 @@ const sendMediaGroupToTelegram = async (dataUrls, caption) => {
 
 // ส่งรูปด้วย "URL" (Supabase Storage) — Telegram ดึงรูปเองจาก URL (ไม่ต้องโหลดผ่าน server → ประหยัด egress)
 const sendPhotoUrlsToTelegram = async (urls, caption) => {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const token = tgToken();
+  const chatId = tgChatId();
   const list = (urls || []).slice(0, 6);
   if (!list.length) { if (caption) await sendToTelegram(caption); return; }
   if (!token || !chatId) { console.error('[TG url] missing token/chatId'); return; }
@@ -5223,6 +5259,33 @@ const registerSppWebhook = async () => {
   } catch (e) { console.error('[SPP bot] webhook registration failed', e.response?.data || e.message); }
 };
 
+/* ตั้ง webhook ของบอทซ่อมบำรุงมาที่แอป — เป็นคนละบอทกับตัวที่ n8n ถืออยู่ จึงไม่แย่ง webhook กัน
+   ⚠️ ห้ามเอา TELEGRAM_BOT_TOKEN ตัวเดิมมาใส่เด็ดขาด — จะแย่ง webhook จาก n8n แล้วสายผลิตเงียบทั้งเส้น
+   ยังไม่ตั้ง MAINT_TELEGRAM_BOT_TOKEN = ข้ามเงียบ ๆ (ของเดิมทำงานเหมือนเดิมทุกอย่าง)          */
+const registerMaintWebhook = async () => {
+  const token = process.env.MAINT_TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+  if (token === process.env.TELEGRAM_BOT_TOKEN) {
+    console.error('[maint bot] ⛔ token ซ้ำกับบอทหลัก — ไม่ตั้ง webhook (จะแย่ง webhook ของ n8n)');
+    return;
+  }
+  try {
+    await axios.get(`https://api.telegram.org/bot${token}/setWebhook`,
+      { params: { url: `${PUBLIC_URL}/api/telegram/maint-update` } });
+    const me = await axios.get(`https://api.telegram.org/bot${token}/getMe`);
+    console.log(`[maint bot] webhook registered → @${me.data?.result?.username || '?'}`
+      + (process.env.MAINT_TELEGRAM_CHAT_ID ? '' : ' ⚠️ ยังไม่ได้ตั้ง MAINT_TELEGRAM_CHAT_ID'));
+    // เมนูคำสั่งในช่องพิมพ์ของกลุ่ม — กดเลือกได้ ไม่ต้องจำ
+    await axios.post(`https://api.telegram.org/bot${token}/setMyCommands`, {
+      commands: [
+        { command: 'menu', description: 'กระดานงานวันนี้ (เช็คงาน)' },
+        { command: 'incident', description: 'แจ้งเหตุการณ์' },
+        { command: 'cancel', description: 'ยกเลิกที่ค้างอยู่' },
+      ],
+    });
+  } catch (e) { console.error('[maint bot] webhook registration failed', e.response?.data || e.message); }
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 // LINE — การ์ดแจ้งคลังหลังหัวหน้าอนุมัติ + ปุ่ม "กดรับทราบ" (เฟส 2)
 //   งานจริงคลังคุยกันในกลุ่ม LINE ไม่ใช่ Telegram · การ์ดนี้คือใบรับของ
@@ -5754,7 +5817,7 @@ app.post('/api/tasks/reassign', async (req, res) => {
     await db.exec('UPDATE daily_tasks SET assignee = ?, line_name = ? WHERE id = ?', [assignTo, assignTo, id]);
     res.json({ success: true, from: row.assignee, to: assignTo });
     if (process.env.TELEGRAM_CHAT_ID) {
-      sendToTelegram(`🔁 <b>ย้ายงาน</b>\n${catIcon(row.category)} ${escapeHtml(row.title)}${row.priority === 'urgent' ? '  🔴 <b>ด่วน</b>' : ''}\n\n`
+      notify('duty', `🔁 <b>ย้ายงาน</b>\n${catIcon(row.category)} ${escapeHtml(row.title)}${row.priority === 'urgent' ? '  🔴 <b>ด่วน</b>' : ''}\n\n`
         + `👤 ${escapeHtml(dutyName(row.assignee))} → <b>${escapeHtml(dutyName(assignTo))}</b>\n`
         + `🗓 ${thaiDate(row.task_date)}\n✍️ โดย ${escapeHtml(operator || 'จักรกฤษ')}`);
     }
@@ -6577,7 +6640,7 @@ app.post('/api/materials/move', async (req, res) => {
     const rp = num(m.reorder_point);
     const justCrossed = rp > 0 && before > rp && after <= rp;
     if (justCrossed && process.env.TELEGRAM_CHAT_ID) {
-      sendToTelegram(`⚠️ <b>วัสดุใกล้หมด</b>\n${escapeHtml(m.name)}\n\n`
+      notify('material', `⚠️ <b>วัสดุใกล้หมด</b>\n${escapeHtml(m.name)}\n\n`
         + `📦 เหลือ <b>${round2(after)} ${escapeHtml(m.unit || '')}</b> (จุดสั่งซื้อ ${rp} ${escapeHtml(m.unit || '')})\n`
         + (m.supplier ? `🏭 ผู้ขาย: ${escapeHtml(m.supplier)}\n` : '')
         + `✍️ ${escapeHtml(String(b.operator || 'ไม่ระบุ'))}`);
@@ -7445,8 +7508,10 @@ async function fetchAsDataUri(src) {
 // เพื่อให้ forward ต่อเข้ากลุ่ม Line แล้วรูปกับข้อความไม่หลุดจากกัน (album ผูก caption กับรูปแรกเท่านั้น)
 // กติกา: 1 งาน = 1 การ์ด — ห้ามเอารูปของงานอื่น/คนอื่นมารวมใบเดียวกัน
 // pairList = [{label, before, after}] → การ์ดโหมดจับคู่ตามจุด (ใช้แทน beforeImage/afterImages)
-async function sendBeforeAfterCard({ date, personKey, title, kicker, beforeImage, beforeSub, afterImages, pairList, operator, footerExtra }) {
-  if (!process.env.TELEGRAM_CHAT_ID) return;
+// ห่อด้วย inTopic เพื่อให้ทุกท่อนที่ส่งข้างใน (รูป/ข้อความ/fallback) ไปกลุ่มเดียวกันหมด
+const sendBeforeAfterCard = (a) => inTopic('duty', () => _sendBeforeAfterCard(a));
+async function _sendBeforeAfterCard({ date, personKey, title, kicker, beforeImage, beforeSub, afterImages, pairList, operator, footerExtra }) {
+  if (!tgChatId()) return;
   const who = dutyName(personKey);
   const timeLabel = `${nowBKK().slice(11, 16)} น.`;
   const afters = (afterImages || []).filter(Boolean);
@@ -7673,8 +7738,8 @@ app.post('/api/duty/assign', async (req, res) => {
       L.push(`✍️ โดย ${escapeHtml(operator || 'จักรกฤษ')}`);
       const msg = L.join('\n');
       const photoSet = hasDone ? [...images, ...doneImages].slice(0, 10) : images;
-      if (photoSet.length) sendPhotosToTelegram(photoSet, msg); // มีรูป → ส่งเป็นอัลบั้มพร้อมข้อความ (URL/base64)
-      else sendToTelegram(msg);
+      // มีรูป → ส่งเป็นอัลบั้มพร้อมข้อความ (URL/base64) · เข้ากลุ่มตาม NOTIFY_ROUTE.duty
+      inTopic('duty', () => (photoSet.length ? sendPhotosToTelegram(photoSet, msg) : sendToTelegram(msg)));
     }
     // อัปเดต gate ในหน่วยความจำ — กัน reminderTick ข้ามงานที่เพิ่งตั้งเตือน (ไม่ยิง DB)
     if (remindAt && (_nextRemindAt == null || remindAt < _nextRemindAt)) { _nextRemindAt = remindAt; _nextRemindKnown = true; }
@@ -7793,7 +7858,7 @@ app.post('/api/report/schedule/delete', async (req, res) => {
 async function sendDutyReport(date, onlyIfPending) {
   const duty = await buildDuty(date);
   if (onlyIfPending && duty.team.left <= 0) return false;
-  await sendToTelegram(buildDutyText(duty));
+  await notify('duty', buildDutyText(duty));
   return true;
 }
 
@@ -7872,8 +7937,7 @@ async function reminderTick() {
         L.push(`🗓 <b>กำหนด:</b> ${thaiDate(t.task_date)}${t.due_time ? ` · ${t.due_time} น.` : ''}`);
         const imgs = (() => { try { return JSON.parse(t.images || '[]'); } catch { return []; } })();
         const msg = L.join('\n');
-        if (imgs.length) sendPhotosToTelegram(imgs, msg);
-        else sendToTelegram(msg);
+        inTopic('duty', () => (imgs.length ? sendPhotosToTelegram(imgs, msg) : sendToTelegram(msg)));
       }
       console.log(`[reminder] task#${t.id} "${t.title}" → sent`);
     }
@@ -8917,7 +8981,7 @@ async function runQualityWatch({ from, to, dryRun = false, minOut = 1 } = {}) {
     const L = ['🔬 <b>พบค่าหลุดสเปก — เปิดเหตุการณ์ให้แล้ว</b>', ''];
     for (const c of created) L.push(`• ${escapeHtml(c.title)}`);
     L.push('', 'เปิดหน้า <b>เหตุการณ์</b> ในแอปเพื่อกรอกสาเหตุ/วิธีแก้');
-    await sendToTelegram(L.join('\n'));
+    await notify('incident', L.join('\n'));
   }
   return { from: h.from, to: h.to, checked: h.checked, out: h.out, found: found.length, created, skipped };
 }
@@ -9590,7 +9654,7 @@ async function uploadBufferToStorage(buffer, mime) {
 
 // getFile → ดาวน์โหลดไบต์ → อัป Storage คืน URL (fallback base64 ถ้าไม่มี Supabase) หรือ null
 async function downloadTelegramFile(fileId) {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const token = tgToken();
   if (!token) return null;
   try {
     const info = await tgApi('getFile', { file_id: fileId });
@@ -9674,11 +9738,12 @@ async function createIncidentRow(row) {
 }
 
 // ถามข้อถัดไปตามสถานะของร่าง
-/* ⚠️ ขั้นที่ต้อง "พิมพ์ตอบ" ต้องส่งแบบ force_reply เสมอ
-   บอทตัวนี้ n8n เป็นเจ้าของ webhook แล้วมีโหนด Duty Gate กรองว่าอะไรจะถูกส่งต่อมาที่แอป
-   (callback_query · รูป · ข้อความที่มีคำสั่ง) — ข้อความพิมพ์ทั่วไปจะถูกทิ้ง ไม่มีวันมาถึงที่นี่
-   force_reply ทำให้คำตอบมี reply_to_message ติดมา ซึ่ง gate ใช้เป็นเงื่อนไขส่งต่อได้แบบไม่ต้องจำสถานะ
-   → แก้ gate แล้ว: `($json.callback_query || $json.message?.photo || $json.message?.reply_to_message)` */
+/* ⚠️ ขั้นที่ต้อง "พิมพ์ตอบ" ยังส่งแบบ force_reply อยู่ — เก็บไว้ด้วยเหตุผล 2 ข้อ
+   1) บอทเดิม: n8n เป็นเจ้าของ webhook มีโหนด Duty Gate กรองว่าอะไรถูกส่งต่อมาที่แอป
+      (callback_query · รูป · ข้อความที่ตอบกลับ) — ข้อความพิมพ์ลอย ๆ ถูกทิ้ง ไม่มีวันมาถึงที่นี่
+      gate ปัจจุบัน: `($json.callback_query || $json.message?.photo || $json.message?.reply_to_message)`
+   2) บอทซ่อมบำรุง: ไม่มี gate แล้วก็จริง แต่ในกลุ่มต้องแยกให้ออกว่าข้อความไหน "ตอบบอท"
+      ไม่งั้นคนคุยงานกันอยู่จะโดนดูดเข้าร่างเหตุการณ์ (ดูกติกาตอนอ่านคำตอบข้างล่าง)      */
 async function incAsk(chatId, draft, who = {}) {
   // ⚠️ ในกลุ่ม: force_reply + selective จะเด้งช่องตอบให้ "เฉพาะคนที่ถูก mention ในข้อความ" เท่านั้น
   //    ถ้าไม่ mention ใครเลย = ไม่เด้งให้ใครสักคน (เสียเปล่า) → ต้องแปะ inline mention ของคนถามไว้เสมอ
@@ -9716,11 +9781,13 @@ async function incAsk(chatId, draft, who = {}) {
   return null;
 }
 
-app.post('/api/telegram/duty-update', (req, res) => {
-  res.sendStatus(200);
-  (async () => {
+/* เนื้อในของกระดานงาน/wizard แจ้งเหตุการณ์ — ใช้ร่วมกัน 2 ทางเข้า:
+     · /api/telegram/duty-update  = บอทเดิม (n8n เป็นเจ้าของ webhook แล้ว forward ผ่าน Duty Gate มา)
+     · /api/telegram/maint-update = บอทซ่อมบำรุง (แอปเป็นเจ้าของ webhook เอง ข้อความมาถึงตรง ๆ)
+   ตัวส่ง Telegram ข้างในอ่าน "บอทที่กำลังคุยอยู่" จากบริบทเอง จึงตอบกลับถูกบอทเสมอ            */
+async function handleDutyUpdate(upd) {
+  {   // บล็อกเปล่า: คงระดับย่อหน้าเดิมของโค้ดข้างในไว้ ดิฟตอนแยกบอทจะได้ไม่บวมทั้งฟังก์ชัน
     try {
-      const upd = req.body || {};
       const date = workDayBKK();
       if (upd.callback_query) {
         const cq = upd.callback_query;
@@ -9969,7 +10036,16 @@ app.post('/api/telegram/duty-update', (req, res) => {
           return;
         }
         const draft = await getIncDraft(chatId, userId);
-        if (draft) {
+        /* ⚠️ ในกลุ่ม: ห้ามดูดข้อความทั่วไปเข้าร่างเหตุการณ์
+           บอทซ่อมบำรุงเป็นเจ้าของ webhook เอง = เห็นทุกข้อความในกลุ่ม (ไม่มี Duty Gate กรองให้แล้ว)
+           คนตั้งเรื่องค้างไว้แล้วคุยงานอื่นต่อ ข้อความจะกลายเป็น "อาการ" ของเหตุการณ์ทันที
+           กติกา: นับเป็นคำตอบเมื่อ = แชทเดี่ยว · หรือกดตอบกลับคำถามของบอท (force_reply เด้งช่องให้อยู่แล้ว)
+                  · หรือยังอยู่ในช่วง 5 นาทีแรก (เผื่อ force_reply ไม่ติด คนพิมพ์ตอบตรง ๆ)            */
+        const inGroup = /group/.test(upd.message.chat?.type || '');
+        const repliedToBot = !!upd.message.reply_to_message?.from?.is_bot;
+        const freshCut = new Date(Date.now() - 5 * 60000).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
+        const stillFresh = !!draft && String(draft.created_at || '') >= freshCut;
+        if (draft && (!inGroup || repliedToBot || stillFresh)) {
           const asWho = { userId, name: who, replyTo: upd.message.message_id };
           if (draft.step === 'title') { await incAsk(chatId, await setIncDraft(chatId, userId, { title: text.trim(), step: 'machine' }), asWho); return; }
           if (draft.step === 'mtype') { await incAsk(chatId, await setIncDraft(chatId, userId, { machine: text.trim(), step: 'symptom' }), asWho); return; }
@@ -9989,7 +10065,8 @@ app.post('/api/telegram/duty-update', (req, res) => {
           }
         }
       }
-      if (/ปิดงาน|งานค้าง|เช็[กค]งาน|เช็[กค]\s*งาน|หน้าที่/.test(text)) {
+      if (/^\/(start|menu|duty)\b/.test(text.trim()) || /^เมนู\s*$/.test(text.trim())
+          || /ปิดงาน|งานค้าง|เช็[กค]งาน|เช็[กค]\s*งาน|หน้าที่/.test(text)) {
         const kb = buildDutyHome(await buildDuty(date), await countAuditOpen());
         await tgApi('sendMessage', {
           chat_id: upd.message.chat.id, text: kb.text, parse_mode: 'HTML',
@@ -9997,7 +10074,28 @@ app.post('/api/telegram/duty-update', (req, res) => {
         });
       }
     } catch (e) { console.error('[duty-update] error', e); }
-  })();
+  }
+}
+
+// บอทเดิม — n8n forward มาให้ (ยังใช้อยู่จนกว่าจะถอด Duty Gate ออก)
+app.post('/api/telegram/duty-update', (req, res) => {
+  res.sendStatus(200);
+  handleDutyUpdate(req.body || {});
+});
+
+// บอทซ่อมบำรุง — Telegram ยิงตรงมาที่นี่ ไม่ผ่าน n8n (ไม่มี Duty Gate มากรองให้แล้ว)
+// กันคนลากบอทไปเข้ากลุ่มอื่นแล้วสั่งงานได้: กลุ่มอื่นที่ไม่ใช่ MAINT_TELEGRAM_CHAT_ID = ทิ้ง
+// แชทเดี่ยวยังใช้ได้ (ช่างทักบอทตรง ๆ เพื่อแจ้งเหตุการณ์)
+app.post('/api/telegram/maint-update', (req, res) => {
+  res.sendStatus(200);
+  const upd = req.body || {};
+  const chat = upd.message?.chat || upd.callback_query?.message?.chat || {};
+  const allow = String(process.env.MAINT_TELEGRAM_CHAT_ID || '');
+  if (allow && /group|channel/.test(chat.type || '') && String(chat.id) !== allow) {
+    console.log(`[maint bot] ข้ามข้อความจากกลุ่ม ${chat.id} (ไม่ใช่กลุ่มซ่อมบำรุง)`);
+    return;
+  }
+  runAsBot('maint', () => handleDutyUpdate(upd));
 });
 
 // ── Endpoints: timeline + handover ────────────────────────────────────────
@@ -11215,7 +11313,7 @@ app.post('/api/posts', async (req, res) => {
 const SOP_CATEGORY = 'คู่มือ / SOP';
 const isSopPost = (row) => String((row || {}).category || '').trim() === SOP_CATEGORY;
 
-const sopNotify = (text) => { if (process.env.TELEGRAM_CHAT_ID) sendToTelegram(text); };
+const sopNotify = (text) => { if (process.env.TELEGRAM_CHAT_ID) notify('sop', text); };
 
 // ส่งขออนุมัติ — ใครก็ส่งได้ (คนเขียนเอง)
 app.post('/api/posts/submit', async (req, res) => {
@@ -12167,6 +12265,8 @@ if (require.main === module) {
         // บอท SPP เป็นคนละบอท จึงตั้ง webhook ของตัวเองได้โดยไม่ชนกับข้างบน
         // (แต่ต้องปิด Telegram Trigger ใน n8n v4 ก่อน เพราะใช้บอทตัวเดียวกัน)
         registerSppWebhook();
+        // บอทซ่อมบำรุง — คนละบอทอีกตัว แอปเป็นเจ้าของ webhook เอง (ไม่ต้องผ่าน Duty Gate ใน n8n)
+        registerMaintWebhook();
         // ตัวจับเวลาส่งรายงานอัตโนมัติ + วิเคราะห์สิ้นกะ (เฟส 1) — เช็กทุกนาที (ต้องให้เซิร์ฟเวอร์ตื่นอยู่; มี Keep-Warm ping ช่วย)
         setInterval(() => { reportTick(); reminderTick(); shiftAnalysisTick(); kpiReportTick(); kpiAlertTick(); qualityWatchTick(); sheetSyncTick(); sppShiftNudgeTick(); vaultTick(); }, 60 * 1000);
         console.log('[report] scheduler started (every 60s) + shift-analysis');
