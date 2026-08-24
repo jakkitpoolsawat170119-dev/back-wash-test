@@ -483,6 +483,20 @@ const SCHEMA = [
   // 1 แถวต่อ (chat_id, user_id) — เก็บว่ากำลังแนบรูปของงาน task_id ไหน (เก็บ DB กัน Render restart หาย)
   // ── ร่างเหตุการณ์ที่กำลังแจ้งผ่าน Telegram (1 แถวต่อ 1 คนในแชตนั้น) ─────────
   //    เก็บใน DB ไม่ใช่ตัวแปรในหน่วยความจำ — Render รีสตาร์ตบ่อย ร่างต้องไม่หาย
+  /* ร่างของกระดานซ่อมบำรุงในบอท (คนละเรื่องกับ tg_incident_draft ที่เป็นร่าง "ใบแจ้งซ่อมใหม่")
+     kind = 'close' ปิดงานซ่อม (ถามวิธีแก้ + รูปหลังซ่อม) · 'pm' ตั้งงาน PM ใหม่
+     ref_id = ใบงานที่กำลังทำอยู่ · data = JSON คำตอบสะสม
+     เก็บลง DB ไม่ใช่ตัวแปรในหน่วยความจำ เพราะ Render รีสตาร์ตกลางบทสนทนาบ่อย       */
+  `CREATE TABLE IF NOT EXISTS tg_maint_draft (
+      chat_id TEXT,
+      user_id TEXT,
+      kind TEXT,
+      ref_id INTEGER,
+      step TEXT,
+      data TEXT,
+      created_at TEXT,
+      UNIQUE(chat_id, user_id)
+    )`,
   `CREATE TABLE IF NOT EXISTS tg_incident_draft (
       chat_id TEXT,
       user_id TEXT,
@@ -814,6 +828,25 @@ async function initDb() {
   for (const col of ['down_from', 'down_to']) {
     try { await db.exec(`ALTER TABLE incidents ADD COLUMN ${col} TEXT`); } catch { /* มีแล้ว */ }
   }
+  /* migration (กระดานซ่อมบำรุงในบอท) — ใบแจ้งซ่อมต้องมีสถานะ/ความเร่งด่วน/คนรับงาน
+     priority: 'stop' หยุดไลน์ · 'warn' ยังเดินได้แต่มีปัญหา · 'low' ไว้ทำตอนว่าง
+     status เดิมมีแค่ open/closed → เพิ่มค่า 'wip' (ช่างรับงานแล้ว กำลังซ่อม) ไม่ต้องแก้ชนิดคอลัมน์
+     card_chat_id/card_msg_id = การ์ดในกลุ่ม Telegram ของใบนี้ ไว้แก้ข้อความเดิมเวลาสถานะเปลี่ยน
+       (แก้การ์ดใบเดิมแทนการโพสต์ใหม่ ทีมผลิตจะได้ไม่ต้องไล่หาว่าอันไหนล่าสุด)              */
+  for (const col of ['priority', 'assignee', 'card_chat_id', 'card_msg_id']) {
+    try { await db.exec(`ALTER TABLE incidents ADD COLUMN ${col} TEXT`); } catch { /* มีแล้ว */ }
+  }
+  /* migration: ความถี่ของงานรูทีน — ไม่ใช่ทุกงานทำทุกวัน (เดิมกระดานนับรวมหมดเลยดู "ค้าง" ตลอด)
+     'daily' ทุกวัน · 'weekly' ทุกสัปดาห์ · 'monthly' ทุกเดือน · 'quarterly' ทุก 3 เดือน
+     'onuse' เมื่อใช้งานเครื่องนั้น · 'onissue' เมื่อมีปัญหาเท่านั้น (ไม่ขึ้นกระดานเอง)
+     NULL = งานเก่าที่ยังไม่ได้ตั้ง → ถือเป็น 'daily' เหมือนพฤติกรรมเดิม ไม่ทำให้ของเก่าเปลี่ยน   */
+  try { await db.exec('ALTER TABLE duty_routines ADD COLUMN freq TEXT'); } catch { /* มีแล้ว */ }
+  /* migration: ผูกบัญชี Telegram กับคนในทีม — ใช้ตัดสินว่า "คนกดปุ่มนี้เป็นช่างไหม"
+     ปุ่มรับงาน/ปิดงานต้องล็อกเฉพาะช่าง เพราะกลุ่มมีทีมผลิตอยู่ด้วย                        */
+  try { await db.exec('ALTER TABLE duty_people ADD COLUMN tg_user_id TEXT'); } catch { /* มีแล้ว */ }
+  // migration: ความเร่งด่วนของร่างใบแจ้งซ่อมที่กำลังกรอกอยู่
+  try { await db.exec('ALTER TABLE tg_incident_draft ADD COLUMN priority TEXT'); } catch { /* มีแล้ว */ }
+
   // migration (KM): ที่อยู่ไฟล์โน้ตของเครื่องจักรใน vault — ใช้ย้าย/ลบไฟล์เก่าตอนเปลี่ยนชื่อเครื่อง
   try { await db.exec('ALTER TABLE machines ADD COLUMN vault_path TEXT'); } catch { /* มีแล้ว */ }
   // migration (ERP เฟส 3): ค่าเสียโอกาสต่อชั่วโมงของเครื่องนี้ (ว่าง = ใช้ค่ากลางจาก cost_config)
@@ -1345,6 +1378,8 @@ const botCtx = new AsyncLocalStorage();
 const curBot = () => TG_BOTS[botCtx.getStore()] || TG_BOTS.main;
 const tgToken = () => curBot().token();
 const tgChatId = () => curBot().chat();
+// กำลังทำงานในนามบอทซ่อมบำรุงอยู่ไหม — ใช้เลือกว่าจะโชว์กระดานไหน/ถามความเร่งด่วนไหม
+const onMaintBot = () => botCtx.getStore() === 'maint';
 // รันโค้ดชุดหนึ่ง "ในนามบอทตัวที่ระบุ" — ตัวส่งข้างในทุกตัวจะใช้ token/chat ของบอทนั้นเอง
 // (บริบทติดข้าม await ไปเองทั้งสาย ไม่ต้องส่งพารามิเตอร์ผ่าน 60 กว่าจุด)
 const runAsBot = (name, fn) => botCtx.run(TG_BOTS[name] ? name : 'main', fn);
@@ -5278,8 +5313,8 @@ const registerMaintWebhook = async () => {
     // เมนูคำสั่งในช่องพิมพ์ของกลุ่ม — กดเลือกได้ ไม่ต้องจำ
     await axios.post(`https://api.telegram.org/bot${token}/setMyCommands`, {
       commands: [
-        { command: 'menu', description: 'กระดานงานวันนี้ (เช็คงาน)' },
-        { command: 'incident', description: 'แจ้งเหตุการณ์' },
+        { command: 'menu', description: 'กระดานซ่อมบำรุงวันนี้' },
+        { command: 'incident', description: 'แจ้งซ่อม — แจ้งเครื่องมีปัญหา' },
         { command: 'cancel', description: 'ยกเลิกที่ค้างอยู่' },
       ],
     });
@@ -6759,7 +6794,7 @@ app.get('/api/maint/routines', async (req, res) => {
     const keys = people.map(p => p.person_key);
     if (!keys.length) return res.json({ people: [], rows: [] });
     const rows = await dbAll(
-      `SELECT id, person_key, node_key, title, machine, goal, owner_role, co_owner_role, sort_order
+      `SELECT id, person_key, node_key, title, machine, goal, owner_role, co_owner_role, sort_order, freq
          FROM duty_routines WHERE active = 1 AND person_key IN (${keys.map(() => '?').join(',')})
         ORDER BY sort_order, id`, keys);
     res.json({
@@ -6768,6 +6803,7 @@ app.get('/api/maint/routines', async (req, res) => {
         id: r.id, personKey: r.person_key, nodeKey: r.node_key, title: r.title,
         machine: r.machine || '', goal: r.goal || '',
         ownerRole: r.owner_role || '', coOwnerRole: r.co_owner_role || '', sortOrder: r.sort_order,
+        freq: r.freq || '',
       })),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -6835,7 +6871,7 @@ async function buildRoutineTree(personKey) {
   // ลด egress: ไม่ดึง ref_image ที่เป็น base64 (fallback ตอนไม่มี Supabase) — คืน URL ตรงๆ ถ้าเป็น URL
   // ไม่งั้นคืนแค่ธง แล้วให้ client โหลดผ่าน GET /api/routine/image ตอนกดดู
   const rows = await dbAll(
-    `SELECT id, parent_id, node_key, title, mono, sort_order, machine, goal, owner_role, co_owner_role,
+    `SELECT id, parent_id, node_key, title, mono, sort_order, machine, goal, owner_role, co_owner_role, freq,
        CASE WHEN ref_image LIKE 'http%' THEN ref_image ELSE NULL END AS ref_image_url,
        CASE WHEN ref_image IS NULL OR ref_image = '' THEN 0 ELSE 1 END AS has_ref_image
      FROM duty_routines WHERE person_key = ? AND active = 1 ORDER BY parent_id, sort_order, id`, [personKey]);
@@ -6843,7 +6879,7 @@ async function buildRoutineTree(personKey) {
   for (const r of rows) { const k = r.parent_id == null ? 'root' : String(r.parent_id); (byParent[k] = byParent[k] || []).push(r); }
   const build = (key) => (byParent[key] || []).map(r => {
     const node = { key: r.node_key, title: r.title, id: r.id, parentId: r.parent_id == null ? null : r.parent_id,
-      machine: r.machine || null, goal: r.goal || null,
+      machine: r.machine || null, goal: r.goal || null, freq: r.freq || null,
       ownerRole: r.owner_role || null, coOwnerRole: r.co_owner_role || null,
       refImage: r.ref_image_url || null, hasRefImage: !!r.has_ref_image };
     if (r.mono) node.mono = true;
@@ -6861,7 +6897,7 @@ function flattenRoutine(nodes, depth = 0, prefix = '') {
   for (const n of nodes) {
     const key = prefix ? `${prefix}/${n.key}` : n.key;
     out.push({ key, title: n.title, depth, mono: !!n.mono, id: n.id, parentId: n.parentId,
-      machine: n.machine || null, goal: n.goal || null,
+      machine: n.machine || null, goal: n.goal || null, freq: n.freq || null,
       ownerRole: n.ownerRole || null, coOwnerRole: n.coOwnerRole || null,
       refImage: n.refImage || null, hasRefImage: !!n.hasRefImage });
     if (n.children) out.push(...flattenRoutine(n.children, depth + 1, key));
@@ -7273,9 +7309,11 @@ app.post('/api/duty/person/delete', async (req, res) => {
 
 // upsert งาน (node ในเช็กลิสต์) — สร้างใหม่ (บนสุด/เป็นลูก) หรือแก้ชื่อ/mono
 app.post('/api/duty/routine', async (req, res) => {
-  const { id, personKey, parentId, title, mono, sortOrder, machine, goal, ownerRole, coOwnerRole, assigneeKey } = req.body;
+  const { id, personKey, parentId, title, mono, sortOrder, machine, goal, ownerRole, coOwnerRole, assigneeKey, freq } = req.body;
   // ช่องของโซนซ่อมบำรุง — ไม่ส่งมา = ไม่แตะของเดิม (งานของทีมกะไม่ได้ใช้ช่องพวกนี้)
   const role = (v) => (['mt', 'op', 'qc', 'pd'].includes(v) ? v : null);
+  // ความถี่: ค่านอกรายการ = ทิ้ง (ว่าง = ทุกวัน เหมือนพฤติกรรมเดิม)
+  const freqOk = (v) => (['daily', 'weekly', 'monthly', 'quarterly', 'onuse', 'onissue'].includes(v) ? v : null);
   if (!title || !String(title).trim()) return res.status(400).json({ error: 'title จำเป็น' });
   try {
     if (id) {
@@ -7291,12 +7329,13 @@ app.post('/api/duty/routine', async (req, res) => {
         owner = assigneeKey;
       }
       await db.exec(`UPDATE duty_routines SET person_key = ?, title = ?, mono = ?, sort_order = ?,
-           machine = ?, goal = ?, owner_role = ?, co_owner_role = ? WHERE id = ?`,
+           machine = ?, goal = ?, owner_role = ?, co_owner_role = ?, freq = ? WHERE id = ?`,
         [owner, title.trim(), mono ? 1 : 0, sortOrder != null ? sortOrder : cur.sort_order,
          machine !== undefined ? (machine || null) : cur.machine,
          goal !== undefined ? (goal || null) : cur.goal,
          ownerRole !== undefined ? role(ownerRole) : cur.owner_role,
-         coOwnerRole !== undefined ? role(coOwnerRole) : cur.co_owner_role, id]);
+         coOwnerRole !== undefined ? role(coOwnerRole) : cur.co_owner_role,
+         freq !== undefined ? freqOk(freq) : cur.freq, id]);
       invalidateRoutineCache();
       return res.json({ success: true, id });
     }
@@ -7314,10 +7353,10 @@ app.post('/api/duty/routine', async (req, res) => {
     const order = sortOrder != null ? sortOrder : ((maxOrder && maxOrder.m != null ? Number(maxOrder.m) : -1) + 1);
     const r = await dbRun(
       `INSERT INTO duty_routines (person_key, parent_id, node_key, title, mono, sort_order, active, created_at,
-         machine, goal, owner_role, co_owner_role)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+         machine, goal, owner_role, co_owner_role, freq)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
       [personKey, parentId || null, nodeKey, title.trim(), mono ? 1 : 0, order, nowBKK(),
-       machine || null, goal || null, role(ownerRole), role(coOwnerRole)]);
+       machine || null, goal || null, role(ownerRole), role(coOwnerRole), freqOk(freq)]);
     invalidateRoutineCache();
     res.json({ success: true, id: r.lastID, nodeKey });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -7660,7 +7699,7 @@ app.post('/api/routine/restore', async (req, res) => {
 
 // มอบหมายงานระหว่างวัน → เก็บลง daily_tasks (source = 'assigned') ผูก assignee
 // ── งานมอบหมาย: หมวด, วันที่ทำ, แจ้งเตือนล่วงหน้า ──────────────────────────
-const CAT_ICON = { production: '🏭', cip: '💧', backwash: '🧴', cleaning: '🧽', mixing: '🥤', packing: '📦', maintenance: '🔧', manual: '📌', am: '🔧' };
+const CAT_ICON = { production: '🏭', cip: '💧', backwash: '🧴', cleaning: '🧽', mixing: '🥤', packing: '📦', maintenance: '🔧', manual: '📌', am: '🔧', pm: '🗓' };
 const catIcon = (c) => CAT_ICON[c] || '📌';
 // ป้ายเวลาแจ้งเตือนล่วงหน้า (สำหรับแสดงใน caption)
 const REMIND_LABEL = { '30m': 'ล่วงหน้า 30 นาที', '1h': 'ล่วงหน้า 1 ชม.', '2h': 'ล่วงหน้า 2 ชม.', '1d': 'ล่วงหน้า 1 วัน', morning: 'เช้าวันงาน 08:00' };
@@ -9691,13 +9730,16 @@ async function setIncDraft(chatId, userId, patch) {
     symptom: patch.symptom ?? cur.symptom ?? '',
     images: patch.images ?? cur.images ?? '[]',
     operator: patch.operator ?? cur.operator ?? '',
+    priority: patch.priority ?? cur.priority ?? '',
   };
   await db.exec(
-    `INSERT INTO tg_incident_draft (chat_id, user_id, step, title, machine, symptom, images, operator, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO tg_incident_draft (chat_id, user_id, step, title, machine, symptom, images, operator, priority, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(chat_id, user_id) DO UPDATE SET step = excluded.step, title = excluded.title,
-       machine = excluded.machine, symptom = excluded.symptom, images = excluded.images, operator = excluded.operator`,
-    [String(chatId), String(userId), row.step, row.title, row.machine, row.symptom, row.images, row.operator, nowBKK()]);
+       machine = excluded.machine, symptom = excluded.symptom, images = excluded.images,
+       operator = excluded.operator, priority = excluded.priority`,
+    [String(chatId), String(userId), row.step, row.title, row.machine, row.symptom, row.images, row.operator,
+     row.priority, nowBKK()]);
   return row;
 }
 const clearIncDraft = (chatId, userId) =>
@@ -9725,10 +9767,11 @@ async function incMachineKeyboard() {
 async function createIncidentRow(row) {
   const r = await dbRun(
     `INSERT INTO incidents (title, machine, line_name, batch_id, operator, occurred_at,
-       symptom, cause, fix, result, status, images, result_images, down_from, down_to, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       symptom, cause, fix, result, status, images, result_images, down_from, down_to, priority, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [row.title, row.machine || null, null, null, row.operator || null, row.occurredAt || todayBKK(),
-     row.symptom || null, null, null, null, 'open', photoJson(row.images), photoJson([]), null, null, nowBKK(), nowBKK()]);
+     row.symptom || null, null, null, null, 'open', photoJson(row.images), photoJson([]),
+     row.downFrom || null, null, row.priority || null, nowBKK(), nowBKK()]);
   const id = r.lastID;
   const sync = await syncIncident({ ...row, id, images: photoJson(row.images), result_images: photoJson([]), status: 'open',
     occurred_at: row.occurredAt || todayBKK(), symptom: row.symptom || null });
@@ -9744,6 +9787,9 @@ async function createIncidentRow(row) {
       gate ปัจจุบัน: `($json.callback_query || $json.message?.photo || $json.message?.reply_to_message)`
    2) บอทซ่อมบำรุง: ไม่มี gate แล้วก็จริง แต่ในกลุ่มต้องแยกให้ออกว่าข้อความไหน "ตอบบอท"
       ไม่งั้นคนคุยงานกันอยู่จะโดนดูดเข้าร่างเหตุการณ์ (ดูกติกาตอนอ่านคำตอบข้างล่าง)      */
+// ขั้นถัดจาก "เลือกเครื่อง" — แยกไว้ที่เดียวเพราะมีทางเข้า 3 ทาง (ปุ่มเครื่อง/ไม่ระบุ/พิมพ์เอง)
+const stepAfterMachine = () => (onMaintBot() ? 'priority' : 'symptom');
+
 async function incAsk(chatId, draft, who = {}) {
   // ⚠️ ในกลุ่ม: force_reply + selective จะเด้งช่องตอบให้ "เฉพาะคนที่ถูก mention ในข้อความ" เท่านั้น
   //    ถ้าไม่ mention ใครเลย = ไม่เด้งให้ใครสักคน (เสียเปล่า) → ต้องแปะ inline mention ของคนถามไว้เสมอ
@@ -9758,9 +9804,19 @@ async function incAsk(chatId, draft, who = {}) {
   });
   const cancelRow = [[{ text: '✕ ยกเลิก', callback_data: 'inc:cancel' }]];
   const cancelTip = '\n\n<i>พิมพ์ “ยกเลิก” เพื่อเลิกแจ้ง</i>';
+  const head = onMaintBot() ? '🆘 <b>แจ้งซ่อม</b>' : '⚡ <b>แจ้งเหตุการณ์</b>';
   if (draft.step === 'title') {
-    return send('⚡ <b>แจ้งเหตุการณ์</b>\n\nเกิดอะไรขึ้นครับ? พิมพ์สั้น ๆ พอ เช่น <i>ปั๊มน้ำดิบรั่ว</i>' + cancelTip,
+    return send(head + '\n\nเกิดอะไรขึ้นครับ? พิมพ์สั้น ๆ พอ เช่น <i>ปั๊มน้ำดิบรั่ว</i>' + cancelTip,
       null, 'เกิดอะไรขึ้น…');
+  }
+  /* ความเร่งด่วน — ถามเฉพาะกลุ่มซ่อมบำรุง เพราะมันคือตัวเรียงคิวงานของช่าง
+     และ "หยุดไลน์" ยังเป็นตัวสั่งให้ระบบเริ่มจับเวลาเครื่องหยุดตั้งแต่วินาทีที่แจ้ง */
+  if (draft.step === 'priority') {
+    return send(`⚠️ <b>ด่วนแค่ไหนครับ?</b>\n🔩 ${escapeHtml(draft.machine || 'ไม่ระบุเครื่อง')}`, [
+      [{ text: '🔴 หยุดไลน์ — ผลิตต่อไม่ได้', callback_data: 'inc:p:stop' }],
+      [{ text: '🟡 ยังเดินได้ แต่มีปัญหา', callback_data: 'inc:p:warn' }],
+      [{ text: '🟢 ไว้ทำตอนว่าง', callback_data: 'inc:p:low' }],
+      ...cancelRow]);
   }
   if (draft.step === 'machine') {
     const { keyboard } = await incMachineKeyboard();
@@ -9781,6 +9837,775 @@ async function incAsk(chatId, draft, who = {}) {
   return null;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   กระดานซ่อมบำรุงในบอท — กลุ่ม "SPP ช่างซ่อมบำรุง" (บอทของแอปเอง ไม่ผ่าน n8n)
+   ───────────────────────────────────────────────────────────────────────────
+   ในกลุ่มนี้มีคน 2 พวก: ทีมผลิต (มาแจ้งซ่อมอย่างเดียว) กับช่าง (ทำทุกอย่าง)
+   กระดานจึงวางปุ่ม "แจ้งซ่อม" ไว้บนสุดแยกเส้น ส่วนปุ่มเปลี่ยนสถานะงานล็อกเฉพาะช่าง
+
+   แยกงาน 3 ประเภทให้ขาดจากกัน (เคยปนกันจนกระดานอ่านไม่รู้เรื่อง):
+     🆘 แจ้งซ่อม (CM)  = เสียแล้วต้องแก้ ไม่ได้วางแผน → ตาราง incidents
+     🗓 งาน PM        = วางแผนไว้ล่วงหน้าว่าจะทำวันไหน (บำรุงรักษา/ปรับปรุง/แก้ไข)
+                        → ตาราง daily_tasks category='pm' (ได้ระบบเตือน/รูปก่อน-หลังฟรี)
+     🔁 งานรูทีน       = เช็กลิสต์ตอนตั้งไลน์ ไม่ได้ทำทุกวันทุกเครื่อง → duty_routines + freq
+
+   ⚠️ ตัวเลขค่าเสียโอกาส (บาท) ห้ามโผล่ในกลุ่ม — ทีมผลิตอยู่ด้วย ให้ดูในแอปเท่านั้น
+      ในกลุ่มโชว์ได้แค่ "เครื่องหยุดไปกี่นาที"
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+// ความเร่งด่วนของใบแจ้งซ่อม — order ใช้เรียงคิว (หยุดไลน์ต้องอยู่บนสุดเสมอ)
+const SR_PRIO = {
+  stop: { icon: '🔴', label: 'หยุดไลน์', short: 'หยุดไลน์', order: 0 },
+  warn: { icon: '🟡', label: 'ยังเดินได้ แต่มีปัญหา', short: 'มีปัญหา', order: 1 },
+  low: { icon: '🟢', label: 'ไว้ทำตอนว่าง', short: 'ไม่ด่วน', order: 2 },
+};
+const srPrio = (p) => SR_PRIO[p] || SR_PRIO.warn;
+
+// สถานะใบแจ้งซ่อม — 'open' รอรับงาน → 'wip' ช่างรับแล้ว → 'closed' ปิดงาน
+const SR_STATUS = {
+  open: { icon: '🔴', label: 'รอรับงาน' },
+  wip: { icon: '🔧', label: 'กำลังซ่อม' },
+  closed: { icon: '✅', label: 'ปิดงานแล้ว' },
+};
+const srStatus = (s) => SR_STATUS[s] || SR_STATUS.open;
+
+// ความถี่ของงานรูทีน — onuse/onissue ไม่ขึ้นกระดานเอง (ต้องเปิดดูของเครื่องนั้นเอง)
+const FREQ_DAYS = { daily: 1, weekly: 7, monthly: 30, quarterly: 90 };
+const FREQ_LABEL = {
+  daily: 'ทุกวัน', weekly: 'ทุกสัปดาห์', monthly: 'ทุกเดือน', quarterly: 'ทุก 3 เดือน',
+  onuse: 'เมื่อใช้งานเครื่องนี้', onissue: 'เมื่อมีปัญหา',
+};
+const PM_KIND = { pm: '🔧 บำรุงรักษา', up: '⬆️ ปรับปรุง', fix: '🛠 แก้ไข' };
+
+const dayGap = (from, to) => {
+  const a = Date.parse(`${from}T00:00:00Z`), b = Date.parse(`${to}T00:00:00Z`);
+  return Number.isFinite(a) && Number.isFinite(b) ? Math.round((b - a) / 86400000) : 9999;
+};
+// งานรูทีนนี้ "ถึงคิว" ในวันนั้นหรือยัง — lastDone = วันที่ติ๊กล่าสุด (null = ไม่เคยทำ)
+function routineDue(freq, lastDone, date) {
+  const f = freq || 'daily';                       // งานเก่าที่ยังไม่ได้ตั้งความถี่ = ทุกวัน (พฤติกรรมเดิม)
+  if (f === 'onuse' || f === 'onissue') return false;
+  if (!lastDone) return true;
+  return dayGap(lastDone, date) >= (FREQ_DAYS[f] || 1);
+}
+
+// นาทีที่เครื่องหยุดจนถึงตอนนี้ (ใบที่ยังไม่ปิด) — ใช้ทั้งการ์ดและกระดาน
+const downSoFar = (row) => downMinutes(row.down_from, nowBKK().slice(0, 16));
+
+/* ── ใครเป็นช่าง ────────────────────────────────────────────────────────────
+   ปุ่มรับงาน/ปิดงานต้องล็อกเฉพาะช่าง เพราะกลุ่มนี้มีทีมผลิตอยู่ด้วย
+   ผูก Telegram user id ไว้ที่ duty_people.tg_user_id (ผูกเองผ่านปุ่มในกระดาน)
+   อ่านจาก DB ตรง ๆ ไม่ผ่าน cache รายชื่อ — ผูกปุ๊บต้องใช้ได้ปั๊บ ไม่ต้องรอ cache หมดอายุ */
+async function maintTeamRows() {
+  try {
+    return await dbAll(
+      "SELECT person_key, name, tg_user_id FROM duty_people WHERE kind = 'maint' AND active = 1 ORDER BY sort_order, person_key", []);
+  } catch { return []; }
+}
+async function techOf(tgUserId) {
+  if (!tgUserId) return null;
+  const rows = await maintTeamRows();
+  return rows.find(r => String(r.tg_user_id || '') === String(tgUserId)) || null;
+}
+// ใช้หน้าปุ่มที่ช่างเท่านั้นกดได้ — คืน null พร้อมเด้งเตือนถ้าไม่ใช่ช่าง
+async function requireTech(cq) {
+  const t = await techOf(cq.from?.id);
+  if (t) return t;
+  await tgApi('answerCallbackQuery', {
+    callback_query_id: cq.id, show_alert: true,
+    text: 'ปุ่มนี้สำหรับช่างซ่อมบำรุงเท่านั้นครับ\n\nถ้าคุณเป็นช่าง กดปุ่ม "🔧 ผมเป็นช่าง" ที่กระดานหลักเพื่อผูกบัญชีก่อน',
+  });
+  return null;
+}
+
+/* ── ร่างบทสนทนาของกระดาน (ปิดงาน / ตั้งงาน PM) ──────────────────────────── */
+const MD_TTL_MIN = 30;
+async function getMaintDraft(chatId, userId) {
+  const cutoff = new Date(Date.now() - MD_TTL_MIN * 60000).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
+  try { await db.exec('DELETE FROM tg_maint_draft WHERE created_at < ?', [cutoff]); } catch { /* ช่างมัน */ }
+  const rows = await dbAll('SELECT * FROM tg_maint_draft WHERE chat_id = ? AND user_id = ?', [String(chatId), String(userId)]);
+  if (!rows[0]) return null;
+  let data = {};
+  try { data = JSON.parse(rows[0].data || '{}'); } catch { data = {}; }
+  return { ...rows[0], data };
+}
+async function setMaintDraft(chatId, userId, patch) {
+  const cur = await getMaintDraft(chatId, userId) || {};
+  const row = {
+    kind: patch.kind ?? cur.kind ?? '',
+    refId: patch.refId ?? cur.ref_id ?? null,
+    step: patch.step ?? cur.step ?? '',
+    data: { ...(cur.data || {}), ...(patch.data || {}) },
+  };
+  await db.exec(
+    `INSERT INTO tg_maint_draft (chat_id, user_id, kind, ref_id, step, data, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(chat_id, user_id) DO UPDATE SET kind = excluded.kind, ref_id = excluded.ref_id,
+       step = excluded.step, data = excluded.data`,
+    [String(chatId), String(userId), row.kind, row.refId, row.step, JSON.stringify(row.data), nowBKK()]);
+  return row;
+}
+const clearMaintDraft = (chatId, userId) =>
+  db.exec('DELETE FROM tg_maint_draft WHERE chat_id = ? AND user_id = ?', [String(chatId), String(userId)]);
+
+/* ── ตัวเลขบนหัวกระดาน ─────────────────────────────────────────────────────
+   ยิงทีเดียวแล้วส่งต่อให้ทุกจอใช้ — กระดานเปิดบ่อย ไม่ควรถาม DB ซ้ำหลายรอบ */
+async function maintCounts(date) {
+  const out = { open: 0, wip: 0, downNow: 0, pmToday: 0, pmLate: 0, rtDue: 0, matLow: 0 };
+  try {
+    const inc = await dbAll(
+      "SELECT status, down_from, down_to FROM incidents WHERE COALESCE(status, 'open') <> 'closed'", []);
+    for (const r of inc) {
+      if ((r.status || 'open') === 'wip') out.wip++; else out.open++;
+      if (r.down_from && !r.down_to) out.downNow++;
+    }
+  } catch { /* ตารางยังไม่พร้อม — ปล่อยเป็น 0 */ }
+  try {
+    const pm = await dbAll(
+      "SELECT task_date FROM daily_tasks WHERE category = 'pm' AND status <> 'done'", []);
+    for (const r of pm) {
+      if (String(r.task_date) < date) out.pmLate++;
+      else if (String(r.task_date) === date) out.pmToday++;
+    }
+  } catch { /* ช่างมัน */ }
+  try {
+    const m = await dbAll(
+      'SELECT COUNT(*) AS n FROM materials WHERE active = 1 AND reorder_point > 0 AND stock <= reorder_point', []);
+    out.matLow = Number((m[0] || {}).n || 0);
+  } catch { /* ช่างมัน */ }
+  try { out.rtDue = (await dueRoutines(date)).length; } catch { /* ช่างมัน */ }
+  return out;
+}
+
+/* งานรูทีนที่ "ถึงคิว" วันนี้ — เฉพาะงานที่ช่างเป็นเจ้าของ (owner_role='mt')
+   งานของฝ่ายผลิตไม่เอามาปนในกระดานนี้ (เขามีกระดานของเขาในกลุ่มเดิมอยู่แล้ว) */
+async function dueRoutines(date) {
+  const people = await maintTeamRows();
+  if (!people.length) return [];
+  const lastMap = {};
+  try {
+    const rows = await dbAll(
+      'SELECT assignee, node_key, MAX(state_date) AS last_done FROM routine_state WHERE checked = 1 GROUP BY assignee, node_key', []);
+    for (const r of rows) lastMap[`${r.assignee}|${r.node_key}`] = r.last_done;
+  } catch { /* ช่างมัน */ }
+  const out = [];
+  for (const p of people) {
+    const nodes = flattenRoutine(await buildRoutineTree(p.person_key));
+    for (const n of nodes) {
+      if (n.ownerRole && n.ownerRole !== 'mt') continue;        // ไม่ใช่งานของช่าง
+      const last = lastMap[`${p.person_key}|${n.key}`] || null;
+      const doneToday = last === date;
+      if (!doneToday && !routineDue(n.freq, last, date)) continue;
+      out.push({ owner: p.person_key, key: n.key, title: n.title, machine: n.machine || 'ไม่ระบุเครื่อง',
+        freq: n.freq || 'daily', lastDone: last, done: doneToday });
+    }
+  }
+  return out;                     // รวมของที่ติ๊กไปแล้ววันนี้ด้วย — กระดานต้องโชว์ ✅ ให้เห็นว่าทำแล้ว
+}
+
+/* ── กระดานหลัก ──────────────────────────────────────────────────────────── */
+async function buildMaintHome(date) {
+  const c = await maintCounts(date);
+  const team = await maintTeamRows();
+  const unbound = team.filter(t => !t.tg_user_id).length;
+  const rtDue = await dueRoutines(date);
+  const rtLeft = rtDue.filter(r => !r.done).length;
+
+  const L = [
+    `🔧 <b>ซ่อมบำรุง SPP</b> · ${thaiDate(date)}`,
+    ``,
+    `${SR_STATUS.open.icon} รอรับงาน <b>${c.open}</b>　${SR_STATUS.wip.icon} กำลังซ่อม <b>${c.wip}</b>`,
+  ];
+  if (c.downNow) L.push(`⏱ <b>เครื่องหยุดอยู่ตอนนี้ ${c.downNow} เครื่อง</b>`);
+  L.push('', 'เจอเครื่องมีปัญหา กดปุ่มแรกได้เลย 👇');
+
+  const kb = [
+    [{ text: '🆘  แ จ้ ง ซ่ อ ม', callback_data: 'inc:new' }],
+    [{ text: `${c.open + c.wip ? '🔴' : '✅'} งานซ่อม · ${c.open + c.wip}`, callback_data: 'm:rep' }],
+    [{ text: `🗓 งาน PM · วันนี้ ${c.pmToday}${c.pmLate ? ` · เกินกำหนด ${c.pmLate}` : ''}`, callback_data: 'm:pm' }],
+    [{ text: `🔁 งานรูทีน · ถึงคิว ${rtLeft}`, callback_data: 'm:rt' }],
+    [{ text: `📦 อะไหล่/วัสดุ${c.matLow ? ` · ใกล้หมด ${c.matLow}` : ''}`, callback_data: 'm:mat' }],
+    [{ text: '🔄 รีเฟรช', callback_data: 'm:home' }],
+  ];
+  if (unbound) kb.push([{ text: '🔧 ผมเป็นช่าง (ผูกบัญชี)', callback_data: 'm:bind' }]);
+  return { text: L.join('\n'), keyboard: kb };
+}
+
+/* ── รายการงานซ่อมที่ยังไม่ปิด ───────────────────────────────────────────── */
+async function buildRepairList() {
+  const rows = await dbAll(
+    "SELECT id, title, machine, status, priority, down_from, down_to, assignee FROM incidents WHERE COALESCE(status, 'open') <> 'closed'", []);
+  rows.sort((a, b) => (srPrio(a.priority).order - srPrio(b.priority).order) || (b.id - a.id));
+  const kb = rows.slice(0, 12).map(r => {
+    const mins = r.down_from && !r.down_to ? downSoFar(r) : null;
+    const tail = mins != null ? ` · หยุด ${downLabel(mins)}` : '';
+    return [{ text: clip(`${srPrio(r.priority).icon} ${r.title}${tail}`), callback_data: `m:rep:${r.id}` }];
+  });
+  kb.push([{ text: '⬅️ กลับ', callback_data: 'm:home' }, { text: '🔄 รีเฟรช', callback_data: 'm:rep' }]);
+  const text = rows.length
+    ? `🔴 <b>งานซ่อมที่ยังไม่ปิด</b> · ${rows.length} งาน\n\nแตะเลือกใบงานเพื่อรับงาน/ปิดงาน 👇`
+    : `✅ <b>ไม่มีงานซ่อมค้าง</b>\n\nเครื่องเดินครบทุกตัว 🎉`;
+  return { text, keyboard: kb };
+}
+
+/* ── การ์ดใบแจ้งซ่อม 1 ใบ ────────────────────────────────────────────────
+   ใช้ทั้งตอนโพสต์เข้ากลุ่มครั้งแรก และตอนแก้ข้อความเดิมเมื่อสถานะเปลี่ยน
+   (แก้ใบเดิมแทนโพสต์ใหม่ ทีมผลิตจะได้ไม่ต้องไล่หาว่าอันไหนล่าสุด)              */
+function repairCard(row) {
+  const st = srStatus(row.status || 'open');
+  const pr = srPrio(row.priority);
+  const L = [
+    `🆘 <b>แจ้งซ่อม #${row.id}</b>　${st.icon} <b>${st.label}</b>`,
+    `━━━━━━━━━━━━━━━━`,
+    `🔩 ${escapeHtml(row.machine || 'ไม่ระบุเครื่อง')}`,
+    `${pr.icon} ${pr.label}`,
+  ];
+  if (row.title) L.push(`📌 ${escapeHtml(row.title)}`);
+  if (row.symptom) L.push(`📝 ${escapeHtml(String(row.symptom).slice(0, 300))}`);
+  const imgs = parseImgs(row.images);
+  if (imgs.length) L.push(`📸 แนบรูป ${imgs.length} รูป`);
+  L.push(`🙋 แจ้งโดย ${escapeHtml(row.operator || 'ไม่ระบุ')}`);
+  if (row.assignee) L.push(`🔧 ช่างที่รับงาน: ${escapeHtml(dutyName(row.assignee))}`);
+
+  // เวลาที่เครื่องหยุด — โชว์ "นาที" เท่านั้น ไม่โชว์ค่าเสียโอกาสเป็นเงินในกลุ่ม
+  if (row.down_from) {
+    const closedMin = downMinutes(row.down_from, row.down_to);
+    if (row.down_to && closedMin != null) L.push(`⏱ หยุดรวม <b>${downLabel(closedMin)}</b>`);
+    else {
+      const m = downSoFar(row);
+      if (m != null) L.push(`⏱ <b>หยุดมาแล้ว ${downLabel(m)}</b>`);
+    }
+  }
+  if ((row.status || 'open') === 'closed') {
+    if (row.fix) L.push('', `✅ <b>วิธีแก้:</b> ${escapeHtml(String(row.fix).slice(0, 400))}`);
+    const after = parseImgs(row.result_images);
+    if (after.length) L.push(`📸 รูปหลังซ่อม ${after.length} รูป`);
+  }
+  const kb = [];
+  const s = row.status || 'open';
+  if (s === 'open') kb.push([{ text: '🙋 รับงาน', callback_data: `m:take:${row.id}` }]);
+  else if (s === 'wip') kb.push([{ text: '✅ ปิดงาน', callback_data: `m:close:${row.id}` }]);
+  kb.push([{ text: '📖 ประวัติเครื่องนี้', callback_data: `m:hist:${row.id}` },
+           { text: '📋 งานซ่อมทั้งหมด', callback_data: 'm:rep' }]);
+  return { text: L.join('\n'), keyboard: kb };
+}
+
+const getIncident = async (id) => (await dbAll('SELECT * FROM incidents WHERE id = ?', [id]))[0] || null;
+
+// โพสต์การ์ดเข้ากลุ่มครั้งแรก แล้วจำ message_id ไว้แก้ทีหลัง
+async function postRepairCard(id, chatId) {
+  const row = await getIncident(id);
+  if (!row) return;
+  const card = repairCard(row);
+  const r = await tgApi('sendMessage', {
+    chat_id: chatId, text: card.text, parse_mode: 'HTML',
+    reply_markup: { inline_keyboard: card.keyboard },
+  });
+  const mid = r?.result?.message_id;
+  if (mid) {
+    try {
+      await db.exec('UPDATE incidents SET card_chat_id = ?, card_msg_id = ? WHERE id = ?',
+        [String(chatId), String(mid), id]);
+    } catch { /* ไม่ได้ก็ไม่เป็นไร แค่แก้การ์ดเดิมไม่ได้ */ }
+  }
+}
+
+// แก้การ์ดเดิมให้ตรงกับสถานะล่าสุด (ไม่มีการ์ดเดิม = ข้ามเงียบ ๆ)
+async function refreshRepairCard(id) {
+  const row = await getIncident(id);
+  if (!row || !row.card_chat_id || !row.card_msg_id) return;
+  const card = repairCard(row);
+  await tgApi('editMessageText', {
+    chat_id: row.card_chat_id, message_id: Number(row.card_msg_id),
+    text: card.text, parse_mode: 'HTML', reply_markup: { inline_keyboard: card.keyboard },
+  });
+}
+
+/* ── งาน PM (งานที่วางแผนไว้ล่วงหน้า) ────────────────────────────────────
+   เก็บใน daily_tasks category='pm' — ได้ระบบเตือนล่วงหน้า/รูปก่อน-หลัง/แก้-ลบ ของเดิมมาฟรี */
+async function buildPmList(date) {
+  const rows = await dbAll(
+    "SELECT id, task_date, title, machine, priority, due_time, status FROM daily_tasks WHERE category = 'pm' AND status <> 'done' ORDER BY task_date, id", []);
+  const late = rows.filter(r => String(r.task_date) < date);
+  const today = rows.filter(r => String(r.task_date) === date);
+  const next = rows.filter(r => String(r.task_date) > date).slice(0, 5);
+  const kb = [];
+  const push = (list, mark) => list.forEach(r =>
+    kb.push([{ text: clip(`${mark} ${r.title}${r.machine ? ` · ${r.machine}` : ''}`), callback_data: `m:pmv:${r.id}` }]));
+  push(late, '⚠️'); push(today, '🗓'); push(next, '📅');
+  kb.push([{ text: '➕ ตั้งงาน PM ใหม่', callback_data: 'mpm:new' }]);
+  kb.push([{ text: '⬅️ กลับ', callback_data: 'm:home' }, { text: '🔄 รีเฟรช', callback_data: 'm:pm' }]);
+  const L = [`🗓 <b>งาน PM</b> — งานที่วางแผนไว้`, ``];
+  if (late.length) L.push(`⚠️ <b>เกินกำหนด ${late.length}</b>`);
+  L.push(`🗓 วันนี้ ${today.length}　📅 ถัดไป ${next.length}`);
+  if (!rows.length) L.push('', '— ยังไม่มีงาน PM ที่วางแผนไว้ —');
+  return { text: L.join('\n'), keyboard: kb };
+}
+
+async function buildPmView(id, date) {
+  const r = (await dbAll('SELECT * FROM daily_tasks WHERE id = ?', [id]))[0];
+  if (!r) return { text: 'ไม่พบงานนี้แล้ว', keyboard: [[{ text: '⬅️ กลับ', callback_data: 'm:pm' }]] };
+  const overdue = String(r.task_date) < date;
+  const L = [
+    `🗓 <b>งาน PM #${r.id}</b>${overdue ? '　⚠️ <b>เกินกำหนด</b>' : ''}`,
+    `━━━━━━━━━━━━━━━━`,
+    `📌 ${escapeHtml(r.title)}`,
+  ];
+  if (r.machine) L.push(`🔩 ${escapeHtml(r.machine)}`);
+  L.push(`📅 กำหนด ${thaiDate(r.task_date)}${r.due_time ? ` · ${r.due_time} น.` : ''}`);
+  if (r.location) L.push(`📍 ${escapeHtml(r.location)}`);
+  if (r.assignee) L.push(`👤 ${escapeHtml(dutyName(r.assignee))}`);
+  return {
+    text: L.join('\n'),
+    keyboard: [
+      [{ text: '✅ ทำเสร็จแล้ว', callback_data: `m:pmdone:${r.id}` }],
+      [{ text: '⬅️ กลับ', callback_data: 'm:pm' }],
+    ],
+  };
+}
+
+/* ── งานรูทีน — จัดกลุ่มตาม "เครื่องจักร" ไม่ใช่ตามคน ──────────────────────
+   ช่างคิดเป็นเครื่อง ("วันนี้เครื่องซีลมีอะไรต้องทำ") ไม่ได้คิดเป็นคน            */
+const machineListOf = (due) => Array.from(new Set(due.map(r => r.machine))).sort();
+
+async function buildRoutineBoard(date) {
+  const due = await dueRoutines(date);
+  const machines = machineListOf(due);
+  const kb = machines.map((m, i) => {
+    const list = due.filter(r => r.machine === m);
+    const done = list.filter(r => r.done).length;
+    return [{ text: clip(`🔩 ${m}　${done}/${list.length}${done >= list.length ? ' ✅' : ''}`), callback_data: `m:rtm:${i}` }];
+  });
+  kb.push([{ text: '⬅️ กลับ', callback_data: 'm:home' }, { text: '🔄 รีเฟรช', callback_data: 'm:rt' }]);
+  const left = due.filter(r => !r.done).length;
+  const text = machines.length
+    ? `🔁 <b>งานรูทีนที่ถึงคิววันนี้</b>\n${progressBar(due.length ? Math.round((due.length - left) / due.length * 100) : 100)} ค้าง ${left} งาน\n\n`
+      + `<i>โชว์เฉพาะงานที่ถึงคิวตามความถี่ที่ตั้งไว้ — งาน "เมื่อมีปัญหา" ไม่ขึ้นเอง</i>`
+    : `🔁 <b>งานรูทีน</b>\n\n— วันนี้ไม่มีงานถึงคิว 🎉 —`;
+  return { text, keyboard: kb };
+}
+
+async function buildRoutineMachine(idx, date) {
+  const due = await dueRoutines(date);
+  const machines = machineListOf(due);
+  const m = machines[idx];
+  if (!m) return buildRoutineBoard(date);
+  const list = due.filter(r => r.machine === m);
+  const kb = list.map(r => [{
+    text: clip(`${r.done ? '✅' : '⬜'} ${r.title}`),
+    callback_data: `m:rtt:${r.owner}:${r.key}`,
+  }]);
+  // ประวัติเสียของเครื่องนี้ — ช่างจะได้รู้ว่าต้องระวังอะไรก่อนลงมือ
+  let hist = '';
+  try {
+    const h = await dbAll('SELECT COUNT(*) AS n, MAX(occurred_at) AS last FROM incidents WHERE machine = ?', [m]);
+    const n = Number((h[0] || {}).n || 0);
+    if (n) hist = `\n\n📖 เครื่องนี้เคยมีเหตุ <b>${n} ครั้ง</b>${h[0].last ? ` · ล่าสุด ${thaiDate(String(h[0].last).slice(0, 10))}` : ''}`;
+  } catch { /* ช่างมัน */ }
+  kb.push([{ text: '⬅️ กลับ', callback_data: 'm:rt' }]);
+  const freqs = Array.from(new Set(list.map(r => FREQ_LABEL[r.freq] || 'ทุกวัน'))).join(' · ');
+  return {
+    text: `🔩 <b>${escapeHtml(m)}</b>\n<i>${escapeHtml(freqs)}</i>${hist}\n\nแตะเพื่อติ๊กเสร็จ/ยกเลิก 👇`,
+    keyboard: kb,
+  };
+}
+
+/* ── อะไหล่/วัสดุที่ถึงจุดสั่งซื้อ ─────────────────────────────────────────── */
+async function buildMatList() {
+  const rows = await dbAll(
+    'SELECT name, unit, stock, reorder_point, supplier FROM materials WHERE active = 1 AND reorder_point > 0 AND stock <= reorder_point ORDER BY name', []);
+  const L = rows.length
+    ? [`📦 <b>อะไหล่/วัสดุที่ถึงจุดสั่งซื้อ</b> · ${rows.length} รายการ`, '']
+    : [`📦 <b>อะไหล่/วัสดุ</b>`, '', '— ยังไม่มีรายการที่ถึงจุดสั่งซื้อ ✅ —'];
+  for (const r of rows.slice(0, 20)) {
+    L.push(`⚠️ <b>${escapeHtml(r.name)}</b>`);
+    L.push(`　เหลือ ${round2(r.stock)} ${escapeHtml(r.unit || '')} (สั่งเมื่อ ≤ ${round2(r.reorder_point)})${r.supplier ? ` · ${escapeHtml(r.supplier)}` : ''}`);
+  }
+  if (rows.length > 20) L.push('', `<i>… และอีก ${rows.length - 20} รายการ ดูครบในแอป</i>`);
+  return { text: L.join('\n'), keyboard: [[{ text: '⬅️ กลับ', callback_data: 'm:home' }, { text: '🔄 รีเฟรช', callback_data: 'm:mat' }]] };
+}
+
+/* ── ประวัติเหตุของเครื่อง (เปิดจากการ์ดใบแจ้งซ่อม) ──────────────────────── */
+async function buildMachineHistory(incId) {
+  const inc = await getIncident(incId);
+  const machine = inc?.machine;
+  if (!machine) return { text: 'ใบนี้ไม่ได้ระบุเครื่องจักร', keyboard: [[{ text: '⬅️ กลับ', callback_data: 'm:rep' }]] };
+  const rows = await dbAll(
+    'SELECT id, title, occurred_at, status, fix, down_from, down_to FROM incidents WHERE machine = ? AND id <> ? ORDER BY id DESC',
+    [machine, incId]);
+  const L = [`📖 <b>ประวัติ ${escapeHtml(machine)}</b>`, `เคยมีเหตุ <b>${rows.length} ครั้ง</b>`, ''];
+  for (const r of rows.slice(0, 6)) {
+    const min = downMinutes(r.down_from, r.down_to);
+    L.push(`${srStatus(r.status).icon} <b>${escapeHtml(r.title || '-')}</b> · ${String(r.occurred_at || '').slice(0, 10)}${min != null ? ` · หยุด ${downLabel(min)}` : ''}`);
+    if (r.fix) L.push(`　✅ ${escapeHtml(String(r.fix).slice(0, 140))}`);
+  }
+  if (!rows.length) L.push('— ยังไม่เคยมีเหตุที่บันทึกไว้ —');
+  return { text: L.join('\n'), keyboard: [[{ text: '⬅️ กลับ', callback_data: `m:rep:${incId}` }]] };
+}
+
+/* ── ปุ่มเลือกเครื่องของ wizard อื่น — ใช้ปุ่มชุดเดียวกับใบแจ้งซ่อม เปลี่ยนแค่ prefix ── */
+async function machineKeyboardFor(prefix) {
+  const { names, keyboard } = await incMachineKeyboard();
+  return { names, keyboard: keyboard.map(row => row.map(b => ({ text: b.text, callback_data: b.callback_data.replace(/^inc:/, `${prefix}:`) }))) };
+}
+
+/* ── ตัวช่วยถามคำถามแบบพิมพ์ตอบ ──────────────────────────────────────────
+   ในกลุ่มต้อง force_reply + selective + แปะ mention ของคนถาม
+   ไม่งั้นช่องตอบไม่เด้งให้ใครเลย (selective ดูจากคนที่ถูก mention ในข้อความ)   */
+function askText(chatId, who, body, placeholder) {
+  const mention = who.userId ? `<a href="tg://user?id=${who.userId}">${escapeHtml(who.name || 'คุณ')}</a> ` : '';
+  return tgApi('sendMessage', {
+    chat_id: chatId, text: mention + body, parse_mode: 'HTML',
+    reply_markup: { force_reply: true, selective: true, input_field_placeholder: placeholder },
+  });
+}
+const whoOf = (from) => ({ userId: from?.id, name: [from?.first_name, from?.last_name].filter(Boolean).join(' ') });
+
+// ปุ่มเลือกวันของงาน PM — ออฟเซ็ตเป็นวัน
+const pmDateOf = (offset) => {
+  const d = new Date(`${todayBKK()}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + Number(offset || 0));
+  return d.toISOString().slice(0, 10);
+};
+
+// บันทึกงาน PM ลง daily_tasks (ใช้ท่อเดียวกับงานมอบหมาย → ได้ระบบเตือน/รูป/แก้-ลบ มาฟรี)
+async function savePmTask(d, techKey) {
+  const owner = techKey || (await maintTeamRows())[0]?.person_key || 'jakkrit';
+  const title = `${PM_KIND[d.kind] ? PM_KIND[d.kind].replace(/^\S+\s/, '') : 'บำรุงรักษา'} — ${d.title}`;
+  const remindAt = d.remind === 'none' ? null
+    : d.remind === 'prev' ? `${pmDateOfFrom(d.date, -1)}T08:00`
+    : `${d.date}T08:00`;
+  await db.exec(
+    `INSERT INTO daily_tasks (task_date, line_name, category, title, status, source, assignee, location, priority,
+       images, done_images, due_time, remind_at, remind_lead, reminded, completed_at, done_by, audit_batch,
+       photo_specs, machine, reporter, created_by, created_at)
+     VALUES (?, ?, 'pm', ?, 'pending', 'assigned', ?, NULL, 'normal', '[]', '[]', NULL, ?, ?, 0, NULL, NULL, NULL,
+       NULL, ?, NULL, ?, ?)
+     ON CONFLICT(task_date, line_name, category, title)
+     DO UPDATE SET machine = excluded.machine, remind_at = excluded.remind_at, reminded = 0, status = 'pending'`,
+    [d.date, owner, title, owner, remindAt, d.remind === 'none' ? null : 'morning', d.machine || null, owner, nowBKK()]);
+  // อัปเดต gate ในหน่วยความจำ กัน reminderTick ข้ามงานที่เพิ่งตั้ง
+  if (remindAt && (_nextRemindAt == null || remindAt < _nextRemindAt)) { _nextRemindAt = remindAt; _nextRemindKnown = true; }
+  return { title, date: d.date, remindAt };
+}
+const pmDateOfFrom = (date, offset) => {
+  const d = new Date(`${date}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + Number(offset || 0));
+  return d.toISOString().slice(0, 10);
+};
+
+// ถามข้อถัดไปของ wizard ตั้งงาน PM
+async function pmAsk(chatId, draft, who) {
+  const d = draft.data || {};
+  if (draft.step === 'machine') {
+    const { keyboard } = await machineKeyboardFor('mpm');
+    return tgApi('sendMessage', { chat_id: chatId, parse_mode: 'HTML',
+      text: '🗓 <b>ตั้งงาน PM ใหม่</b>\n\n🔩 เครื่องไหนครับ?', reply_markup: { inline_keyboard: keyboard } });
+  }
+  if (draft.step === 'mtype') return askText(chatId, who, '⌨️ พิมพ์ชื่อเครื่องมาได้เลย', 'ชื่อเครื่อง…');
+  if (draft.step === 'title')
+    return askText(chatId, who, `🔩 ${escapeHtml(d.machine || 'ไม่ระบุเครื่อง')}\n\n📌 <b>จะทำอะไร?</b> พิมพ์สั้น ๆ เช่น <i>เปลี่ยนลูกยางหัวซีล</i>`, 'จะทำอะไร…');
+  if (draft.step === 'kind')
+    return tgApi('sendMessage', { chat_id: chatId, parse_mode: 'HTML',
+      text: `📌 ${escapeHtml(d.title || '')}\n\n<b>เป็นงานประเภทไหน?</b>`,
+      reply_markup: { inline_keyboard: [
+        [{ text: PM_KIND.pm, callback_data: 'mpm:k:pm' }],
+        [{ text: PM_KIND.up, callback_data: 'mpm:k:up' }],
+        [{ text: PM_KIND.fix, callback_data: 'mpm:k:fix' }],
+        [{ text: '✕ ยกเลิก', callback_data: 'mpm:cancel' }]] } });
+  if (draft.step === 'date')
+    return tgApi('sendMessage', { chat_id: chatId, parse_mode: 'HTML',
+      text: '📅 <b>จะทำวันไหน?</b>',
+      reply_markup: { inline_keyboard: [
+        [{ text: 'วันนี้', callback_data: 'mpm:d:0' }, { text: 'พรุ่งนี้', callback_data: 'mpm:d:1' }],
+        [{ text: 'อีก 7 วัน', callback_data: 'mpm:d:7' }, { text: 'อีก 30 วัน', callback_data: 'mpm:d:30' }],
+        [{ text: '⌨️ พิมพ์วันที่เอง', callback_data: 'mpm:dtype' }],
+        [{ text: '✕ ยกเลิก', callback_data: 'mpm:cancel' }]] } });
+  if (draft.step === 'dtype') return askText(chatId, who, '⌨️ พิมพ์วันที่แบบ <b>2026-09-01</b>', 'YYYY-MM-DD');
+  if (draft.step === 'remind')
+    return tgApi('sendMessage', { chat_id: chatId, parse_mode: 'HTML',
+      text: `📅 ${thaiDate(d.date)}\n\n⏰ <b>ให้เตือนไหม?</b>`,
+      reply_markup: { inline_keyboard: [
+        [{ text: '🔔 เช้าวันงาน 08:00', callback_data: 'mpm:r:day' }],
+        [{ text: '🔔 ล่วงหน้า 1 วัน', callback_data: 'mpm:r:prev' }],
+        [{ text: '🔕 ไม่ต้องเตือน', callback_data: 'mpm:r:none' }]] } });
+  return null;
+}
+
+/* ── ตัวรับ update ของกระดานซ่อมบำรุง ───────────────────────────────────────
+   คืน true = จัดการเองแล้ว · false = ปล่อยให้ handleDutyUpdate เดิมทำต่อ
+   (wizard แจ้งซ่อม ปุ่มติ๊กงานประจำ และการรับรูปงานมอบหมาย ยังใช้ของเดิมทั้งดุ้น) */
+async function handleMaintUpdate(upd) {
+  const date = workDayBKK();
+
+  // ═══ ปุ่ม ═══
+  if (upd.callback_query) {
+    const cq = upd.callback_query;
+    const data = cq.data || '';
+    if (!/^(m|mpm):/.test(data)) return false;
+    const chatId = cq.message?.chat?.id;
+    const userId = cq.from?.id;
+    const who = whoOf(cq.from);
+    const ack = (text, alert) => tgApi('answerCallbackQuery', {
+      callback_query_id: cq.id, ...(text ? { text } : {}), ...(alert ? { show_alert: true } : {}) });
+    const show = async (kb, note) => {
+      await tgApi('editMessageText', {
+        chat_id: chatId, message_id: cq.message.message_id,
+        text: kb.text, parse_mode: 'HTML', reply_markup: { inline_keyboard: kb.keyboard } });
+      await ack(note);
+    };
+
+    // ── นำทางกระดาน ──
+    if (data === 'm:home') { await show(await buildMaintHome(date)); return true; }
+    if (data === 'm:rep') { await show(await buildRepairList()); return true; }
+    if (data === 'm:pm') { await show(await buildPmList(date)); return true; }
+    if (data === 'm:rt') { await show(await buildRoutineBoard(date)); return true; }
+    if (data === 'm:mat') { await show(await buildMatList()); return true; }
+
+    // ── ผูกบัญชีช่าง ──
+    if (data === 'm:bind') {
+      const rows = await maintTeamRows();
+      const kb = rows.filter(r => !r.tg_user_id)
+        .map(r => [{ text: clip(`🔧 ${r.name}`), callback_data: `m:bind:${r.person_key}` }]);
+      kb.push([{ text: '⬅️ กลับ', callback_data: 'm:home' }]);
+      await show({
+        text: '🔧 <b>ผูกบัญชีช่าง</b>\n\nเลือกชื่อของคุณ — หลังผูกแล้วจะกดปุ่มรับงาน/ปิดงานได้\n\n'
+          + '<i>ผูกได้คนละครั้ง ถ้าผูกผิดให้แก้ในหน้า Admin</i>', keyboard: kb });
+      return true;
+    }
+    if (data.startsWith('m:bind:')) {
+      const key = data.slice(7);
+      const rows = await maintTeamRows();
+      const target = rows.find(r => r.person_key === key);
+      if (!target) { await ack('ไม่พบชื่อนี้'); return true; }
+      if (target.tg_user_id) { await ack('ชื่อนี้มีคนผูกไปแล้ว — แก้ได้ในหน้า Admin', true); return true; }
+      await db.exec("UPDATE duty_people SET tg_user_id = ? WHERE person_key = ? AND kind = 'maint'", [String(userId), key]);
+      await ack(`ผูกกับ ${target.name} แล้ว ✅`);
+      await show(await buildMaintHome(date));
+      return true;
+    }
+
+    // ── ใบแจ้งซ่อม ──
+    if (data.startsWith('m:rep:')) {
+      const row = await getIncident(Number(data.slice(6)));
+      if (!row) { await ack('ไม่พบใบงานนี้'); return true; }
+      await show(repairCard(row));
+      return true;
+    }
+    if (data.startsWith('m:hist:')) { await show(await buildMachineHistory(Number(data.slice(7)))); return true; }
+
+    if (data.startsWith('m:take:')) {
+      const tech = await requireTech(cq); if (!tech) return true;
+      const id = Number(data.slice(7));
+      const row = await getIncident(id);
+      if (!row) { await ack('ไม่พบใบงานนี้'); return true; }
+      if ((row.status || 'open') !== 'open') { await ack(`ใบนี้ ${srStatus(row.status).label} อยู่แล้ว`); return true; }
+      await db.exec('UPDATE incidents SET status = ?, assignee = ?, updated_at = ? WHERE id = ?',
+        ['wip', tech.person_key, nowBKK(), id]);
+      const fresh = await getIncident(id);
+      await show(repairCard(fresh), 'รับงานแล้ว 🔧');
+      if (String(cq.message.message_id) !== String(fresh.card_msg_id || '')) await refreshRepairCard(id);
+      return true;
+    }
+
+    if (data.startsWith('m:close:')) {
+      const tech = await requireTech(cq); if (!tech) return true;
+      const id = Number(data.slice(8));
+      const row = await getIncident(id);
+      if (!row) { await ack('ไม่พบใบงานนี้'); return true; }
+      await setMaintDraft(chatId, userId, { kind: 'close', refId: id, step: 'fix', data: { images: [] } });
+      await ack('ปิดงาน — ตอบคำถามต่อได้เลย');
+      await askText(chatId, who,
+        `✅ <b>ปิดงาน #${id}</b> — ${escapeHtml(row.title || '')}\n\n🔧 <b>แก้ยังไงครับ?</b> พิมพ์สั้น ๆ พอ\n\n<i>พิมพ์ “ยกเลิก” เพื่อเลิก</i>`,
+        'วิธีแก้…');
+      return true;
+    }
+    if (data === 'm:ccancel') { await clearMaintDraft(chatId, userId); await ack('ยกเลิกแล้ว'); await show(await buildMaintHome(date)); return true; }
+    if (data === 'm:csave') {
+      const tech = await requireTech(cq); if (!tech) return true;
+      const draft = await getMaintDraft(chatId, userId);
+      if (!draft || draft.kind !== 'close') { await ack('ร่างหมดอายุแล้ว'); return true; }
+      const id = draft.ref_id;
+      const row = await getIncident(id);
+      if (!row) { await clearMaintDraft(chatId, userId); await ack('ไม่พบใบงานนี้'); return true; }
+      // เครื่องที่ยังหยุดอยู่ → ปิดเวลาหยุด ณ ตอนกดปิดงาน (แก้เวลาย้อนหลังได้ในแอป)
+      const downTo = row.down_from && !row.down_to ? nowBKK().slice(0, 16) : row.down_to;
+      await db.exec(
+        'UPDATE incidents SET status = ?, fix = ?, result_images = ?, down_to = ?, updated_at = ? WHERE id = ?',
+        ['closed', draft.data.fix || null, photoJson(draft.data.images || []), downTo, nowBKK(), id]);
+      await clearMaintDraft(chatId, userId);
+      const fresh = await getIncident(id);
+      try {
+        const sync = await syncIncident(fresh);
+        if (sync.path) await db.exec('UPDATE incidents SET vault_path = ? WHERE id = ?', [sync.path, id]);
+      } catch { /* เขียนโน้ตไม่ได้ก็ไม่บล็อกการปิดงาน */ }
+      touchMachineNote(fresh.machine);
+      await ack('ปิดงานแล้ว ✅');
+      await refreshRepairCard(id);
+      // งานที่แก้เฉพาะหน้า มักต้องตามด้วยงานจริงทีหลัง — ถามเลยตอนที่ยังนึกออก
+      await tgApi('sendMessage', {
+        chat_id: chatId, parse_mode: 'HTML',
+        text: `✅ <b>ปิดงาน #${id} แล้ว</b>\n\nต้องตั้งงาน PM ตามต่อไหมครับ? (เช่นแก้เฉพาะหน้าไปก่อน เดี๋ยวเปลี่ยนอะไหล่จริง)`,
+        reply_markup: { inline_keyboard: [
+          [{ text: '🗓 ตั้งงาน PM ตามต่อ', callback_data: `mpm:from:${id}` }],
+          [{ text: '👍 ไม่ต้อง จบเลย', callback_data: 'm:home' }]] },
+      });
+      return true;
+    }
+
+    // ── งาน PM ──
+    if (data.startsWith('m:pmv:')) { await show(await buildPmView(Number(data.slice(6)), date)); return true; }
+    if (data.startsWith('m:pmdone:')) {
+      const tech = await requireTech(cq); if (!tech) return true;
+      const id = Number(data.slice(9));
+      await db.exec("UPDATE daily_tasks SET status = 'done', completed_at = ?, done_by = ? WHERE id = ?",
+        [nowBKK(), tech.name, id]);
+      await show(await buildPmList(date), 'ปิดงาน PM แล้ว ✅');
+      return true;
+    }
+
+    // ── งานรูทีน ──
+    if (data.startsWith('m:rtm:')) { await show(await buildRoutineMachine(Number(data.slice(6)), date)); return true; }
+    if (data.startsWith('m:rtt:')) {
+      const tech = await requireTech(cq); if (!tech) return true;
+      const rest = data.slice(6);
+      const owner = rest.slice(0, rest.indexOf(':'));
+      const nodeKey = rest.slice(rest.indexOf(':') + 1);
+      await toggleRoutineDone(owner, nodeKey, date);
+      const due = await dueRoutines(date);
+      const hit = due.find(r => r.owner === owner && r.key === nodeKey);
+      const idx = machineListOf(due).indexOf(hit ? hit.machine : '');
+      await show(idx >= 0 ? await buildRoutineMachine(idx, date) : await buildRoutineBoard(date), 'อัปเดตแล้ว ✅');
+      return true;
+    }
+
+    // ── wizard ตั้งงาน PM ──
+    if (data === 'mpm:new' || data.startsWith('mpm:from:')) {
+      const tech = await requireTech(cq); if (!tech) return true;
+      const from = data.startsWith('mpm:from:') ? await getIncident(Number(data.slice(9))) : null;
+      const d = await setMaintDraft(chatId, userId, {
+        kind: 'pm', refId: from ? from.id : null,
+        step: from && from.machine ? 'title' : 'machine',
+        data: { images: [], ...(from && from.machine ? { machine: from.machine } : {}) },
+      });
+      await ack('ตั้งงาน PM');
+      await pmAsk(chatId, d, who);
+      return true;
+    }
+    if (data === 'mpm:cancel') { await clearMaintDraft(chatId, userId); await ack('ยกเลิกแล้ว'); return true; }
+    if (data.startsWith('mpm:')) {
+      const tech = await requireTech(cq); if (!tech) return true;
+      const draft = await getMaintDraft(chatId, userId);
+      if (!draft || draft.kind !== 'pm') { await ack('ร่างหมดอายุแล้ว กด "➕ ตั้งงาน PM ใหม่" อีกครั้ง'); return true; }
+      const step = (patch) => setMaintDraft(chatId, userId, patch);
+      if (data.startsWith('mpm:m:')) {
+        const { names } = await machineKeyboardFor('mpm');
+        const pick = names[Number(data.slice(6))] || '';
+        await ack(pick || 'เลือกแล้ว');
+        await pmAsk(chatId, await step({ step: 'title', data: { machine: pick } }), who); return true;
+      }
+      if (data === 'mpm:mskip') { await ack('ไม่ระบุเครื่อง'); await pmAsk(chatId, await step({ step: 'title', data: { machine: '' } }), who); return true; }
+      if (data === 'mpm:mtype') { await ack(); await pmAsk(chatId, await step({ step: 'mtype' }), who); return true; }
+      if (data.startsWith('mpm:k:')) { await ack(); await pmAsk(chatId, await step({ step: 'date', data: { kind: data.slice(6) } }), who); return true; }
+      if (data === 'mpm:dtype') { await ack(); await pmAsk(chatId, await step({ step: 'dtype' }), who); return true; }
+      if (data.startsWith('mpm:d:')) { await ack(); await pmAsk(chatId, await step({ step: 'remind', data: { date: pmDateOf(data.slice(6)) } }), who); return true; }
+      if (data.startsWith('mpm:r:')) {
+        const d2 = await step({ step: 'save', data: { remind: data.slice(6) } });
+        const saved = await savePmTask(d2.data, tech.person_key);
+        await clearMaintDraft(chatId, userId);
+        await ack('ตั้งงาน PM แล้ว ✅');
+        await tgApi('sendMessage', {
+          chat_id: chatId, parse_mode: 'HTML',
+          text: `🗓 <b>ตั้งงาน PM แล้ว</b>\n📌 ${escapeHtml(saved.title)}\n`
+            + (d2.data.machine ? `🔩 ${escapeHtml(d2.data.machine)}\n` : '')
+            + `📅 ${thaiDate(saved.date)}${saved.remindAt ? `\n🔔 เตือน ${saved.remindAt.replace('T', ' ')} น.` : ''}`,
+          reply_markup: { inline_keyboard: [[{ text: '🗓 ดูงาน PM ทั้งหมด', callback_data: 'm:pm' }]] },
+        });
+        return true;
+      }
+      await ack(); return true;
+    }
+    return false;
+  }
+
+  // ═══ รูปที่ส่งเข้ามาระหว่างปิดงาน ═══
+  if (upd.message?.photo?.length) {
+    const chatId = upd.message.chat?.id, userId = upd.message.from?.id;
+    const draft = await getMaintDraft(chatId, userId);
+    if (!draft || draft.kind !== 'close' || draft.step !== 'photo') return false;
+    const best = upd.message.photo[upd.message.photo.length - 1];
+    const url = await downloadTelegramFile(best.file_id);
+    if (!url || !url.startsWith('http')) {
+      await tgApi('sendMessage', { chat_id: chatId, text: '⚠️ เก็บรูปไม่สำเร็จ — กดปิดงานโดยไม่มีรูปไปก่อนได้' });
+      return true;
+    }
+    const imgs = [...(draft.data.images || []), url].slice(-8);
+    await setMaintDraft(chatId, userId, { data: { images: imgs } });
+    await tgApi('sendMessage', {
+      chat_id: chatId, parse_mode: 'HTML',
+      text: `📸 รับรูปหลังซ่อมแล้ว (${imgs.length} รูป) — ส่งเพิ่มได้ หรือกดปิดงาน`,
+      reply_markup: { inline_keyboard: [
+        [{ text: '✅ ปิดงานเลย', callback_data: 'm:csave' }],
+        [{ text: '✕ ยกเลิก', callback_data: 'm:ccancel' }]] },
+    });
+    return true;
+  }
+
+  // ═══ ข้อความ ═══
+  const text = (upd.message?.text || '').trim();
+  if (!upd.message || !text) return false;
+  const chatId = upd.message.chat?.id, userId = upd.message.from?.id;
+  const who = whoOf(upd.message.from);
+
+  // เปิดกระดาน — คำสั่งเดิมของบอทเก่าใช้ได้เหมือนกัน แต่ในกลุ่มนี้ต้องได้กระดานซ่อมบำรุง
+  if (/^\/(start|menu|duty)\b/.test(text) || /^(เมนู|กระดาน)\s*$/.test(text)
+      || /ปิดงาน|งานค้าง|เช็[กค]งาน|เช็[กค]\s*งาน|หน้าที่/.test(text)) {
+    const kb = await buildMaintHome(date);
+    await tgApi('sendMessage', { chat_id: chatId, text: kb.text, parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: kb.keyboard } });
+    return true;
+  }
+
+  const draft = await getMaintDraft(chatId, userId);
+  if (!draft) return false;                       // ไม่ได้คุยกับกระดานอยู่ → ปล่อยให้ของเดิมทำต่อ
+  // ในกลุ่ม: นับเป็นคำตอบเฉพาะข้อความที่ตอบกลับบอท หรืออยู่ใน 5 นาทีแรก (กฎเดียวกับใบแจ้งซ่อม)
+  const inGroup = /group/.test(upd.message.chat?.type || '');
+  const repliedToBot = !!upd.message.reply_to_message?.from?.is_bot;
+  const freshCut = new Date(Date.now() - 5 * 60000).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T');
+  if (inGroup && !repliedToBot && String(draft.created_at || '') < freshCut) return false;
+
+  if (/^\/?(ยกเลิก|cancel)$/i.test(text)) {
+    await clearMaintDraft(chatId, userId);
+    await tgApi('sendMessage', { chat_id: chatId, text: '✕ ยกเลิกแล้ว' });
+    return true;
+  }
+
+  if (draft.kind === 'close' && draft.step === 'fix') {
+    await setMaintDraft(chatId, userId, { step: 'photo', data: { fix: text } });
+    await tgApi('sendMessage', {
+      chat_id: chatId, parse_mode: 'HTML',
+      text: '📸 <b>ส่งรูปหลังซ่อมได้เลย</b> (จะส่งกี่รูปก็ได้)\nไม่มีรูปก็กดปิดงานได้เลย',
+      reply_markup: { inline_keyboard: [
+        [{ text: '✅ ปิดงานเลย', callback_data: 'm:csave' }],
+        [{ text: '✕ ยกเลิก', callback_data: 'm:ccancel' }]] },
+    });
+    return true;
+  }
+  if (draft.kind === 'pm') {
+    if (draft.step === 'mtype') { await pmAsk(chatId, await setMaintDraft(chatId, userId, { step: 'title', data: { machine: text } }), who); return true; }
+    if (draft.step === 'title') { await pmAsk(chatId, await setMaintDraft(chatId, userId, { step: 'kind', data: { title: text } }), who); return true; }
+    if (draft.step === 'dtype') {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+        await tgApi('sendMessage', { chat_id: chatId, text: '⚠️ รูปแบบวันที่ต้องเป็น 2026-09-01 ลองใหม่อีกทีครับ' });
+        return true;
+      }
+      await pmAsk(chatId, await setMaintDraft(chatId, userId, { step: 'remind', data: { date: text } }), who);
+      return true;
+    }
+  }
+  return false;
+}
+
 /* เนื้อในของกระดานงาน/wizard แจ้งเหตุการณ์ — ใช้ร่วมกัน 2 ทางเข้า:
      · /api/telegram/duty-update  = บอทเดิม (n8n เป็นเจ้าของ webhook แล้ว forward ผ่าน Duty Gate มา)
      · /api/telegram/maint-update = บอทซ่อมบำรุง (แอปเป็นเจ้าของ webhook เอง ข้อความมาถึงตรง ๆ)
@@ -9788,6 +10613,9 @@ async function incAsk(chatId, draft, who = {}) {
 async function handleDutyUpdate(upd) {
   {   // บล็อกเปล่า: คงระดับย่อหน้าเดิมของโค้ดข้างในไว้ ดิฟตอนแยกบอทจะได้ไม่บวมทั้งฟังก์ชัน
     try {
+      // บอทซ่อมบำรุง: กระดานใหม่ขอจัดการก่อน — อะไรที่มันไม่รับ (wizard แจ้งซ่อม ปุ่มติ๊กงานประจำ
+      // การรับรูปงานมอบหมาย) ค่อยตกมาที่ของเดิมข้างล่าง ไม่ต้องเขียนซ้ำ
+      if (onMaintBot() && await handleMaintUpdate(upd)) return;
       const date = workDayBKK();
       if (upd.callback_query) {
         const cq = upd.callback_query;
@@ -9813,17 +10641,22 @@ async function handleDutyUpdate(upd) {
           if (data.startsWith('inc:m:')) {
             const { names } = await incMachineKeyboard();
             const pick = names[Number(data.slice(6))] || '';
-            const d = await setIncDraft(chatId, userId, { machine: pick, step: 'symptom' });
+            const d = await setIncDraft(chatId, userId, { machine: pick, step: stepAfterMachine() });
             await ack(pick || 'เลือกแล้ว'); await incAsk(chatId, d, { userId, name: who });
             return;
           }
           if (data === 'inc:mskip') {
-            const d = await setIncDraft(chatId, userId, { machine: '', step: 'symptom' });
+            const d = await setIncDraft(chatId, userId, { machine: '', step: stepAfterMachine() });
             await ack('ไม่ระบุเครื่อง'); await incAsk(chatId, d, { userId, name: who }); return;
           }
           if (data === 'inc:mtype') {
             const d = await setIncDraft(chatId, userId, { step: 'mtype' });
             await ack(); await incAsk(chatId, d, { userId, name: who }); return;
+          }
+          if (data.startsWith('inc:p:')) {
+            const pk = data.slice(6);
+            const d = await setIncDraft(chatId, userId, { priority: SR_PRIO[pk] ? pk : 'warn', step: 'symptom' });
+            await ack(srPrio(pk).label); await incAsk(chatId, d, { userId, name: who }); return;
           }
           if (data === 'inc:nosym') {
             const d = await setIncDraft(chatId, userId, { symptom: '', step: 'photo' });
@@ -9831,12 +10664,18 @@ async function handleDutyUpdate(upd) {
           }
           if (data === 'inc:save') {
             const imgs = parseImgs(draft.images);
+            /* "หยุดไลน์" = เริ่มจับเวลาเครื่องหยุดตั้งแต่วินาทีที่แจ้ง ไม่ต้องให้ใครมากรอกเวลาเอง
+               (ปิดงานเมื่อไหร่ระบบเติม down_to ให้ → ได้นาทีที่เสียจริง แก้ย้อนหลังได้ในแอป) */
             const saved = await createIncidentRow({
               title: draft.title, machine: draft.machine, symptom: draft.symptom,
               images: imgs, operator: draft.operator || who,
+              priority: draft.priority || null,
+              downFrom: draft.priority === 'stop' ? nowBKK().slice(0, 16) : null,
             });
             await clearIncDraft(chatId, userId);
             await ack('บันทึกแล้ว ✅');
+            // กลุ่มซ่อมบำรุง: โพสต์เป็น "การ์ดใบงาน" ที่อัปเดตสถานะตัวเองได้ แทนข้อความยืนยันเฉย ๆ
+            if (onMaintBot()) { await postRepairCard(saved.id, chatId); return; }
             await tgApi('sendMessage', {
               chat_id: chatId, parse_mode: 'HTML',
               text: `✅ <b>บันทึกเหตุการณ์แล้ว</b>\n⚡ ${escapeHtml(draft.title)}`
@@ -10025,7 +10864,7 @@ async function handleDutyUpdate(upd) {
           }
         }
         // "แจ้งเหตุ ปั๊มรั่ว" = ใส่หัวข้อมาในบรรทัดเดียวเลย ไม่ต้องถามซ้ำ
-        const m = text.trim().match(/^\/?(?:แจ้งเหตุ(?:การณ์)?|เหตุการณ์|incident)\s*(.*)$/i);
+        const m = text.trim().match(/^\/?(?:แจ้งซ่อม|แจ้งเหตุ(?:การณ์)?|เหตุการณ์|incident)\s*(.*)$/i);
         if (m) {
           await clearIncDraft(chatId, userId);
           const title = (m[1] || '').trim();
@@ -10048,7 +10887,7 @@ async function handleDutyUpdate(upd) {
         if (draft && (!inGroup || repliedToBot || stillFresh)) {
           const asWho = { userId, name: who, replyTo: upd.message.message_id };
           if (draft.step === 'title') { await incAsk(chatId, await setIncDraft(chatId, userId, { title: text.trim(), step: 'machine' }), asWho); return; }
-          if (draft.step === 'mtype') { await incAsk(chatId, await setIncDraft(chatId, userId, { machine: text.trim(), step: 'symptom' }), asWho); return; }
+          if (draft.step === 'mtype') { await incAsk(chatId, await setIncDraft(chatId, userId, { machine: text.trim(), step: stepAfterMachine() }), asWho); return; }
           if (draft.step === 'symptom') {
             const sym = text.trim() === '-' ? '' : text.trim();   // "-" = ไม่มีรายละเอียดเพิ่ม
             await incAsk(chatId, await setIncDraft(chatId, userId, { symptom: sym, step: 'photo' }), asWho); return;

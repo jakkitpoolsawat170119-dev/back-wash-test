@@ -2,12 +2,15 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
 
-/* ทะเบียนงาน PM — ตารางแม่ของงานประจำฝั่งซ่อมบำรุง (แบบ A ใน mockup)
+/* ทะเบียน "งานรูทีน" ฝั่งซ่อมบำรุง — ตารางแม่ของเช็กลิสต์ประจำ
+   ⚠️ คนละอย่างกับ "งาน PM" (งานที่วางแผนว่าจะทำวันไหน — อยู่ในกระดานงานมอบหมาย/บอท)
+      ตรงนี้คือรายการที่ทำซ้ำ ๆ ตามรอบ เช่นตอนตั้งไลน์ · ตั้ง "ความถี่" ได้ว่ารอบไหนถึงคิว
    ต่างจากกระดานเวร: ตรงนี้เห็น "ทุกแถว" รวมงานที่ทีมผลิตทำ และแก้ข้อมูลได้ทุกช่อง       */
 type Role = '' | 'mt' | 'op' | 'qc' | 'pd';
+type Freq = '' | 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'onuse' | 'onissue';
 type Row = {
   id: number; personKey: string; nodeKey: string; title: string;
-  machine: string; goal: string; ownerRole: Role; coOwnerRole: Role; sortOrder: number;
+  machine: string; goal: string; ownerRole: Role; coOwnerRole: Role; sortOrder: number; freq: Freq;
 };
 type Person = { key: string; name: string; role: string; color?: string; initial?: string };
 
@@ -18,6 +21,15 @@ const ROLE: Record<Exclude<Role, ''>, { label: string; c: string; w: string }> =
   pd: { label: 'พนักงานผลิต', c: '#4b433c', w: '#f2ede8' },
 };
 const ROLE_KEYS: Exclude<Role, ''>[] = ['mt', 'op', 'qc', 'pd'];
+/* ความถี่ = ตัวบอกกระดานในบอทว่างานนี้ "ถึงคิว" วันไหน
+   ว่างไว้ = ทุกวัน (ค่าเดิมของงานที่สร้างก่อนมีช่องนี้ — กระดานจะทำงานเหมือนเดิม)
+   onuse/onissue ไม่ขึ้นกระดานเอง ต้องเปิดดูของเครื่องนั้นเอง                          */
+const FREQ: Record<Exclude<Freq, ''>, string> = {
+  daily: 'ทุกวัน', weekly: 'ทุกสัปดาห์', monthly: 'ทุกเดือน', quarterly: 'ทุก 3 เดือน',
+  onuse: 'เมื่อใช้งานเครื่องนี้', onissue: 'เมื่อมีปัญหา',
+};
+const FREQ_KEYS = Object.keys(FREQ) as Exclude<Freq, ''>[];
+const freqLabel = (f: Freq) => FREQ[(f || 'daily') as Exclude<Freq, ''>];
 const NO_MACHINE = 'งานเปิดกะ (ไม่ผูกเครื่องจักร)';
 const MACHINE_IC: Record<string, string> = {
   'เครื่องยิงวันที่': '🖨', 'เครื่องชั่ง Mettler1/2/Ishida': '⚖️', 'เครื่องจับโละ 900g/25kg/ปี๊บ': '📦',
@@ -94,6 +106,7 @@ const PmRegistry: React.FC = () => {
       id: r.id || undefined, personKey: r.personKey, assigneeKey: r.personKey,
       title: r.title.trim(), machine: r.machine.trim(), goal: r.goal.trim(),
       ownerRole: r.ownerRole || null, coOwnerRole: r.coOwnerRole || null,
+      freq: r.freq || 'daily',
     });
     if (ok) { setEdit(null); setAdding(false); }
   };
@@ -133,7 +146,7 @@ const PmRegistry: React.FC = () => {
     const set = (patch: Partial<Row>) => setD(v => ({ ...v, ...patch }));
     return (
       <tr>
-        <td colSpan={5} style={{ padding: 12, background: '#fffaf5' }}>
+        <td colSpan={6} style={{ padding: 12, background: '#fffaf5' }}>
           <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))' }}>
             <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--ink-soft,#6d6259)' }}>รายการที่ต้องทำ
               <input autoFocus value={d.title} onChange={e => set({ title: e.target.value })} style={{ ...inp, marginTop: 3 }} />
@@ -156,6 +169,11 @@ const PmRegistry: React.FC = () => {
               <select value={d.coOwnerRole} onChange={e => set({ coOwnerRole: e.target.value as Role })} style={{ ...inp, marginTop: 3 }}>
                 <option value="">— ไม่มี —</option>
                 {ROLE_KEYS.map(k => <option key={k} value={k}>{ROLE[k].label}</option>)}
+              </select>
+            </label>
+            <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--ink-soft,#6d6259)' }}>ความถี่ (ถึงคิวเมื่อไหร่)
+              <select value={d.freq || 'daily'} onChange={e => set({ freq: e.target.value as Freq })} style={{ ...inp, marginTop: 3 }}>
+                {FREQ_KEYS.map(k => <option key={k} value={k}>{FREQ[k]}</option>)}
               </select>
             </label>
             <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--ink-soft,#6d6259)' }}>คนในทีมที่รับงานนี้
@@ -182,7 +200,7 @@ const PmRegistry: React.FC = () => {
 
   const emptyRow = (machine: string): Row => ({
     id: 0, personKey: people[0]?.key || '', nodeKey: '', title: '', machine,
-    goal: '', ownerRole: 'mt', coOwnerRole: '', sortOrder: 0,
+    goal: '', ownerRole: 'mt', coOwnerRole: '', sortOrder: 0, freq: 'daily',
   });
 
   return (
@@ -193,7 +211,7 @@ const PmRegistry: React.FC = () => {
       }}>🔧 งานซ่อมบำรุง</div>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
         <h1 style={{ fontFamily: 'Kanit, sans-serif', fontSize: 'clamp(20px,2.6vw,25px)', fontWeight: 600, margin: 0, letterSpacing: '-.02em' }}>
-          ทะเบียนงาน PM รายเครื่องจักร
+          ทะเบียนงานรูทีนรายเครื่องจักร
         </h1>
         <span style={{ fontSize: 13, color: 'var(--ink-soft,#6d6259)' }}>
           {rows.length} รายการ · {groups.length} กลุ่ม · แก้ได้ทุกช่อง
@@ -233,11 +251,11 @@ const PmRegistry: React.FC = () => {
           <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 820, fontSize: 13.5 }}>
             <thead>
               <tr>
-                {['รายการที่ต้องทำ', 'เป้าหมาย', 'ผู้รับผิดชอบหลัก', 'ผู้รับผิดชอบ 2', ''].map((h, i) => (
+                {['รายการที่ต้องทำ', 'เป้าหมาย', 'ความถี่', 'ผู้รับผิดชอบหลัก', 'ผู้รับผิดชอบ 2', ''].map((h, i) => (
                   <th key={i} style={{
                     fontFamily: 'Kanit, sans-serif', fontSize: 12, fontWeight: 600, color: 'var(--ink-soft,#6d6259)',
                     textAlign: 'left', padding: '10px 14px', background: '#fbf7f3', borderBottom: '1px solid var(--line,#eee3d9)',
-                    width: ['34%', '26%', '15%', '15%', '10%'][i],
+                    width: ['30%', '20%', '14%', '13%', '13%', '10%'][i],
                   }}>{h}</th>
                 ))}
               </tr>
@@ -247,7 +265,7 @@ const PmRegistry: React.FC = () => {
               {groups.map(g => (
                 <React.Fragment key={g.name}>
                   <tr>
-                    <td colSpan={5} style={{
+                    <td colSpan={6} style={{
                       background: 'linear-gradient(90deg,#fff3ea,rgba(255,243,234,.25))', padding: '8px 14px',
                       fontFamily: 'Kanit, sans-serif', fontWeight: 600, fontSize: 13.5, color: '#c24f00',
                       borderBottom: '1px solid #f6e2d0',
@@ -267,6 +285,14 @@ const PmRegistry: React.FC = () => {
                         )}
                       </td>
                       <td style={{ padding: '9px 14px', color: 'var(--ink-soft,#6d6259)', fontSize: 12.5 }}>{r.goal}</td>
+                      <td style={{ padding: '9px 14px' }}>
+                        <span style={{
+                          fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 999,
+                          color: r.freq === 'onissue' ? '#a49a90' : '#4b433c',
+                          background: r.freq === 'onissue' ? '#f7f4f1' : '#f2ede8',
+                          whiteSpace: 'nowrap',
+                        }}>{freqLabel(r.freq)}</span>
+                      </td>
                       <td style={{ padding: '9px 14px' }}><RoleChip r={r.ownerRole} /></td>
                       <td style={{ padding: '9px 14px' }}><RoleChip r={r.coOwnerRole} sec /></td>
                       <td style={{ padding: '9px 10px', whiteSpace: 'nowrap' }}>
@@ -280,7 +306,7 @@ const PmRegistry: React.FC = () => {
                 </React.Fragment>
               ))}
               {!groups.length && (
-                <tr><td colSpan={5} style={{ padding: 20, textAlign: 'center', color: 'var(--ink-soft,#6d6259)', fontSize: 13 }}>
+                <tr><td colSpan={6} style={{ padding: 20, textAlign: 'center', color: 'var(--ink-soft,#6d6259)', fontSize: 13 }}>
                   ไม่มีรายการที่ตรงกับตัวกรอง
                 </td></tr>
               )}
@@ -288,6 +314,7 @@ const PmRegistry: React.FC = () => {
           </table>
         </div>
         <div style={{ fontSize: 11.5, color: '#a49a90', padding: '10px 14px', borderTop: '1px solid var(--line,#eee3d9)', background: '#fdfbf9', lineHeight: 1.6 }}>
+          กระดานในบอทจะโชว์เฉพาะงานที่ <b>ถึงคิวตามความถี่</b> — “เมื่อมีปัญหา” ไม่ขึ้นเอง ·
           กระดานเวรจะโชว์ให้ติ๊กเฉพาะงานที่ <b>ผู้รับผิดชอบหลัก = Maintenance</b> ·
           งานที่เราเป็นผู้รับผิดชอบ 2 จะขึ้นในแถบ “ทีมผลิตทำ — เราแค่ตามผล” ·
           ย้ายงานให้สมาชิกคนอื่นได้จากช่อง “คนในทีมที่รับงานนี้” ตอนกดแก้ไข
