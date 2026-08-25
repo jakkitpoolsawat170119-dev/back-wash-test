@@ -15,6 +15,7 @@ import BlogEditor from './BlogEditor';
 import SopQueue from './SopQueue';
 import ObsidianInbox from './ObsidianInbox';
 import MaintenanceBoard from './MaintenanceBoard';
+import PmBoard from './PmBoard';
 import PmRegistry from './PmRegistry';
 import MachineRegistry from './MachineRegistry';
 import IncidentBoard from './IncidentBoard';
@@ -28,7 +29,7 @@ import MediaPane from './MediaPane';
 import ErrorBoundary from './ErrorBoundary';
 
 type TodoTab = 'today' | 'audit' | 'calendar' | 'report' | 'timeline' | 'recurring' | 'ai' | 'specs';
-type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline' | 'blog' | 'obsidian' | 'maint' | 'pmreg' | 'downtime' | 'machines' | 'incidents' | 'users' | 'materials' | 'cost' | 'quality' | 'perf' | 'media' | 'sopqueue';
+type Pane = 'overview' | TodoTab | 'line4' | 'stickeradmin' | 'sppreport' | 'sppapprove' | 'skureview' | 'spptimeline' | 'blog' | 'obsidian' | 'maint' | 'pm' | 'pmreg' | 'downtime' | 'machines' | 'incidents' | 'users' | 'materials' | 'cost' | 'quality' | 'perf' | 'media' | 'sopqueue';
 
 const TODO_TABS: string[] = ['today', 'audit', 'calendar', 'report', 'timeline', 'recurring', 'ai', 'specs'];
 
@@ -54,6 +55,7 @@ const MENU: MenuRow[] = [
   { pane: 'cost', ic: '💰', label: 'ต้นทุนต่อ batch', sub: true },
   { head: 'งานซ่อมบำรุง', ic: '🔧' },
   { pane: 'maint', ic: '👷', label: 'กระดานทีมซ่อมบำรุง', sub: true },
+  { pane: 'pm', ic: '🗓', label: 'งาน PM ที่วางแผนไว้', sub: true },
   { pane: 'pmreg', ic: '🔁', label: 'ทะเบียนงานรูทีน', sub: true },
   { pane: 'downtime', ic: '⏱', label: 'เวลาเครื่องหยุด', sub: true },
   { head: 'Knowledge management', ic: '📚', km: true },
@@ -229,6 +231,10 @@ const AdminShell: React.FC<Props> = ({ operator, onExit, onNavOut }) => {
           )}
           {pane === 'maint' && (
             <ErrorBoundary label="admin-maint"><MaintenanceBoard operatorName={operator} /></ErrorBoundary>
+          )}
+
+          {pane === 'pm' && (
+            <ErrorBoundary label="admin-pm"><PmBoard operatorName={operator} /></ErrorBoundary>
           )}
 
           {pane === 'pmreg' && (

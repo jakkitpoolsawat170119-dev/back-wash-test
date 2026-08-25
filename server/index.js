@@ -6809,6 +6809,190 @@ app.get('/api/maint/routines', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ── หน้ารวมงาน PM ในแอป ──────────────────────────────────────────────────
+   งาน PM = งานที่วางแผนไว้ว่าจะทำวันไหน (บำรุงรักษา/ปรับปรุง/แก้ไข)
+   เก็บใน daily_tasks category='pm' — คนละอย่างกับ "งานรูทีน" (duty_routines)
+   บอทเห็นทีละหน้าจอ (เกินกำหนด + วันนี้ + ถัดไปแค่ 5) และ **แก้วันที่ไม่ได้**
+   หน้านี้จึงเป็นที่เดียวที่เห็นทั้งก้อนล่วงหน้าและเลื่อนวันได้                      */
+const PM_KIND_KEY = { 'บำรุงรักษา': 'pm', 'ปรับปรุง': 'up', 'แก้ไข': 'fix' };
+// ชื่องานเก็บเป็น "<ประเภท> — <ทำอะไร>" (savePmTask เป็นคนประกอบ) แยกกลับมาให้ UI แก้ทีละช่อง
+function splitPmTitle(t) {
+  const s = String(t || '');
+  const i = s.indexOf(' — ');
+  const kind = i > 0 ? PM_KIND_KEY[s.slice(0, i)] : null;
+  return kind ? { kind, what: s.slice(i + 3) } : { kind: '', what: s };   // ไม่รู้จักหัว = ถือว่าไม่มีประเภท ห้ามเดา
+}
+const pmTitleOf = (kind, what) =>
+  (PM_KIND[kind] ? `${PM_KIND[kind].replace(/^\S+\s/, '')} — ` : '') + String(what || '').trim();
+// เตือนล่วงหน้าเก็บเป็นเวลาเต็ม (remind_at) — แปลงกลับเป็นตัวเลือกที่ UI เข้าใจ
+const pmRemindOf = (row) => !row.remind_at ? 'none'
+  : (String(row.remind_at).slice(0, 10) < String(row.task_date) ? 'prev' : 'day');
+const pmRemindAt = (date, remind) => remind === 'none' ? null
+  : remind === 'prev' ? `${pmDateOfFrom(date, -1)}T08:00` : `${date}T08:00`;
+const _pmDaysBetween = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
+
+function pmRowOut(r, today) {
+  const { kind, what } = splitPmTitle(r.title);
+  const date = String(r.task_date || '');
+  return {
+    id: r.id, date, title: r.title || '', kind, kindLabel: PM_KIND[kind] || '', what,
+    machine: r.machine || '', assignee: r.assignee || '', assigneeName: r.assignee ? dutyName(r.assignee) : '',
+    status: r.status || 'pending', dueTime: r.due_time || '', remind: pmRemindOf(r),
+    createdBy: r.created_by || '', createdAt: r.created_at || '',
+    completedAt: r.completed_at || '', doneBy: r.done_by || '',
+    hasImages: !!Number(r.has_images), hasDoneImages: !!Number(r.has_done_images),
+    lateDays: date && date < today ? _pmDaysBetween(date, today) : 0,
+  };
+}
+
+/* ปิดงาน PM — ใช้ร่วมกันระหว่างบอทกับหน้าเว็บ
+   ปิดแล้วขยับ "PM ล่าสุด" ในทะเบียนเครื่องจักรให้ด้วย ไม่งั้นต้องไปกรอกมือทุกครั้ง */
+async function bumpMachineLastPm(name) {
+  if (!name) return;
+  try {
+    const today = todayBKK();
+    const m = await dbGet('SELECT id, last_pm FROM machines WHERE name = ? AND active = 1', [name]);
+    if (!m || (m.last_pm && String(m.last_pm) >= today)) return;
+    await db.exec('UPDATE machines SET last_pm = ? WHERE id = ?', [today, m.id]);
+    touchMachineNote(name);
+  } catch { /* ทะเบียนเครื่องจักรไม่พร้อมก็ไม่บล็อกการปิดงาน */ }
+}
+async function markPmDone(id, byName) {
+  const row = await dbGet("SELECT * FROM daily_tasks WHERE id = ? AND category = 'pm'", [id]);
+  if (!row) return null;
+  await db.exec("UPDATE daily_tasks SET status = 'done', completed_at = ?, done_by = ? WHERE id = ?",
+    [nowBKK(), byName || null, id]);
+  await bumpMachineLastPm(row.machine);
+  scheduleVaultTaskSync(row.task_date);
+  return row;
+}
+
+app.get('/api/maint/pm', async (req, res) => {
+  const today = todayBKK();
+  const soonDays = Math.min(90, Math.max(1, Number(req.query.soon) || 7));
+  const backDays = Math.min(365, Math.max(1, Number(req.query.back) || 30));
+  const soonEnd = pmDateOfFrom(today, soonDays);
+  const doneFrom = pmDateOfFrom(today, -backDays);
+  try {
+    // ไม่ดึงคอลัมน์รูป (base64) — คืนแค่ธงว่ามีรูปไหม เหมือนบอร์ดงานมอบหมาย
+    const cols = `id, task_date, title, machine, assignee, status, due_time, remind_at, created_by, created_at,
+       completed_at, done_by,
+       CASE WHEN images IS NULL OR images = '' OR images = '[]' THEN 0 ELSE 1 END AS has_images,
+       CASE WHEN done_images IS NULL OR done_images = '' OR done_images = '[]' THEN 0 ELSE 1 END AS has_done_images`;
+    const rows = await dbAll(
+      `SELECT ${cols} FROM daily_tasks
+        WHERE category = 'pm' AND (status <> 'done' OR task_date >= ?)
+        ORDER BY task_date, id`, [doneFrom]);
+    const all = rows.map(r => pmRowOut(r, today));
+    const open = all.filter(r => r.status !== 'done');
+    let machines = [];
+    try {
+      machines = (await dbAll('SELECT name FROM machines WHERE active = 1 ORDER BY sort_order, id', []))
+        .map(m => m.name).filter(Boolean);
+    } catch { /* ทะเบียนเครื่องจักรยังไม่พร้อม — เลือกเครื่องด้วยการพิมพ์เอาก็ได้ */ }
+    const people = (await maintTeamRows()).map(p => ({ key: p.person_key, name: p.name }));
+    res.json({
+      today, soonDays, backDays,
+      late: open.filter(r => r.date && r.date < today),
+      todayList: open.filter(r => r.date === today),
+      soon: open.filter(r => r.date > today && r.date <= soonEnd),
+      later: open.filter(r => !r.date || r.date > soonEnd),
+      done: all.filter(r => r.status === 'done')
+        .sort((a, b) => String(b.completedAt || b.date).localeCompare(String(a.completedAt || a.date))),
+      machines, people,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ตั้งงาน PM ใหม่จากหน้าเว็บ — ใช้ savePmTask ตัวเดียวกับ wizard ในบอท
+app.post('/api/maint/pm', async (req, res) => {
+  const b = req.body || {};
+  const what = String(b.what || '').trim();
+  const date = String(b.date || '');
+  if (!what) return res.status(400).json({ error: 'ต้องบอกว่าจะทำอะไร' });
+  if (!/^\d{4}-\d\d-\d\d$/.test(date)) return res.status(400).json({ error: 'วันที่ต้องเป็น YYYY-MM-DD' });
+  try {
+    const saved = await savePmTask({
+      title: what, machine: String(b.machine || '').trim(), date,
+      kind: PM_KIND[b.kind] ? b.kind : 'pm', remind: b.remind || 'day', dueTime: b.dueTime || null,
+    }, b.assignee || null);
+    res.json({ success: true, ...saved });
+    scheduleVaultTaskSync(date);
+    if (process.env.TELEGRAM_CHAT_ID) {
+      notify('duty', `🗓 <b>ตั้งงาน PM ใหม่</b>\n📌 ${escapeHtml(saved.title)}\n`
+        + (b.machine ? `🔩 ${escapeHtml(String(b.machine))}\n` : '')
+        + `📅 ${thaiDate(date)}\n✍️ ตั้งจากหน้าเว็บโดย ${escapeHtml(String(b.operator || 'จักรกฤษ'))}`);
+    }
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// แก้งาน PM — หัวใจของหน้านี้คือ "เลื่อนวัน" (date) ซึ่ง /api/tasks/update ทำไม่ได้
+app.post('/api/maint/pm/update', async (req, res) => {
+  const b = req.body || {};
+  const id = Number(b.id);
+  if (!id) return res.status(400).json({ error: 'id จำเป็น' });
+  try {
+    const cur = await dbGet("SELECT * FROM daily_tasks WHERE id = ? AND category = 'pm'", [id]);
+    if (!cur) return res.status(404).json({ error: 'ไม่พบงาน PM นี้' });
+    const old = splitPmTitle(cur.title);
+    const kind = b.kind === undefined ? old.kind : (PM_KIND[b.kind] ? b.kind : '');
+    const what = b.what === undefined ? old.what : String(b.what || '').trim();
+    if (!what) return res.status(400).json({ error: 'ชื่องานว่างไม่ได้' });
+    const title = pmTitleOf(kind, what);
+    const date = b.date === undefined ? String(cur.task_date || '') : String(b.date || '');
+    if (!/^\d{4}-\d\d-\d\d$/.test(date)) return res.status(400).json({ error: 'วันที่ต้องเป็น YYYY-MM-DD' });
+    const assignee = b.assignee === undefined ? (cur.assignee || '') : String(b.assignee || '');
+    const machine = b.machine === undefined ? (cur.machine || '') : String(b.machine || '').trim();
+    const dueTime = b.dueTime === undefined ? (cur.due_time || '') : String(b.dueTime || '').trim();
+    const remind = b.remind === undefined ? pmRemindOf(cur) : String(b.remind || 'none');
+    // UNIQUE(task_date, line_name, category, title) — ไม่กันไว้จะเด้ง error ดิบ ๆ ตอนเลื่อนวันไปชนงานเดิม
+    if (date !== cur.task_date || title !== cur.title || assignee !== (cur.assignee || '')) {
+      const dup = await dbGet(
+        `SELECT id FROM daily_tasks WHERE task_date = ? AND line_name = ? AND category = 'pm' AND title = ? AND id <> ?`,
+        [date, assignee, title, id]);
+      if (dup) return res.status(409).json({
+        error: 'duplicate', message: `มีงาน "${title}" ของคนเดียวกันในวันที่ ${date} อยู่แล้ว` });
+    }
+    const status = b.status === 'done' ? 'done' : b.status === 'pending' ? 'pending' : (cur.status || 'pending');
+    const doneNow = status === 'done' && cur.status !== 'done';
+    // ปิดงานแล้วยังเก็บ remind_at ไว้ (reminderTick กรอง status != 'done' อยู่แล้ว)
+    // ถ้าล้างทิ้ง พอ "เปิดงานใหม่" การตั้งเตือนเดิมจะหายไปเงียบ ๆ
+    const remindAt = pmRemindAt(date, remind);
+    const reminded = remindAt && remindAt !== (cur.remind_at || null) ? 0 : (Number(cur.reminded) || 0);
+    await db.exec(
+      `UPDATE daily_tasks SET task_date = ?, line_name = ?, assignee = ?, title = ?, machine = ?, due_time = ?,
+         remind_at = ?, remind_lead = ?, reminded = ?, status = ?, completed_at = ?, done_by = ? WHERE id = ?`,
+      [date, assignee, assignee || null, title, machine || null, dueTime || null,
+        remindAt, remind === 'none' ? null : 'morning', reminded, status,
+        status === 'done' ? (cur.completed_at || nowBKK()) : null,
+        status === 'done' ? (cur.done_by || b.operator || null) : null, id]);
+    // gate ในหน่วยความจำ กัน reminderTick ข้ามงานที่เพิ่งเลื่อนมาใกล้ขึ้น
+    if (remindAt && (_nextRemindAt == null || remindAt < _nextRemindAt)) { _nextRemindAt = remindAt; _nextRemindKnown = true; }
+    if (doneNow) await bumpMachineLastPm(machine);
+    res.json({ success: true, id, date, title });
+    scheduleVaultTaskSync(date);
+    if (date !== cur.task_date) scheduleVaultTaskSync(cur.task_date);
+    if (date !== cur.task_date && status !== 'done' && process.env.TELEGRAM_CHAT_ID) {
+      notify('duty', `🗓 <b>เลื่อนงาน PM</b>\n📌 ${escapeHtml(title)}\n`
+        + (machine ? `🔩 ${escapeHtml(machine)}\n` : '')
+        + `📅 ${thaiDate(cur.task_date)} → <b>${thaiDate(date)}</b>\n`
+        + `✍️ ${escapeHtml(String(b.operator || 'จักรกฤษ'))}`);
+    }
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/maint/pm/delete', async (req, res) => {
+  const id = Number(req.body?.id);
+  if (!id) return res.status(400).json({ error: 'id จำเป็น' });
+  try {
+    const cur = await dbGet("SELECT task_date FROM daily_tasks WHERE id = ? AND category = 'pm'", [id]);
+    if (!cur) return res.status(404).json({ error: 'ไม่พบงาน PM นี้' });
+    await db.exec('DELETE FROM daily_tasks WHERE id = ?', [id]);
+    res.json({ success: true });
+    scheduleVaultTaskSync(cur.task_date);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ชื่อกะของทีมซ่อมบำรุง (แถวเดียว)
 async function getMaintShiftName() {
   try { return (await dbAll('SELECT shift_name FROM maint_team ORDER BY id LIMIT 1', []))[0]?.shift_name || MAINT_SHIFT_DEFAULT; }
@@ -10279,11 +10463,13 @@ async function savePmTask(d, techKey) {
     `INSERT INTO daily_tasks (task_date, line_name, category, title, status, source, assignee, location, priority,
        images, done_images, due_time, remind_at, remind_lead, reminded, completed_at, done_by, audit_batch,
        photo_specs, machine, reporter, created_by, created_at)
-     VALUES (?, ?, 'pm', ?, 'pending', 'assigned', ?, NULL, 'normal', '[]', '[]', NULL, ?, ?, 0, NULL, NULL, NULL,
+     VALUES (?, ?, 'pm', ?, 'pending', 'assigned', ?, NULL, 'normal', '[]', '[]', ?, ?, ?, 0, NULL, NULL, NULL,
        NULL, ?, NULL, ?, ?)
      ON CONFLICT(task_date, line_name, category, title)
-     DO UPDATE SET machine = excluded.machine, remind_at = excluded.remind_at, reminded = 0, status = 'pending'`,
-    [d.date, owner, title, owner, remindAt, d.remind === 'none' ? null : 'morning', d.machine || null, owner, nowBKK()]);
+     DO UPDATE SET machine = excluded.machine, due_time = excluded.due_time, remind_at = excluded.remind_at,
+       reminded = 0, status = 'pending', completed_at = NULL, done_by = NULL`,
+    [d.date, owner, title, owner, d.dueTime || null, remindAt, d.remind === 'none' ? null : 'morning',
+      d.machine || null, owner, nowBKK()]);
   // อัปเดต gate ในหน่วยความจำ กัน reminderTick ข้ามงานที่เพิ่งตั้ง
   if (remindAt && (_nextRemindAt == null || remindAt < _nextRemindAt)) { _nextRemindAt = remindAt; _nextRemindKnown = true; }
   return { title, date: d.date, remindAt };
@@ -10458,8 +10644,7 @@ async function handleMaintUpdate(upd) {
     if (data.startsWith('m:pmdone:')) {
       const tech = await requireTech(cq); if (!tech) return true;
       const id = Number(data.slice(9));
-      await db.exec("UPDATE daily_tasks SET status = 'done', completed_at = ?, done_by = ? WHERE id = ?",
-        [nowBKK(), tech.name, id]);
+      await markPmDone(id, tech.name);   // ปิดงาน + ขยับ "PM ล่าสุด" ของเครื่องนั้นในทะเบียน
       await show(await buildPmList(date), 'ปิดงาน PM แล้ว ✅');
       return true;
     }
