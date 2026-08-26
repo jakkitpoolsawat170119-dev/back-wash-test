@@ -9695,6 +9695,9 @@ const clip = (s) => (s.length > 60 ? s.slice(0, 59) + '…' : s);
 
 // ── หน้า "เลือกคน" (home) — เมนูรายบุคคล + แถบทีม + ปุ่มส่งสรุป ──
 // callback: p:<key> = เปิดหน้าคน, p:home = กลับ, sum = ส่งสรุป, t:<page>:<r|a>:<ref> = ปิด/เปิดงาน
+// ⚠️ กระดานนี้อยู่บน "บอทผลิต" ที่ n8n เป็นเจ้าของ webhook — ทุกปุ่มที่ใส่ตรงนี้
+//    ต้องมี prefix ที่ Duty Gate ใน n8n ปล่อยผ่าน (ตอนนี้: p: · t: · sum) ไม่งั้นกดแล้วเงียบ
+//    งานซ่อมบำรุงย้ายไปบอท @spp_maint_bot หมดแล้ว — อย่าเอาปุ่ม inc:/m:/mpm: กลับมาใส่ที่นี่
 function buildDutyHome(duty, auditOpen = 0) {
   // ปุ่มใบตรวจโชว์ทุกวัน (รวมเสาร์) — ประเด็นค้างไม่หยุดตามวันหยุด
   const auditRow = [{ text: `🧾 พื้นที่รับผิดชอบ${auditOpen > 0 ? ` (ค้าง ${auditOpen})` : ' ✅'}`, callback_data: 'p:audithome' }];
@@ -9704,12 +9707,12 @@ function buildDutyHome(duty, auditOpen = 0) {
     return [{ text: clip(`👤 ${p.name}　${p.done}/${p.total}${done ? ' ✅' : ''}`), callback_data: `p:${p.key}` }];
   });
   rows.push([{ text: '✈ ส่งสรุปเข้ากลุ่ม', callback_data: 'sum' }]);
-  rows.push([{ text: '⚡ แจ้งเหตุการณ์', callback_data: 'inc:new' }]);
   rows.push(auditRow);
   const text =
     `📋 <b>งานตามหน้าที่วันนี้</b> · ${duty.date}\n` +
     `${progressBar(duty.team.pct)} <b>${duty.team.pct}%</b> · คงค้าง ${duty.team.left} งาน\n\n` +
-    `แตะเลือกดูงานของแต่ละคน 👇`;
+    `แตะเลือกดูงานของแต่ละคน 👇\n` +
+    `<i>🆘 เครื่องเสีย/แจ้งซ่อม → พิมพ์ในกลุ่ม “SPP ช่างซ่อมบำรุง”</i>`;
   return { text, keyboard: rows };
 }
 
@@ -10827,7 +10830,8 @@ async function handleDutyUpdate(upd) {
             return;
           }
           const draft = await getIncDraft(chatId, userId);
-          if (!draft) { await ack('ร่างหมดอายุแล้ว กด "⚡ แจ้งเหตุการณ์" ใหม่'); return; }
+          // ชื่อปุ่มต่างกันตามบอท — บอทซ่อมบำรุงเรียก "แจ้งซ่อม" (บอทผลิตไม่มีปุ่มนี้แล้ว)
+          if (!draft) { await ack(`ร่างหมดอายุแล้ว กด "${onMaintBot() ? '🆘 แจ้งซ่อม' : '⚡ แจ้งเหตุการณ์'}" ใหม่`); return; }
           if (data.startsWith('inc:m:')) {
             const { names } = await incMachineKeyboard();
             const pick = names[Number(data.slice(6))] || '';
