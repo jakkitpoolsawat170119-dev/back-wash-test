@@ -1389,6 +1389,7 @@ const runAsBot = (name, fn) => botCtx.run(TG_BOTS[name] ? name : 'main', fn);
    (ยังไม่ตั้ง env ของบอทซ่อมบำรุง → 'maint' ตกไปกลุ่มเดิมอยู่ดี ปลอดภัย)                */
 const NOTIFY_ROUTE = {
   duty: 'maint',      // กระดานงานประจำ/งานมอบหมาย · เตือนงาน · ย้ายงาน · การ์ดก่อน-หลัง
+  audit: 'main',      // งานที่มาจาก "พื้นที่รับผิดชอบ" (ใบตรวจ) — คนทำคือทีมผลิต → กลุ่มผลิตเดิม
   material: 'maint',  // วัสดุใกล้หมด
   incident: 'maint',  // เหตุการณ์ + ค่าหลุดสเปกเปิดเหตุการณ์ให้
   sop: 'maint',       // คู่มือ/SOP รออนุมัติ
@@ -1398,6 +1399,9 @@ const NOTIFY_ROUTE = {
 const notify = (topic, ...args) => runAsBot(NOTIFY_ROUTE[topic] || 'main', () => sendToTelegram(...args));
 // ใช้ห่อโค้ดหลายบรรทัด (เช่นส่งรูป+ข้อความ) ให้ทั้งก้อนไปกลุ่มเดียวกัน
 const inTopic = (topic, fn) => runAsBot(NOTIFY_ROUTE[topic] || 'main', fn);
+// งานใน daily_tasks ควรแจ้งเข้ากลุ่มไหน — งานที่มาจากใบตรวจ (มี audit_batch) ตามไปกลุ่มผลิต
+// ทั้งสาย: ตอนมอบหมาย · ตอนเตือน · ตอนย้ายงาน · การ์ดก่อน-หลังตอนทำเสร็จ
+const dutyTopic = (auditBatch) => (auditBatch ? 'audit' : 'duty');
 
 const sendToTelegram = async (message) => {
   const token = tgToken();
@@ -5842,7 +5846,7 @@ app.post('/api/tasks/reassign', async (req, res) => {
   const { id, assignTo, operator } = req.body;
   if (!id || !assignTo) return res.status(400).json({ error: 'id/assignTo จำเป็น' });
   try {
-    const row = (await dbAll('SELECT task_date, category, title, assignee, priority FROM daily_tasks WHERE id = ?', [id]))[0];
+    const row = (await dbAll('SELECT task_date, category, title, assignee, priority, audit_batch FROM daily_tasks WHERE id = ?', [id]))[0];
     if (!row) return res.status(404).json({ error: 'ไม่พบงานนี้' });
     if (row.assignee === assignTo) return res.json({ success: true, unchanged: true });
     // กันชนกับงานชื่อเดียวกันที่ปลายทางมีอยู่แล้ว — ไม่กันจะติด UNIQUE แล้ว error ดิบๆ
@@ -5852,7 +5856,7 @@ app.post('/api/tasks/reassign', async (req, res) => {
     await db.exec('UPDATE daily_tasks SET assignee = ?, line_name = ? WHERE id = ?', [assignTo, assignTo, id]);
     res.json({ success: true, from: row.assignee, to: assignTo });
     if (process.env.TELEGRAM_CHAT_ID) {
-      notify('duty', `🔁 <b>ย้ายงาน</b>\n${catIcon(row.category)} ${escapeHtml(row.title)}${row.priority === 'urgent' ? '  🔴 <b>ด่วน</b>' : ''}\n\n`
+      notify(dutyTopic(row.audit_batch), `🔁 <b>ย้ายงาน</b>\n${catIcon(row.category)} ${escapeHtml(row.title)}${row.priority === 'urgent' ? '  🔴 <b>ด่วน</b>' : ''}\n\n`
         + `👤 ${escapeHtml(dutyName(row.assignee))} → <b>${escapeHtml(dutyName(assignTo))}</b>\n`
         + `🗓 ${thaiDate(row.task_date)}\n✍️ โดย ${escapeHtml(operator || 'จักรกฤษ')}`);
     }
@@ -7732,7 +7736,7 @@ async function fetchAsDataUri(src) {
 // กติกา: 1 งาน = 1 การ์ด — ห้ามเอารูปของงานอื่น/คนอื่นมารวมใบเดียวกัน
 // pairList = [{label, before, after}] → การ์ดโหมดจับคู่ตามจุด (ใช้แทน beforeImage/afterImages)
 // ห่อด้วย inTopic เพื่อให้ทุกท่อนที่ส่งข้างใน (รูป/ข้อความ/fallback) ไปกลุ่มเดียวกันหมด
-const sendBeforeAfterCard = (a) => inTopic('duty', () => _sendBeforeAfterCard(a));
+const sendBeforeAfterCard = (a) => inTopic(a.topic || 'duty', () => _sendBeforeAfterCard(a));
 async function _sendBeforeAfterCard({ date, personKey, title, kicker, beforeImage, beforeSub, afterImages, pairList, operator, footerExtra }) {
   if (!tgChatId()) return;
   const who = dutyName(personKey);
@@ -7791,7 +7795,7 @@ async function sendRoutineDoneCard({ date, assignee, nodeKey, title, doneImage, 
 // งานมอบหมาย: จับคู่ตามจุด — photo_specs[i] คู่กับ images[i] (ก่อนทำ) และ done_images[i] (หลังทำ)
 // พื้นที่เดียวหลายจุด จะได้เห็นชัดว่ารูปไหนคู่กับรูปไหน
 async function sendAdhocDoneCard(taskId, operator) {
-  const row = (await dbAll('SELECT task_date, title, assignee, images, done_images, done_by, photo_specs, machine, location, reporter FROM daily_tasks WHERE id = ?', [taskId]))[0];
+  const row = (await dbAll('SELECT task_date, title, assignee, images, done_images, done_by, photo_specs, machine, location, reporter, audit_batch FROM daily_tasks WHERE id = ?', [taskId]))[0];
   if (!row) return;
   const specs = parsePhotoSpecs(row.photo_specs);
   const befores = parseImgsAligned(row.images);
@@ -7805,6 +7809,7 @@ async function sendAdhocDoneCard(taskId, operator) {
     beforeImage: befores[0] || null, afterImages: afters,   // ใช้ตอนมีจุดเดียว
     pairList, operator: operator || row.done_by || '',
     footerExtra: row.reporter ? `แจ้งโดย ${dutyName(row.reporter)}` : '',
+    topic: dutyTopic(row.audit_batch),   // งานจากใบตรวจ → การ์ดเข้ากลุ่มผลิตเหมือนตอนมอบงาน
   });
 }
 
@@ -7961,8 +7966,8 @@ app.post('/api/duty/assign', async (req, res) => {
       L.push(`✍️ โดย ${escapeHtml(operator || 'จักรกฤษ')}`);
       const msg = L.join('\n');
       const photoSet = hasDone ? [...images, ...doneImages].slice(0, 10) : images;
-      // มีรูป → ส่งเป็นอัลบั้มพร้อมข้อความ (URL/base64) · เข้ากลุ่มตาม NOTIFY_ROUTE.duty
-      inTopic('duty', () => (photoSet.length ? sendPhotosToTelegram(photoSet, msg) : sendToTelegram(msg)));
+      // มีรูป → ส่งเป็นอัลบั้มพร้อมข้อความ (URL/base64) · เข้ากลุ่มตาม NOTIFY_ROUTE (ใบตรวจ → กลุ่มผลิต)
+      inTopic(dutyTopic(auditBatch), () => (photoSet.length ? sendPhotosToTelegram(photoSet, msg) : sendToTelegram(msg)));
     }
     // อัปเดต gate ในหน่วยความจำ — กัน reminderTick ข้ามงานที่เพิ่งตั้งเตือน (ไม่ยิง DB)
     if (remindAt && (_nextRemindAt == null || remindAt < _nextRemindAt)) { _nextRemindAt = remindAt; _nextRemindKnown = true; }
@@ -8145,7 +8150,7 @@ async function reminderTick() {
     if (!_nextRemindKnown) await refreshNextRemindAt();       // tick แรกหลัง start
     if (_nextRemindAt == null || nowKey < _nextRemindAt) return;
     const due = await dbAll(
-      "SELECT id, category, title, priority, assignee, location, task_date, due_time, images FROM daily_tasks WHERE source = 'assigned' AND reminded = 0 AND remind_at IS NOT NULL AND remind_at <= ? AND status != 'done' ORDER BY id",
+      "SELECT id, category, title, priority, assignee, location, task_date, due_time, images, audit_batch FROM daily_tasks WHERE source = 'assigned' AND reminded = 0 AND remind_at IS NOT NULL AND remind_at <= ? AND status != 'done' ORDER BY id",
       [nowKey]);
     for (const t of due) {
       await db.exec('UPDATE daily_tasks SET reminded = 1 WHERE id = ?', [t.id]); // กันส่งซ้ำก่อน
@@ -8160,7 +8165,7 @@ async function reminderTick() {
         L.push(`🗓 <b>กำหนด:</b> ${thaiDate(t.task_date)}${t.due_time ? ` · ${t.due_time} น.` : ''}`);
         const imgs = (() => { try { return JSON.parse(t.images || '[]'); } catch { return []; } })();
         const msg = L.join('\n');
-        inTopic('duty', () => (imgs.length ? sendPhotosToTelegram(imgs, msg) : sendToTelegram(msg)));
+        inTopic(dutyTopic(t.audit_batch), () => (imgs.length ? sendPhotosToTelegram(imgs, msg) : sendToTelegram(msg)));
       }
       console.log(`[reminder] task#${t.id} "${t.title}" → sent`);
     }
