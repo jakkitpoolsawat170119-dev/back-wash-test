@@ -8007,13 +8007,19 @@ function buildDutyText(duty) {
   return L.join('\n');
 }
 
+// kind='maint' = ปุ่มส่งจากกระดานทีมซ่อมบำรุง → ต้องเข้ากลุ่มช่าง ไม่ใช่กลุ่มผลิต
+// (เดิมเรียก sendToTelegram ตรง ๆ ไม่ได้อยู่ในบริบทบอทไหน = ตกไปกลุ่มผลิตเสมอ — เจอตอนทดสอบจริง 26 ส.ค.)
 app.post('/api/duty/telegram', async (req, res) => {
   const date = req.body.date || req.query.date || workDayBKK();
+  const isMaint = req.body.kind === 'maint';
   try {
-    const duty = await buildDuty(date, { maint: req.body.kind === 'maint' });
+    const duty = await buildDuty(date, { maint: isMaint });
     const text = buildDutyText(duty);
-    await sendToTelegram(text);
-    res.json({ success: true, sent: !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID), preview: text });
+    const sent = await runAsBot(isMaint ? 'maint' : 'main', async () => {
+      await sendToTelegram(text);
+      return !!(tgToken() && tgChatId());   // เช็ค env ของบอทที่ส่งจริง ไม่ใช่ของบอทหลักเสมอ
+    });
+    res.json({ success: true, sent, preview: text });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
