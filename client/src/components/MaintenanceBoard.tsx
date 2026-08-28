@@ -687,7 +687,7 @@ const AddRoutine: React.FC<{
       const r = await fetch(`${apiUrl}/api/duty/routine`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         // ownerRole='mt' เสมอ — งานที่เพิ่มจากกระดานช่างคืองานที่ช่างต้องติ๊กเอง
-        body: JSON.stringify({ personKey: person.key, title: title.trim(), machine: machine || null, freq, ownerRole: 'mt' }),
+        body: JSON.stringify({ personKey: person.key, title: title.trim(), machine: machine.trim() || null, freq, ownerRole: 'mt' }),
       });
       const d = await r.json().catch(() => null);
       if (!r.ok) { onMsg(`❌ ${d?.error || 'เพิ่มงานไม่สำเร็จ'}`); return; }
@@ -710,20 +710,25 @@ const AddRoutine: React.FC<{
       <div style={{ fontFamily: 'Kanit, sans-serif', fontSize: 12, fontWeight: 600, color: '#c24f00', marginBottom: 7 }}>
         ＋ งานรูทีนใหม่ของ {person.name}
       </div>
-      <input autoFocus value={title} onChange={e => setTitle(e.target.value)}
-        onKeyDown={e => e.key === 'Enter' && submit()} placeholder="รายการที่ต้องทำ เช่น ตรวจระดับน้ำมันเครน"
+      {/* เครื่องจักรมาก่อนชื่องาน — เลือกเครื่องแล้วค่อยนึกว่าจะทำอะไรกับมัน (user เคาะ 28 ส.ค.)
+          ใช้ input+datalist ไม่ใช่ select: เครื่องที่ยังไม่มีในทะเบียนก็พิมพ์เองได้เลย
+          ⚠️ ชื่อต้องสะกดตรงกับทะเบียน ไม่งั้นกลุ่มบนกระดาน/ในบอทจะแตกเป็นคนละก้อน */}
+      <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--ink-soft,#6d6259)', marginBottom: 3 }}>เครื่องจักร</label>
+      <input list={`rt-mc-${person.key}`} autoFocus value={machine} onChange={e => setMachine(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && submit()} placeholder="เลือกจากรายการ หรือพิมพ์เอง (เว้นว่าง = ไม่ผูกเครื่อง)"
         style={{ ...inp, width: '100%', boxSizing: 'border-box', fontSize: 13, fontWeight: 500, marginBottom: 7 }} />
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        <select value={machine} onChange={e => setMachine(e.target.value)}
-          style={{ ...inp, fontSize: 12.5, fontWeight: 500, flex: 1, minWidth: 140 }}>
-          <option value="">— ไม่ผูกเครื่องจักร —</option>
-          {machines.map(m => <option key={m} value={m}>{m}</option>)}
-        </select>
-        <select value={freq} onChange={e => setFreq(e.target.value)} title="ถึงคิวเมื่อไหร่"
-          style={{ ...inp, fontSize: 12.5, fontWeight: 500 }}>
-          {Object.keys(FREQ).map(k => <option key={k} value={k}>{FREQ[k]}</option>)}
-        </select>
-      </div>
+      <datalist id={`rt-mc-${person.key}`}>{machines.map(m => <option key={m} value={m} />)}</datalist>
+
+      <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--ink-soft,#6d6259)', marginBottom: 3 }}>รายการที่ต้องทำ</label>
+      <input value={title} onChange={e => setTitle(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && submit()} placeholder="เช่น ตรวจระดับน้ำมันเครน"
+        style={{ ...inp, width: '100%', boxSizing: 'border-box', fontSize: 13, fontWeight: 500, marginBottom: 7 }} />
+
+      <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--ink-soft,#6d6259)', marginBottom: 3 }}>ความถี่ (ถึงคิวเมื่อไหร่)</label>
+      <select value={freq} onChange={e => setFreq(e.target.value)}
+        style={{ ...inp, fontSize: 12.5, fontWeight: 500 }}>
+        {Object.keys(FREQ).map(k => <option key={k} value={k}>{FREQ[k]}</option>)}
+      </select>
       <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
         <button onClick={submit} disabled={busy || !title.trim()} style={{
           ...btn, background: '#ff6b00', borderColor: '#ff6b00', color: '#fff', opacity: busy || !title.trim() ? 0.5 : 1,
