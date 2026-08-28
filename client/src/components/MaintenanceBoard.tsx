@@ -10,6 +10,7 @@ const todayBKK = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/
 type Role = 'mt' | 'op' | 'qc' | 'pd';
 type Node = {
   key: string; title: string; id?: number; machine: string | null; goal: string | null;
+  freq?: string | null;                    // ถึงคิวเมื่อไหร่ — แก้ได้จากกระดานผ่านเมนู ⋯ → แก้ไขงานนี้
   ownerRole: Role | null; coOwnerRole: Role | null;
   checked: boolean; bypassed: boolean; bypassReason: string | null;
   handoffTo: string | null; handoffToName: string | null;
@@ -114,6 +115,7 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
   const [busy, setBusy] = useState('');            // node key ที่กำลังอัปโหลดรูป
   const [zoom, setZoom] = useState<string | null>(null);
   const [menu, setMenu] = useState('');            // "personKey|nodeKey" ที่กางเมนู ⋯ อยู่
+  const [edit, setEdit] = useState('');            // "personKey|nodeKey" ที่กำลังแก้ไขอยู่ (ทีละงาน)
   // ลากได้ทั้งงานประจำ (มอบต่อเฉพาะวันนั้น) และงานมอบหมาย (ย้ายเจ้าของถาวร)
   type DragItem = { kind: 'node'; n: Node } | { kind: 'adhoc'; t: Adhoc };
   const [drag, setDrag] = useState<{ from: string; item: DragItem; title: string; x: number; y: number; over: string } | null>(null);
@@ -331,7 +333,10 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
               background: '#fff', border: '1px solid var(--line,#eee3d9)', borderRadius: 12, padding: 6,
               boxShadow: '0 2px 4px rgba(63,37,10,.08),0 16px 40px -12px rgba(63,37,10,.22)',
             }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft,#6d6259)', padding: '4px 8px' }}>ข้ามงานนี้ เพราะ…</div>
+              <button onClick={() => { setMenu(''); setEdit(gk); }} style={{ ...menuItem, fontWeight: 600, color: '#c24f00' }}>
+                ✏️ แก้ไขงานนี้
+              </button>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft,#6d6259)', padding: '8px 8px 4px', borderTop: '1px dashed #efe6dc', marginTop: 4 }}>ข้ามงานนี้ เพราะ…</div>
               {BYPASS_REASONS.filter(r => r !== 'ให้คนอื่นทำแทน').map(r => (
                 <button key={r} onClick={() => doBypass(p.key, n, r)} style={menuItem}>{r}</button>
               ))}
@@ -558,7 +563,11 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
                   : groupByMachine(p.nodes).map(g => (
                     <div key={g.name}>
                       <MachineHead name={g.name} />
-                      {g.rows.map(n => <TaskRow key={n.key} p={p} n={n} />)}
+                      {/* กำลังแก้งานไหน = แทนแถวนั้นด้วยฟอร์ม · ต้องวางตรงนี้ ไม่ใช่ใน TaskRow
+                          (TaskRow นิยามในตัวแม่ ตัวตนเปลี่ยนทุก render → ลูกโดน unmount ทิ้ง) */}
+                      {g.rows.map(n => (edit === `${p.key}|${n.key}`
+                        ? <EditRoutine key={n.key} node={n} machines={machines} reload={load} onMsg={setMsg} onClose={() => setEdit('')} />
+                        : <TaskRow key={n.key} p={p} n={n} />))}
                     </div>
                   ))}
                 {p.received.length > 0 && (
@@ -614,7 +623,9 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
                   </span>
                 </div>
                 {tasks.map(({ t, p }) => <AdhocRow key={t.id} p={p} t={t} showWho={manyOwners} />)}
-                {rows.map(({ n, p }) => <TaskRow key={`${p.key}|${n.key}`} p={p} n={n} showWho={manyOwners} />)}
+                {rows.map(({ n, p }) => (edit === `${p.key}|${n.key}`
+                  ? <EditRoutine key={`${p.key}|${n.key}`} node={n} machines={machines} reload={load} onMsg={setMsg} onClose={() => setEdit('')} />
+                  : <TaskRow key={`${p.key}|${n.key}`} p={p} n={n} showWho={manyOwners} />))}
               </article>
             );
           })}
@@ -737,6 +748,97 @@ const AddRoutine: React.FC<{
       </div>
       <div style={{ fontSize: 11, color: 'var(--ink-soft,#6d6259)', marginTop: 7, lineHeight: 1.5 }}>
         เข้าทะเบียนงานรูทีนถาวร (ไม่ใช่งานเฉพาะวันนี้) · แก้/ลบทีหลังได้ที่หน้า “ทะเบียนงานรูทีน”
+      </div>
+    </div>
+  );
+};
+
+/* ── ✏️ แก้ไขงานรูทีนจากกระดานตรง ๆ ────────────────────────────────────────
+   "งานนั้น ๆ ต้องแก้ไขได้ตลอด" (user เคาะ 28 ส.ค.) — เดิมแก้ได้ที่หน้าทะเบียนอย่างเดียว
+   ส่งเฉพาะช่องที่ฟอร์มนี้มี → เซิร์ฟเวอร์คงค่าที่เหลือไว้เอง (เจ้าของ · ลำดับ · บทบาท · mono)
+   ⚠️ ต้องประกาศระดับบนสุดเหมือน AddRoutine ไม่งั้นพิมพ์อยู่แล้วโดน re-render ล้างทิ้ง       */
+const EditRoutine: React.FC<{
+  node: Node; machines: string[]; reload: () => Promise<void>;
+  onMsg: (s: string) => void; onClose: () => void;
+}> = ({ node, machines, reload, onMsg, onClose }) => {
+  const [title, setTitle] = useState(node.title);
+  const [machine, setMachine] = useState(node.machine || '');
+  const [goal, setGoal] = useState(node.goal || '');
+  const [freq, setFreq] = useState(node.freq || 'daily');
+  const [busy, setBusy] = useState(false);
+  const lbl: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--ink-soft,#6d6259)', marginBottom: 3 };
+  const fld: React.CSSProperties = { ...inp, width: '100%', boxSizing: 'border-box', fontSize: 13, fontWeight: 500, marginBottom: 7 };
+
+  const save = async () => {
+    if (!title.trim() || !node.id) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${apiUrl}/api/duty/routine`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: node.id, title: title.trim(), machine: machine.trim(), goal: goal.trim(), freq }),
+      });
+      const d = await r.json().catch(() => null);
+      if (!r.ok) { onMsg(`❌ ${d?.error || 'บันทึกไม่สำเร็จ'}`); return; }
+      onMsg(`✅ แก้ไข “${title.trim()}” แล้ว`);
+      onClose();
+      await reload();
+    } catch { onMsg('❌ บันทึกไม่สำเร็จ — เช็คเน็ต'); } finally { setBusy(false); }
+  };
+
+  const remove = async () => {
+    if (!node.id) return;
+    if (!window.confirm(
+      `ลบ “${node.title}” ออกจากทะเบียนงานรูทีน?\n\n`
+      + `งานจะหายจากกระดานตั้งแต่วันนี้เป็นต้นไป\n`
+      + `ประวัติการติ๊กของวันก่อน ๆ ยังอยู่ครบ`)) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${apiUrl}/api/duty/routine/delete`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: node.id }),
+      });
+      const d = await r.json().catch(() => null);
+      if (!r.ok) { onMsg(`❌ ${d?.error || 'ลบไม่สำเร็จ'}`); return; }
+      onMsg(`🗑 ลบ “${node.title}” แล้ว`);
+      onClose();
+      await reload();
+    } catch { onMsg('❌ ลบไม่สำเร็จ — เช็คเน็ต'); } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ margin: '4px 0', border: '1px solid #f0c9a8', background: '#fffaf5', borderRadius: 12, padding: 10 }}>
+      <div style={{ fontFamily: 'Kanit, sans-serif', fontSize: 12, fontWeight: 600, color: '#c24f00', marginBottom: 7 }}>
+        ✏️ แก้ไขงานรูทีน
+      </div>
+      <label style={lbl}>เครื่องจักร</label>
+      <input list={`rt-ed-${node.key}`} value={machine} onChange={e => setMachine(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && save()} placeholder="เลือกจากรายการ หรือพิมพ์เอง (เว้นว่าง = ไม่ผูกเครื่อง)"
+        style={fld} />
+      <datalist id={`rt-ed-${node.key}`}>{machines.map(m => <option key={m} value={m} />)}</datalist>
+
+      <label style={lbl}>รายการที่ต้องทำ</label>
+      <input autoFocus value={title} onChange={e => setTitle(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && save()} style={fld} />
+
+      <label style={lbl}>เป้าหมาย (ไม่บังคับ)</label>
+      <input value={goal} onChange={e => setGoal(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && save()} placeholder="เช่น ไม่มีเสียงผิดปกติ" style={fld} />
+
+      <label style={lbl}>ความถี่ (ถึงคิวเมื่อไหร่)</label>
+      <select value={freq} onChange={e => setFreq(e.target.value)} style={{ ...inp, fontSize: 12.5, fontWeight: 500 }}>
+        {Object.keys(FREQ).map(k => <option key={k} value={k}>{FREQ[k]}</option>)}
+      </select>
+
+      <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button onClick={save} disabled={busy || !title.trim()} style={{
+          ...btn, background: '#ff6b00', borderColor: '#ff6b00', color: '#fff', opacity: busy || !title.trim() ? 0.5 : 1,
+        }}>{busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>
+        <button onClick={onClose} style={btn}>ยกเลิก</button>
+        <span style={{ flex: 1 }} />
+        <button onClick={remove} disabled={busy} title="ลบออกจากทะเบียน"
+          style={{ ...btn, color: '#b3261e', borderColor: '#f0cfc9' }}>🗑 ลบงานนี้</button>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--ink-soft,#6d6259)', marginTop: 7, lineHeight: 1.5 }}>
+        แก้ที่นี่ = แก้ทะเบียนถาวร มีผลทุกวันต่อจากนี้ · ประวัติการติ๊กของวันก่อน ๆ ไม่เปลี่ยน
       </div>
     </div>
   );
