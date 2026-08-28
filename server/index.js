@@ -1399,9 +1399,16 @@ const NOTIFY_ROUTE = {
 const notify = (topic, ...args) => runAsBot(NOTIFY_ROUTE[topic] || 'main', () => sendToTelegram(...args));
 // ใช้ห่อโค้ดหลายบรรทัด (เช่นส่งรูป+ข้อความ) ให้ทั้งก้อนไปกลุ่มเดียวกัน
 const inTopic = (topic, fn) => runAsBot(NOTIFY_ROUTE[topic] || 'main', fn);
-// งานใน daily_tasks ควรแจ้งเข้ากลุ่มไหน — งานที่มาจากใบตรวจ (มี audit_batch) ตามไปกลุ่มผลิต
-// ทั้งสาย: ตอนมอบหมาย · ตอนเตือน · ตอนย้ายงาน · การ์ดก่อน-หลังตอนทำเสร็จ
-const dutyTopic = (auditBatch) => (auditBatch ? 'audit' : 'duty');
+/* งานใน daily_tasks / งานประจำ ควรแจ้งเข้ากลุ่มไหน — ตัดสินจาก "ใครเป็นคนทำ"
+     · มาจากใบตรวจ (มี audit_batch) → กลุ่มผลิตเสมอ (ตกลงไว้ 26 ส.ค.)
+     · ไม่ใช่ใบตรวจ → ผู้รับเป็นช่างในทีมซ่อมบำรุง = กลุ่มช่าง · เป็นทีมผลิต = กลุ่มผลิต
+   ใช้ทั้งสาย: ตอนมอบหมาย · ตอนเตือน · ตอนย้ายงาน · การ์ดก่อน-หลังตอนทำเสร็จ
+   ⚠️ เดิมเหมาว่า "งานมอบหมายทั้งหมด = งานช่าง" ซึ่งจริงตอนทีมช่างมีคนเดียว — ไม่จริงแล้ว
+      ทำให้ "จ่ายงาน" จากกระดานเวรทีมผลิตไปโผล่กลุ่มช่าง (เจอตอนใช้จริง 27 ส.ค.)          */
+const dutyTopic = (auditBatch, assignee) => {
+  if (auditBatch) return 'audit';
+  return isMaintPerson(assignee) ? 'duty' : 'production';
+};
 
 const sendToTelegram = async (message) => {
   const token = tgToken();
@@ -5856,7 +5863,7 @@ app.post('/api/tasks/reassign', async (req, res) => {
     await db.exec('UPDATE daily_tasks SET assignee = ?, line_name = ? WHERE id = ?', [assignTo, assignTo, id]);
     res.json({ success: true, from: row.assignee, to: assignTo });
     if (process.env.TELEGRAM_CHAT_ID) {
-      notify(dutyTopic(row.audit_batch), `🔁 <b>ย้ายงาน</b>\n${catIcon(row.category)} ${escapeHtml(row.title)}${row.priority === 'urgent' ? '  🔴 <b>ด่วน</b>' : ''}\n\n`
+      notify(dutyTopic(row.audit_batch, assignTo), `🔁 <b>ย้ายงาน</b>\n${catIcon(row.category)} ${escapeHtml(row.title)}${row.priority === 'urgent' ? '  🔴 <b>ด่วน</b>' : ''}\n\n`
         + `👤 ${escapeHtml(dutyName(row.assignee))} → <b>${escapeHtml(dutyName(assignTo))}</b>\n`
         + `🗓 ${thaiDate(row.task_date)}\n✍️ โดย ${escapeHtml(operator || 'จักรกฤษ')}`);
     }
@@ -5954,16 +5961,24 @@ const ROUTINES_SEED = {
 let _peopleCache = [];
 const _peopleNameMap = {};
 const _peopleDotMap = {};
+const _peopleKindMap = {};
 async function refreshPeopleCache() {
   try {
     _peopleCache = await dbAll('SELECT * FROM duty_people WHERE active = 1 ORDER BY sort_order, created_at', []);
   } catch { _peopleCache = []; }
   for (const k of Object.keys(_peopleNameMap)) delete _peopleNameMap[k];
   for (const k of Object.keys(_peopleDotMap)) delete _peopleDotMap[k];
-  for (const p of _peopleCache) { _peopleNameMap[p.person_key] = p.name; _peopleDotMap[p.person_key] = p.dot || '👤'; }
+  for (const k of Object.keys(_peopleKindMap)) delete _peopleKindMap[k];
+  for (const p of _peopleCache) {
+    _peopleNameMap[p.person_key] = p.name; _peopleDotMap[p.person_key] = p.dot || '👤';
+    _peopleKindMap[p.person_key] = p.kind || 'shift';
+  }
 }
 const dutyName = (k) => _peopleNameMap[k] || k;
 const dutyDot = (k) => _peopleDotMap[k] || '👤';
+// เป็นช่างในทีมซ่อมบำรุงไหม — ใช้ตัดสินว่างานของคนนี้แจ้งเข้ากลุ่มไหน (dutyTopic)
+// ไม่รู้จัก/ไม่มีในแคช = ไม่ใช่ช่าง → ตกไปกลุ่มผลิต (ปลอดภัยกว่า: คนทำงานอยู่กลุ่มนั้น)
+const isMaintPerson = (k) => !!k && _peopleKindMap[k] === 'maint';
 const getPeople = () => _peopleCache;
 
 // seed duty board ครั้งแรก (idempotent) — คนจาก DUTY_PEOPLE_SEED, งานจาก ROUTINES_SEED
@@ -7789,6 +7804,7 @@ async function sendRoutineDoneCard({ date, assignee, nodeKey, title, doneImage, 
   return sendBeforeAfterCard({
     date, personKey: assignee, title: title || nodeKey, kicker: 'บันทึกผลงานประจำ',
     beforeImage: refImage, afterImages: [doneImage], operator,
+    topic: dutyTopic(null, assignee),   // งานประจำของทีมผลิต → กลุ่มผลิต · ของช่าง → กลุ่มช่าง
   });
 }
 
@@ -7809,7 +7825,7 @@ async function sendAdhocDoneCard(taskId, operator) {
     beforeImage: befores[0] || null, afterImages: afters,   // ใช้ตอนมีจุดเดียว
     pairList, operator: operator || row.done_by || '',
     footerExtra: row.reporter ? `แจ้งโดย ${dutyName(row.reporter)}` : '',
-    topic: dutyTopic(row.audit_batch),   // งานจากใบตรวจ → การ์ดเข้ากลุ่มผลิตเหมือนตอนมอบงาน
+    topic: dutyTopic(row.audit_batch, row.assignee),   // การ์ดเข้ากลุ่มเดียวกับตอนมอบงาน
   });
 }
 
@@ -7967,7 +7983,8 @@ app.post('/api/duty/assign', async (req, res) => {
       const msg = L.join('\n');
       const photoSet = hasDone ? [...images, ...doneImages].slice(0, 10) : images;
       // มีรูป → ส่งเป็นอัลบั้มพร้อมข้อความ (URL/base64) · เข้ากลุ่มตาม NOTIFY_ROUTE (ใบตรวจ → กลุ่มผลิต)
-      inTopic(dutyTopic(auditBatch), () => (photoSet.length ? sendPhotosToTelegram(photoSet, msg) : sendToTelegram(msg)));
+      const topic = auditBatch ? 'audit' : (assignees.every(isMaintPerson) ? 'duty' : 'production');
+      inTopic(topic, () => (photoSet.length ? sendPhotosToTelegram(photoSet, msg) : sendToTelegram(msg)));
     }
     // อัปเดต gate ในหน่วยความจำ — กัน reminderTick ข้ามงานที่เพิ่งตั้งเตือน (ไม่ยิง DB)
     if (remindAt && (_nextRemindAt == null || remindAt < _nextRemindAt)) { _nextRemindAt = remindAt; _nextRemindKnown = true; }
@@ -8092,7 +8109,8 @@ app.post('/api/report/schedule/delete', async (req, res) => {
 async function sendDutyReport(date, onlyIfPending) {
   const duty = await buildDuty(date);
   if (onlyIfPending && duty.team.left <= 0) return false;
-  await notify('duty', buildDutyText(duty));
+  // buildDuty() ไม่ใส่ maint = กระดานทีมกะ (ทีมผลิต) → สรุปต้องเข้ากลุ่มผลิต ไม่ใช่กลุ่มช่าง
+  await notify('production', buildDutyText(duty));
   return true;
 }
 
@@ -8171,7 +8189,7 @@ async function reminderTick() {
         L.push(`🗓 <b>กำหนด:</b> ${thaiDate(t.task_date)}${t.due_time ? ` · ${t.due_time} น.` : ''}`);
         const imgs = (() => { try { return JSON.parse(t.images || '[]'); } catch { return []; } })();
         const msg = L.join('\n');
-        inTopic(dutyTopic(t.audit_batch), () => (imgs.length ? sendPhotosToTelegram(imgs, msg) : sendToTelegram(msg)));
+        inTopic(dutyTopic(t.audit_batch, t.assignee), () => (imgs.length ? sendPhotosToTelegram(imgs, msg) : sendToTelegram(msg)));
       }
       console.log(`[reminder] task#${t.id} "${t.title}" → sent`);
     }
