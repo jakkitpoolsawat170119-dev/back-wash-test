@@ -27,6 +27,11 @@ type Person = {
   key: string; name: string; role: string; color?: string; wash?: string; initial?: string;
   nodes: Node[]; watch: Node[]; received: Received[]; adhoc: Adhoc[]; done: number; total: number; pct: number;
 };
+/* ความถี่ของงานรูทีน — ต้องตรงกับหน้า "ทะเบียนงานรูทีน" (PmRegistry) และ routineDue() ฝั่งเซิร์ฟเวอร์ */
+const FREQ: Record<string, string> = {
+  daily: 'ทุกวัน', weekly: 'ทุกสัปดาห์', monthly: 'ทุกเดือน', quarterly: 'ทุก 3 เดือน',
+  onuse: 'เมื่อใช้งานเครื่องนี้', onissue: 'เมื่อมีปัญหา',
+};
 const BYPASS_REASONS = ['ไม่มีการผลิต', 'เครื่องหยุด/ซ่อม', 'ทำล่วงหน้าแล้ว', 'ไม่ถึงรอบ', 'ให้คนอื่นทำแทน', 'อื่นๆ'];
 type Board = {
   date: string; maint: boolean; shiftName: string | null; people: Person[];
@@ -195,6 +200,28 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
     } catch { setMsg('❌ ย้ายงานไม่สำเร็จ — เช็คเน็ต'); }
   };
 
+  /* ย้ายเจ้าของงานรูทีน "ถาวร" — คนละเรื่องกับ doBypass(...handoffTo) ที่มอบต่อเฉพาะวันนั้น
+     ⚠️ ประวัติติ๊กของวันก่อน ๆ ไม่ตามไปด้วย (routine_state อ้าง วันที่ · คน · node_key) — ตั้งใจ
+        ประวัติคือ "ใครทำวันนั้น" ซึ่งก็คือคนเดิมจริง ๆ · เซิร์ฟเวอร์ตอบ 409 ถ้าปลายทางมี node_key นี้อยู่แล้ว */
+  const moveOwner = async (p: Person, n: Node, to: Person) => {
+    setMenu('');
+    if (!n.id) { setMsg('⚠️ งานนี้ไม่มีรหัสในทะเบียน — ย้ายเจ้าของไม่ได้'); return; }
+    if (!window.confirm(
+      `ย้าย “${n.title}” ให้ ${to.name} ถาวร?\n\n`
+      + `ตั้งแต่พรุ่งนี้งานนี้จะขึ้นบนการ์ดของ ${to.name} แทน ${p.name}\n`
+      + `ประวัติการติ๊กของวันก่อน ๆ ยังอยู่กับ ${p.name} ตามเดิม`)) return;
+    try {
+      const r = await fetch(`${apiUrl}/api/duty/routine`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: n.id, assigneeKey: to.key, title: n.title }),
+      });
+      const d = await r.json().catch(() => null);
+      if (!r.ok) { setMsg(`⚠️ ${d?.error || 'ย้ายเจ้าของไม่สำเร็จ'}`); return; }
+      setMsg(`✅ ย้าย “${n.title}” ให้ ${to.name} ถาวรแล้ว`);
+      await load();
+    } catch { setMsg('❌ ย้ายเจ้าของไม่สำเร็จ — เช็คเน็ต'); }
+  };
+
   const doBypass = (pKey: string, n: Node, reason: string, handoffTo?: string) => {
     setMenu('');
     return post('/api/routine/bypass', { date, assignee: pKey, nodeKey: n.key, title: n.title, reason, handoffTo });
@@ -216,7 +243,7 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
     try {
       const r = await fetch(`${apiUrl}/api/duty/telegram`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, kind: 'maint' }),
+        body: JSON.stringify({ date, kind: 'maint', by: operatorName || undefined }),
       });
       const d = await r.json();
       setMsg(d.sent ? '✅ ส่งเข้า Telegram แล้ว' : '⚠️ ยังไม่ได้ตั้งค่า Telegram บนเซิร์ฟเวอร์');
@@ -299,7 +326,8 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
             style={{ ...btn, padding: '4px 9px', fontSize: 12 }}>⋯</button>
           {menu === gk && (
             <div style={{
-              position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 20, minWidth: 190,
+              position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 20, minWidth: 200,
+              maxHeight: '68vh', overflowY: 'auto',   // เมนูยาวกว่าจอได้ตอนทีมมีหลายคน
               background: '#fff', border: '1px solid var(--line,#eee3d9)', borderRadius: 12, padding: 6,
               boxShadow: '0 2px 4px rgba(63,37,10,.08),0 16px 40px -12px rgba(63,37,10,.22)',
             }}>
@@ -308,10 +336,22 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
                 <button key={r} onClick={() => doBypass(p.key, n, r)} style={menuItem}>{r}</button>
               ))}
               {others.length > 0 && <>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft,#6d6259)', padding: '8px 8px 4px', borderTop: '1px dashed #efe6dc', marginTop: 4 }}>ให้คนอื่นทำแทน</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft,#6d6259)', padding: '8px 8px 4px', borderTop: '1px dashed #efe6dc', marginTop: 4 }}>
+                  ให้คนอื่นทำแทน <span style={{ fontWeight: 500 }}>— เฉพาะวันนี้</span>
+                </div>
                 {others.map(o => (
                   <button key={o.key} onClick={() => doBypass(p.key, n, 'ให้คนอื่นทำแทน', o.key)} style={menuItem}>👤 {o.name}</button>
                 ))}
+                {/* คนละความหมายกับข้างบน — ห้ามปนกัน: อันบนคืนเจ้าของเดิมพรุ่งนี้ อันนี้ไม่คืน */}
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#c24f00', padding: '8px 8px 4px', borderTop: '1px dashed #efe6dc', marginTop: 4 }}>
+                  ย้ายเจ้าของ <span style={{ fontWeight: 500 }}>— ถาวร</span>
+                </div>
+                {others.map(o => (
+                  <button key={o.key} onClick={() => moveOwner(p, n, o)} style={{ ...menuItem, color: '#c24f00' }}>➡️ {o.name}</button>
+                ))}
+                <div style={{ fontSize: 10.5, color: '#a89e94', padding: '2px 8px 4px', lineHeight: 1.5 }}>
+                  ย้ายแล้วงานนี้ขึ้นการ์ดของเขาทุกวัน · ประวัติติ๊กเก่ายังอยู่กับ {p.name}
+                </div>
               </>}
             </div>
           )}
@@ -468,7 +508,9 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
         <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', alignItems: 'start' }}>
           {people.map(p => (
             <article key={p.key} data-person={p.key} style={{
-              ...card, overflow: 'hidden',
+              // ⚠️ ห้ามใส่ overflow:'hidden' — เมนู ⋯ ของแถวล่าง ๆ จะโดนตัดหายไปนอกการ์ด
+              //    (เมนูยาวขึ้นมากตอนเพิ่มหัวข้อ "ย้ายเจ้าของ — ถาวร" · วัดแล้วล้นออกไป ~450px)
+              ...card,
               outline: drag && drag.over === p.key && drag.from !== p.key ? '2px solid #ff6b00' : 'none',
               outlineOffset: 2,
             }}>
@@ -510,7 +552,7 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
                   ? (p.adhoc || []).length === 0 && (
                       <div style={{ fontSize: 12.5, color: '#a89e94', padding: '10px 8px', lineHeight: 1.6 }}>
                         ยังไม่มีงานของคนนี้วันนี้
-                        <br />ย้ายงานรูทีนให้เขาได้ที่หน้า “ทะเบียนงานรูทีน” หรือมอบงานเฉพาะกิจจากช่องด้านล่าง
+                        <br />กด <b>＋ เพิ่มงานรูทีน</b> ด้านล่าง หรือย้ายงานจากการ์ดคนอื่นด้วยเมนู ⋯ → <b>ย้ายเจ้าของ — ถาวร</b>
                       </div>
                     )
                   : groupByMachine(p.nodes).map(g => (
@@ -540,6 +582,7 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
                     ))}
                   </div>
                 )}
+                <AddRoutine person={p} machines={machines} reload={load} onMsg={setMsg} />
               </div>
             </article>
           ))}
@@ -619,6 +662,77 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
           <img src={zoom} alt="ขยาย" style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 12 }} />
         </div>
       )}
+    </div>
+  );
+};
+
+/* ── ＋ เพิ่มงานรูทีนให้ "คนใบนี้" ────────────────────────────────────────────
+   เดิมเพิ่มงานรูทีนได้ที่หน้าทะเบียนอย่างเดียว แล้วต้องเลือกคนจาก dropdown อีกที
+   ปุ่มนี้อยู่บนการ์ดของใครก็ส่ง personKey ของคนนั้นไปเลย — `POST /api/duty/routine` รับอยู่แล้ว
+   ⚠️ ต้องประกาศระดับบนสุด ไม่ใช่ซ้อนในตัวแม่ — ไม่งั้น setMsg/reload จะ unmount ฟอร์ม
+      แล้วสิ่งที่พิมพ์ค้างไว้หายทั้งใบ (บทเรียนเดียวกับบั๊ก IncidentForm)                */
+const AddRoutine: React.FC<{
+  person: Person; machines: string[]; reload: () => Promise<void>; onMsg: (s: string) => void;
+}> = ({ person, machines, reload, onMsg }) => {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState('');
+  const [machine, setMachine] = useState('');
+  const [freq, setFreq] = useState('daily');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (!title.trim()) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${apiUrl}/api/duty/routine`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        // ownerRole='mt' เสมอ — งานที่เพิ่มจากกระดานช่างคืองานที่ช่างต้องติ๊กเอง
+        body: JSON.stringify({ personKey: person.key, title: title.trim(), machine: machine || null, freq, ownerRole: 'mt' }),
+      });
+      const d = await r.json().catch(() => null);
+      if (!r.ok) { onMsg(`❌ ${d?.error || 'เพิ่มงานไม่สำเร็จ'}`); return; }
+      setTitle(''); setOpen(false);
+      onMsg(`✅ เพิ่ม “${title.trim()}” ให้ ${person.name} แล้ว`);
+      await reload();
+    } catch { onMsg('❌ เพิ่มงานไม่สำเร็จ — เช็คเน็ต'); } finally { setBusy(false); }
+  };
+
+  if (!open) return (
+    <button onClick={() => setOpen(true)} style={{
+      width: '100%', marginTop: 8, border: '1px dashed var(--line,#eee3d9)', background: '#fdfbf9',
+      color: '#c24f00', borderRadius: 10, padding: '8px 10px', fontFamily: 'Kanit, sans-serif',
+      fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+    }}>＋ เพิ่มงานรูทีนให้ {person.name}</button>
+  );
+
+  return (
+    <div style={{ marginTop: 8, border: '1px solid var(--line,#eee3d9)', background: '#fdfbf9', borderRadius: 12, padding: 10 }}>
+      <div style={{ fontFamily: 'Kanit, sans-serif', fontSize: 12, fontWeight: 600, color: '#c24f00', marginBottom: 7 }}>
+        ＋ งานรูทีนใหม่ของ {person.name}
+      </div>
+      <input autoFocus value={title} onChange={e => setTitle(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && submit()} placeholder="รายการที่ต้องทำ เช่น ตรวจระดับน้ำมันเครน"
+        style={{ ...inp, width: '100%', boxSizing: 'border-box', fontSize: 13, fontWeight: 500, marginBottom: 7 }} />
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <select value={machine} onChange={e => setMachine(e.target.value)}
+          style={{ ...inp, fontSize: 12.5, fontWeight: 500, flex: 1, minWidth: 140 }}>
+          <option value="">— ไม่ผูกเครื่องจักร —</option>
+          {machines.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <select value={freq} onChange={e => setFreq(e.target.value)} title="ถึงคิวเมื่อไหร่"
+          style={{ ...inp, fontSize: 12.5, fontWeight: 500 }}>
+          {Object.keys(FREQ).map(k => <option key={k} value={k}>{FREQ[k]}</option>)}
+        </select>
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+        <button onClick={submit} disabled={busy || !title.trim()} style={{
+          ...btn, background: '#ff6b00', borderColor: '#ff6b00', color: '#fff', opacity: busy || !title.trim() ? 0.5 : 1,
+        }}>{busy ? 'กำลังบันทึก…' : 'เพิ่มงาน'}</button>
+        <button onClick={() => { setOpen(false); setTitle(''); }} style={btn}>ยกเลิก</button>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--ink-soft,#6d6259)', marginTop: 7, lineHeight: 1.5 }}>
+        เข้าทะเบียนงานรูทีนถาวร (ไม่ใช่งานเฉพาะวันนี้) · แก้/ลบทีหลังได้ที่หน้า “ทะเบียนงานรูทีน”
+      </div>
     </div>
   );
 };

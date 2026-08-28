@@ -7533,7 +7533,10 @@ app.post('/api/duty/routine', async (req, res) => {
       }
       await db.exec(`UPDATE duty_routines SET person_key = ?, title = ?, mono = ?, sort_order = ?,
            machine = ?, goal = ?, owner_role = ?, co_owner_role = ?, freq = ? WHERE id = ?`,
-        [owner, title.trim(), mono ? 1 : 0, sortOrder != null ? sortOrder : cur.sort_order,
+        // mono ไม่ส่งมา = ไม่แตะของเดิม — ตัวเรียกที่ส่งแค่ title/assigneeKey (ย้ายเจ้าของจากกระดาน)
+        // จะได้ไม่ล้างธง mono ของงานเดิมทิ้งเงียบ ๆ
+        [owner, title.trim(), mono !== undefined ? (mono ? 1 : 0) : (cur.mono ? 1 : 0),
+         sortOrder != null ? sortOrder : cur.sort_order,
          machine !== undefined ? (machine || null) : cur.machine,
          goal !== undefined ? (goal || null) : cur.goal,
          ownerRole !== undefined ? role(ownerRole) : cur.owner_role,
@@ -8024,6 +8027,134 @@ function buildDutyText(duty) {
   return L.join('\n');
 }
 
+/* ── สรุปงานตามหน้าที่ · ทีมซ่อมบำรุง ────────────────────────────────────────
+   ⚠️ แยกจาก buildDutyText() ตั้งใจ — ห้ามยุบรวมกัน ไม่งั้นสรุปของทีมกะเปลี่ยนตามทันที
+   ต่างกันตรงไหน (แผน "กระดานทีมซ่อมบำรุง 3 คน" ข้อ C):
+     1. บล็อก 🔴 ต้องรีบ บนสุด — งานซ่อมค้าง · เครื่องที่หยุดอยู่ + กี่นาที · PM เกินกำหนด
+        (ข้อมูลมีอยู่แล้วใน maintCounts() ของเดิมไม่เคยเอามาโชว์ ทั้งที่เป็นเรื่องเดียวที่ต้องรีบ)
+     2. งานค้างจัดกลุ่มตาม "เครื่อง" ใต้ชื่อคน — ช่างคิดเป็นเครื่อง เดินไปจุดเดียวจบหลายงาน
+     3. ตัดที่ 3 งาน/คน แล้วยุบเป็น "…และอีก N งาน" — สรุปยาวพอ ๆ กันเสมอ ไม่ว่าจะค้างกี่อัน
+     4. เรียงคนที่ค้างมากสุดขึ้นก่อน (ของเดิมเรียงตาม sort_order คนที่ต้องช่วยอาจอยู่ล่างสุด)
+     5. แถบ ▓▓░░ รายคน ไม่ใช่แค่ของทีม
+     6. คนที่ยังไม่มีงานในกระดานเลย ยุบเป็นบรรทัดเดียวท้ายสรุป
+        (ตอนนี้งานรูทีน 16 รายการยัง seed อยู่กับจักรกฤษคนเดียว — สรุปจะได้บอกตรง ๆ ว่ายังไม่ได้แบ่ง)
+   คืน { text, keyboard } — ปุ่มเป็น m:* ใช้ได้เฉพาะบอทซ่อมบำรุงที่แอปถือ webhook เอง
+   คนส่งเป็นคนตัดสินว่าจะแนบปุ่มไหม (maintBotReady) ไม่งั้นปุ่มไปตายอยู่ในกลุ่มผลิต        */
+const MAINT_SUM_MAX = 3;                       // งานค้างที่พิมพ์เต็มต่อคน
+const THAI_DOW_ABBR = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
+// ตั้ง env ของบอทช่างครบแล้วหรือยัง — ยังไม่ตั้ง = ทุกอย่าง fallback ไปกลุ่มผลิต ปุ่ม m:* จะกดไม่ติด
+const maintBotReady = () => !!(process.env.MAINT_TELEGRAM_BOT_TOKEN
+  && process.env.MAINT_TELEGRAM_BOT_TOKEN !== process.env.TELEGRAM_BOT_TOKEN);
+
+// จัดรายการเป็นกลุ่มตามเครื่อง โดยคงลำดับที่เจอครั้งแรกไว้ (ลำดับเดิมสื่อความสำคัญ ไม่เรียงตามตัวอักษร)
+function groupByMachine(items) {
+  const order = [], map = new Map();
+  for (const it of items) {
+    const k = it.machine || 'ไม่ระบุเครื่อง';
+    if (!map.has(k)) { map.set(k, []); order.push(k); }
+    map.get(k).push(it);
+  }
+  return order.map(k => ({ machine: k, items: map.get(k) }));
+}
+
+async function buildMaintDutyText(duty, opts = {}) {
+  const t = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' });
+  const dow = THAI_DOW_ABBR[weekdayOf(duty.date) ?? -1] || '';
+  const c = await maintCounts(duty.date);
+  const SEP = '━━━━━━━━━━━━━━━━';
+  const L = [
+    `📋 <b>สรุปงานตามหน้าที่</b> · ทีมซ่อมบำรุง`,
+    `🗓 ${dow ? `${dow} ` : ''}${thaiDate(duty.date)} · ${t} น.`,
+    SEP,
+  ];
+
+  // ── 🔴 ต้องรีบ ──
+  const hot = [];
+  if (c.open + c.wip) hot.push(`   🆘 งานซ่อมค้าง <b>${c.open + c.wip}</b>${c.wip ? ` (กำลังซ่อม ${c.wip})` : ''}`);
+  if (c.downNow) {
+    // โชว์แค่นาทีที่เครื่องหยุด — ห้ามโชว์ค่าเสียโอกาสเป็นเงินในกลุ่ม (ทีมผลิตอยู่ด้วย)
+    const which = (c.downList || []).slice(0, 2)
+      .map(d => `${escapeHtml(d.machine)}${d.mins != null ? ` ${downLabel(d.mins)}` : ''}`).join(' · ');
+    hot.push(`   ⏱ <b>เครื่องหยุดอยู่ ${c.downNow} เครื่อง</b>${which ? ` · ${which}` : ''}`);
+  }
+  if (c.pmLate) hot.push(`   ⚠️ งาน PM เกินกำหนด <b>${c.pmLate}</b>`);
+  if (hot.length) L.push(`🔴 <b>ต้องรีบ</b>`, ...hot, '');
+  else L.push(`✅ <i>ไม่มีเรื่องด่วน — ไม่มีงานซ่อมค้าง เครื่องเดินครบ</i>`, '');
+
+  L.push(`📊 <b>ทีม ${duty.team.done}/${duty.team.total} · ${duty.team.pct}%</b>  ${progressBar(duty.team.pct)}`, SEP);
+
+  // งานที่คนอื่นมอบต่อมาให้ ไม่มีช่อง machine ของตัวเอง — ยืมของเจ้าของงานเดิม
+  const machineOf = {};
+  for (const p of duty.people) for (const n of p.nodes) machineOf[`${p.key}|${n.key}`] = n.machine || null;
+
+  const pendingOf = (p) => {
+    const urgent = [], rest = [];
+    for (const a of p.adhoc) {
+      if (a.status === 'done') continue;
+      const item = { title: a.title, machine: a.machine, urgent: a.priority === 'urgent' };
+      (item.urgent ? urgent : rest).push(item);
+    }
+    for (const n of p.nodes) if (!n.bypassed && !n.checked) rest.push({ title: n.title, machine: n.machine });
+    for (const r of p.received) if (!r.checked) rest.push({ title: `${r.title} ⟵${r.fromName}`, machine: machineOf[`${r.ownerKey}|${r.nodeKey}`] });
+    return [...urgent, ...rest];   // งานด่วนขึ้นก่อนเสมอ ที่เหลือคงลำดับเดิม
+  };
+
+  const hasAny = (p) => p.total > 0 || p.nodes.length > 0 || p.adhoc.length > 0 || p.received.length > 0;
+  const blocks = duty.people.filter(hasAny).map(p => ({ p, pending: pendingOf(p) }));
+  blocks.sort((a, b) => (b.pending.length - a.pending.length) || (a.p.pct - b.p.pct));
+
+  for (const { p, pending } of blocks) {
+    const full = p.total > 0 && p.done >= p.total;
+    L.push('');
+    // total = 0 ทั้งที่มีงานอยู่ = ข้ามหมดทุกอัน — โชว์ 0/0 (100%) จะอ่านเป็น "เสร็จแล้ว" ซึ่งไม่จริง
+    L.push(p.total > 0
+      ? `🔧 <b>${escapeHtml(p.name)}</b> · ${p.done}/${p.total} (${p.pct}%)${full ? ' 🎉' : ''}  ${progressBar(p.pct)}`
+      : `🔧 <b>${escapeHtml(p.name)}</b> · <i>ไม่มีงานที่ต้องติ๊กวันนี้</i>`);
+    // จัดกลุ่มก่อนแล้วค่อยตัด — งานเครื่องเดียวกันจะได้ไม่โดนหั่นแยกบรรทัด
+    const flat = groupByMachine(pending).flatMap(g => g.items.map(it => ({ ...it, machine: g.machine })));
+    for (const g of groupByMachine(flat.slice(0, MAINT_SUM_MAX))) {
+      const titles = g.items.map(it => `${it.urgent ? '🔴 ' : ''}${escapeHtml(it.title)}`).join(' · ');
+      L.push(`   🔩 <b>${escapeHtml(g.machine)}</b> — ${titles}`);
+    }
+    const more = flat.length - Math.min(flat.length, MAINT_SUM_MAX);
+    if (more > 0) L.push(`   <i>…และอีก ${more} งาน</i>`);
+    // ข้าม/มอบต่อ = ข้อมูลสำคัญ แต่ยุบเป็นบรรทัดเดียว ไม่ให้กินที่เท่างานจริง
+    const skipped = p.nodes.filter(n => n.bypassed && !n.handoffTo);
+    const handed = p.nodes.filter(n => n.bypassed && n.handoffTo);
+    if (skipped.length) {
+      const why = [...new Set(skipped.map(n => n.bypassReason).filter(Boolean))].slice(0, 2).map(escapeHtml).join(' · ');
+      L.push(`   ⤼ <i>ข้าม ${skipped.length}${why ? ` (${why})` : ''}</i>`);
+    }
+    if (handed.length === 1) L.push(`   🔁 <i>มอบ ${escapeHtml(handed[0].title)} → ${escapeHtml(handed[0].handoffToName || '')}</i>`);
+    else if (handed.length) L.push(`   🔁 <i>มอบต่อ ${handed.length} งาน → ${[...new Set(handed.map(n => n.handoffToName))].map(escapeHtml).join(', ')}</i>`);
+    if (!pending.length && full) L.push(`   ✅ <i>เสร็จครบทุกงาน</i>`);
+  }
+
+  const idle = duty.people.filter(p => !hasAny(p));
+  if (idle.length) L.push('', `👥 <i>ยังไม่มีงานในกระดาน: ${idle.map(p => escapeHtml(p.name)).join(' · ')}</i>`);
+
+  L.push(SEP);
+  L.push(opts.by ? `✍️ ส่งโดย ${escapeHtml(opts.by)} · ${t} น.` : `🤖 <i>ส่งอัตโนมัติ</i> · ${t} น.`);
+
+  return {
+    text: L.join('\n'),
+    keyboard: [[
+      { text: '🔧 เปิดกระดาน', callback_data: 'm:home' },
+      { text: '🔄 อัปเดต', callback_data: 'm:sum' },
+    ]],
+  };
+}
+
+// ส่งสรุปทีมช่างพร้อมปุ่ม — ต้องเรียกใน runAsBot('maint') เท่านั้น (อ่าน chat id ของบอทที่คุยอยู่)
+async function sendMaintSummary(card) {
+  if (!tgToken() || !tgChatId()) { console.error('[maint] ส่งสรุปไม่ได้ — ยังไม่ได้ตั้ง token/chat id'); return false; }
+  await tgApi('sendMessage', {
+    chat_id: tgChatId(), text: card.text, parse_mode: 'HTML',
+    ...(maintBotReady() ? { reply_markup: { inline_keyboard: card.keyboard } } : {}),
+  });
+  return true;
+}
+
 // kind='maint' = ปุ่มส่งจากกระดานทีมซ่อมบำรุง → ต้องเข้ากลุ่มช่าง ไม่ใช่กลุ่มผลิต
 // (เดิมเรียก sendToTelegram ตรง ๆ ไม่ได้อยู่ในบริบทบอทไหน = ตกไปกลุ่มผลิตเสมอ — เจอตอนทดสอบจริง 26 ส.ค.)
 app.post('/api/duty/telegram', async (req, res) => {
@@ -8031,8 +8162,14 @@ app.post('/api/duty/telegram', async (req, res) => {
   const isMaint = req.body.kind === 'maint';
   try {
     const duty = await buildDuty(date, { maint: isMaint });
+    // ทีมช่างใช้สรุปคนละแบบกับทีมกะ — สรุปของทีมกะห้ามเปลี่ยนตาม
+    if (isMaint) {
+      const card = await buildMaintDutyText(duty, { by: req.body.by || req.body.operator || null });
+      const sent = await runAsBot('maint', () => sendMaintSummary(card));
+      return res.json({ success: true, sent, preview: card.text });
+    }
     const text = buildDutyText(duty);
-    const sent = await runAsBot(isMaint ? 'maint' : 'main', async () => {
+    const sent = await runAsBot('main', async () => {
       await sendToTelegram(text);
       return !!(tgToken() && tgChatId());   // เช็ค env ของบอทที่ส่งจริง ไม่ใช่ของบอทหลักเสมอ
     });
@@ -10167,14 +10304,19 @@ const clearMaintDraft = (chatId, userId) =>
 /* ── ตัวเลขบนหัวกระดาน ─────────────────────────────────────────────────────
    ยิงทีเดียวแล้วส่งต่อให้ทุกจอใช้ — กระดานเปิดบ่อย ไม่ควรถาม DB ซ้ำหลายรอบ */
 async function maintCounts(date) {
-  const out = { open: 0, wip: 0, downNow: 0, pmToday: 0, pmLate: 0, rtDue: 0, matLow: 0 };
+  // downList = เครื่องที่หยุดอยู่ตอนนี้ + หยุดมากี่นาที (สรุปของทีมช่างเอาไปขึ้นบล็อก "ต้องรีบ")
+  const out = { open: 0, wip: 0, downNow: 0, downList: [], pmToday: 0, pmLate: 0, rtDue: 0, matLow: 0 };
   try {
     const inc = await dbAll(
-      "SELECT status, down_from, down_to FROM incidents WHERE COALESCE(status, 'open') <> 'closed'", []);
+      "SELECT status, machine, down_from, down_to FROM incidents WHERE COALESCE(status, 'open') <> 'closed'", []);
     for (const r of inc) {
       if ((r.status || 'open') === 'wip') out.wip++; else out.open++;
-      if (r.down_from && !r.down_to) out.downNow++;
+      if (r.down_from && !r.down_to) {
+        out.downNow++;
+        out.downList.push({ machine: r.machine || 'ไม่ระบุเครื่อง', mins: downSoFar(r) });
+      }
     }
+    out.downList.sort((a, b) => (b.mins || 0) - (a.mins || 0));   // หยุดนานสุดขึ้นก่อน
   } catch { /* ตารางยังไม่พร้อม — ปล่อยเป็น 0 */ }
   try {
     const pm = await dbAll(
@@ -10579,6 +10721,12 @@ async function handleMaintUpdate(upd) {
     if (data === 'm:pm') { await show(await buildPmList(date)); return true; }
     if (data === 'm:rt') { await show(await buildRoutineBoard(date)); return true; }
     if (data === 'm:mat') { await show(await buildMatList()); return true; }
+    // 🔄 อัปเดต ใต้สรุปงานตามหน้าที่ — เขียนทับข้อความเดิม ไม่โพสต์สรุปใหม่ให้รก
+    if (data === 'm:sum') {
+      const by = (await techOf(userId))?.name || who.name || null;
+      await show(await buildMaintDutyText(await buildDuty(date, { maint: true }), { by }), 'อัปเดตแล้ว 🔄');
+      return true;
+    }
 
     // ── ผูกบัญชีช่าง ──
     if (data === 'm:bind') {
