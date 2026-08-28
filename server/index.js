@@ -10522,36 +10522,88 @@ async function buildPmView(id, date) {
   };
 }
 
-/* ── งานรูทีน — จัดกลุ่มตาม "เครื่องจักร" ไม่ใช่ตามคน ──────────────────────
-   ช่างคิดเป็นเครื่อง ("วันนี้เครื่องซีลมีอะไรต้องทำ") ไม่ได้คิดเป็นคน            */
+/* ── งานรูทีน — สลับมุมได้ 2 แบบ (แผนข้อ B แบบ B3 · user เคาะ 2026-08-28) ──────
+   👤 ตามคน   = "วันนี้งานของใครเหลืออะไร" — มุมตั้งต้น เพราะทีมมี 3 คนแล้ว
+   🔩 ตามเครื่อง = "วันนี้เครื่องซีลมีอะไรต้องทำ" — ของเดิม ยังอยู่ครบ ห่างไปแค่แตะเดียว
+   ทั้งสองมุมใช้ dueRoutines() ชุดเดียวกัน ไม่ได้แตะโครงข้อมูลเลย                    */
 const machineListOf = (due) => Array.from(new Set(due.map(r => r.machine))).sort();
+// รายชื่อคนที่มีงานถึงคิววันนี้ — เรียงตามลำดับในทีม (sort_order) ไม่ใช่ตามตัวอักษร
+async function ownerListOf(due) {
+  const have = new Set(due.map(r => r.owner));
+  const out = (await maintTeamRows()).map(t => t.person_key).filter(k => have.has(k));
+  // คนที่ถูกเอาออกจากทีมแล้วแต่ยังมีงานค้าง — ต่อท้ายไว้ ไม่ให้งานหายไปจากกระดานเงียบ ๆ
+  for (const k of have) if (!out.includes(k)) out.push(k);
+  return out;
+}
+// แถบสลับมุม — Telegram ไม่มีสถานะ "ปุ่มที่เลือกอยู่" ต้องติ๊กเองให้เห็นว่าอยู่มุมไหน
+const rtViewRow = (view) => [
+  { text: `${view === 'person' ? '✓ ' : ''}👤 ตามคน`, callback_data: 'm:rt' },
+  { text: `${view === 'machine' ? '✓ ' : ''}🔩 ตามเครื่อง`, callback_data: 'm:rtx' },
+];
 
-async function buildRoutineBoard(date) {
+async function buildRoutineBoard(date, view = 'person') {
   const due = await dueRoutines(date);
-  const machines = machineListOf(due);
-  const kb = machines.map((m, i) => {
-    const list = due.filter(r => r.machine === m);
-    const done = list.filter(r => r.done).length;
-    return [{ text: clip(`🔩 ${m}　${done}/${list.length}${done >= list.length ? ' ✅' : ''}`), callback_data: `m:rtm:${i}` }];
-  });
-  kb.push([{ text: '⬅️ กลับ', callback_data: 'm:home' }, { text: '🔄 รีเฟรช', callback_data: 'm:rt' }]);
   const left = due.filter(r => !r.done).length;
-  const text = machines.length
-    ? `🔁 <b>งานรูทีนที่ถึงคิววันนี้</b>\n${progressBar(due.length ? Math.round((due.length - left) / due.length * 100) : 100)} ค้าง ${left} งาน\n\n`
+  const kb = [];
+  if (due.length) kb.push(rtViewRow(view));
+  if (view === 'machine') {
+    machineListOf(due).forEach((m, i) => {
+      const list = due.filter(r => r.machine === m);
+      const done = list.filter(r => r.done).length;
+      kb.push([{ text: clip(`🔩 ${m}　${done}/${list.length}${done >= list.length ? ' ✅' : ''}`), callback_data: `m:rtm:${i}` }]);
+    });
+  } else {
+    (await ownerListOf(due)).forEach((k, i) => {
+      const list = due.filter(r => r.owner === k);
+      const done = list.filter(r => r.done).length;
+      kb.push([{ text: clip(`👤 ${dutyName(k)}　${done}/${list.length}${done >= list.length ? ' ✅' : ''}`), callback_data: `m:rtp:${i}` }]);
+    });
+  }
+  kb.push([{ text: '⬅️ กลับ', callback_data: 'm:home' },
+           { text: '🔄 รีเฟรช', callback_data: view === 'machine' ? 'm:rtx' : 'm:rt' }]);
+  const text = due.length
+    ? `🔁 <b>งานรูทีนที่ถึงคิววันนี้</b>\n${progressBar(Math.round((due.length - left) / due.length * 100))} ค้าง ${left} งาน\n\n`
       + `<i>โชว์เฉพาะงานที่ถึงคิวตามความถี่ที่ตั้งไว้ — งาน "เมื่อมีปัญหา" ไม่ขึ้นเอง</i>`
     : `🔁 <b>งานรูทีน</b>\n\n— วันนี้ไม่มีงานถึงคิว 🎉 —`;
   return { text, keyboard: kb };
+}
+
+/* หน้าของคนหนึ่งคน — ในนี้ยังจัดเรียงตามเครื่องอยู่ดี ช่างจะได้เดินไปจุดเดียวจบหลายงาน
+   (ชื่อเครื่องต่อท้ายปุ่ม ไม่ทำหัวข้อคั่น เพราะปุ่มหัวข้อใน Telegram ต้องมี callback = ปุ่มตาย) */
+async function buildRoutinePerson(idx, date) {
+  const due = await dueRoutines(date);
+  const owners = await ownerListOf(due);
+  const key = owners[idx];
+  if (!key) return buildRoutineBoard(date, 'person');
+  const list = due.filter(r => r.owner === key);
+  const machines = Array.from(new Set(list.map(r => r.machine))).sort();
+  const kb = [];
+  for (const m of machines) {
+    for (const r of list.filter(x => x.machine === m)) {
+      kb.push([{ text: clip(`${r.done ? '✅' : '⬜'} ${r.title} · ${m}`), callback_data: `m:rtt:P:${r.owner}:${r.key}` }]);
+    }
+  }
+  kb.push([{ text: '⬅️ กลับ', callback_data: 'm:rt' }]);
+  const doneN = list.filter(r => r.done).length;
+  const perMachine = machines
+    .map(m => `🔩 ${escapeHtml(m)} ${list.filter(x => x.machine === m && !x.done).length}`)
+    .join('　');
+  return {
+    text: `👤 <b>${escapeHtml(dutyName(key))}</b>\n<i>ถึงคิววันนี้ ${list.length} งาน · เสร็จแล้ว ${doneN}</i>`
+      + `\n\n${perMachine}\n\nแตะเพื่อติ๊กเสร็จ/ยกเลิก 👇`,
+    keyboard: kb,
+  };
 }
 
 async function buildRoutineMachine(idx, date) {
   const due = await dueRoutines(date);
   const machines = machineListOf(due);
   const m = machines[idx];
-  if (!m) return buildRoutineBoard(date);
+  if (!m) return buildRoutineBoard(date, 'machine');
   const list = due.filter(r => r.machine === m);
   const kb = list.map(r => [{
-    text: clip(`${r.done ? '✅' : '⬜'} ${r.title}`),
-    callback_data: `m:rtt:${r.owner}:${r.key}`,
+    text: clip(`${r.done ? '✅' : '⬜'} ${r.title}${r.owner ? ` · ${dutyName(r.owner)}` : ''}`),
+    callback_data: `m:rtt:M:${r.owner}:${r.key}`,
   }]);
   // ประวัติเสียของเครื่องนี้ — ช่างจะได้รู้ว่าต้องระวังอะไรก่อนลงมือ
   let hist = '';
@@ -10560,7 +10612,7 @@ async function buildRoutineMachine(idx, date) {
     const n = Number((h[0] || {}).n || 0);
     if (n) hist = `\n\n📖 เครื่องนี้เคยมีเหตุ <b>${n} ครั้ง</b>${h[0].last ? ` · ล่าสุด ${thaiDate(String(h[0].last).slice(0, 10))}` : ''}`;
   } catch { /* ช่างมัน */ }
-  kb.push([{ text: '⬅️ กลับ', callback_data: 'm:rt' }]);
+  kb.push([{ text: '⬅️ กลับ', callback_data: 'm:rtx' }]);
   const freqs = Array.from(new Set(list.map(r => FREQ_LABEL[r.freq] || 'ทุกวัน'))).join(' · ');
   return {
     text: `🔩 <b>${escapeHtml(m)}</b>\n<i>${escapeHtml(freqs)}</i>${hist}\n\nแตะเพื่อติ๊กเสร็จ/ยกเลิก 👇`,
@@ -10719,7 +10771,8 @@ async function handleMaintUpdate(upd) {
     if (data === 'm:home') { await show(await buildMaintHome(date)); return true; }
     if (data === 'm:rep') { await show(await buildRepairList()); return true; }
     if (data === 'm:pm') { await show(await buildPmList(date)); return true; }
-    if (data === 'm:rt') { await show(await buildRoutineBoard(date)); return true; }
+    if (data === 'm:rt') { await show(await buildRoutineBoard(date, 'person')); return true; }
+    if (data === 'm:rtx') { await show(await buildRoutineBoard(date, 'machine')); return true; }
     if (data === 'm:mat') { await show(await buildMatList()); return true; }
     // 🔄 อัปเดต ใต้สรุปงานตามหน้าที่ — เขียนทับข้อความเดิม ไม่โพสต์สรุปใหม่ให้รก
     if (data === 'm:sum') {
@@ -10831,16 +10884,26 @@ async function handleMaintUpdate(upd) {
 
     // ── งานรูทีน ──
     if (data.startsWith('m:rtm:')) { await show(await buildRoutineMachine(Number(data.slice(6)), date)); return true; }
+    if (data.startsWith('m:rtp:')) { await show(await buildRoutinePerson(Number(data.slice(6)), date)); return true; }
     if (data.startsWith('m:rtt:')) {
       const tech = await requireTech(cq); if (!tech) return true;
-      const rest = data.slice(6);
+      let rest = data.slice(6);
+      // ธงมุมที่กดมา P/M — ตัวพิมพ์ใหญ่จึงไม่มีวันชนกับ person_key (slugKey คืนตัวพิมพ์เล็กเสมอ)
+      // ปุ่มรุ่นเก่าที่ยังค้างอยู่ในแชทไม่มีธง → ถือเป็นมุมเครื่องแบบเดิม กดแล้วต้องไม่พัง
+      let view = 'machine';
+      if (rest.startsWith('P:') || rest.startsWith('M:')) { view = rest[0] === 'P' ? 'person' : 'machine'; rest = rest.slice(2); }
       const owner = rest.slice(0, rest.indexOf(':'));
       const nodeKey = rest.slice(rest.indexOf(':') + 1);
       await toggleRoutineDone(owner, nodeKey, date);
       const due = await dueRoutines(date);
-      const hit = due.find(r => r.owner === owner && r.key === nodeKey);
-      const idx = machineListOf(due).indexOf(hit ? hit.machine : '');
-      await show(idx >= 0 ? await buildRoutineMachine(idx, date) : await buildRoutineBoard(date), 'อัปเดตแล้ว ✅');
+      if (view === 'person') {
+        const idx = (await ownerListOf(due)).indexOf(owner);
+        await show(idx >= 0 ? await buildRoutinePerson(idx, date) : await buildRoutineBoard(date, 'person'), 'อัปเดตแล้ว ✅');
+      } else {
+        const hit = due.find(r => r.owner === owner && r.key === nodeKey);
+        const idx = machineListOf(due).indexOf(hit ? hit.machine : '');
+        await show(idx >= 0 ? await buildRoutineMachine(idx, date) : await buildRoutineBoard(date, 'machine'), 'อัปเดตแล้ว ✅');
+      }
       return true;
     }
 
