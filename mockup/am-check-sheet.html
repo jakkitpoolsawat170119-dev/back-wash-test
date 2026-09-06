@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ใบเช็ก AM รายกะ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* โทเคนชุดเดียวกับแอปจริง (client/src/redesign.css) — ยกมาจาก mockup/routine-registry-am-checklist.html */
+:root{
+  --brand:#ff6b00; --brand-deep:#c24f00; --brand-soft:#fff3ea;
+  --ink:#2b2119; --ink-soft:#6d6259; --paper:#faf7f4; --card:#fff; --line:#eee3d9;
+  --ok:#1c8a4c; --warn:#c77700; --danger:#c62828;
+  --radius:16px;
+  --shadow-card:0 1px 2px rgba(63,37,10,.06),0 6px 18px -6px rgba(63,37,10,.12);
+  --font-head:'Kanit',sans-serif; --font-body:'Sarabun',sans-serif;
+  --l1:#1565c0; --l1-w:#e8f1fb;
+  --l2:#01579b; --l2-w:#e3f0f8;
+  --l3:#006064; --l3-w:#e0f4f4;
+  --surface-2:#fbf7f3; --surface-3:#fdfbf9; --row-line:#f5efe9; --muted:#a49a90; --sep:#d8cabb;
+  --danger-soft-bg:#fdecea; --danger-soft-line:#f7d9d5; --warn-soft-bg:#fff6e6;
+  /* สถานะไลน์ — เฉดเดียวกับที่ TodoBoard ใช้กับไลน์บรรจุอยู่แล้ว (producing/cip/idle) */
+  --st-run:#2e7d32; --st-run-w:#e8f5e9;
+  --st-cip:#0277bd; --st-cip-w:#e1f2fb;
+  --st-idle:#607d8b; --st-idle-w:#eef1f4;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --brand:#ff6b00; --brand-deep:#ffb37a; --brand-soft:#3a2416;
+    --ink:#f3ede6; --ink-soft:#a89e92; --paper:#1c1712; --card:#262019; --line:#3a332b;
+    --ok:#3ddc84; --warn:#ffb020; --danger:#ff7a6f;
+    --shadow-card:0 1px 2px rgba(0,0,0,.3),0 6px 18px -6px rgba(0,0,0,.5);
+    --l1:#5b9fe6; --l1-w:rgba(91,159,230,.16);
+    --l2:#4a8fc9; --l2-w:rgba(74,143,201,.16);
+    --l3:#2fb0ae; --l3-w:rgba(47,176,174,.18);
+    --surface-2:#2d2620; --surface-3:#221d17; --row-line:#332b23; --muted:#8a8074; --sep:#4a4238;
+    --danger-soft-bg:rgba(255,122,111,.14); --danger-soft-line:rgba(255,122,111,.32); --warn-soft-bg:rgba(255,176,32,.14);
+    --st-run:#5bc46a; --st-run-w:rgba(91,196,106,.16);
+    --st-cip:#4aa8e0; --st-cip-w:rgba(74,168,224,.16);
+    --st-idle:#90a4ae; --st-idle-w:rgba(144,164,174,.16);
+  }
+}
+:root[data-theme="dark"]{
+  --brand:#ff6b00; --brand-deep:#ffb37a; --brand-soft:#3a2416;
+  --ink:#f3ede6; --ink-soft:#a89e92; --paper:#1c1712; --card:#262019; --line:#3a332b;
+  --ok:#3ddc84; --warn:#ffb020; --danger:#ff7a6f;
+  --shadow-card:0 1px 2px rgba(0,0,0,.3),0 6px 18px -6px rgba(0,0,0,.5);
+  --l1:#5b9fe6; --l1-w:rgba(91,159,230,.16);
+  --l2:#4a8fc9; --l2-w:rgba(74,143,201,.16);
+  --l3:#2fb0ae; --l3-w:rgba(47,176,174,.18);
+  --surface-2:#2d2620; --surface-3:#221d17; --row-line:#332b23; --muted:#8a8074; --sep:#4a4238;
+  --danger-soft-bg:rgba(255,122,111,.14); --danger-soft-line:rgba(255,122,111,.32); --warn-soft-bg:rgba(255,176,32,.14);
+  --st-run:#5bc46a; --st-run-w:rgba(91,196,106,.16);
+  --st-cip:#4aa8e0; --st-cip-w:rgba(74,168,224,.16);
+  --st-idle:#90a4ae; --st-idle-w:rgba(144,164,174,.16);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:var(--font-body);color:var(--ink);background:var(--paper);line-height:1.7;
+  -webkit-text-size-adjust:100%;}
+h1,h2,h3,h4,p,ul,ol,li{margin:0;padding:0}
+h1,h2,h3,h4{font-family:var(--font-head);letter-spacing:-.02em;line-height:1.3}
+button{font-family:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent}
+input,textarea,select{font-family:inherit}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid rgba(255,107,0,.5);outline-offset:2px}
+li{list-style:none}
+img{max-width:100%}
+
+/* มือถือจริง: 390px · ไม่มี sidebar · ปุ่มกดสูง ≥44px */
+.phone{max-width:480px;margin:0 auto;background:var(--paper);min-height:100vh;
+  padding-bottom:104px;position:relative}
+
+.ribbon{background:#1c1917;color:#f3ede6;padding:8px 14px;font-size:11.5px;font-weight:600;
+  font-family:var(--font-head);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ribbon b{color:var(--brand)}
+.ribbon .tag{margin-left:auto;background:#312b23;color:#a89e92;border-radius:999px;padding:2px 9px;font-size:10.5px}
+
+/* ── header เหนียว ── */
+.hd{position:sticky;top:0;z-index:40;background:var(--card);border-bottom:1px solid var(--line);
+  padding:10px 14px;box-shadow:0 4px 14px -10px rgba(0,0,0,.35)}
+.hd-r1{display:flex;align-items:center;gap:8px}
+.linepill{font-family:var(--font-head);font-weight:700;font-size:15px;border-radius:999px;
+  padding:5px 14px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.hd-meta{margin-left:auto;text-align:right;font-size:11.5px;color:var(--ink-soft);line-height:1.45}
+.hd-meta b{color:var(--ink);font-weight:600}
+.hd-r2{display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.who{font-size:11.5px;color:var(--ink-soft)}
+.who b{color:var(--ink)}
+.whoedit{border:1px solid var(--line);background:var(--card);color:var(--ink-soft);border-radius:999px;
+  font-size:11px;font-weight:600;font-family:var(--font-head);padding:4px 11px;min-height:28px}
+
+.sec{padding:14px 14px 0}
+.sec-t{font-family:var(--font-head);font-size:12px;font-weight:600;color:var(--ink-soft);
+  margin-bottom:7px;display:flex;align-items:center;gap:6px}
+.sec-t .n{background:var(--brand-soft);color:var(--brand-deep);border-radius:999px;
+  width:18px;height:18px;display:grid;place-items:center;font-size:10.5px;font-weight:700}
+
+/* ── segmented ── */
+.seg{display:flex;gap:6px}
+.seg button{flex:1;min-height:44px;border:1.5px solid var(--line);background:var(--card);
+  color:var(--ink-soft);border-radius:12px;font-family:var(--font-head);font-weight:600;font-size:13.5px;
+  transition:transform .12s cubic-bezier(.2,.9,.3,1.3)}
+.seg button:active{transform:scale(.97)}
+.seg button.on{color:#fff;border-color:transparent}
+.seg.shift button{font-size:13px}
+.seg.shift button small{display:block;font-weight:500;font-size:10px;opacity:.75;line-height:1.2}
+.holiday{background:var(--surface-2);border:1px dashed var(--sep);border-radius:12px;
+  padding:12px;text-align:center;font-size:12.5px;color:var(--ink-soft)}
+.hint{font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.55}
+
+/* ── progress ── */
+.prog{display:flex;gap:8px;margin-top:4px}
+.pbox{flex:1;background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:8px 4px;text-align:center;box-shadow:var(--shadow-card)}
+.pbox .v{font-family:var(--font-head);font-size:20px;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums}
+.pbox .l{font-size:10.5px;color:var(--ink-soft);font-weight:600}
+.bar{display:flex;height:7px;border-radius:999px;overflow:hidden;background:var(--surface-2);margin-top:9px}
+.bar i{display:block;height:100%;transition:width .25s ease}
+
+/* ── การ์ดรายข้อ ── */
+.items{padding:12px 14px 0;display:flex;flex-direction:column;gap:9px}
+.it{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow-card);
+  overflow:hidden;position:relative;padding-left:6px}
+.it::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--sep)}
+.it.ok::before{background:var(--ok)}
+.it.ng::before{background:var(--danger)}
+.it-in{padding:11px 12px 12px}
+.it-h{display:flex;gap:9px;align-items:flex-start}
+.it-no{font-family:var(--font-head);font-weight:700;font-size:12px;color:var(--muted);
+  background:var(--surface-2);border-radius:8px;min-width:26px;height:24px;display:grid;place-items:center;flex:none;
+  font-variant-numeric:tabular-nums}
+.it-t{font-weight:600;font-size:14px;line-height:1.5}
+.disc{margin-top:7px}
+.disc summary{list-style:none;font-size:11.5px;color:var(--l1);font-weight:600;cursor:pointer;
+  display:inline-flex;align-items:center;gap:4px;padding:3px 0}
+.disc summary::-webkit-details-marker{display:none}
+.disc[open] summary .car{transform:rotate(180deg)}
+.disc .car{display:inline-block;transition:transform .18s ease;font-size:9px}
+.disc-b{background:var(--surface-2);border-radius:10px;padding:9px 11px;margin-top:5px;font-size:12.3px;
+  color:var(--ink-soft);line-height:1.6}
+.disc-b b{color:var(--ink);font-weight:600;font-family:var(--font-head);font-size:11px;
+  display:block;letter-spacing:.02em}
+.disc-b .row+.row{margin-top:7px;padding-top:7px;border-top:1px solid var(--row-line)}
+
+.judge{display:flex;gap:8px;margin-top:10px}
+.judge button{flex:1;min-height:46px;border-radius:12px;border:1.5px solid var(--line);background:var(--card);
+  font-family:var(--font-head);font-weight:600;font-size:14px;color:var(--ink-soft);
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  transition:transform .12s cubic-bezier(.2,.9,.3,1.3)}
+.judge button:active{transform:scale(.96)}
+.judge button.on-ok{background:var(--ok);border-color:var(--ok);color:#fff}
+.judge button.on-ng{background:var(--danger);border-color:var(--danger);color:#fff}
+
+.ngbox{margin-top:10px;background:var(--danger-soft-bg);border:1px solid var(--danger-soft-line);
+  border-radius:12px;padding:10px 11px}
+.ngbox label{font-size:11px;font-weight:700;font-family:var(--font-head);color:var(--danger);
+  display:block;margin-bottom:4px}
+.ngbox textarea{width:100%;border:1.5px solid var(--danger-soft-line);border-radius:9px;background:var(--card);
+  color:var(--ink);padding:8px 10px;font-size:13px;line-height:1.6;resize:none;min-height:60px}
+.ngbox textarea:placeholder-shown{border-color:var(--danger)}
+.prio{margin-top:9px}
+.prio .pl{font-size:11px;font-weight:700;font-family:var(--font-head);color:var(--danger);margin-bottom:4px}
+.prio .pb{display:flex;gap:6px}
+.prio .pb button{flex:1;min-height:40px;border-radius:10px;border:1.5px solid var(--danger-soft-line);
+  background:var(--card);color:var(--ink-soft);font-family:var(--font-head);font-weight:600;font-size:11.5px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.25;gap:1px}
+.prio .pb button .em{font-size:13px}
+.prio .pb button.on{color:#fff;border-color:transparent}
+.shot{display:flex;gap:7px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.shot .add{min-height:44px;border:1.5px dashed var(--danger-soft-line);background:var(--card);
+  color:var(--danger);border-radius:10px;padding:0 14px;font-family:var(--font-head);font-weight:600;font-size:12.5px}
+.shot img{width:52px;height:52px;object-fit:cover;border-radius:9px;border:1px solid var(--line)}
+
+/* ── แถบล่างเหนียว ── */
+.foot-bar{position:fixed;left:0;right:0;bottom:0;z-index:50;max-width:480px;margin:0 auto;
+  background:var(--card);border-top:1px solid var(--line);padding:9px 14px calc(9px + env(safe-area-inset-bottom));
+  display:flex;align-items:center;gap:10px;box-shadow:0 -6px 20px -12px rgba(0,0,0,.4)}
+.saved{font-size:11px;color:var(--ink-soft);line-height:1.35;flex:1}
+.saved b{color:var(--ok)}
+.send{min-height:46px;border:none;border-radius:12px;background:#229ed9;color:#fff;
+  font-family:var(--font-head);font-weight:700;font-size:14px;padding:0 18px;white-space:nowrap;
+  transition:transform .12s cubic-bezier(.2,.9,.3,1.3)}
+.send:active{transform:scale(.97)}
+.send:disabled{opacity:.45}
+
+/* ── แผ่นพรีวิวการ์ด ── */
+.scrim{position:fixed;inset:0;background:rgba(20,14,8,.55);z-index:60;display:none}
+.scrim.on{display:block}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:61;max-width:480px;margin:0 auto;
+  background:var(--card);border-radius:20px 20px 0 0;padding:14px 14px calc(16px + env(safe-area-inset-bottom));
+  transform:translateY(100%);transition:transform .28s cubic-bezier(.2,.9,.3,1.05);max-height:92vh;overflow-y:auto}
+.sheet.on{transform:translateY(0)}
+.grab{width:38px;height:4px;border-radius:999px;background:var(--sep);margin:0 auto 12px}
+.sheet h3{font-size:15.5px;font-weight:600;margin-bottom:3px}
+.sheet .sub{font-size:12px;color:var(--ink-soft);margin-bottom:12px}
+
+/* การ์ด PNG จำลอง — โทนสีจาก server/shiftCard.js (C) กว้าง 452 · ห้าม emoji */
+.pngwrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:14px}
+.png{width:452px;background:#0f1519;color:#eaf0f3;border-radius:14px;padding:20px;
+  font-family:'Sarabun',sans-serif;line-height:1.55}
+.png .k{font-size:10.5px;font-weight:700;letter-spacing:.08em;color:#93a2ab;text-transform:uppercase}
+.png h4{font-family:'Sarabun',sans-serif;font-size:19px;font-weight:700;color:#eaf0f3;margin:2px 0 0;letter-spacing:0}
+.png .stpill{display:inline-block;border-radius:999px;padding:2px 11px;font-size:11.5px;font-weight:700;margin-top:7px}
+.png .when{font-size:12px;color:#93a2ab;margin-top:6px}
+.png .hero{display:flex;align-items:center;gap:16px;background:#161e24;border-radius:12px;padding:14px;margin-top:14px}
+.png .leg{flex:1;font-size:12.5px}
+.png .leg div{display:flex;align-items:center;gap:7px;padding:1.5px 0}
+.png .leg i{width:9px;height:9px;border-radius:3px;display:inline-block;flex:none}
+.png .leg b{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:700}
+.png .ngh{font-size:11.5px;font-weight:700;color:#ec5f5c;letter-spacing:.04em;margin:15px 0 8px;
+  display:flex;align-items:center;gap:6px}
+.png .ngh::after{content:"";flex:1;height:1px;background:#28343b}
+.png .ngi{display:flex;gap:11px;background:#161e24;border-radius:11px;padding:10px;margin-bottom:7px}
+.png .ngi .tx{flex:1;min-width:0}
+.png .ngi .t{font-size:12.8px;font-weight:600;color:#eaf0f3}
+.png .ngi .c{font-size:11.8px;color:#93a2ab;margin-top:2px}
+.png .ngi .ph{width:56px;height:56px;border-radius:9px;object-fit:cover;flex:none;background:#1c262d}
+.png .more{font-size:11.5px;color:#93a2ab;text-align:center;padding:3px 0}
+.png .ft{margin-top:13px;padding-top:11px;border-top:1px solid #28343b}
+.png .ft .by{display:flex;align-items:baseline;gap:8px;font-size:13px}
+.png .ft .by span{font-size:11px;color:#93a2ab;letter-spacing:.04em}
+.png .ft .by b{color:#eaf0f3;font-weight:700}
+.png .ft .src{font-size:10.5px;color:#93a2ab;margin-top:3px}
+
+/* ใบแจ้งซ่อมที่จะเปิดอัตโนมัติ — เลียนหน้าตาการ์ดจริงในกลุ่มช่าง */
+.rp{margin-top:16px}
+.rp-h{font-family:var(--font-head);font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:3px}
+.rp-s{font-size:11.5px;color:var(--ink-soft);margin-bottom:9px;line-height:1.55}
+.rcard{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin-bottom:8px;
+  font-size:12.5px;line-height:1.6}
+.rcard .rt{font-family:var(--font-head);font-weight:700;font-size:12.5px;margin-bottom:5px}
+.rcard .rl{color:var(--ink-soft)}
+.rcard .rl b{color:var(--ink);font-weight:600}
+.rcard .rkb{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.rcard .rkb span{border:1px solid var(--sep);border-radius:8px;padding:3px 10px;font-size:11px;
+  color:var(--ink-soft);background:var(--card)}
+.rcard.dup{border-style:dashed;border-color:var(--warn);background:var(--warn-soft-bg)}
+.rcard.dup .rt{color:var(--warn)}
+.q{background:var(--warn-soft-bg);border:1px solid var(--line);border-left:3px solid var(--warn);
+  border-radius:11px;padding:10px 12px;font-size:12.3px;color:var(--ink-soft);line-height:1.65;margin-top:13px}
+.q b{color:var(--ink)}
+.sheet .acts{display:flex;gap:8px;margin-top:13px}
+.sheet .acts button{flex:1;min-height:46px;border-radius:12px;font-family:var(--font-head);font-weight:600;font-size:13.5px}
+.btn-g{border:1px solid var(--line);background:var(--card);color:var(--ink-soft)}
+.btn-p{border:none;background:#229ed9;color:#fff}
+.btn-p:disabled{opacity:.45}
+
+/* ── ส่วนทดลอง/นิ่ง ── */
+.dev{margin:16px 14px 0;background:var(--surface-2);border:1px dashed var(--sep);border-radius:12px;padding:11px 12px}
+.dev h4{font-size:11.5px;font-weight:600;color:var(--brand-deep);margin-bottom:7px}
+.dev .row{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--ink-soft);flex-wrap:wrap}
+.dev select{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:9px;
+  padding:7px 9px;font-size:12.5px;min-height:38px}
+.note-static{font-size:11px;color:var(--muted);margin-top:7px;line-height:1.6}
+.p2{margin:14px 14px 0}
+.p2 button{width:100%;min-height:44px;border:1px dashed var(--line);background:transparent;
+  color:var(--ink-soft);border-radius:999px;font-family:var(--font-head);font-weight:600;font-size:12.5px;text-align:left;padding:0 16px}
+.p2 button:hover{background:var(--brand-soft);color:var(--brand-deep);border-color:var(--brand-soft)}
+.p2-b{display:none;font-size:12.3px;color:var(--ink-soft);line-height:1.7;padding:11px 14px;
+  background:var(--surface-2);border-radius:12px;margin-top:9px}
+.p2-b.on{display:block}
+</style>
+</head>
+<body>
+
+<div class="phone">
+  <div class="ribbon">
+    🎨 <b>MOCKUP</b> — ใบเช็ก AM รายกะ (มือถือ)
+    <span class="tag">ยังไม่ต่อฐานข้อมูล</span>
+  </div>
+
+  <!-- header เหนียว -->
+  <div class="hd">
+    <div class="hd-r1">
+      <span class="linepill" id="linepill">1️⃣ Line ต้ม 1</span>
+      <div class="hd-meta">
+        <b id="hdDate">พฤ. 5 ก.ย. 2568</b><br>
+        <span id="hdShift">กะเช้า 06:00–14:00</span>
+      </div>
+    </div>
+    <div class="hd-r2">
+      <span class="who">ผู้รายงาน: <b id="hdWho">จักรกฤษ พูลสวัสดิ์</b></span>
+      <button class="whoedit" id="whoBtn">เปลี่ยน</button>
+    </div>
+  </div>
+
+  <!-- 1. กะ -->
+  <div class="sec">
+    <div class="sec-t"><span class="n">1</span>กะที่ตรวจ</div>
+    <div id="shiftWrap"></div>
+    <div class="hint">แถบกะเปลี่ยนตามวันในสัปดาห์ — จ–พฤ 3 กะ · ศ,อา 2 กะ · เสาร์หยุด</div>
+  </div>
+
+  <!-- 2. สถานะไลน์ -->
+  <div class="sec">
+    <div class="sec-t"><span class="n">2</span>สถานะไลน์ตอนตรวจ</div>
+    <div class="seg" id="statusSeg"></div>
+    <div class="hint">บันทึกไว้เท่านั้น — <b>ไม่ซ่อนข้อตรวจ</b> ต้องตรวจครบทุกข้อเหมือนเดิม</div>
+  </div>
+
+  <!-- 3. ความคืบหน้า -->
+  <div class="sec">
+    <div class="sec-t"><span class="n">3</span>ความคืบหน้า</div>
+    <div class="prog">
+      <div class="pbox"><div class="v" style="color:var(--ok)" id="cOk">0</div><div class="l">ปกติ</div></div>
+      <div class="pbox"><div class="v" style="color:var(--danger)" id="cNg">0</div><div class="l">ไม่ปกติ</div></div>
+      <div class="pbox"><div class="v" style="color:var(--muted)" id="cLeft">15</div><div class="l">ยังไม่ตรวจ</div></div>
+    </div>
+    <div class="bar">
+      <i id="bOk" style="background:var(--ok);width:0%"></i>
+      <i id="bNg" style="background:var(--danger);width:0%"></i>
+    </div>
+  </div>
+
+  <!-- 4. รายการ -->
+  <div class="sec" style="padding-bottom:0">
+    <div class="sec-t"><span class="n">4</span>รายการตรวจ <span style="margin-left:auto;font-weight:500;color:var(--muted)" id="itCount"></span></div>
+  </div>
+  <div class="items" id="items"></div>
+
+  <!-- ส่วนทดลอง (ของ mockup เท่านั้น) -->
+  <div class="dev">
+    <h4>🧪 ตัวช่วยดูของ mockup (ของจริงไม่มีส่วนนี้)</h4>
+    <div class="row">
+      <span>ดูวัน:</span>
+      <select id="devDay">
+        <option value="4">พฤหัสบดี (จ–พฤ · 3 กะ)</option>
+        <option value="5">ศุกร์ (2 กะ)</option>
+        <option value="0">อาทิตย์ (2 กะ)</option>
+        <option value="6">เสาร์ (หยุด)</option>
+      </select>
+      <span>ไลน์:</span>
+      <select id="devLine">
+        <option value="1">Line ต้ม 1</option>
+        <option value="2">Line ต้ม 2</option>
+        <option value="3">Line ต้ม 3</option>
+      </select>
+    </div>
+    <div class="note-static">ช่องนิ่งในmockup: เลือกวันที่จริง · ชื่อช่าง · ปุ่มส่งจริง — ของจริงชื่อช่างถามครั้งเดียวแล้วจำไว้</div>
+  </div>
+
+  <!-- เฟสถัดไป -->
+  <div class="p2">
+    <button id="p2btn">👁 ประวัติใบเช็กย้อนหลัง / มุมมองรายเดือน — เฟสถัดไป ยังไม่ทำ</button>
+    <div class="p2-b" id="p2body">
+      เก็บครบรายกะอยู่แล้วในตาราง <b>am_sheets</b> + <b>am_sheet_items</b> เลยทำย้อนหลังได้ทันทีในเฟสถัดไป:
+      ปฏิทินรายเดือนแบบเอกสารกระดาษ (ช่องติ๊กวันที่ 1–31), กรองเฉพาะข้อที่เคยไม่ปกติ, และดูว่าข้อไหนเสียซ้ำบ่อย
+    </div>
+  </div>
+
+  <!-- แถบล่าง -->
+  <div class="foot-bar">
+    <div class="saved">บันทึกอัตโนมัติ <b id="savedAt">—</b><br><span style="color:var(--muted)" id="leftNote">ยังไม่ตรวจ 15 ข้อ</span></div>
+    <button class="send" id="sendBtn">ส่งรายงาน</button>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet">
+  <div class="grab"></div>
+  <h3>ตัวอย่างรายงานที่จะส่ง</h3>
+  <div class="sub">กดส่งครั้งเดียว เกิด 2 อย่าง: <b>การ์ดสรุป</b> เข้ากลุ่ม + <b>ใบแจ้งซ่อม</b> ของข้อที่ไม่ปกติ</div>
+  <div class="pngwrap">
+    <div class="png" id="png"></div>
+  </div>
+  <div class="rp" id="rp"></div>
+  <div class="q">
+    <b>❓ ขอเคาะตรงนี้:</b> การ์ดกว้าง 452px ใส่ครบ 45 ข้อไม่ได้ ตอนนี้จึงทำเป็น
+    <b>สรุปตัวเลข + ไล่เฉพาะข้อที่ไม่ปกติ</b> (สูงสุด 4 ข้อ เกินกว่านั้นขึ้น “+ อีก N รายการ”)
+    <br>ถ้าอยากได้ครบทั้ง 45 ข้อแบบสแกนกระดาษ บอกได้ — ต้องออกแบบการ์ดใหม่เป็นแนวยาว
+  </div>
+  <div class="acts">
+    <button class="btn-g" id="closeSheet">ปิด</button>
+    <button class="btn-p" disabled>ส่งเข้า Telegram (mockup ยังส่งไม่ได้)</button>
+  </div>
+</div>
+
+<script>
+/* ── ข้อมูลจริง 15 ข้อของ Line ต้ม 1 (จาก AM_LIST_SEED ใน server/index.js) ── */
+const ROWS = [
+  ['จดบันทึกแรงดันในน้ำชาเข้าเมน', 'อยู่ในเกณฑ์มาตรฐานที่กำหนด (เช่น 4-6 bar)', 'ดูเกจวัดความดัน'],
+  ['จดบันทึกอุณหภูมิในน้ำชาเข้า (ที่ห้องต้ม)', 'อยู่ในเกณฑ์มาตรฐานที่กำหนด', 'ดูเกจวัดอุณหภูมิ / เซ็นเซอร์'],
+  ['จดบันทึกอุณหภูมิน้ำ Chiller ขาเข้า Plate', 'อุณหภูมิอยู่ในเกณฑ์ (เช่น < 5°C หรือตามที่กำหนด)', 'ดูหน้าจอแสดงผล / เทอร์โมมิเตอร์'],
+  ['ตรวจสอบความผิดปกติของใบกวนถัง 1', 'ไม่มีเสียงดังผิดปกติ, แกนไม่แกว่ง, หมุนราบรื่น', 'ฟังเสียง, สังเกตการทำงาน'],
+  ['ตรวจสอบความผิดปกติของน้ำเลี้ยงคอปั๊มเซนติฟิว', 'น้ำไหลเวียนสม่ำเสมอ, ท่อไม่ตัน, ไม่รั่วซึม', 'สังเกตการไหลของน้ำผ่านท่อ'],
+  ['ตรวจสอบความผิดปกติของน้ำเลี้ยงคอปั๊มโฮป', 'น้ำไหลเวียนสม่ำเสมอ, ท่อไม่ตัน, ไม่รั่วซึม', 'สังเกตการไหลของน้ำผ่านท่อ'],
+  ['ตรวจสอบความผิดปกติของมอเตอร์ปั๊มเซนติฟิว', 'ไม่สั่นสะเทือนรุนแรง, ไม่มีเสียงดัง, อุณหภูมิไม่ร้อนจัด', 'ฟังเสียง, สัมผัสอุณหภูมิ (หลังมือ)'],
+  ['ตรวจสอบความผิดปกติของมอเตอร์ปั๊มโฮป', 'ไม่สั่นสะเทือนรุนแรง, ไม่มีเสียงดัง, อุณหภูมิไม่ร้อนจัด', 'ฟังเสียง, สัมผัสอุณหภูมิ (หลังมือ)'],
+  ['ตรวจสอบจุดรั่วไหลของ Product', 'ไม่มีคราบ หรือรอยหยดของโปรดักส์ตามข้อต่อ/ซีล/วาล์ว', 'สังเกตหาคราบหรือรอยเปียกชื้น'],
+  ['ตรวจสอบจุดรั่วไหลของลม', 'ไม่มีเสียงลมรั่ว, แรงดันในระบบไม่ตก', 'ฟังเสียง, ใช้น้ำสบู่ (หากต้องสงสัย)'],
+  ['ตรวจสอบความผิดปกติของค่า Loadcell ถัง 200L', 'ค่าเริ่มต้นที่ 0 kg (เมื่อถังว่าง), ตัวเลขไม่แกว่งผิดปกติ', 'ดูหน้าจอแสดงผลน้ำหนัก'],
+  ['ตรวจสอบความผิดปกติของค่า Loadcell ถังน้ำตาล W100', 'ค่าเริ่มต้นที่ 0 kg (เมื่อถังว่าง), ตัวเลขไม่แกว่งผิดปกติ', 'ดูหน้าจอแสดงผลน้ำหนัก'],
+  ['ตรวจสอบการทำงานของเกจวาล์วส่งน้ำตาล W100', 'เปิด-ปิดสุดได้คล่องตัว, ไม่มีติดขัด, ไม่มีรอยรั่วซึม', 'ทดสอบเปิด-ปิดเกจวาล์ว'],
+  ['ตรวจสอบความสะอาดของอุปกรณ์ต่างๆ', 'สะอาด, ไม่มีคราบเหนียว, ไม่มีฝุ่นหรือเศษวัสดุตกค้าง', 'ตรวจสอบด้วยตาเปล่ารอบอุปกรณ์'],
+  ['ขันแน่นแคลมป์รัดท่อ', 'แคลมป์แน่นหนา, ข้อต่อท่อไม่ขยับหรือหลวมคลอน', 'ใช้มือจับโยก, ไม่ใช้ประแจขันย้ำ'],
+];
+
+const LINES = {
+  1: { name: 'Line ต้ม 1', ic: '1️⃣', c: 'var(--l1)', w: 'var(--l1-w)', png: '#3987e5' },
+  2: { name: 'Line ต้ม 2', ic: '2️⃣', c: 'var(--l2)', w: 'var(--l2-w)', png: '#4a8fc9' },
+  3: { name: 'Line ต้ม 3', ic: '3️⃣', c: 'var(--l3)', w: 'var(--l3-w)', png: '#199e70' },
+};
+const STATUS = [
+  { key: 'inprocess', label: 'Inprocess', th: 'กำลังผลิต', c: 'var(--st-run)',  png: '#39b57e' },
+  { key: 'cip',       label: 'CIP',       th: 'กำลัง CIP', c: 'var(--st-cip)',  png: '#4aa8e0' },
+  { key: 'leisure',   label: 'ว่าง',      th: 'Be at leisure', c: 'var(--st-idle)', png: '#93a2ab' },
+];
+// ตารางกะจริงจาก client/src/shiftSchedule.ts — เสาร์หยุด · ศ,อา 2 กะ · จ–พฤ 3 กะ
+function shiftsForWeekday(wd) {
+  if (wd === 6) return [];
+  if (wd === 5 || wd === 0) return [{ key: 'เช้า', s: 6, e: 18 }, { key: 'ดึก', s: 18, e: 6 }];
+  return [{ key: 'เช้า', s: 6, e: 14 }, { key: 'บ่าย', s: 14, e: 22 }, { key: 'ดึก', s: 22, e: 6 }];
+}
+const DAY_TH = { 0: 'อา.', 4: 'พฤ.', 5: 'ศ.', 6: 'ส.' };
+const DAY_DATE = { 4: '5 ก.ย. 2568', 5: '6 ก.ย. 2568', 6: '7 ก.ย. 2568', 0: '8 ก.ย. 2568' };
+const hh = (n) => String(n).padStart(2, '0') + ':00';
+
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+let day = 4, lineNo = 1, shiftKey = 'เช้า', status = null;
+let who = 'จักรกฤษ พูลสวัสดิ์';   // ของจริง: ถามครั้งเดียวแล้วจำไว้ใน localStorage
+const st = ROWS.map(() => ({ result: null, cause: '', photo: null, prio: 'warn' }));
+// ความเร่งด่วนชุดเดียวกับใบแจ้งซ่อมจริงในบอท (SR_PRIO ใน server/index.js)
+const PRIO = {
+  stop: { em: '🔴', label: 'หยุดไลน์',  c: '#c62828' },
+  warn: { em: '🟡', label: 'มีปัญหา',   c: '#c77700' },
+  low:  { em: '🟢', label: 'ไม่ด่วน',   c: '#1c8a4c' },
+};
+// จำลองว่าข้อ 7 เคยแจ้งซ่อมไว้แล้วและยังไม่ปิดงาน — ไว้โชว์กติกา "ไม่สร้างซ้ำ"
+const OPEN_JOB = { 6: 128 };
+
+/* ── กะ ── */
+function renderShift() {
+  const list = shiftsForWeekday(day), el = document.getElementById('shiftWrap');
+  if (!list.length) {
+    el.innerHTML = '<div class="holiday">🛌 <b>เสาร์ = วันหยุด</b> ไม่มีกะปกติ<br><span style="font-size:11.5px">ถ้ามีเข้า OT จริง ระบบจะบันทึกเป็นกะ <b>“OT”</b> ให้</span></div>';
+    shiftKey = 'OT';
+  } else {
+    if (!list.some(s => s.key === shiftKey)) shiftKey = list[0].key;
+    el.innerHTML = '<div class="seg shift">' + list.map(s =>
+      `<button data-sh="${s.key}" class="${s.key === shiftKey ? 'on' : ''}" style="${s.key === shiftKey ? 'background:var(--brand);' : ''}">
+         ${s.key}<small>${hh(s.s)}–${hh(s.e)}</small></button>`).join('') + '</div>';
+    el.querySelectorAll('[data-sh]').forEach(b => b.onclick = () => { shiftKey = b.dataset.sh; renderShift(); renderHead(); });
+  }
+  renderHead();
+}
+function renderHead() {
+  const L = LINES[lineNo], list = shiftsForWeekday(day);
+  const pill = document.getElementById('linepill');
+  pill.textContent = `${L.ic} ${L.name}`;
+  pill.style.background = L.w; pill.style.color = L.c;
+  document.getElementById('hdDate').textContent = `${DAY_TH[day]} ${DAY_DATE[day]}`;
+  const cur = list.find(s => s.key === shiftKey);
+  document.getElementById('hdShift').textContent = cur ? `กะ${cur.key} ${hh(cur.s)}–${hh(cur.e)}` : 'OT (วันหยุด)';
+}
+
+/* ── สถานะไลน์ ── */
+function renderStatus() {
+  const el = document.getElementById('statusSeg');
+  el.innerHTML = STATUS.map(s =>
+    `<button data-st="${s.key}" class="${status === s.key ? 'on' : ''}" style="${status === s.key ? `background:${s.c};` : ''}">${s.label}</button>`).join('');
+  el.querySelectorAll('[data-st]').forEach(b => b.onclick = () => { status = b.dataset.st; renderStatus(); touch(); });
+}
+
+/* ── รายการ ── */
+function renderItems() {
+  const el = document.getElementById('items');
+  el.innerHTML = ROWS.map((r, i) => {
+    const s = st[i], cls = s.result === 'ok' ? 'ok' : s.result === 'ng' ? 'ng' : '';
+    return `<div class="it ${cls}"><div class="it-in">
+      <div class="it-h">
+        <span class="it-no">${String(i + 1).padStart(2, '0')}</span>
+        <div class="it-t">${esc(r[0])}</div>
+      </div>
+      <details class="disc"><summary>ดูเกณฑ์ <span class="car">▼</span></summary>
+        <div class="disc-b">
+          <div class="row"><b>มาตรฐานการตรวจสอบ</b>${esc(r[1])}</div>
+          <div class="row"><b>วิธีการตรวจสอบ</b>${esc(r[2])}</div>
+        </div>
+      </details>
+      <div class="judge">
+        <button data-ok="${i}" class="${s.result === 'ok' ? 'on-ok' : ''}">${s.result === 'ok' ? '✓ ' : ''}ปกติ</button>
+        <button data-ng="${i}" class="${s.result === 'ng' ? 'on-ng' : ''}">${s.result === 'ng' ? '✕ ' : ''}ไม่ปกติ</button>
+      </div>
+      ${s.result === 'ng' ? `<div class="ngbox">
+        <label>สาเหตุ / สิ่งที่พบ (ต้องกรอก)</label>
+        <textarea data-cause="${i}" placeholder="เช่น มีเสียงดังผิดปกติที่หัวปั๊ม เริ่มตั้งแต่ต้นกะ">${esc(s.cause)}</textarea>
+        <div class="prio">
+          <div class="pl">ความเร่งด่วน (ส่งเข้างานซ่อม)</div>
+          <div class="pb">${Object.entries(PRIO).map(([k, v]) =>
+            `<button data-prio="${i}:${k}" class="${s.prio === k ? 'on' : ''}" style="${s.prio === k ? `background:${v.c}` : ''}">
+               <span class="em">${v.em}</span>${v.label}</button>`).join('')}</div>
+          ${OPEN_JOB[i] ? `<div style="font-size:11px;color:var(--warn);margin-top:6px">⚠️ ข้อนี้มีใบแจ้งซ่อม #${OPEN_JOB[i]} เปิดค้างอยู่ — จะไปต่อใบเดิม ไม่เปิดใบใหม่</div>` : ''}
+        </div>
+        <div class="shot">
+          <button class="add" data-shot="${i}">📷 แนบรูปถ่าย</button>
+          ${s.photo ? `<img src="${s.photo}" alt="รูปที่แนบ">` : '<span style="font-size:11.5px;color:var(--muted)">ยังไม่มีรูป</span>'}
+          <input type="file" accept="image/*" capture="environment" hidden data-file="${i}">
+        </div>
+      </div>` : ''}
+    </div></div>`;
+  }).join('');
+
+  el.querySelectorAll('[data-ok]').forEach(b => b.onclick = () => {
+    const i = +b.dataset.ok; st[i] = { result: st[i].result === 'ok' ? null : 'ok', cause: '', photo: null }; renderItems(); sum(); touch();
+  });
+  el.querySelectorAll('[data-ng]').forEach(b => b.onclick = () => {
+    const i = +b.dataset.ng; st[i].result = st[i].result === 'ng' ? null : 'ng'; renderItems(); sum(); touch();
+  });
+  el.querySelectorAll('[data-prio]').forEach(b => b.onclick = () => {
+    const [i, k] = b.dataset.prio.split(':'); st[+i].prio = k; renderItems(); touch();
+  });
+  el.querySelectorAll('[data-cause]').forEach(t => {
+    t.oninput = () => { st[+t.dataset.cause].cause = t.value; t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; touch(); };
+    t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px';
+  });
+  el.querySelectorAll('[data-shot]').forEach(b => b.onclick = () => el.querySelector(`[data-file="${b.dataset.shot}"]`).click());
+  el.querySelectorAll('[data-file]').forEach(f => f.onchange = () => {
+    const i = +f.dataset.file, file = f.files && f.files[0];
+    if (!file) return;
+    const rd = new FileReader();
+    rd.onload = () => { st[i].photo = rd.result; renderItems(); touch(); };
+    rd.readAsDataURL(file);
+  });
+  document.getElementById('itCount').textContent = `${ROWS.length} ข้อ · ของจริง 45 ข้อ 3 ไลน์`;
+}
+
+/* ── สรุป ── */
+function sum() {
+  const ok = st.filter(s => s.result === 'ok').length;
+  const ng = st.filter(s => s.result === 'ng').length;
+  const left = st.length - ok - ng;
+  document.getElementById('cOk').textContent = ok;
+  document.getElementById('cNg').textContent = ng;
+  document.getElementById('cLeft').textContent = left;
+  document.getElementById('bOk').style.width = (ok / st.length * 100) + '%';
+  document.getElementById('bNg').style.width = (ng / st.length * 100) + '%';
+  document.getElementById('leftNote').textContent = left ? `ยังไม่ตรวจ ${left} ข้อ` : 'ตรวจครบแล้ว พร้อมส่ง';
+  document.getElementById('sendBtn').disabled = false;
+  return { ok, ng, left };
+}
+function touch() {
+  const d = new Date();
+  document.getElementById('savedAt').textContent =
+    `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/* ── การ์ดรายงาน (จำลองหน้าตา PNG) ── */
+function renderPng() {
+  const { ok, ng, left } = sum();
+  const L = LINES[lineNo];
+  const stt = STATUS.find(s => s.key === status);
+  const list = shiftsForWeekday(day);
+  const cur = list.find(s => s.key === shiftKey);
+  const total = st.length;
+  const ngItems = st.map((s, i) => ({ ...s, i })).filter(s => s.result === 'ng');
+  const show = ngItems.slice(0, 4);
+  const deg = n => (n / total) * 360;
+  const gr = `conic-gradient(#39b57e 0deg ${deg(ok)}deg, #ec5f5c ${deg(ok)}deg ${deg(ok + ng)}deg, #28343b ${deg(ok + ng)}deg 360deg)`;
+
+  document.getElementById('png').innerHTML = `
+    <div class="k">ใบเช็ก AM LIST</div>
+    <h4>${esc(L.name)}</h4>
+    ${stt ? `<span class="stpill" style="background:${stt.png}22;color:${stt.png}">${esc(stt.label)}</span>` : ''}
+    <div class="when">${DAY_TH[day]} ${DAY_DATE[day]} · ${cur ? 'กะ' + cur.key : 'OT'}</div>
+    <div class="hero">
+      <div style="width:96px;height:96px;border-radius:50%;background:${gr};display:grid;place-items:center;flex:none">
+        <div style="width:66px;height:66px;border-radius:50%;background:#161e24;display:grid;place-items:center;line-height:1.1">
+          <div><div style="font-size:23px;font-weight:700">${ok}<span style="font-size:13px;color:#93a2ab">/${total}</span></div>
+          <div style="font-size:9.5px;color:#93a2ab;text-align:center">ปกติ</div></div>
+        </div>
+      </div>
+      <div class="leg">
+        <div><i style="background:#39b57e"></i>ปกติ<b>${ok}</b></div>
+        <div><i style="background:#ec5f5c"></i>ไม่ปกติ<b>${ng}</b></div>
+        <div><i style="background:#28343b"></i>ยังไม่ตรวจ<b>${left}</b></div>
+      </div>
+    </div>
+    ${ng ? `<div class="ngh">พบผิดปกติ ${ng} รายการ</div>
+      ${show.map(s => `<div class="ngi">
+        <div class="tx"><div class="t">${s.i + 1}. ${esc(ROWS[s.i][0])}</div>
+        <div class="c">สาเหตุ: ${esc(s.cause || '—')}</div></div>
+        ${s.photo ? `<img class="ph" src="${s.photo}">` : '<div class="ph"></div>'}
+      </div>`).join('')}
+      ${ng > show.length ? `<div class="more">+ อีก ${ng - show.length} รายการ</div>` : ''}`
+    : `<div class="ngh" style="color:#39b57e">ไม่พบสิ่งผิดปกติ</div>`}
+    <div class="ft">
+      <div class="by"><span>ผู้รายงาน</span><b>${esc(who)}</b></div>
+      <div class="src">ใบเช็ก AM List · ${DAY_TH[day]} ${DAY_DATE[day]} · ${cur ? 'กะ' + cur.key : 'OT'}</div>
+    </div>`;
+}
+
+/* ── ใบแจ้งซ่อมที่จะเปิดอัตโนมัติ (เลียนการ์ดจริงของบอทช่าง) ── */
+function renderRepairs() {
+  const L = LINES[lineNo];
+  const ng = st.map((s, i) => ({ ...s, i })).filter(s => s.result === 'ng');
+  const el = document.getElementById('rp');
+  if (!ng.length) {
+    el.innerHTML = '<div class="rp-h">ใบแจ้งซ่อมอัตโนมัติ</div><div class="rp-s">ไม่มีข้อไม่ปกติ — ไม่เปิดใบแจ้งซ่อม</div>';
+    return;
+  }
+  const fresh = ng.filter(s => !OPEN_JOB[s.i]), dup = ng.filter(s => OPEN_JOB[s.i]);
+  el.innerHTML = `<div class="rp-h">🆘 ใบแจ้งซ่อมที่จะเปิดอัตโนมัติ</div>
+    <div class="rp-s">ข้อที่ไม่ปกติจะกลายเป็นใบแจ้งซ่อมเข้ากลุ่มช่างทันทีที่กดส่ง
+      ${fresh.length ? `<b>เปิดใหม่ ${fresh.length} ใบ</b>` : ''}${dup.length ? ` · ต่อใบเดิม ${dup.length} ใบ` : ''}</div>
+    ` + ng.map(s => {
+      const pr = PRIO[s.prio], job = OPEN_JOB[s.i];
+      if (job) return `<div class="rcard dup">
+        <div class="rt">⚠️ ไปต่อใบเดิม #${job}</div>
+        <div class="rl">${s.i + 1}. ${esc(ROWS[s.i][0])}</div>
+        <div class="rl" style="margin-top:3px">เพิ่มบันทึกใหม่ลงใบเดิมว่า <b>เจอซ้ำรอบที่ 2</b> พร้อมสาเหตุและรูปของกะนี้ — ไม่เปิดใบซ้ำ</div>
+      </div>`;
+      return `<div class="rcard">
+        <div class="rt">🆘 แจ้งซ่อม #ใหม่　🔴 รอรับงาน</div>
+        <div class="rl">🔩 <b>${esc(L.name)}</b></div>
+        <div class="rl">${pr.em} ${pr.label}</div>
+        <div class="rl">📌 ${esc(ROWS[s.i][0])}</div>
+        <div class="rl">📝 ${esc(s.cause || '(ยังไม่ได้กรอกสาเหตุ)')}</div>
+        ${s.photo ? '<div class="rl">📸 แนบรูป 1 รูป</div>' : ''}
+        <div class="rl">🙋 แจ้งโดย ${esc(who)}</div>
+        <div class="rkb"><span>🙋 รับงาน</span><span>📋 งานซ่อมทั้งหมด</span></div>
+      </div>`;
+    }).join('');
+}
+
+/* ── แผ่นพรีวิว ── */
+const scrim = document.getElementById('scrim'), sheet = document.getElementById('sheet');
+const openSheet = () => { renderPng(); renderRepairs(); scrim.classList.add('on'); sheet.classList.add('on'); };
+const closeSheet = () => { scrim.classList.remove('on'); sheet.classList.remove('on'); };
+document.getElementById('sendBtn').onclick = openSheet;
+document.getElementById('closeSheet').onclick = closeSheet;
+scrim.onclick = closeSheet;
+
+document.getElementById('whoBtn').onclick = () => {
+  const v = prompt('ชื่อผู้รายงาน (ช่างที่ตรวจ)', who);
+  if (v && v.trim()) { who = v.trim(); document.getElementById('hdWho').textContent = who; touch(); }
+};
+document.getElementById('devDay').onchange = e => { day = +e.target.value; renderShift(); };
+document.getElementById('devLine').onchange = e => { lineNo = +e.target.value; renderHead(); };
+document.getElementById('p2btn').onclick = () => document.getElementById('p2body').classList.toggle('on');
+
+renderShift(); renderStatus(); renderItems(); sum();
+</script>
+</body>
+</html>

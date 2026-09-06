@@ -1,0 +1,257 @@
+/* ============================================================
+   หน้า "เหตุการณ์" — คิวงานซ่อม + คลังความรู้
+   ยกดีไซน์จาก mockup/incidents-redesign.html
+
+   🔴 ทุกกฎต้องขึ้นต้นด้วย .incx เสมอ
+   redesign.css ประกาศ .pill (:119) และ .btn (:339) ไว้แบบ global
+   ถ้าเขียน .pill{} เปล่า ๆ ที่นี่ จะไปทับปุ่มทั้งเว็บ และจะเห็นก็ต่อเมื่อเปิดหน้าอื่น
+   วิธีนี้ลอกมาจาก obsidian.css ที่ใช้ .obsx เป็นรากด้วยเหตุผลเดียวกัน
+   ============================================================ */
+.incx { font-family: var(--font-body); color: var(--ink); }
+.incx *, .incx *::before, .incx *::after { box-sizing: border-box; }
+
+/* ── หัวหน้า ─────────────────────────────────────────────── */
+.incx .eyebrow{
+  font-family:var(--font-head);font-size:11.5px;font-weight:600;color:var(--brand-deep);
+  background:var(--brand-soft);display:inline-flex;align-items:center;gap:6px;
+  padding:4px 12px;border-radius:999px;margin-bottom:10px;
+}
+.incx .phead{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+.incx .phead h1{
+  font-family:var(--font-head);font-size:clamp(20px,2.6vw,25px);font-weight:600;
+  letter-spacing:-.03em;margin:0;line-height:1.3;
+}
+.incx .phead .sub{font-size:13px;color:var(--ink-soft)}
+.incx .sp{flex:1}
+
+/* ── ปุ่ม ─────────────────────────────────────────────────── */
+.incx .ibtn{
+  border:1px solid var(--line);background:var(--card);color:var(--ink-soft);
+  padding:7px 15px;border-radius:999px;font-size:12.8px;font-weight:600;
+  font-family:var(--font-head);cursor:pointer;
+  transition:transform .16s cubic-bezier(.34,1.56,.64,1),opacity .16s ease;
+}
+.incx .ibtn:hover{background:var(--brand-soft);color:var(--brand-deep);border-color:var(--brand-soft)}
+.incx .ibtn:active{transform:translateY(1px) scale(.98)}
+.incx .ibtn:focus-visible{outline:3px solid rgba(255,107,0,.5);outline-offset:2px}
+.incx .ibtn.pri{background:var(--brand);border-color:var(--brand);color:#fff}
+.incx .ibtn.pri:hover{background:var(--brand-deep);border-color:var(--brand-deep);color:#fff}
+.incx .ibtn.sm{padding:4px 12px;font-size:12px}
+.incx .ibtn.ok{color:var(--ok);background:var(--p-low-w);border-color:transparent}
+.incx .ibtn.dgr{color:var(--danger);background:var(--danger-soft-bg);border-color:var(--danger-soft-line)}
+.incx .ibtn[disabled]{opacity:.5;cursor:not-allowed}
+.incx .ibtn[disabled]:hover{background:var(--card);color:var(--ink-soft);border-color:var(--line)}
+
+/* ── แท็บใหญ่ 2 บทบาท ─────────────────────────────────────── */
+.incx .itabs{
+  display:inline-flex;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:999px;padding:4px;gap:4px;margin:2px 0 4px;
+}
+.incx .itab{
+  border:none;background:transparent;color:var(--ink-soft);font-family:var(--font-head);
+  font-size:13.5px;font-weight:600;padding:8px 20px;border-radius:999px;cursor:pointer;
+  display:inline-flex;align-items:center;gap:8px;
+  transition:transform .16s cubic-bezier(.34,1.56,.64,1);
+}
+.incx .itab:hover{color:var(--brand-deep)}
+.incx .itab:active{transform:scale(.97)}
+.incx .itab:focus-visible{outline:3px solid rgba(255,107,0,.5);outline-offset:2px}
+.incx .itab.on{background:var(--card);color:var(--ink);box-shadow:var(--shadow-card)}
+.incx .itab .n{
+  font-family:var(--font-body);font-size:11.5px;font-weight:700;border-radius:999px;
+  padding:1px 8px;background:var(--surface-3);color:var(--ink-soft);
+}
+.incx .itab.on .n{background:var(--brand-soft);color:var(--brand-deep)}
+
+/* ── แถบตัวเลข ───────────────────────────────────────────── */
+.incx .istats{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin:14px 0}
+.incx .istat{
+  background:var(--card);border:1px solid var(--line);border-radius:16px;
+  box-shadow:var(--shadow-card);padding:11px 14px;
+}
+.incx .istat .l{font-size:11.5px;font-weight:600;color:var(--ink-soft);display:flex;align-items:center;gap:5px}
+.incx .istat .v{
+  font-family:var(--font-head);font-size:26px;font-weight:600;line-height:1.2;
+  font-variant-numeric:tabular-nums;
+}
+.incx .istat .u{font-size:12px;font-weight:500;color:var(--ink-soft);margin-left:3px;font-family:var(--font-body)}
+.incx .istat.hot{border-color:var(--p-stop);background:linear-gradient(180deg,var(--p-stop-w),var(--card) 70%)}
+.incx .istat.hot .v{color:var(--p-stop)}
+.incx .istat.gap .v{color:var(--warn)}
+
+/* ── แถบกรอง ─────────────────────────────────────────────── */
+.incx .ifilters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0 14px}
+.incx .ipill{
+  border:1px solid var(--line);background:var(--card);color:var(--ink-soft);
+  padding:6px 14px;border-radius:999px;font-size:12.8px;font-weight:600;
+  font-family:var(--font-head);cursor:pointer;display:inline-flex;align-items:center;gap:6px;
+  transition:transform .16s cubic-bezier(.34,1.56,.64,1);
+}
+.incx .ipill:hover{border-color:var(--sep)}
+.incx .ipill:active{transform:scale(.96)}
+.incx .ipill:focus-visible{outline:3px solid rgba(255,107,0,.5);outline-offset:2px}
+.incx .ipill.on{color:#fff;border-color:transparent;background:var(--ink)}
+.incx .ipill.on.stop{background:var(--p-stop)}
+.incx .ipill.on.warn{background:var(--p-warn)}
+.incx .ipill.on.low{background:var(--p-low)}
+.incx .ipill .n{font-family:var(--font-body);font-size:11px;font-weight:700;opacity:.8}
+.incx .isel{
+  border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;
+  padding:6px 12px;font-size:12.8px;font-weight:600;font-family:var(--font-head);
+}
+.incx .isrch{
+  border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;
+  padding:6px 14px;font-size:13px;min-width:180px;flex:1;max-width:280px;
+}
+.incx .divider{width:1px;height:22px;background:var(--line)}
+
+/* ── การ์ดใบงาน ──────────────────────────────────────────── */
+.incx .ilist{display:flex;flex-direction:column;gap:11px}
+.incx .tk{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow-card);padding:14px 16px 13px;border-left:4px solid var(--sep);
+  transition:transform .18s cubic-bezier(.34,1.56,.64,1),box-shadow .18s ease;
+}
+.incx .tk:hover{box-shadow:var(--shadow-float);transform:translateY(-1px)}
+.incx .tk.p-stop{border-left-color:var(--p-stop)}
+.incx .tk.p-warn{border-left-color:var(--p-warn)}
+.incx .tk.p-low{border-left-color:var(--p-low)}
+.incx .tk .r1{display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap}
+.incx .tk h3{
+  font-family:var(--font-head);font-size:15.5px;font-weight:600;flex:1;min-width:200px;
+  letter-spacing:-.01em;margin:0;line-height:1.35;
+}
+.incx .chip{font-size:11px;font-weight:700;border-radius:999px;padding:2px 10px;white-space:nowrap}
+.incx .chip.stop{color:var(--p-stop);background:var(--p-stop-w)}
+.incx .chip.warn{color:var(--p-warn);background:var(--p-warn-w)}
+.incx .chip.low{color:var(--p-low);background:var(--p-low-w)}
+.incx .chip.st-open{color:var(--s-open);background:transparent;border:1px solid var(--danger-soft-line)}
+.incx .chip.st-wip{color:var(--s-wip);background:var(--s-wip-w)}
+.incx .chip.st-closed{color:var(--s-closed);background:var(--p-low-w)}
+.incx .meta{
+  font-size:12px;color:var(--ink-soft);margin-top:5px;
+  display:flex;flex-wrap:wrap;align-items:center;gap:4px 9px;
+}
+.incx .meta .dot{color:var(--sep)}
+.incx .src{
+  font-size:10.5px;font-weight:700;border-radius:6px;padding:2px 8px;white-space:nowrap;
+  border:1px solid var(--line);background:var(--surface-2);color:var(--ink-soft);
+}
+.incx .src.am{border-color:var(--cip2);background:#e3f0f8;color:var(--cip2)}
+.incx .src.bot{border-color:var(--cip1);background:#e8f1fb;color:var(--cip1)}
+.incx .src.ai{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-deep)}
+.incx .down{
+  font-size:11.5px;font-weight:700;border-radius:999px;padding:2px 10px;white-space:nowrap;
+  color:var(--p-stop);background:var(--p-stop-w);font-variant-numeric:tabular-nums;
+}
+.incx .down.done{color:var(--brand-deep);background:var(--brand-soft)}
+.incx .live{
+  display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--p-stop);
+  margin-right:5px;vertical-align:1px;animation:incpulse 1.8s ease-in-out infinite;
+}
+@keyframes incpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.78)}}
+@media (prefers-reduced-motion:reduce){
+  .incx .live{animation:none}
+  .incx .tk,.incx .ibtn,.incx .ipill,.incx .itab{transition:none}
+}
+.incx .rep{
+  margin-top:8px;font-size:12px;font-weight:600;color:var(--p-warn);background:var(--p-warn-w);
+  border-radius:10px;padding:7px 11px;display:flex;align-items:flex-start;gap:7px;line-height:1.6;
+}
+.incx .rep b{color:var(--ink)}
+.incx .rep code{font-family:ui-monospace,Menlo,var(--font-body),monospace;font-size:11.3px;color:var(--muted)}
+.incx .sym{
+  margin-top:8px;font-size:12.8px;color:var(--ink-soft);background:var(--surface-2);
+  border-radius:10px;padding:8px 11px;line-height:1.65;white-space:pre-wrap;
+}
+.incx .sym b{color:var(--ink);font-weight:600}
+.incx .thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px;align-items:center}
+.incx .th{
+  width:54px;height:54px;border-radius:9px;border:1px solid var(--line);object-fit:cover;
+  cursor:zoom-in;display:block;transition:transform .18s cubic-bezier(.34,1.56,.64,1);
+}
+.incx .th:hover{transform:scale(1.06)}
+.incx .thadd{
+  width:54px;height:54px;border-radius:9px;border:1px dashed var(--line);background:var(--surface-3);
+  color:var(--ink-soft);font-size:18px;cursor:pointer;
+}
+.incx .thwrap{position:relative;line-height:0}
+.incx .thx{
+  position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;
+  border:none;background:var(--danger);color:#fff;font-size:12px;line-height:1;cursor:pointer;
+}
+.incx .acts{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:11px}
+.incx .vp{font-size:11.3px;color:var(--muted);word-break:break-all}
+
+/* ── คลังความรู้ ─────────────────────────────────────────── */
+.incx .mgroup{margin-bottom:11px}
+.incx .mhead{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%;text-align:left;cursor:pointer;
+  background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:10px 14px;
+  font-family:var(--font-head);font-size:14px;font-weight:600;color:var(--ink);
+}
+.incx .mhead:hover{background:var(--brand-soft);color:var(--brand-deep)}
+.incx .mhead:focus-visible{outline:3px solid rgba(255,107,0,.5);outline-offset:2px}
+.incx .mhead .m{
+  margin-left:auto;font-family:var(--font-body);font-size:11.8px;font-weight:600;
+  color:var(--ink-soft);display:flex;gap:9px;flex-wrap:wrap;align-items:center;
+}
+.incx .mhead .caret{font-size:11px;color:var(--muted)}
+.incx .mbody{padding:8px 0 4px 8px;border-left:2px dashed var(--line);margin-left:14px}
+.incx .km{padding:10px 12px;border-bottom:1px solid var(--row-line)}
+.incx .km:last-child{border-bottom:none}
+.incx .km .t{
+  font-family:var(--font-head);font-size:13.6px;font-weight:600;
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+}
+.incx .km .d{font-size:11.8px;color:var(--muted);margin-top:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.incx .gapflag{
+  font-size:10.5px;font-weight:700;color:var(--warn);background:var(--warn-soft-bg);
+  border-radius:999px;padding:1px 9px;font-family:var(--font-body);
+}
+.incx .qa{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));margin-top:9px}
+.incx .qa .b{background:var(--surface-2);border-radius:10px;padding:8px 11px}
+.incx .qa .b .l{font-size:11px;font-weight:700;color:var(--ink-soft);margin-bottom:2px}
+.incx .qa .b .v{font-size:12.6px;line-height:1.6;white-space:pre-wrap}
+.incx .qa .b.empty{border:1px dashed var(--line);background:transparent}
+.incx .qa .b.empty .v{color:var(--muted);font-style:italic}
+
+/* ── แผ่นปิดงาน / ฟอร์ม / ซูมรูป ─────────────────────────── */
+.incx .sheet{
+  position:fixed;inset:0;background:rgba(20,14,8,.62);z-index:200;
+  display:grid;place-items:center;padding:18px;
+}
+.incx .sheet .box{
+  background:var(--card);border:1px solid var(--line);border-radius:18px;
+  box-shadow:var(--shadow-float);max-width:520px;width:100%;padding:20px 22px;
+  max-height:88vh;overflow-y:auto;
+}
+.incx .sheet h3{font-family:var(--font-head);font-size:17px;font-weight:600;margin:0 0 3px}
+.incx .sheet .hint{font-size:12.4px;color:var(--ink-soft);margin-bottom:13px}
+.incx .warnbox{
+  background:var(--warn-soft-bg);border-radius:10px;padding:9px 12px;font-size:12.3px;
+  color:var(--ink-soft);border-left:3px solid var(--warn);margin-bottom:12px;line-height:1.65;
+}
+.incx .fld{margin-bottom:11px}
+.incx .fld > label{display:block;font-size:11.5px;font-weight:700;color:var(--ink-soft);margin-bottom:4px}
+.incx .fld textarea,.incx .fld input,.incx .fld select{
+  width:100%;border:1px solid var(--line);background:var(--surface-3);color:var(--ink);
+  border-radius:10px;padding:8px 11px;font-size:13px;line-height:1.6;font-family:inherit;
+}
+.incx .fld textarea{resize:vertical}
+.incx .req{color:var(--danger);font-weight:700}
+.incx .grid2{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.incx .zoom{
+  position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:300;
+  display:grid;place-items:center;padding:20px;cursor:zoom-out;
+}
+.incx .zoom img{max-width:100%;max-height:100%;border-radius:12px}
+.incx .empty{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow-card);padding:20px;text-align:center;
+  color:var(--ink-soft);font-size:13px;line-height:1.7;
+}
+.incx .msg{font-size:12.5px;margin-bottom:10px;word-break:break-word}
+.incx .msg.ok{color:var(--ok)}
+.incx .msg.err{color:var(--danger)}
+.incx .msg.wake{color:var(--brand-deep)}

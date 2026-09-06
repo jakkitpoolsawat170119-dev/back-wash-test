@@ -11,6 +11,7 @@ const axios = require('axios');
 const FormData = require('form-data');
 const Anthropic = require('@anthropic-ai/sdk');
 const { renderShiftCardPNG, renderKpiCardPNG, canRenderCard, renderBeforeAfterCardPNG } = require('./shiftCard');
+const amShift = require('./shiftSchedule');   // mirror ของ client/src/shiftSchedule.ts — แก้ต้องแก้คู่กัน
 const vault = require('./vault');
 const articlePage = require('./articlePage');
 const chartSvg = require('./chartSvg');
@@ -387,6 +388,51 @@ const SCHEMA = [
       handoff_to TEXT,
       updated_at TEXT,
       UNIQUE(state_date, assignee, node_key)
+    )`,
+  /* ══ ใบเช็ก AM รายกะ ══════════════════════════════════════════════════════
+     1 ใบ = 1 Line ต้ม × 1 กะ × 1 วันทำงาน — ต่างจาก routine_state ตรงที่บันทึก "ผลตรวจ"
+     ไม่ใช่แค่ "ทำแล้ว/ยังไม่ทำ" และมีมิติ "กะ" (จ-พฤ มี 3 กะ ตรวจ 3 รอบ)
+     🔴 ห้ามเอาไปยัดใน routine_state — ตารางนั้นมี UNIQUE(state_date,assignee,node_key)
+        เป็น ON CONFLICT target อยู่ 6 จุด และ 34 แถว pm* ใช้ร่วมกันอยู่
+     UNIQUE อยู่ใน CREATE TABLE ทั้งคู่ → ทำงานเหมือนกันทั้ง SQLite/Postgres ไม่ต้อง ALTER ตลอดชีพ */
+  `CREATE TABLE IF NOT EXISTS am_sheets (
+      id ${db.pk},
+      work_day TEXT,
+      shift TEXT,
+      line TEXT,
+      line_status TEXT,
+      status TEXT DEFAULT 'draft',
+      opened_by TEXT,
+      opened_at TEXT,
+      submitted_by TEXT,
+      submitted_at TEXT,
+      updated_at TEXT,
+      UNIQUE(work_day, shift, line)
+    )`,
+  // ผลตรวจรายข้อ · result: NULL ยังไม่ตรวจ · 'ok' ปกติ · 'ng' ไม่ปกติ (บังคับมี cause)
+  // title เก็บ snapshot ไว้ เผื่อหัวข้อในทะเบียนถูกแก้ทีหลัง ใบเก่าจะได้ยังอ่านรู้เรื่อง
+  `CREATE TABLE IF NOT EXISTS am_sheet_items (
+      id ${db.pk},
+      sheet_id INTEGER,
+      node_key TEXT,
+      routine_id INTEGER,
+      title TEXT,
+      result TEXT,
+      cause TEXT,
+      photo TEXT,
+      photo_at TEXT,
+      checked_by TEXT,
+      updated_at TEXT,
+      UNIQUE(sheet_id, node_key)
+    )`,
+  // ลิงก์สาธารณะ 1 ต่อ 1 ไลน์ — ปักหมุดในกลุ่มช่างได้ (ระดับความน่าเชื่อถือเดียวกับลิงก์ตรวจนับคลัง)
+  `CREATE TABLE IF NOT EXISTS am_sheet_links (
+      token TEXT PRIMARY KEY,
+      line TEXT,
+      created_by TEXT,
+      created_at TEXT,
+      last_used_at TEXT,
+      active INTEGER DEFAULT 1
     )`,
   // ตั้งค่าส่งรายงานอัตโนมัติ (แถวเดียว)
   `CREATE TABLE IF NOT EXISTS report_config (
@@ -836,6 +882,22 @@ async function initDb() {
   for (const col of ['priority', 'assignee', 'card_chat_id', 'card_msg_id']) {
     try { await db.exec(`ALTER TABLE incidents ADD COLUMN ${col} TEXT`); } catch { /* มีแล้ว */ }
   }
+  /* migration: ที่มาของใบ + กุญแจกันเปิดซ้ำ
+     source: 'web' หน้าเว็บ · 'bot' wizard แจ้งซ่อมในบอท · 'ai' ระบบเฝ้าคุณภาพอัตโนมัติ
+             · 'amsheet' ใบเช็ก AM รายกะ (เฟสถัดไป)
+     ref_key: กุญแจ 1 ต่อ 1 กับต้นทาง เช่น 'am:Line ต้ม 2:am31' — ใบเช็ก AM ใบเดิมจะได้ไม่เปิดซ้ำ
+     ⚠️ ยังไม่ใส่ UNIQUE index — กติกาจริงคือ "เจอซ้ำให้ต่อในใบเดิม" (UPDATE) ไม่ใช่ปฏิเสธ
+        และบน Postgres ค่า '' ซ้ำไม่ได้แต่ NULL ซ้ำได้ ใส่ตอนนี้จะเป็นระเบิดเวลา            */
+  for (const col of ['source', 'ref_key']) {
+    try { await db.exec(`ALTER TABLE incidents ADD COLUMN ${col} TEXT`); } catch { /* มีแล้ว */ }
+  }
+  /* backfill ที่มาของใบเก่า — เดาไม่ได้ก็ปล่อย NULL ดีกว่าเดาผิด (UI ไม่โชว์ชิปที่มา)
+     ใบจากบอทพิสูจน์ได้จาก card_chat_id · ใบจากระบบเฝ้าคุณภาพพิสูจน์ได้จากชื่อผู้บันทึก
+     เงื่อนไข source IS NULL ทำให้รันซ้ำกี่รอบก็ no-op                                    */
+  try {
+    await db.exec("UPDATE incidents SET source = 'bot' WHERE source IS NULL AND card_chat_id IS NOT NULL");
+    await db.exec("UPDATE incidents SET source = 'ai' WHERE source IS NULL AND operator = 'ระบบตรวจอัตโนมัติ'");
+  } catch (e) { console.error('[migrate] backfill incidents.source', e.message); }
   /* migration: ความถี่ของงานรูทีน — ไม่ใช่ทุกงานทำทุกวัน (เดิมกระดานนับรวมหมดเลยดู "ค้าง" ตลอด)
      'daily' ทุกวัน · 'weekly' ทุกสัปดาห์ · 'monthly' ทุกเดือน · 'quarterly' ทุก 3 เดือน
      'onuse' เมื่อใช้งานเครื่องนั้น · 'onissue' เมื่อมีปัญหาเท่านั้น (ไม่ขึ้นกระดานเอง)
@@ -860,9 +922,23 @@ async function initDb() {
   // migration (โซนซ่อมบำรุง): ช่องใหม่ของงานประจำตามตารางจริง
   //   machine = เครื่องจักร · goal = เป้าหมาย · owner_role/co_owner_role = บทบาทผู้รับผิดชอบหลัก/รอง
   //   ค่า role: 'mt' Maintenance · 'op' Operate · 'qc' QC · 'pd' พนักงานผลิต (NULL = งานเก่าที่ไม่ได้ระบุ)
-  for (const col of ['machine', 'goal', 'owner_role', 'co_owner_role']) {
+  //   method = วิธีการตรวจสอบ (เพิ่มทีหลังคู่กับ AM List — goal เดิมทำหน้าที่ "มาตรฐานการตรวจสอบ" อยู่แล้ว)
+  for (const col of ['machine', 'goal', 'owner_role', 'co_owner_role', 'method']) {
     try { await db.exec(`ALTER TABLE duty_routines ADD COLUMN ${col} TEXT`); } catch { /* มีแล้ว */ }
   }
+  /* migration: งานรูทีนที่ย้ายไปอยู่ "ใบตรวจ" แทนกระดานเวร
+     sheet = 'am' → 45 ข้อของ AM List ที่ต้องบันทึกผล "ปกติ/ไม่ปกติ" รายกะ ซึ่งกระดานเวรทำไม่ได้
+       (routine_state เก็บได้แค่ ทำแล้ว/ข้าม และ UNIQUE(state_date,assignee,node_key) = ติ๊กได้วันละครั้ง
+        แต่ จ-พฤ มี 3 กะ) → ใบตรวจจริงอยู่ที่ตาราง am_sheets แยกต่างหาก
+     person_key = NULL เพราะข้อตรวจพวกนี้เป็นของ "ไลน์+กะ" ไม่ใช่ของบุคคล — ใครเข้ากะไลน์นั้นกรอก
+     ⚠️ การตั้ง person_key เป็น NULL กระทบอีก 2 จุดที่กรองด้วย person_key ต้องแก้พร้อมกันเสมอ:
+        (1) GET /api/maint/routines — ไม่งั้นทะเบียนงานรูทีนว่างเปล่า
+        (2) seedAmListRoutines() guard — ไม่งั้น insert ซ้ำทุกครั้งที่บูต                        */
+  try { await db.exec('ALTER TABLE duty_routines ADD COLUMN sheet TEXT'); } catch { /* มีแล้ว */ }
+  try {
+    await db.exec("UPDATE duty_routines SET sheet = 'am' WHERE node_key LIKE 'am%' AND sheet IS NULL");
+    await db.exec("UPDATE duty_routines SET person_key = NULL WHERE sheet = 'am' AND person_key IS NOT NULL");
+  } catch (e) { console.error('[migrate] duty_routines.sheet', e.message); }
   // migration: รูปของงานประจำ (หัวข้อหน้าที่)
   // ref_image = "รูปอ้างอิง" ผูกกับหัวข้อ ไม่ใช่รายวัน → ตั้งครั้งเดียวใช้เป็นมาตรฐานทุกวัน
   for (const col of ['ref_image', 'ref_image_by', 'ref_image_at']) {
@@ -926,6 +1002,8 @@ async function initDb() {
   await seedAuditBoard();
   // seed ทีมซ่อมบำรุง + งานประจำ 34 รายการจากตารางจริง (idempotent)
   await seedMaintBoard();
+  // seed เช็คลิสต์ AM List 45 รายการ (ถอดจากเอกสาร Line ต้ม 1/2/3, idempotent)
+  await seedAmListRoutines();
   // migration (ระบบลงยอดผลิต): เตรียมคอลัมน์สิทธิ์ไว้ก่อน — ยังไม่บังคับใช้จนถึงเฟส 3
   try { await db.exec("ALTER TABLE operators ADD COLUMN role TEXT DEFAULT 'operator'"); } catch { /* มีแล้ว */ }
   // batch_id: ผูกรายงานเข้ากับชุดของกะ — NULL = รายงานเดี่ยวแบบเดิม (ลิงก์เก่ายังใช้ได้)
@@ -6167,6 +6245,94 @@ async function seedMaintBoard() {
     await refreshPeopleCache();
   } catch (e) { console.error('[db] seedMaintBoard failed', e.message); }
 }
+
+/* ── AM List — เช็คลิสต์ตรวจสอบประจำวัน Pro/CIP/NPP (digitized จากเอกสารกระดาษ 3 แผ่น) ──
+   งานของทีมซ่อมบำรุง (owner_role='mt') ไม่ใช่ทีมผลิต · "ถัง 1/2/3" ในเอกสารเดิม = "Line ต้ม 1/2/3"
+   ⚠️ คนละอย่างกับ 'Line 1/2/3' ของ CIP (LINE_TARGETS, cip_line*_sessions) ที่เป็นไลน์บรรจุ —
+   ห้ามตั้งชื่อชนกัน ไม่งั้นทะเบียนงานรูทีนจะไปรวมกลุ่มกับงานฝั่ง CIP
+   node_key namespace "am01..am45" แยกจาก "pm01-34" เดิมของ MAINT_ROUTINES_SEED — ห้ามเปลี่ยนทั้งคู่
+   [เครื่องจักร(ไลน์), หัวข้อการตรวจสอบ, มาตรฐานการตรวจสอบ, วิธีการตรวจสอบ]                     */
+const AM_LIST_SEED = [
+  // Line 1 (เดิม "ถัง 1" ในเอกสาร)
+  ['Line ต้ม 1', 'จดบันทึกแรงดันในน้ำชาเข้าเมน', 'อยู่ในเกณฑ์มาตรฐานที่กำหนด (เช่น 4-6 bar)', 'ดูเกจวัดความดัน'],
+  ['Line ต้ม 1', 'จดบันทึกอุณหภูมิในน้ำชาเข้า (ที่ห้องต้ม)', 'อยู่ในเกณฑ์มาตรฐานที่กำหนด', 'ดูเกจวัดอุณหภูมิ / เซ็นเซอร์'],
+  ['Line ต้ม 1', 'จดบันทึกอุณหภูมิน้ำ Chiller ขาเข้า Plate', 'อุณหภูมิอยู่ในเกณฑ์ (เช่น < 5°C หรือตามที่กำหนด)', 'ดูหน้าจอแสดงผล / เทอร์โมมิเตอร์'],
+  ['Line ต้ม 1', 'ตรวจสอบความผิดปกติของใบกวนถัง 1', 'ไม่มีเสียงดังผิดปกติ, แกนไม่แกว่ง, หมุนราบรื่น', 'ฟังเสียง, สังเกตการทำงาน'],
+  ['Line ต้ม 1', 'ตรวจสอบความผิดปกติของน้ำเลี้ยงคอปั๊มเซนติฟิว', 'น้ำไหลเวียนสม่ำเสมอ, ท่อไม่ตัน, ไม่รั่วซึม', 'สังเกตการไหลของน้ำผ่านท่อ'],
+  ['Line ต้ม 1', 'ตรวจสอบความผิดปกติของน้ำเลี้ยงคอปั๊มโฮป', 'น้ำไหลเวียนสม่ำเสมอ, ท่อไม่ตัน, ไม่รั่วซึม', 'สังเกตการไหลของน้ำผ่านท่อ'],
+  ['Line ต้ม 1', 'ตรวจสอบความผิดปกติของมอเตอร์ปั๊มเซนติฟิว', 'ไม่สั่นสะเทือนรุนแรง, ไม่มีเสียงดัง, อุณหภูมิไม่ร้อนจัด', 'ฟังเสียง, สัมผัสอุณหภูมิ (หลังมือ)'],
+  ['Line ต้ม 1', 'ตรวจสอบความผิดปกติของมอเตอร์ปั๊มโฮป', 'ไม่สั่นสะเทือนรุนแรง, ไม่มีเสียงดัง, อุณหภูมิไม่ร้อนจัด', 'ฟังเสียง, สัมผัสอุณหภูมิ (หลังมือ)'],
+  ['Line ต้ม 1', 'ตรวจสอบจุดรั่วไหลของ Product', 'ไม่มีคราบ หรือรอยหยดของโปรดักส์ตามข้อต่อ/ซีล/วาล์ว', 'สังเกตหาคราบหรือรอยเปียกชื้น'],
+  ['Line ต้ม 1', 'ตรวจสอบจุดรั่วไหลของลม', 'ไม่มีเสียงลมรั่ว, แรงดันในระบบไม่ตก', 'ฟังเสียง, ใช้น้ำสบู่ (หากต้องสงสัย)'],
+  ['Line ต้ม 1', 'ตรวจสอบความผิดปกติของค่า Loadcell ถัง 200L', 'ค่าเริ่มต้นที่ 0 kg (เมื่อถังว่าง), ตัวเลขไม่แกว่งผิดปกติ', 'ดูหน้าจอแสดงผลน้ำหนัก'],
+  ['Line ต้ม 1', 'ตรวจสอบความผิดปกติของค่า Loadcell ถังน้ำตาล W100', 'ค่าเริ่มต้นที่ 0 kg (เมื่อถังว่าง), ตัวเลขไม่แกว่งผิดปกติ', 'ดูหน้าจอแสดงผลน้ำหนัก'],
+  ['Line ต้ม 1', 'ตรวจสอบการทำงานของเกจวาล์วส่งน้ำตาล W100', 'เปิด-ปิดสุดได้คล่องตัว, ไม่มีติดขัด, ไม่มีรอยรั่วซึม', 'ทดสอบเปิด-ปิดเกจวาล์ว'],
+  ['Line ต้ม 1', 'ตรวจสอบความสะอาดของอุปกรณ์ต่างๆ', 'สะอาด, ไม่มีคราบเหนียว, ไม่มีฝุ่นหรือเศษวัสดุตกค้าง', 'ตรวจสอบด้วยตาเปล่ารอบอุปกรณ์'],
+  ['Line ต้ม 1', 'ขันแน่นแคลมป์รัดท่อ', 'แคลมป์แน่นหนา, ข้อต่อท่อไม่ขยับหรือหลวมคลอน', 'ใช้มือจับโยก, ไม่ใช้ประแจขันย้ำ'],
+  // Line 2 (เดิม "ถัง 2")
+  ['Line ต้ม 2', 'จดบันทึกแรงดันในน้ำชาเข้าเมน', 'อยู่ในเกณฑ์มาตรฐานที่กำหนด', 'ดูเกจวัดความดัน'],
+  ['Line ต้ม 2', 'จดบันทึกอุณหภูมิในน้ำชาเข้า (ที่ห้องต้ม)', 'อยู่ในเกณฑ์มาตรฐานที่กำหนด', 'ดูเกจวัดอุณหภูมิ / เซ็นเซอร์'],
+  ['Line ต้ม 2', 'จดบันทึกอุณหภูมิน้ำ Chiller ขาเข้า Tube', 'อุณหภูมิอยู่ในเกณฑ์ (เช่น < 5°C หรือตามที่กำหนด)', 'ดูหน้าจอแสดงผล / เทอร์โมมิเตอร์'],
+  ['Line ต้ม 2', 'ตรวจสอบความผิดปกติของใบกวนถัง 1', 'ไม่มีเสียงดังผิดปกติ, แกนไม่แกว่ง, หมุนราบรื่น', 'ฟังเสียง, สังเกตการทำงาน'],
+  ['Line ต้ม 2', 'ตรวจสอบความผิดปกติของใบกวนถัง 3', 'ไม่มีเสียงดังผิดปกติ, แกนไม่แกว่ง, หมุนราบรื่น', 'ฟังเสียง, สังเกตการทำงาน'],
+  ['Line ต้ม 2', 'ตรวจสอบความผิดปกติของน้ำเลี้ยงคอปั๊มเซนติฟิว #1', 'น้ำไหลเวียนสม่ำเสมอ, ท่อไม่ตัน, ไม่รั่วซึม', 'สังเกตการไหลของน้ำผ่านท่อ'],
+  ['Line ต้ม 2', 'ตรวจสอบความผิดปกติของน้ำเลี้ยงคอปั๊มโฮป', 'น้ำไหลเวียนสม่ำเสมอ, ท่อไม่ตัน, ไม่รั่วซึม', 'สังเกตการไหลของน้ำผ่านท่อ'],
+  ['Line ต้ม 2', 'ตรวจสอบความผิดปกติของมอเตอร์ปั๊มเซนติฟิว #1', 'ไม่สั่นสะเทือนรุนแรง, ไม่มีเสียงดัง, อุณหภูมิไม่ร้อนจัด', 'ฟังเสียง, สัมผัสอุณหภูมิ (หลังมือ)'],
+  ['Line ต้ม 2', 'ตรวจสอบความผิดปกติของมอเตอร์ปั๊มโฮป', 'ไม่สั่นสะเทือนรุนแรง, ไม่มีเสียงดัง, อุณหภูมิไม่ร้อนจัด', 'ฟังเสียง, สัมผัสอุณหภูมิ (หลังมือ)'],
+  ['Line ต้ม 2', 'ตรวจสอบความผิดปกติของน้ำเลี้ยงคอปั๊มเซนติฟิว #2', 'น้ำไหลเวียนสม่ำเสมอ, ท่อไม่ตัน, ไม่รั่วซึม', 'สังเกตการไหลของน้ำผ่านท่อ'],
+  ['Line ต้ม 2', 'ตรวจสอบความผิดปกติของมอเตอร์ปั๊มเซนติฟิว #2', 'ไม่สั่นสะเทือนรุนแรง, ไม่มีเสียงดัง, อุณหภูมิไม่ร้อนจัด', 'ฟังเสียง, สัมผัสอุณหภูมิ (หลังมือ)'],
+  ['Line ต้ม 2', 'ตรวจสอบจุดรั่วไหลของ Product', 'ไม่มีคราบ หรือรอยหยดของโปรดักส์ตามข้อต่อ/ซีล/วาล์ว', 'สังเกตหาคราบหรือรอยเปียกชื้น'],
+  ['Line ต้ม 2', 'ตรวจสอบจุดรั่วไหลของลม', 'ไม่มีเสียงลมรั่ว, แรงดันในระบบไม่ตก', 'ฟังเสียง, ใช้น้ำสบู่ (หากต้องสงสัย)'],
+  ['Line ต้ม 2', 'ตรวจสอบความผิดปกติของค่า Loadcell ถัง 1 (Mixing)', 'ค่าเริ่มต้นที่ 0 kg (เมื่อถังว่าง), ตัวเลขไม่แกว่งผิดปกติ', 'ดูหน้าจอแสดงผลน้ำหนัก'],
+  ['Line ต้ม 2', 'ตรวจสอบความผิดปกติของค่า Loadcell ถัง 3 (Storage)', 'ค่าเริ่มต้นที่ 0 kg (เมื่อถังว่าง), ตัวเลขไม่แกว่งผิดปกติ', 'ดูหน้าจอแสดงผลน้ำหนัก'],
+  ['Line ต้ม 2', 'ตรวจสอบการเดินตัวเปล่าของไฮเชียร์', 'ไม่มีเสียงเสียดสีรุนแรง, ไม่สั่นสะเทือน, มอเตอร์ไม่ร้อนจัด', 'ฟังเสียง, สังเกตการทำงาน'],
+  ['Line ต้ม 2', 'ขันแน่นแคลมป์รัดท่อ', 'แคลมป์แน่นหนา, ข้อต่อท่อไม่ขยับหรือหลวมคลอน', 'ใช้มือจับโยก, ไม่ใช้ประแจขันย้ำ'],
+  // Line 3 (เดิม "ถัง 3")
+  ['Line ต้ม 3', 'จดบันทึกแรงดันในน้ำชาเข้าเมน', 'อยู่ในเกณฑ์มาตรฐานที่กำหนด', 'ดูเกจวัดความดัน'],
+  ['Line ต้ม 3', 'จดบันทึกอุณหภูมิในน้ำชาเข้า (ที่ห้องต้ม)', 'อยู่ในเกณฑ์มาตรฐานที่กำหนด', 'ดูเกจวัดอุณหภูมิ / เซ็นเซอร์'],
+  ['Line ต้ม 3', 'จดบันทึกอุณหภูมิน้ำ Chiller ขาเข้า Tube', 'อุณหภูมิอยู่ในเกณฑ์ (เช่น < 5°C หรือตามที่กำหนด)', 'ดูหน้าจอแสดงผล / เทอร์โมมิเตอร์'],
+  ['Line ต้ม 3', 'ตรวจสอบความผิดปกติของใบกวนถัง 1', 'ไม่มีเสียงดังผิดปกติ, แกนไม่แกว่ง, หมุนราบรื่น', 'ฟังเสียง, สังเกตการทำงาน'],
+  ['Line ต้ม 3', 'ตรวจสอบความผิดปกติของใบกวนถัง 2', 'ไม่มีเสียงดังผิดปกติ, แกนไม่แกว่ง, หมุนราบรื่น', 'ฟังเสียง, สังเกตการทำงาน'],
+  ['Line ต้ม 3', 'ตรวจสอบความผิดปกติของน้ำเลี้ยงคอปั๊มเซนติฟิว', 'น้ำไหลเวียนสม่ำเสมอ, ท่อไม่ตัน, ไม่รั่วซึม', 'สังเกตการไหลของน้ำผ่านท่อ'],
+  ['Line ต้ม 3', 'ตรวจสอบความผิดปกติของน้ำเลี้ยงคอปั๊มโฮป', 'น้ำไหลเวียนสม่ำเสมอ, ท่อไม่ตัน, ไม่รั่วซึม', 'สังเกตการไหลของน้ำผ่านท่อ'],
+  ['Line ต้ม 3', 'ตรวจสอบความผิดปกติของมอเตอร์ปั๊มเซนติฟิว #1', 'ไม่สั่นสะเทือนรุนแรง, ไม่มีเสียงดัง, อุณหภูมิไม่ร้อนจัด', 'ฟังเสียง, สัมผัสอุณหภูมิ (หลังมือ)'],
+  ['Line ต้ม 3', 'ตรวจสอบความผิดปกติของมอเตอร์ปั๊มโฮป', 'ไม่สั่นสะเทือนรุนแรง, ไม่มีเสียงดัง, อุณหภูมิไม่ร้อนจัด', 'ฟังเสียง, สัมผัสอุณหภูมิ (หลังมือ)'],
+  ['Line ต้ม 3', 'ตรวจสอบจุดรั่วไหลของ Product', 'ไม่มีคราบ หรือรอยหยดของโปรดักส์ตามข้อต่อ/ซีล/วาล์ว', 'สังเกตหาคราบหรือรอยเปียกชื้น'],
+  ['Line ต้ม 3', 'ตรวจสอบจุดรั่วไหลของลม', 'ไม่มีเสียงลมรั่ว, แรงดันในระบบไม่ตก', 'ฟังเสียง, ใช้น้ำสบู่ (หากต้องสงสัย)'],
+  ['Line ต้ม 3', 'ตรวจสอบความผิดปกติของค่า Loadcell ถัง 1 (Mixing)', 'ค่าเริ่มต้นที่ 0 kg (เมื่อถังว่าง), ตัวเลขไม่แกว่งผิดปกติ', 'ดูหน้าจอแสดงผลน้ำหนัก'],
+  ['Line ต้ม 3', 'ขันแน่นแคลมป์รัดท่อ', 'แคลมป์แน่นหนา, ข้อต่อท่อไม่ขยับหรือหลวมคลอน', 'ใช้มือจับโยก, ไม่ใช้ประแจขันย้ำ'],
+];
+const amListNodeKey = (i) => `am${String(i + 1).padStart(2, '0')}`;
+
+// seed AM List (idempotent — เพิ่มเฉพาะแถวที่ยังไม่มี ไม่ทับของที่ user แก้เอง)
+// sort_order เริ่มที่ 1000 ตั้งใจให้สูงกว่า pm01-34 (0-33) เสมอ กันแทรกกลางกลุ่มเครื่องจักรเดิม
+async function seedAmListRoutines() {
+  try {
+    /* 🔴 guard ต้องเช็คด้วย node_key เท่านั้น ห้ามกรองด้วย person_key
+       เพราะ 45 แถวนี้ person_key = NULL (เป็นของไลน์+กะ ไม่ใช่ของคน) ถ้ากรองด้วย person_key
+       จะหาไม่เจอแล้ว insert ซ้ำทุกครั้งที่บูต — Render รีสตาร์ตบ่อย จะได้ 45 → 90 → 135 แถว */
+    const have = (await dbAll("SELECT node_key FROM duty_routines WHERE node_key LIKE 'am%'", []))
+      .map(r => r.node_key);
+    for (let i = 0; i < AM_LIST_SEED.length; i++) {
+      const key = amListNodeKey(i);
+      if (have.includes(key)) continue;                       // มีแล้ว (หรือ user ลบไปเอง) — ไม่ยัดซ้ำ
+      const [machine, title, goal, method] = AM_LIST_SEED[i];
+      await db.exec(
+        `INSERT INTO duty_routines (person_key, parent_id, node_key, title, mono, sort_order, active, created_at,
+           machine, goal, method, owner_role, co_owner_role, sheet)
+         VALUES (NULL, NULL, ?, ?, 0, ?, 1, ?, ?, ?, ?, 'mt', NULL, 'am')`,
+        [key, title, 1000 + i, nowBKK(), machine, goal, method]);
+    }
+    // ทะเบียนเครื่องจักร: ลงชื่อ Line 1/2/3 ไว้ด้วยถ้ายังไม่มี (sort_order สูงกว่าเครื่องเดิมของ seedMaintBoard)
+    let mi = 500;
+    for (const name of [...new Set(AM_LIST_SEED.map(r => r[0]))]) {
+      await db.exec(
+        `INSERT INTO machines (name, sort_order, active, created_at) VALUES (?, ?, 1, ?)
+         ON CONFLICT (name) DO NOTHING`, [name, mi++, nowBKK()]);
+    }
+    invalidateRoutineCache();
+  } catch (e) { console.error('[db] seedAmListRoutines failed', e.message); }
+}
 // ══ Knowledge management ═════════════════════════════════════════════════════
 // ทะเบียนเครื่องจักร (ERP Phase 1) — ชื่อเครื่องใช้เป็น [[wikilink]] ปลายทางของโน้ตใน vault
 app.get('/api/machines', async (req, res) => {
@@ -6174,7 +6340,9 @@ app.get('/api/machines', async (req, res) => {
     const rows = await dbAll('SELECT * FROM machines WHERE active = 1 ORDER BY sort_order, id', []);
     // นับงาน PM ที่ผูกกับเครื่องนี้ + เหตุการณ์ที่ยังไม่ปิด — ให้หน้าทะเบียนเห็นภาพโดยไม่ต้องยิงซ้ำ
     const pm = await dbAll("SELECT machine, COUNT(*) AS n FROM duty_routines WHERE active = 1 AND machine IS NOT NULL AND machine <> '' GROUP BY machine", []);
-    const inc = await dbAll("SELECT machine, COUNT(*) AS n FROM incidents WHERE status = 'open' AND machine IS NOT NULL AND machine <> '' GROUP BY machine", []);
+    // นับใบที่ยังไม่ปิดทั้งหมด รวม 'wip' (ช่างรับไปแล้วแต่ยังซ่อมไม่เสร็จ = ยังค้างอยู่จริง)
+    // สำนวนเดียวกับ maintCounts และ buildRepairList ในบอท ที่นับถูกอยู่แล้ว
+    const inc = await dbAll("SELECT machine, COUNT(*) AS n FROM incidents WHERE COALESCE(status, 'open') <> 'closed' AND machine IS NOT NULL AND machine <> '' GROUP BY machine", []);
     const nOf = (list, name) => Number((list.find(x => x.machine === name) || {}).n || 0);
     res.json({
       machines: rows.map(r => ({
@@ -6324,6 +6492,10 @@ function touchMachineNote(name) {
 const jsonList = (v) => { try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
 const photoJson = (v) => JSON.stringify((Array.isArray(v) ? v : []).filter(u => typeof u === 'string' && u.startsWith('http')).slice(0, 8));
 
+// ที่มาของใบแจ้งซ่อม — ต้องตรงกับ migration ด้านบนและชิปที่มาในหน้าเหตุการณ์
+const INC_SOURCES = new Set(['web', 'bot', 'ai', 'amsheet']);
+const incSource = (v, dflt) => (INC_SOURCES.has(v) ? v : dflt);
+
 // ── เหตุการณ์ ────────────────────────────────────────────────────────────────
 // โน้ตใน vault ใช้เทมเพลตตาม "แผนพัฒนา ERP และ KM" ข้อ 4.2 เป๊ะ (อาการ/สาเหตุ/วิธีแก้/ผล/เกี่ยวข้อง)
 // เขียนทับทั้งไฟล์ทุกครั้ง — ระบบเป็นเจ้าของไฟล์นี้ ต่างจากบันทึกประจำวันที่แตะแค่ในเขต marker
@@ -6357,68 +6529,175 @@ function downLabel(min) {
   return h ? `${h} ชม.${m ? ` ${m} น.` : ''}` : `${m} น.`;
 }
 
+/* ── รายชื่อคอลัมน์ที่หน้าเหตุการณ์ต้องใช้ ─────────────────────────────────
+   ระบุคอลัมน์เองแทน SELECT * เพราะของแพงจริงคือ images/symptom/cause/fix/result
+   ที่เป็นข้อความยาวและถูกลากมาทุกแถวทุกครั้ง (ไม่ใช่จำนวนแถว)                 */
+const INC_COLS = `id, title, machine, line_name, batch_id, operator, occurred_at,
+  symptom, cause, fix, result, status, priority, assignee, images, result_images,
+  vault_path, down_from, down_to, source, ref_key, card_chat_id, card_msg_id`;
+
+// แถวดิบ → รูปแบบที่หน้าเว็บใช้ · ฟิลด์เดิมทุกตัวชื่อเดิมเป๊ะ ห้ามเปลี่ยน (client เก่ายังใช้อยู่)
+function incidentDto(r) {
+  return {
+    id: r.id, title: r.title, machine: r.machine || '', line: r.line_name || '',
+    batchId: r.batch_id || '', operator: r.operator || '', occurredAt: r.occurred_at || '',
+    symptom: r.symptom || '', cause: r.cause || '', fix: r.fix || '', result: r.result || '',
+    images: jsonList(r.images), resultImages: jsonList(r.result_images),
+    status: r.status || 'open', vaultPath: r.vault_path || '',
+    downFrom: r.down_from || '', downTo: r.down_to || '',
+    downtimeMin: downMinutes(r.down_from, r.down_to),
+    // ── ใหม่ (หน้าเหตุการณ์ 2 แท็บ) ──
+    priority: r.priority || '',
+    assignee: r.assignee || '',
+    assigneeName: r.assignee ? dutyName(r.assignee) : '',   // client ไม่มี map person_key → ชื่อ
+    source: r.source || '',
+    refKey: r.ref_key || '',
+    // ยังหยุดอยู่ = มีเวลาเริ่มแต่ไม่มีเวลากลับมาเดิน · นับให้จากฝั่งเซิร์ฟเวอร์ ไม่พึ่งนาฬิกา client
+    downSoFarMin: r.down_from && !r.down_to ? downSoFar(r) : null,
+    hasCard: !!(r.card_chat_id && r.card_msg_id),          // ไม่ส่ง chat id ออกไปนอกระบบ
+  };
+}
+
+/* GET /api/incidents
+     ?scope=queue  งานซ่อมที่ยังไม่ปิด เรียงตามความเร่งด่วนแบบเดียวกับกระดานในบอท
+     ?scope=km     คลังความรู้ (ปิดแล้ว) เรียงตามวันที่ + แบ่งหน้า
+     ?status=open|closed  ของเดิม ห้ามถอด — ยังมีผู้เรียกอยู่
+   summary มาในก้อนเดียวกัน ไม่แยก endpoint เพราะถ้าแยกจะเกิด race:
+   กดปิดงานแล้วสองคำขอกลับมาไม่พร้อมกัน ตัวเลขหัวหน้ากับลิสต์จะไม่ตรงกันชั่วขณะ            */
 app.get('/api/incidents', async (req, res) => {
-  const status = req.query.status;
+  const { status, scope } = req.query;
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 500);
+  const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
   try {
-    const rows = status === 'open' || status === 'closed'
-      ? await dbAll('SELECT * FROM incidents WHERE status = ? ORDER BY occurred_at DESC, id DESC', [status])
-      : await dbAll('SELECT * FROM incidents ORDER BY occurred_at DESC, id DESC', []);
+    let rows, total = null, hasMore = false;
+    if (scope === 'queue') {
+      rows = await dbAll(`SELECT ${INC_COLS} FROM incidents WHERE COALESCE(status, 'open') <> 'closed'`, []);
+      // เรียงใน JS เพราะลำดับความเร่งด่วนอยู่ใน SR_PRIO ไม่ใช่ใน SQL — สำนวนเดียวกับ buildRepairList
+      rows.sort((a, b) => (srPrio(a.priority).order - srPrio(b.priority).order) || (b.id - a.id));
+    } else if (scope === 'km') {
+      rows = await dbAll(
+        `SELECT ${INC_COLS} FROM incidents WHERE status = 'closed'
+           ORDER BY occurred_at DESC, id DESC LIMIT ${limit + 1} OFFSET ${offset}`, []);
+      hasMore = rows.length > limit;
+      if (hasMore) rows = rows.slice(0, limit);
+    } else if (status === 'open' || status === 'closed') {
+      rows = await dbAll(
+        `SELECT ${INC_COLS} FROM incidents WHERE status = ? ORDER BY occurred_at DESC, id DESC LIMIT ${limit}`, [status]);
+    } else {
+      rows = await dbAll(
+        `SELECT ${INC_COLS} FROM incidents ORDER BY occurred_at DESC, id DESC LIMIT ${limit}`, []);
+    }
+
+    /* ตัวเลขหัวทั้ง 2 แท็บ — สแกนทั้งตารางแต่เลือกเฉพาะคอลัมน์แคบ
+       รวมยอดใน JS ไม่ใช่ใน SQL ตามธรรมเนียมโปรเจกต์ (เลี่ยงสำนวนที่ SQLite/Postgres เขียนไม่เหมือนกัน) */
+    const all = await dbAll(
+      'SELECT id, status, priority, machine, cause, fix, down_from, down_to FROM incidents', []);
+    const q = { stop: 0, warn: 0, low: 0, open: 0, wip: 0, total: 0, downNowCount: 0, downNowMin: 0 };
+    const km = { closed: 0, gaps: 0, machines: 0 };
+    const kmMachines = new Set();
+    for (const r of all) {
+      const st = r.status || 'open';
+      if (st === 'closed') {
+        km.closed += 1;
+        if (!r.cause || !r.fix) km.gaps += 1;          // ปิดแล้วแต่ค้นไปก็ไม่ได้คำตอบ
+        if (r.machine) kmMachines.add(r.machine);
+        continue;
+      }
+      q.total += 1;
+      q[srPrio(r.priority) === SR_PRIO.stop ? 'stop' : srPrio(r.priority) === SR_PRIO.low ? 'low' : 'warn'] += 1;
+      if (st === 'wip') q.wip += 1; else q.open += 1;
+      if (r.down_from && !r.down_to) {
+        q.downNowCount += 1;
+        q.downNowMin += downSoFar(r) || 0;
+      }
+    }
+    km.machines = kmMachines.size;
+    if (scope === 'km') total = km.closed;
+
     res.json({
-      incidents: rows.map(r => ({
-        id: r.id, title: r.title, machine: r.machine || '', line: r.line_name || '',
-        batchId: r.batch_id || '', operator: r.operator || '', occurredAt: r.occurred_at || '',
-        symptom: r.symptom || '', cause: r.cause || '', fix: r.fix || '', result: r.result || '',
-        images: jsonList(r.images), resultImages: jsonList(r.result_images),
-        status: r.status || 'open', vaultPath: r.vault_path || '',
-        downFrom: r.down_from || '', downTo: r.down_to || '',
-        downtimeMin: downMinutes(r.down_from, r.down_to),
-      })),
-      openCount: rows.filter(r => (r.status || 'open') !== 'closed').length,
+      incidents: rows.map(incidentDto),
+      openCount: q.total,                              // ฟิลด์เดิม ห้ามถอด
+      summary: { queue: q, km },
+      total, hasMore,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+/* บันทึก/แก้ไขเหตุการณ์จากหน้าเว็บ
+   🔑 กติกา "เขียนทับเฉพาะ key ที่ส่งมา" (presence-aware)
+   เดิม handler นี้ประกอบ row ขึ้นมาใหม่ทุกฟิลด์แล้วยิง UPDATE ทั้งแถว ทำให้ค่าที่ "อีกประตูหนึ่ง"
+   เขียนไว้หายเงียบเมื่อหน้าเว็บไม่รู้จักฟิลด์นั้น — เจอจริง 2 เคส:
+     1. status: เดิม normalize เป็น open/closed เท่านั้น → ใบที่ช่างกดรับในบอท ('wip') พอหัวหน้า
+        กดแก้ไขจากเว็บจะเด้งกลับเป็น 'รอรับงาน' ทั้งที่ช่างรับไปแล้ว (assignee ยังค้างอยู่)
+     2. down_to: client ส่งค่าว่างมา → เวลาที่บอทเติมให้ตอนปิดงานถูกล้าง สรุปเวลาเครื่องหยุดเพี้ยน
+   ตอนนี้: ไม่ส่ง key มา = คงค่าเดิมไว้ · ส่งมา (แม้เป็นค่าว่าง) = ตั้งใจเปลี่ยน                */
 app.post('/api/incidents', async (req, res) => {
   const b = req.body || {};
-  if (!b.title || !String(b.title).trim()) return res.status(400).json({ error: 'title จำเป็น' });
+  const has = (k) => Object.prototype.hasOwnProperty.call(b, k);
+  const isNew = !b.id;
+  if (isNew && !String(b.title || '').trim()) return res.status(400).json({ error: 'title จำเป็น' });
+  if (has('title') && !String(b.title || '').trim()) return res.status(400).json({ error: 'title จำเป็น' });
   // รับเฉพาะ URL — ถ้าอัปโหลดขึ้น Supabase ไม่สำเร็จ client จะส่ง data: กลับมา ซึ่งห้ามลง DB
   const badPhoto = [...(Array.isArray(b.images) ? b.images : []), ...(Array.isArray(b.resultImages) ? b.resultImages : [])]
     .some(u => typeof u === 'string' && !u.startsWith('http'));
   if (badPhoto) return res.status(400).json({ error: 'อัปโหลดรูปไม่สำเร็จ (ยังไม่ได้ URL) — ลองแนบรูปใหม่อีกครั้ง' });
-  // เวลากลับมาเดินอยู่ก่อนเวลาหยุด = พิมพ์ผิดแน่ ๆ — ไม่รับ ไม่งั้นได้แถวที่คิดนาทีไม่ได้ค้างในสรุป
-  if (cleanDt(b.downFrom) && cleanDt(b.downTo) && downMinutes(b.downFrom, b.downTo) == null) {
-    return res.status(400).json({ error: 'เวลากลับมาเดินอยู่ก่อนเวลาที่เครื่องหยุด — ตรวจเวลาอีกครั้ง' });
-  }
-  const row = {
-    title: String(b.title).trim(), machine: b.machine || null, line_name: b.line || null,
-    images: photoJson(b.images), result_images: photoJson(b.resultImages),
-    batch_id: b.batchId || null, operator: b.operator || null,
-    occurred_at: b.occurredAt || todayBKK(),
-    symptom: b.symptom || null, cause: b.cause || null, fix: b.fix || null, result: b.result || null,
-    status: b.status === 'closed' ? 'closed' : 'open',
-    down_from: cleanDt(b.downFrom), down_to: cleanDt(b.downTo),
-  };
   try {
-    let id = b.id, prevPath = null, prevMachine = null;
+    let id = b.id, cur = null;
     if (id) {
-      const cur = (await dbAll('SELECT * FROM incidents WHERE id = ?', [id]))[0];
+      cur = (await dbAll('SELECT * FROM incidents WHERE id = ?', [id]))[0];
       if (!cur) return res.status(404).json({ error: 'ไม่พบเหตุการณ์นี้' });
-      prevPath = cur.vault_path || null;
-      prevMachine = cur.machine || null;
+    }
+    // keep(key, ค่าใหม่, ค่าเดิม) — หัวใจของกติกาข้างบน
+    const keep = (k, next, old) => (has(k) ? next : (old === undefined ? null : old));
+    const row = {
+      title: has('title') ? String(b.title).trim() : (cur ? cur.title : ''),
+      machine: keep('machine', b.machine || null, cur && cur.machine),
+      line_name: keep('line', b.line || null, cur && cur.line_name),
+      batch_id: keep('batchId', b.batchId || null, cur && cur.batch_id),
+      operator: keep('operator', b.operator || null, cur && cur.operator),
+      occurred_at: keep('occurredAt', b.occurredAt || todayBKK(), cur && cur.occurred_at) || todayBKK(),
+      symptom: keep('symptom', b.symptom || null, cur && cur.symptom),
+      cause: keep('cause', b.cause || null, cur && cur.cause),
+      fix: keep('fix', b.fix || null, cur && cur.fix),
+      result: keep('result', b.result || null, cur && cur.result),
+      // รับ 'wip' ด้วย (SR_STATUS) — ค่าที่ไม่รู้จักถือว่าไม่ได้ตั้งใจเปลี่ยน คงของเดิมไว้
+      status: has('status') && SR_STATUS[b.status] ? b.status : ((cur && cur.status) || 'open'),
+      priority: has('priority') ? (SR_PRIO[b.priority] ? b.priority : null) : (cur ? cur.priority : null),
+      assignee: keep('assignee', b.assignee || null, cur && cur.assignee),
+      images: keep('images', photoJson(b.images), cur && cur.images),
+      result_images: keep('resultImages', photoJson(b.resultImages), cur && cur.result_images),
+      down_from: keep('downFrom', cleanDt(b.downFrom), cur && cur.down_from),
+      down_to: keep('downTo', cleanDt(b.downTo), cur && cur.down_to),
+      // ที่มาของใบเปลี่ยนไม่ได้ตามนิยาม — ตอนแก้ไขจึงไม่แตะ 2 ช่องนี้เลย
+      source: incSource(b.source, 'web'),
+      ref_key: b.refKey || null,
+    };
+    // เวลากลับมาเดินอยู่ก่อนเวลาหยุด = พิมพ์ผิดแน่ ๆ — ไม่รับ ไม่งั้นได้แถวที่คิดนาทีไม่ได้ค้างในสรุป
+    // เช็กบนค่าที่จะลงจริง (หลัง keep) ไม่ใช่บน body — ส่งมาแค่ downTo ก็ต้องเทียบกับ down_from เดิม
+    if (row.down_from && row.down_to && downMinutes(row.down_from, row.down_to) == null) {
+      return res.status(400).json({ error: 'เวลากลับมาเดินอยู่ก่อนเวลาที่เครื่องหยุด — ตรวจเวลาอีกครั้ง' });
+    }
+    const prevPath = cur ? (cur.vault_path || null) : null;
+    const prevMachine = cur ? (cur.machine || null) : null;
+    if (id) {
       await db.exec(
         `UPDATE incidents SET title = ?, machine = ?, line_name = ?, batch_id = ?, operator = ?,
            occurred_at = ?, symptom = ?, cause = ?, fix = ?, result = ?, status = ?,
+           priority = ?, assignee = ?,
            images = ?, result_images = ?, down_from = ?, down_to = ?, updated_at = ? WHERE id = ?`,
         [row.title, row.machine, row.line_name, row.batch_id, row.operator, row.occurred_at,
-         row.symptom, row.cause, row.fix, row.result, row.status,
+         row.symptom, row.cause, row.fix, row.result, row.status, row.priority, row.assignee,
          row.images, row.result_images, row.down_from, row.down_to, nowBKK(), id]);
     } else {
       const r = await dbRun(
         `INSERT INTO incidents (title, machine, line_name, batch_id, operator, occurred_at,
-           symptom, cause, fix, result, status, images, result_images, down_from, down_to, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           symptom, cause, fix, result, status, priority, assignee,
+           images, result_images, down_from, down_to, source, ref_key, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [row.title, row.machine, row.line_name, row.batch_id, row.operator, row.occurred_at,
-         row.symptom, row.cause, row.fix, row.result, row.status,
-         row.images, row.result_images, row.down_from, row.down_to, nowBKK(), nowBKK()]);
+         row.symptom, row.cause, row.fix, row.result, row.status, row.priority, row.assignee,
+         row.images, row.result_images, row.down_from, row.down_to,
+         row.source, row.ref_key, nowBKK(), nowBKK()]);
       id = r.lastID;
     }
     const sync = await syncIncident({ ...row, id, vault_path: prevPath });
@@ -6426,7 +6705,12 @@ app.post('/api/incidents', async (req, res) => {
     // รายการ "เหตุการณ์ที่เคยเกิด" ในโน้ตเครื่องจักรต้องตามให้ทัน (ทั้งเครื่องใหม่และเครื่องเดิมถ้าย้าย)
     touchMachineNote(row.machine);
     if (prevMachine && prevMachine !== row.machine) touchMachineNote(prevMachine);
-    res.json({ success: true, id, vaultPath: sync.path || null, vaultError: sync.error || null, vaultSkipped: sync.skipped || null });
+    // การ์ดในกลุ่มมี title/machine/symptom/สถานะอยู่ด้วย — แก้จากเว็บแล้วต้องตามให้ทัน
+    const card = await bumpRepairCard(id);
+    res.json({
+      success: true, id, card,
+      vaultPath: sync.path || null, vaultError: sync.error || null, vaultSkipped: sync.skipped || null,
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -6446,6 +6730,117 @@ app.post('/api/incidents/delete', async (req, res) => {
     await db.exec('DELETE FROM incidents WHERE id = ?', [id]);
     touchMachineNote(cur.machine);
     res.json({ success: true, removedVault: cur.vault_path || null, vaultError });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ═══════════ คำสั่งกับใบแจ้งซ่อมจากหน้าเว็บ (มอบหมาย / ปิดงาน / เปิดใหม่) ═══════════
+   ทำไมเป็น endpoint แยก ไม่ใช้ POST /api/incidents:
+     1. คนละความหมาย — ตัวนั้นคือ "บันทึกฟอร์ม" ตัวนี้คือ "คำสั่ง" ที่มีเงื่อนไขก่อนทำ
+     2. กฎ "ปิดงานต้องกรอกวิธีแก้" ถ้าเอาไปยัดในฟอร์ม จะกลายเป็นห้ามบันทึกใบที่ปิดแล้ว
+        ซึ่งพังใบเก่าที่ปิดไปโดยไม่มี fix ทันทีที่ใครกดแก้ไข
+     3. ปิดงานต้องเติม down_to ให้เองถ้าเครื่องยังหยุดอยู่ — เป็นกฎของการปิดเท่านั้น
+     4. บอทมีเส้นนี้อยู่แล้ว (m:take / m:csave) — แยกออกมาแล้วลอกลำดับ 5 ขั้นเดียวกันเป๊ะ
+        (UPDATE → อ่านแถวใหม่ → syncIncident → touchMachineNote → bumpRepairCard)
+        ทำให้ "หนึ่งพฤติกรรม สองประตูหน้า" ยังจริงอยู่
+   ⚠️ เส้นพวกนี้สั่งการไปถึงกลุ่ม Telegram ได้ ซึ่งเป็นความเสี่ยงชนิดที่ของเดิมไม่มี → ใส่ rate limit */
+
+// ทีมช่างสำหรับ dropdown มอบหมาย — เดิมหน้าเว็บไม่มีทางรู้ person_key ของช่างเลย
+app.get('/api/maint/people', async (req, res) => {
+  try {
+    const rows = await dbAll(
+      "SELECT person_key, name, tg_user_id FROM duty_people WHERE kind = 'maint' AND active = 1 ORDER BY sort_order, person_key", []);
+    res.json({ people: rows.map(r => ({ key: r.person_key, name: r.name || r.person_key, bound: !!r.tg_user_id })) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ลำดับหลังเขียน DB ที่ทุกคำสั่งต้องทำเหมือนกัน — ห้ามประกอบ object เอง ต้องอ่านแถวใหม่ทั้งแถว
+// (syncIncident อ่าน vault_path เดิมเพื่อลบไฟล์เก่าตอนชื่อโน้ตเปลี่ยน ถ้าส่งไม่ครบจะได้ path ผิด)
+async function afterIncidentCommand(id, { sync = true } = {}) {
+  const fresh = await getIncident(id);
+  let vaultPath = null, vaultError = null;
+  if (sync && fresh) {
+    const r = await syncIncident(fresh);
+    if (r.path) { vaultPath = r.path; await db.exec('UPDATE incidents SET vault_path = ? WHERE id = ?', [r.path, id]); }
+    vaultError = r.error || null;
+  }
+  if (fresh) touchMachineNote(fresh.machine);
+  const card = await bumpRepairCard(id);
+  return { incident: fresh ? incidentDto(await getIncident(id)) : null, card, vaultPath, vaultError };
+}
+
+/* มอบหมายช่าง — assignee ว่าง = ถอนมอบหมาย
+   ต่างจากปุ่ม 🙋 รับงาน ในบอทโดยเจตนา: บอทบล็อกถ้าใบถูกรับไปแล้ว (กันช่าง 2 คนแย่งใบ)
+   แต่หัวหน้าต้องเปลี่ยนตัวช่างได้ จึงไม่บล็อก · โน้ตวอลต์ไม่มีช่อง assignee เลยไม่ต้อง sync */
+app.post('/api/incidents/assign', async (req, res) => {
+  if (rateLimited(req.ip, 60, 60000, 'incident-cmd')) return res.status(429).json({ error: 'เรียกถี่เกินไป รอสักครู่' });
+  const { id } = req.body || {};
+  const assignee = String((req.body || {}).assignee || '').trim();
+  if (!id) return res.status(400).json({ error: 'id จำเป็น' });
+  try {
+    const cur = await getIncident(id);
+    if (!cur) return res.status(404).json({ error: 'ไม่พบใบงานนี้' });
+    if ((cur.status || 'open') === 'closed') {
+      return res.status(409).json({ error: 'ใบนี้ปิดไปแล้ว — กดเปิดใหม่ก่อนถึงจะมอบหมายได้' });
+    }
+    if (assignee) {
+      const ok = await dbAll(
+        "SELECT person_key FROM duty_people WHERE kind = 'maint' AND active = 1 AND person_key = ?", [assignee]);
+      if (!ok.length) return res.status(400).json({ error: 'ไม่พบช่างคนนี้ในทีมซ่อมบำรุง' });
+    }
+    await db.exec('UPDATE incidents SET status = ?, assignee = ?, updated_at = ? WHERE id = ?',
+      [assignee ? 'wip' : 'open', assignee || null, nowBKK(), id]);
+    res.json({ success: true, ...(await afterIncidentCommand(id, { sync: false })) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ปิดงาน — ลอกลำดับจากปุ่ม ✅ ปิดงาน ในบอท (m:csave)
+   บังคับกรอก "วิธีแก้" เพราะใบที่ปิดโดยไม่มี fix ค้นเจอแล้วไม่ได้คำตอบ = ไม่มีค่าทาง KM */
+app.post('/api/incidents/close', async (req, res) => {
+  if (rateLimited(req.ip, 60, 60000, 'incident-cmd')) return res.status(429).json({ error: 'เรียกถี่เกินไป รอสักครู่' });
+  const b = req.body || {};
+  if (!b.id) return res.status(400).json({ error: 'id จำเป็น' });
+  const fix = String(b.fix || '').trim();
+  if (!fix) return res.status(400).json({ error: 'ต้องกรอก "วิธีแก้" ก่อนปิดงาน — ครั้งหน้าเจออีกจะได้รู้ว่าแก้ยังไง' });
+  const imgs = Array.isArray(b.resultImages) ? b.resultImages : null;
+  if (imgs && imgs.some(u => typeof u !== 'string' || !u.startsWith('http'))) {
+    return res.status(400).json({ error: 'อัปโหลดรูปไม่สำเร็จ (ยังไม่ได้ URL) — ลองแนบรูปใหม่อีกครั้ง' });
+  }
+  try {
+    const cur = await getIncident(b.id);
+    if (!cur) return res.status(404).json({ error: 'ไม่พบใบงานนี้' });
+    // ปิดซ้ำต้องไม่พัง — คนกดสองครั้งเพราะเน็ตช้าเกิดขึ้นจริง
+    if ((cur.status || 'open') === 'closed') {
+      return res.json({ success: true, alreadyClosed: true, ...(await afterIncidentCommand(b.id, { sync: false })) });
+    }
+    // เครื่องที่ยังหยุดอยู่ → ปิดเวลาหยุด ณ ตอนกดปิดงาน (แก้ย้อนหลังได้ในฟอร์ม) เหมือนที่บอททำ
+    const downTo = cleanDt(b.downTo) || (cur.down_from && !cur.down_to ? nowBKK().slice(0, 16) : cur.down_to);
+    if (cur.down_from && downTo && downMinutes(cur.down_from, downTo) == null) {
+      return res.status(400).json({ error: 'เวลากลับมาเดินอยู่ก่อนเวลาที่เครื่องหยุด — ตรวจเวลาอีกครั้ง' });
+    }
+    await db.exec(
+      `UPDATE incidents SET status = 'closed', fix = ?, cause = ?, result = ?,
+         result_images = ?, down_to = ?, updated_at = ? WHERE id = ?`,
+      [fix,
+       b.cause !== undefined ? (String(b.cause).trim() || null) : cur.cause,
+       b.result !== undefined ? (String(b.result).trim() || null) : cur.result,
+       imgs ? photoJson(imgs) : cur.result_images,
+       downTo || null, nowBKK(), b.id]);
+    res.json({ success: true, ...(await afterIncidentCommand(b.id)) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* เปิดใหม่ — ใบที่ยังมีช่างถืออยู่ให้กลับไปเป็น "กำลังซ่อม" ไม่ใช่เด้งเป็น "รอรับงาน"
+   (ไม่งั้นช่างที่รับไว้หายจากใบโดยไม่มีใครสั่ง) · โน้ตวอลต์มีบรรทัดสถานะ จึงต้อง sync */
+app.post('/api/incidents/reopen', async (req, res) => {
+  if (rateLimited(req.ip, 60, 60000, 'incident-cmd')) return res.status(429).json({ error: 'เรียกถี่เกินไป รอสักครู่' });
+  const { id } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'id จำเป็น' });
+  try {
+    const cur = await getIncident(id);
+    if (!cur) return res.status(404).json({ error: 'ไม่พบใบงานนี้' });
+    await db.exec('UPDATE incidents SET status = ?, updated_at = ? WHERE id = ?',
+      [cur.assignee ? 'wip' : 'open', nowBKK(), id]);
+    res.json({ success: true, ...(await afterIncidentCommand(id)) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -6812,17 +7207,18 @@ app.get('/api/maint/routines', async (req, res) => {
     const people = getPeople().filter(p => (p.kind || 'shift') === 'maint');
     const keys = people.map(p => p.person_key);
     if (!keys.length) return res.json({ people: [], rows: [] });
+    // งาน sheet='am' มี person_key = NULL (เป็นของไลน์+กะ) ต้องดึงมาด้วย ไม่งั้นทะเบียนหาย 45 แถว
     const rows = await dbAll(
-      `SELECT id, person_key, node_key, title, machine, goal, owner_role, co_owner_role, sort_order, freq
-         FROM duty_routines WHERE active = 1 AND person_key IN (${keys.map(() => '?').join(',')})
+      `SELECT id, person_key, node_key, title, machine, goal, method, owner_role, co_owner_role, sort_order, freq, sheet
+         FROM duty_routines WHERE active = 1 AND (person_key IN (${keys.map(() => '?').join(',')}) OR sheet = 'am')
         ORDER BY sort_order, id`, keys);
     res.json({
       people: people.map(p => ({ key: p.person_key, name: p.name, role: p.role, color: p.color, initial: p.initial })),
       rows: rows.map(r => ({
         id: r.id, personKey: r.person_key, nodeKey: r.node_key, title: r.title,
-        machine: r.machine || '', goal: r.goal || '',
+        machine: r.machine || '', goal: r.goal || '', method: r.method || '',
         ownerRole: r.owner_role || '', coOwnerRole: r.co_owner_role || '', sortOrder: r.sort_order,
-        freq: r.freq || '',
+        freq: r.freq || '', sheet: r.sheet || '',
       })),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -7077,7 +7473,8 @@ async function buildRoutineTree(personKey) {
     `SELECT id, parent_id, node_key, title, mono, sort_order, machine, goal, owner_role, co_owner_role, freq,
        CASE WHEN ref_image LIKE 'http%' THEN ref_image ELSE NULL END AS ref_image_url,
        CASE WHEN ref_image IS NULL OR ref_image = '' THEN 0 ELSE 1 END AS has_ref_image
-     FROM duty_routines WHERE person_key = ? AND active = 1 ORDER BY parent_id, sort_order, id`, [personKey]);
+     FROM duty_routines WHERE person_key = ? AND active = 1 AND (sheet IS NULL OR sheet <> 'am')
+     ORDER BY parent_id, sort_order, id`, [personKey]);
   const byParent = {};
   for (const r of rows) { const k = r.parent_id == null ? 'root' : String(r.parent_id); (byParent[k] = byParent[k] || []).push(r); }
   const build = (key) => (byParent[key] || []).map(r => {
@@ -7373,6 +7770,98 @@ app.post('/api/audit/read-sheet', async (req, res) => {
   }
 });
 
+/* ── อ่าน "เช็คลิสต์ตรวจสอบประจำวัน" จากรูปเอกสาร → แถวทะเบียนงานรูทีน ─────────
+   คนละใบกับใบตรวจพื้นที่ข้างบน: ใบนี้เป็นตารางงานประจำที่ทำซ้ำทุกวัน (เช่น AM List)
+   คอลัมน์ในเอกสาร: ลำดับ / หัวข้อการตรวจสอบ / มาตรฐาน / วิธีการ / ช่องติ๊กวันที่ 1-31
+   → ตรงกับช่อง title / goal / method ของ duty_routines · ช่องติ๊กรายวันไม่ต้องอ่าน
+   ไม่เขียนลง DB เอง — คืนแถวให้หน้าเว็บตรวจทานก่อนกดนำเข้า (เหมือน read-sheet)   */
+const READ_ROUTINE_SCHEMA = {
+  type: 'object',
+  properties: {
+    rows: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          group: { type: 'string', description: 'ชื่อไลน์/เครื่องจักรจากหัวเอกสารของแผ่นที่แถวนี้อยู่ เช่น "ถัง 1"' },
+          seq: { type: 'integer', description: 'เลขลำดับในเอกสาร (ไม่มี = 0)' },
+          title: { type: 'string', description: 'หัวข้อการตรวจสอบ' },
+          goal: { type: 'string', description: 'มาตรฐานการตรวจสอบ (เกณฑ์ที่ถือว่าผ่าน)' },
+          method: { type: 'string', description: 'วิธีการตรวจสอบ' },
+          unclear: { type: 'boolean', description: 'true = อ่านจากรูปไม่ชัด ต้องให้คนตรวจทาน' },
+        },
+        required: ['group', 'seq', 'title', 'goal', 'method', 'unclear'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['rows'],
+  additionalProperties: false,
+};
+app.post('/api/routine/read-sheet', async (req, res) => {
+  const client = getAnthropic();
+  if (!client) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์ — พิมพ์แถวเองได้ตามปกติ' });
+  const imgs = (Array.isArray(req.body.images) ? req.body.images : [])
+    .filter(im => im && im.data)
+    .map(im => ({ data: String(im.data), media_type: im.media_type || 'image/jpeg' }))
+    .slice(0, 6);
+  if (!imgs.length) return res.status(400).json({ error: 'ต้องแนบรูปเอกสารอย่างน้อย 1 รูป' });
+  // ชื่อเครื่องที่มีอยู่แล้ว — ให้โมเดลใช้ชื่อเดิมถ้าหัวเอกสารหมายถึงเครื่องเดียวกัน จะได้ไม่แตกกลุ่มใหม่
+  let known = [];
+  try { known = (await dbAll('SELECT name FROM machines WHERE active = 1 ORDER BY sort_order, name', [])).map(r => r.name); } catch { /* ไม่มีตารางก็ข้าม */ }
+  const knownNote = known.length ? `\n• ชื่อเครื่องจักร/ไลน์ที่มีอยู่แล้วในระบบ: ${known.join(', ')}\n  ถ้าหัวเอกสารหมายถึงตัวเดียวกับในรายการนี้ ให้ตอบ group เป็นชื่อในระบบเพื่อไม่ให้กลุ่มซ้ำซ้อน` : '';
+  const tileNote = imgs.length > 1
+    ? `\n(แนบมา ${imgs.length} รูป — อาจเป็นคนละแผ่น (คนละไลน์) หรือครอปจากแผ่นเดียวกัน ให้ดูหัวเอกสารของแต่ละรูปแล้วแยก group ตามนั้น ห้ามนับแถวซ้ำ)`
+    : '';
+  const prompt = 'นี่คือรูปเอกสาร "เช็คลิสต์ตรวจสอบประจำวัน" ของโรงงานอาหาร ช่วยอ่านทุกแถวในตารางออกมาเป็นข้อมูล\n\n'
+    + 'โครงตารางในเอกสาร: ลำดับ | หัวข้อการตรวจสอบ | มาตรฐานการตรวจสอบ | วิธีการตรวจสอบ | ช่องติ๊กวันที่ 1-31\n\n'
+    + 'กฎการอ่านที่ต้องทำตามเคร่งครัด:\n'
+    + '• อ่านเฉพาะที่เห็นในรูปเท่านั้น ห้ามแต่งเพิ่ม ห้ามสรุปใหม่ ห้ามแก้คำผิด — คงคำเดิมจากเอกสารทุกตัวอักษร\n'
+    + '• ระวังสระ/วรรณยุกต์ไทยที่ตัวเล็ก (ำ ั ิ ี ื ่ ้ ๊ ๋) — ต้องอ่านให้ครบ เช่น "ท่อน้ำดี" ไม่ใช่ "ท่อนดี", "น้ำตาล" ไม่ใช่ "นตาล"\n'
+    + '• ช่องไหนในแถวว่างจริง ๆ ให้ตอบเป็นข้อความว่าง อย่าเดาแทน\n'
+    + '• แถวไหนอ่านไม่ออกหรือไม่มั่นใจ ให้ unclear = true แล้วใส่เท่าที่อ่านได้ — ห้ามเดาให้เต็ม เพราะจะมีคนมาตรวจทานต่อ\n'
+    + '• ช่องติ๊กวันที่ 1-31 ไม่ต้องอ่าน ไม่ต้องตอบกลับมา\n'
+    + '• ข้ามหัวตาราง แถวว่าง และช่องลงชื่อผู้ตรวจท้ายเอกสาร\n'
+    + '• group = ชื่อไลน์/เครื่องจักรจากหัวเอกสารของแผ่นที่แถวนั้นอยู่ ทุกแถวในแผ่นเดียวกันต้องได้ group เดียวกัน'
+    + knownNote + tileNote;
+  try {
+    const resp = await client.messages.create({
+      model: 'claude-opus-5', max_tokens: 16000,
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'medium', format: { type: 'json_schema', schema: READ_ROUTINE_SCHEMA } },
+      messages: [{
+        role: 'user',
+        content: [
+          ...imgs.map(im => ({ type: 'image', source: { type: 'base64', media_type: im.media_type, data: im.data } })),
+          { type: 'text', text: prompt },
+        ],
+      }],
+    });
+    // ปฏิเสธจาก safety classifier = ตอบ 200 พร้อม stop_reason นี้ ต้องเช็คก่อนอ่าน content
+    if (resp.stop_reason === 'refusal') return res.status(422).json({ error: 'โมเดลปฏิเสธคำขอนี้ — ลองใหม่หรือพิมพ์แถวเอง' });
+    const txt = resp.content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
+    let parsed;
+    try { parsed = JSON.parse(txt); }
+    catch { const m = txt.match(/\{[\s\S]*\}/); parsed = m ? JSON.parse(m[0]) : null; }
+    const rows = (parsed && Array.isArray(parsed.rows) ? parsed.rows : [])
+      .map(r => ({
+        group: String(r.group || '').trim(),
+        seq: Number.isFinite(Number(r.seq)) ? Number(r.seq) : 0,
+        title: String(r.title || '').trim(),
+        goal: String(r.goal || '').trim(),
+        method: String(r.method || '').trim(),
+        unclear: r.unclear === true,
+      }))
+      .filter(r => r.title);
+    const u = resp.usage || {};
+    console.log(`[routine-sheet] imgs=${imgs.length} rows=${rows.length} unclear=${rows.filter(r => r.unclear).length} in=${u.input_tokens || 0} out=${u.output_tokens || 0}`);
+    res.json({ count: rows.length, rows });
+  } catch (err) {
+    console.error('[routine-sheet] error', err.message);
+    res.status(500).json({ error: `อ่านเอกสารไม่สำเร็จ: ${err.message}` });
+  }
+});
+
 // รายชื่อผู้รับได้ทั้งหมด (dropdown ในตารางรีวิว)
 app.get('/api/audit/people', (req, res) => {
   res.json({ people: getPeople().map(p => ({ key: p.person_key, name: p.name, role: p.role, color: p.color, dot: p.dot, kind: p.kind || 'shift' })) });
@@ -7512,7 +8001,7 @@ app.post('/api/duty/person/delete', async (req, res) => {
 
 // upsert งาน (node ในเช็กลิสต์) — สร้างใหม่ (บนสุด/เป็นลูก) หรือแก้ชื่อ/mono
 app.post('/api/duty/routine', async (req, res) => {
-  const { id, personKey, parentId, title, mono, sortOrder, machine, goal, ownerRole, coOwnerRole, assigneeKey, freq } = req.body;
+  const { id, personKey, parentId, title, mono, sortOrder, machine, goal, method, ownerRole, coOwnerRole, assigneeKey, freq } = req.body;
   // ช่องของโซนซ่อมบำรุง — ไม่ส่งมา = ไม่แตะของเดิม (งานของทีมกะไม่ได้ใช้ช่องพวกนี้)
   const role = (v) => (['mt', 'op', 'qc', 'pd'].includes(v) ? v : null);
   // ความถี่: ค่านอกรายการ = ทิ้ง (ว่าง = ทุกวัน เหมือนพฤติกรรมเดิม)
@@ -7532,13 +8021,14 @@ app.post('/api/duty/routine', async (req, res) => {
         owner = assigneeKey;
       }
       await db.exec(`UPDATE duty_routines SET person_key = ?, title = ?, mono = ?, sort_order = ?,
-           machine = ?, goal = ?, owner_role = ?, co_owner_role = ?, freq = ? WHERE id = ?`,
+           machine = ?, goal = ?, method = ?, owner_role = ?, co_owner_role = ?, freq = ? WHERE id = ?`,
         // mono ไม่ส่งมา = ไม่แตะของเดิม — ตัวเรียกที่ส่งแค่ title/assigneeKey (ย้ายเจ้าของจากกระดาน)
         // จะได้ไม่ล้างธง mono ของงานเดิมทิ้งเงียบ ๆ
         [owner, title.trim(), mono !== undefined ? (mono ? 1 : 0) : (cur.mono ? 1 : 0),
          sortOrder != null ? sortOrder : cur.sort_order,
          machine !== undefined ? (machine || null) : cur.machine,
          goal !== undefined ? (goal || null) : cur.goal,
+         method !== undefined ? (method || null) : cur.method,
          ownerRole !== undefined ? role(ownerRole) : cur.owner_role,
          coOwnerRole !== undefined ? role(coOwnerRole) : cur.co_owner_role,
          freq !== undefined ? freqOk(freq) : cur.freq, id]);
@@ -7559,10 +8049,10 @@ app.post('/api/duty/routine', async (req, res) => {
     const order = sortOrder != null ? sortOrder : ((maxOrder && maxOrder.m != null ? Number(maxOrder.m) : -1) + 1);
     const r = await dbRun(
       `INSERT INTO duty_routines (person_key, parent_id, node_key, title, mono, sort_order, active, created_at,
-         machine, goal, owner_role, co_owner_role, freq)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+         machine, goal, method, owner_role, co_owner_role, freq)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
       [personKey, parentId || null, nodeKey, title.trim(), mono ? 1 : 0, order, nowBKK(),
-       machine || null, goal || null, role(ownerRole), role(coOwnerRole), freqOk(freq)]);
+       machine || null, goal || null, method || null, role(ownerRole), role(coOwnerRole), freqOk(freq)]);
     invalidateRoutineCache();
     res.json({ success: true, id: r.lastID, nodeKey });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -7902,6 +8392,297 @@ app.post('/api/routine/restore', async (req, res) => {
        WHERE state_date = ? AND assignee = ? AND node_key = ?`,
       [nowBKK(), d, assignee, nodeKey]);
     res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ═══════════════ ใบเช็ก AM รายกะ ═══════════════════════════════════════════
+   1 ใบ = 1 Line ต้ม × 1 กะ × 1 วันทำงาน · ข้อตรวจยกมาจากทะเบียน (duty_routines sheet='am')
+   ต่างจากกระดานเวรตรงที่บันทึก "ผลตรวจ" (ปกติ/ไม่ปกติ+สาเหตุ+รูป) ไม่ใช่แค่ "ทำแล้ว"
+   ช่างเปิดจากลิงก์ใน Telegram บนมือถือ ไม่ต้อง login                                 */
+
+// ไลน์ที่มีใบเช็ก = เครื่องที่มีข้อตรวจ sheet='am' ผูกอยู่ (ไม่ฮาร์ดโค้ดชื่อไลน์)
+async function amLines() {
+  const rows = await dbAll(
+    "SELECT DISTINCT machine FROM duty_routines WHERE sheet = 'am' AND active = 1 AND machine IS NOT NULL AND machine <> '' ORDER BY machine", []);
+  return rows.map(r => r.machine);
+}
+
+const AM_LINE_STATUS = new Set(['inprocess', 'cip', 'idle']);
+
+/* หาใบ (หรือสร้างถ้ายังไม่มี) แล้วคืนแถวเต็ม
+   ⚠️ ต้อง dbGet หา id ใหม่เอง — db.exec ไม่คืน lastID ทั้ง 2 dialect (มีแต่ dbRun)
+      และ ON CONFLICT DO NOTHING ก็ไม่คืนแถวที่มีอยู่แล้วให้                          */
+async function ensureAmSheet(workDay, shift, line, by) {
+  const find = async () => (await dbAll(
+    'SELECT * FROM am_sheets WHERE work_day = ? AND shift = ? AND line = ?', [workDay, shift, line]))[0] || null;
+  let row = await find();
+  if (row) return row;
+  await db.exec(
+    `INSERT INTO am_sheets (work_day, shift, line, status, opened_by, opened_at, updated_at)
+     VALUES (?, ?, ?, 'draft', ?, ?, ?)
+     ON CONFLICT (work_day, shift, line) DO NOTHING`,
+    [workDay, shift, line, by || null, nowBKK(), nowBKK()]);
+  return await find();
+}
+
+// ตรวจ date/shift/line ที่ client ส่งมา — client เลือก server ตรวจเสมอ
+async function amCheckArgs(q) {
+  const date = String(q.date || '') || workDayBKK();
+  const line = String(q.line || '').trim();
+  const shift = String(q.shift || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: 'วันที่ไม่ถูกต้อง' };
+  if (!line) return { error: 'line จำเป็น' };
+  if (!(await amLines()).includes(line)) return { error: `ไม่พบใบเช็กของ "${line}"` };
+  if (!amShift.isValidShift(date, shift)) {
+    return { error: `กะ "${shift}" ไม่ตรงกับตารางกะของวันที่ ${date} (รับได้: ${amShift.allowedShifts(date).join(', ')})` };
+  }
+  return { date, shift, line };
+}
+
+/* ประกอบใบ = ทะเบียน (แม่แบบ) + ผลตรวจที่บันทึกไว้ (overlay)
+   ลด egress: ไม่คืน base64 ของรูปในลิสต์ ส่งแค่ธง hasPhoto ให้ client โหลดทีหลัง
+   (แพทเทิร์นเดียวกับ buildDuty — รูปแนบทำ payload บวมเร็วมาก)                        */
+async function buildAmSheet(workDay, shift, line, by) {
+  const sheet = await ensureAmSheet(workDay, shift, line, by);
+  const routines = await dbAll(
+    `SELECT id, node_key, title, goal, method, sort_order
+       FROM duty_routines WHERE sheet = 'am' AND active = 1 AND machine = ?
+      ORDER BY sort_order, id`, [line]);
+  const saved = await dbAll(
+    `SELECT node_key, result, cause, checked_by, updated_at,
+       CASE WHEN photo IS NULL OR photo = '' THEN 0 ELSE 1 END AS has_photo,
+       CASE WHEN photo LIKE 'http%' THEN photo ELSE NULL END AS photo_url
+     FROM am_sheet_items WHERE sheet_id = ?`, [sheet.id]);
+  const bykey = {};
+  for (const r of saved) bykey[r.node_key] = r;
+  const items = routines.map((r, i) => {
+    const st = bykey[r.node_key] || {};
+    return {
+      seq: i + 1, nodeKey: r.node_key, routineId: r.id,
+      title: r.title, goal: r.goal || '', method: r.method || '',
+      result: st.result || null, cause: st.cause || '',
+      hasPhoto: !!st.has_photo, photoUrl: st.photo_url || null,
+      checkedBy: st.checked_by || '', updatedAt: st.updated_at || '',
+    };
+  });
+  const ok = items.filter(i => i.result === 'ok').length;
+  const ng = items.filter(i => i.result === 'ng').length;
+  return {
+    sheet: {
+      id: sheet.id, workDay: sheet.work_day, shift: sheet.shift, line: sheet.line,
+      lineStatus: sheet.line_status || '', status: sheet.status || 'draft',
+      submittedBy: sheet.submitted_by || '', submittedAt: sheet.submitted_at || '',
+    },
+    shifts: amShift.allowedShifts(sheet.work_day),
+    items,
+    summary: { total: items.length, ok, ng, left: items.length - ok - ng },
+  };
+}
+
+// เปิดใบ (หน้าเว็บ/แอดมิน) — ต้องระบุ date/shift/line เอง
+app.get('/api/am-sheet', async (req, res) => {
+  try {
+    const a = await amCheckArgs(req.query);
+    if (a.error) return res.status(400).json({ error: a.error });
+    res.json(await buildAmSheet(a.date, a.shift, a.line, req.query.by));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* เปิดจากลิงก์ใน Telegram — เซิร์ฟเวอร์หาวันทำงาน+กะปัจจุบันให้เอง
+   ช่างกดลิงก์เดียวได้ทั้งกะเช้า/บ่าย/ดึก ไม่ต้องมีลิงก์แยกต่อกะ                        */
+app.get('/api/am-sheet/open/:token', async (req, res) => {
+  try {
+    const link = (await dbAll('SELECT * FROM am_sheet_links WHERE token = ? AND active = 1', [req.params.token]))[0];
+    if (!link) return res.status(404).json({ error: 'ลิงก์นี้ใช้ไม่ได้แล้ว — ขอลิงก์ใหม่จากหัวหน้า' });
+    const bkk = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' });
+    const info = amShift.shiftInfo(bkk.slice(0, 10), Number(bkk.slice(11, 13)));
+    const shift = info.shift || 'OT';        // นอกเวลากะ (เช่นเสาร์) ยังกรอกได้ในชื่อ OT
+    await db.exec('UPDATE am_sheet_links SET last_used_at = ? WHERE token = ?', [nowBKK(), req.params.token]);
+    const data = await buildAmSheet(info.workDay, shift, link.line, req.query.by);
+    res.json({ ...data, token: req.params.token, holiday: info.holiday });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// สถานะไลน์ระหว่างกะ — บันทึกไว้เฉย ๆ ไม่ซ่อนข้อตรวจ (ตามที่เคาะไว้)
+app.post('/api/am-sheet/line-status', async (req, res) => {
+  if (rateLimited(req.ip, 60, 60000, 'amsheet-line')) return res.status(429).json({ error: 'เรียกถี่เกินไป รอสักครู่' });
+  try {
+    const a = await amCheckArgs(req.body || {});
+    if (a.error) return res.status(400).json({ error: a.error });
+    const st = String((req.body || {}).status || '');
+    if (!AM_LINE_STATUS.has(st)) return res.status(400).json({ error: 'สถานะไลน์ไม่ถูกต้อง' });
+    const sheet = await ensureAmSheet(a.date, a.shift, a.line, (req.body || {}).by);
+    await db.exec('UPDATE am_sheets SET line_status = ?, updated_at = ? WHERE id = ?', [st, nowBKK(), sheet.id]);
+    res.json({ success: true, lineStatus: st });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* บันทึกผลตรวจ 1 ข้อ
+   result: 'ok' ปกติ · 'ng' ไม่ปกติ (บังคับมี cause) · null = ล้างกลับเป็นยังไม่ตรวจ
+   เปลี่ยนจาก ng → ok ต้องล้าง cause/photo ไม่งั้นเหลือสาเหตุค้างอยู่บนข้อที่บอกว่าปกติ   */
+app.post('/api/am-sheet/item', async (req, res) => {
+  if (rateLimited(req.ip, 300, 60000, 'amsheet-item')) return res.status(429).json({ error: 'เรียกถี่เกินไป รอสักครู่' });
+  const b = req.body || {};
+  try {
+    const a = await amCheckArgs(b);
+    if (a.error) return res.status(400).json({ error: a.error });
+    const nodeKey = String(b.nodeKey || '').trim();
+    if (!nodeKey) return res.status(400).json({ error: 'nodeKey จำเป็น' });
+    const routine = (await dbAll(
+      "SELECT id, title FROM duty_routines WHERE sheet = 'am' AND active = 1 AND node_key = ? AND machine = ?",
+      [nodeKey, a.line]))[0];
+    if (!routine) return res.status(404).json({ error: 'ไม่พบข้อตรวจนี้ในทะเบียนของไลน์นี้' });
+
+    const result = b.result === 'ok' || b.result === 'ng' ? b.result : null;
+    const cause = result === 'ng' ? String(b.cause || '').trim() : null;
+    if (result === 'ng' && !cause) {
+      return res.status(400).json({ error: 'ข้อที่ไม่ปกติต้องระบุสาเหตุด้วย' });
+    }
+    // รับทั้ง URL (อัป Supabase แล้ว) และ data: (เครื่องไม่มี Supabase) — ยกกติกาจาก /api/routine/photo
+    let photo = result === 'ng' ? (typeof b.photo === 'string' ? b.photo : '') : '';
+    if (photo && !(photo.startsWith('http') || photo.startsWith('data:'))) {
+      return res.status(400).json({ error: 'รูปไม่ถูกต้อง — ลองแนบใหม่อีกครั้ง' });
+    }
+    const sheet = await ensureAmSheet(a.date, a.shift, a.line, b.by);
+    if ((sheet.status || 'draft') === 'submitted') {
+      return res.status(409).json({ error: 'ใบนี้ส่งรายงานไปแล้ว แก้ไม่ได้' });
+    }
+    await db.exec(
+      `INSERT INTO am_sheet_items (sheet_id, node_key, routine_id, title, result, cause, photo, photo_at, checked_by, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (sheet_id, node_key) DO UPDATE SET
+         result = EXCLUDED.result, cause = EXCLUDED.cause, photo = EXCLUDED.photo,
+         photo_at = EXCLUDED.photo_at, checked_by = EXCLUDED.checked_by, updated_at = EXCLUDED.updated_at`,
+      [sheet.id, nodeKey, routine.id, routine.title, result, cause, photo || null,
+       photo ? nowBKK() : null, b.by || null, nowBKK()]);
+    await db.exec('UPDATE am_sheets SET updated_at = ? WHERE id = ?', [nowBKK(), sheet.id]);
+    // คืนแค่ยอดสรุป ไม่คืนทั้งใบ — ช่างแตะ 15-17 ครั้งต่อกะบนเน็ตมือถือ (ลด egress)
+    const cnt = await dbAll(
+      "SELECT result, COUNT(*) AS n FROM am_sheet_items WHERE sheet_id = ? AND result IS NOT NULL GROUP BY result",
+      [sheet.id]);
+    const nOf = (k) => Number((cnt.find(x => x.result === k) || {}).n || 0);
+    const total = (await dbAll(
+      "SELECT COUNT(*) AS n FROM duty_routines WHERE sheet = 'am' AND active = 1 AND machine = ?", [a.line]))[0].n;
+    const ok = nOf('ok'), ng = nOf('ng');
+    res.json({ success: true, summary: { total: Number(total), ok, ng, left: Number(total) - ok - ng } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ส่งรายงาน — ปิดใบ แล้วเปิดใบแจ้งซ่อมให้ข้อที่ "ไม่ปกติ"
+   ทำตอนกดส่งเท่านั้น ไม่ใช่ตอนติ๊ก (ให้ช่างกรอกสาเหตุ+รูปให้ครบก่อน)
+   🔑 กันเปิดใบซ้ำด้วย ref_key = 'am:<ไลน์>:<nodeKey>' — ห้ามใส่วันที่/กะลงใน key
+      เพราะข้อเดิมของไลน์เดิมที่ยังไม่ปิด ต้องเป็นใบเดียวกันข้ามกะ (เจอซ้ำ = ต่อในใบเดิม) */
+const amRefKey = (line, nodeKey) => `am:${line}:${nodeKey}`;
+
+async function amOpenRepairs(sheet, items, by) {
+  const opened = [], repeated = [];
+  for (const it of items.filter(x => x.result === 'ng')) {
+    const refKey = amRefKey(sheet.line, it.nodeKey);
+    const cur = (await dbAll(
+      "SELECT id, symptom FROM incidents WHERE ref_key = ? AND COALESCE(status, 'open') <> 'closed' ORDER BY id DESC",
+      [refKey]))[0];
+    const when = `${sheet.workDay} กะ${sheet.shift}`;
+    if (cur) {
+      // ไม่เปิดใบใหม่ — ต่อบันทึกลงใบเดิม แล้วเด้งการ์ดในกลุ่มให้เห็นว่าเจอซ้ำ
+      const add = `\n— เจอซ้ำ ${when} โดย ${by || 'ไม่ระบุ'}: ${it.cause}`;
+      await db.exec('UPDATE incidents SET symptom = ?, updated_at = ? WHERE id = ?',
+        [String(cur.symptom || '') + add, nowBKK(), cur.id]);
+      await bumpRepairCard(cur.id);
+      repeated.push({ id: cur.id, title: it.title });
+      continue;
+    }
+    // รูปต้องเป็น URL เท่านั้น (POST /api/incidents ปฏิเสธ data:) — อัปไม่ผ่านก็เปิดใบโดยไม่มีรูป
+    const imgs = it.photoUrl ? [it.photoUrl] : [];
+    const r = await createIncidentRow({
+      title: it.title, machine: sheet.line, lineName: sheet.line,
+      operator: by || null, occurredAt: sheet.workDay,
+      symptom: `[ใบเช็ก AM ${when}] ${it.cause}`,
+      images: imgs, priority: 'warn', source: 'amsheet', refKey,
+    });
+    opened.push({ id: r.id, title: it.title });
+  }
+  return { opened, repeated };
+}
+
+app.post('/api/am-sheet/submit', async (req, res) => {
+  if (rateLimited(req.ip, 30, 60000, 'amsheet-submit')) return res.status(429).json({ error: 'เรียกถี่เกินไป รอสักครู่' });
+  const b = req.body || {};
+  try {
+    const a = await amCheckArgs(b);
+    if (a.error) return res.status(400).json({ error: a.error });
+    const by = String(b.by || '').trim();
+    if (!by) return res.status(400).json({ error: 'ต้องระบุชื่อผู้รายงาน' });
+    const data = await buildAmSheet(a.date, a.shift, a.line, by);
+    if (data.sheet.status === 'submitted') {
+      return res.json({ success: true, alreadySubmitted: true, ...data });
+    }
+    if (data.summary.left > 0) {
+      return res.status(400).json({ error: `ยังตรวจไม่ครบ เหลืออีก ${data.summary.left} ข้อ` });
+    }
+    await db.exec(
+      "UPDATE am_sheets SET status = 'submitted', submitted_by = ?, submitted_at = ?, updated_at = ? WHERE id = ?",
+      [by, nowBKK(), nowBKK(), data.sheet.id]);
+
+    const { opened, repeated } = await amOpenRepairs(data.sheet, data.items, by);
+
+    /* แจ้งเข้ากลุ่มช่าง — รอบนี้เป็นข้อความธรรมดา (การ์ดรูป PNG เป็นงานรอบหน้า)
+       ⚠️ sendMessage ของ Telegram จำกัด 4096 ตัวอักษร และโปรเจกต์นี้ไม่มีที่ไหนจัดการลิมิตนี้เลย
+          จึงส่งเฉพาะข้อไม่ปกติ สูงสุด 10 ข้อ แล้วสรุปที่เหลือเป็นตัวเลข                        */
+    const ngItems = data.items.filter(x => x.result === 'ng');
+    const L = [
+      `📋 <b>ใบเช็ก AM — ${escapeHtml(a.line)}</b>`,
+      `${a.date} · กะ${escapeHtml(a.shift)} · โดย ${escapeHtml(by)}`,
+      `━━━━━━━━━━━━━━━━`,
+      `✅ ปกติ ${data.summary.ok}　⚠️ ไม่ปกติ ${data.summary.ng}　รวม ${data.summary.total} ข้อ`,
+    ];
+    if (ngItems.length) {
+      L.push('', '<b>ข้อที่ไม่ปกติ</b>');
+      for (const it of ngItems.slice(0, 10)) {
+        L.push(`• ${escapeHtml(it.title)}`);
+        L.push(`　${escapeHtml(String(it.cause).slice(0, 160))}`);
+      }
+      if (ngItems.length > 10) L.push(`… และอีก ${ngItems.length - 10} ข้อ (ดูในแอป)`);
+    }
+    if (opened.length) L.push('', `🆘 เปิดใบแจ้งซ่อมใหม่ ${opened.length} ใบ: ${opened.map(x => '#' + x.id).join(' ')}`);
+    if (repeated.length) L.push(`🔁 เจอซ้ำ ต่อในใบเดิม ${repeated.length} ใบ: ${repeated.map(x => '#' + x.id).join(' ')}`);
+    try { await notify('duty', L.join('\n')); } catch (e) { console.error('[amsheet] แจ้งกลุ่มไม่สำเร็จ', e.message); }
+
+    res.json({ success: true, opened, repeated, ...(await buildAmSheet(a.date, a.shift, a.line, by)) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ออกลิงก์สาธารณะของไลน์ (1 ลิงก์ใช้ได้ทุกกะ) — ปักหมุดในกลุ่มช่างได้
+app.post('/api/am-sheet/link', async (req, res) => {
+  const b = req.body || {};
+  const line = String(b.line || '').trim();
+  try {
+    if (!(await amLines()).includes(line)) return res.status(400).json({ error: 'ไม่พบไลน์นี้' });
+    const cur = (await dbAll('SELECT token FROM am_sheet_links WHERE line = ? AND active = 1', [line]))[0];
+    let token = cur && cur.token;
+    if (!token) {
+      token = crypto.randomBytes(12).toString('hex');
+      await db.exec('INSERT INTO am_sheet_links (token, line, created_by, created_at, active) VALUES (?, ?, ?, ?, 1)',
+        [token, line, b.by || null, nowBKK()]);
+    }
+    const base = String(process.env.PUBLIC_WEB_URL || b.baseUrl || '').replace(/\/$/, '');
+    const url = base ? `${base}/?amsheet=${token}` : `/?amsheet=${token}`;
+    if (b.sendToGroup && base) {
+      try {
+        await notify('duty', `📋 <b>ใบเช็ก AM — ${escapeHtml(line)}</b>\n\nเปิดกรอกได้ที่ลิงก์นี้ (ใช้ได้ทุกกะ)\n${url}`);
+      } catch (e) { console.error('[amsheet] ส่งลิงก์เข้ากลุ่มไม่สำเร็จ', e.message); }
+    }
+    res.json({ success: true, token, url });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// โหลดรูปทีหลัง (คู่แฝดของ /api/routine/image) — ไม่ลากรูปมากับลิสต์
+app.get('/api/am-sheet/image', async (req, res) => {
+  const { sheetId, nodeKey } = req.query;
+  if (!sheetId || !nodeKey) return res.status(400).json({ error: 'sheetId/nodeKey จำเป็น' });
+  try {
+    const row = (await dbAll('SELECT photo FROM am_sheet_items WHERE sheet_id = ? AND node_key = ?',
+      [sheetId, nodeKey]))[0];
+    res.json({ image: (row && row.photo) || null });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -9291,12 +10072,14 @@ app.get('/api/quality/history', async (req, res) => {
 async function insertIncidentRow(row) {
   const r = await dbRun(
     `INSERT INTO incidents (title, machine, line_name, batch_id, operator, occurred_at,
-       symptom, cause, fix, result, status, images, result_images, down_from, down_to, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       symptom, cause, fix, result, status, images, result_images, down_from, down_to,
+       source, ref_key, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [row.title, row.machine || null, row.line_name || null, row.batch_id || null, row.operator || null,
      row.occurred_at || todayBKK(), row.symptom || null, row.cause || null, row.fix || null, row.result || null,
      row.status || 'open', row.images || null, row.result_images || null,
-     row.down_from || null, row.down_to || null, nowBKK(), nowBKK()]);
+     row.down_from || null, row.down_to || null,
+     incSource(row.source, 'ai'), row.ref_key || null, nowBKK(), nowBKK()]);
   const id = r.lastID;
   const sync = await syncIncident({ ...row, id });
   if (sync.path) await db.exec('UPDATE incidents SET vault_path = ? WHERE id = ?', [sync.path, id]);
@@ -10120,11 +10903,13 @@ async function incMachineKeyboard() {
 async function createIncidentRow(row) {
   const r = await dbRun(
     `INSERT INTO incidents (title, machine, line_name, batch_id, operator, occurred_at,
-       symptom, cause, fix, result, status, images, result_images, down_from, down_to, priority, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [row.title, row.machine || null, null, null, row.operator || null, row.occurredAt || todayBKK(),
+       symptom, cause, fix, result, status, images, result_images, down_from, down_to, priority,
+       source, ref_key, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [row.title, row.machine || null, row.lineName || null, null, row.operator || null, row.occurredAt || todayBKK(),
      row.symptom || null, null, null, null, 'open', photoJson(row.images), photoJson([]),
-     row.downFrom || null, null, row.priority || null, nowBKK(), nowBKK()]);
+     row.downFrom || null, null, row.priority || null,
+     incSource(row.source, 'bot'), row.refKey || null, nowBKK(), nowBKK()]);
   const id = r.lastID;
   const sync = await syncIncident({ ...row, id, images: photoJson(row.images), result_images: photoJson([]), status: 'open',
     occurred_at: row.occurredAt || todayBKK(), symptom: row.symptom || null });
@@ -10469,14 +11254,30 @@ async function postRepairCard(id, chatId) {
 }
 
 // แก้การ์ดเดิมให้ตรงกับสถานะล่าสุด (ไม่มีการ์ดเดิม = ข้ามเงียบ ๆ)
+/* ⚠️ เรียกจาก HTTP endpoint ตรง ๆ ไม่ได้ — ต้องผ่าน bumpRepairCard() ข้างล่างเท่านั้น
+   tgApi อ่าน token/chat จาก botCtx (AsyncLocalStorage) ถ้าไม่มี store จะตกไปบอทหลัก
+   = ไปแก้ข้อความในกลุ่มผลิตด้วย message_id ที่ไม่มีอยู่จริง แล้วพังเงียบ           */
 async function refreshRepairCard(id) {
   const row = await getIncident(id);
-  if (!row || !row.card_chat_id || !row.card_msg_id) return;
+  if (!row || !row.card_chat_id || !row.card_msg_id) return false;   // ใบนี้ไม่ได้เปิดจากกลุ่ม
   const card = repairCard(row);
   await tgApi('editMessageText', {
     chat_id: row.card_chat_id, message_id: Number(row.card_msg_id),
     text: card.text, parse_mode: 'HTML', reply_markup: { inline_keyboard: card.keyboard },
   });
+  return true;
+}
+
+/* เด้งการ์ดในกลุ่มจากฝั่ง HTTP — จุดเดียวในระบบที่รู้เรื่อง bot context
+   คืน 'edited' | 'no-card' | 'failed' เพื่อให้หน้าเว็บบอกผู้ใช้ได้ตรง ๆ ว่ากลุ่มเห็นแล้วหรือยัง
+   (ผิดพลาดตรงนี้มองจากหน้าเว็บไม่เห็นเลย เพราะ tgApi กลืน error แล้ว endpoint ยังตอบ 200) */
+async function bumpRepairCard(id) {
+  try {
+    return (await inTopic('incident', () => refreshRepairCard(id))) ? 'edited' : 'no-card';
+  } catch (e) {
+    console.error('[repair-card] refresh ไม่สำเร็จ', id, e.message);
+    return 'failed';
+  }
 }
 
 /* ── งาน PM (งานที่วางแผนไว้ล่วงหน้า) ────────────────────────────────────

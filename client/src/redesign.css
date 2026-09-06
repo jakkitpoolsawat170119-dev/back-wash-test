@@ -32,6 +32,24 @@
   --shadow-float:0 2px 4px rgba(63,37,10,.08),0 16px 40px -12px rgba(63,37,10,.22);
   --font-head:'Kanit',sans-serif;
   --font-body:'Sarabun',sans-serif;
+  /* ── ผิวและเส้นระดับรอง (หน้าเหตุการณ์) ── */
+  --surface-2:#fbf7f3;
+  --surface-3:#fdfbf9;
+  --row-line:#f5efe9;
+  --muted:#a49a90;
+  --sep:#d8cabb;
+  --danger-soft-bg:#fdecea;
+  --danger-soft-line:#f7d9d5;
+  --warn-soft-bg:#fff6e6;
+  /* ── ความเร่งด่วนใบแจ้งซ่อม — ต้องตรงกับ SR_PRIO ในบอท (stop/warn/low)
+        ให้สีที่หัวหน้าเห็นในเว็บตรงกับที่ทีมเห็นใน Telegram ── */
+  --p-stop:#c62828;  --p-stop-w:#fdecea;
+  --p-warn:#c77700;  --p-warn-w:#fff6e6;
+  --p-low:#1c8a4c;   --p-low-w:#e6f4ec;
+  /* ── สถานะใบ — SR_STATUS (open/wip/closed) ── */
+  --s-open:#c62828;
+  --s-wip:#0277bd;   --s-wip-w:#e1f2fb;
+  --s-closed:#1c8a4c;
 }
 
 /* base + scoped reset (0-specificity so legacy inline/class styles win) */
