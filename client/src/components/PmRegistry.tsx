@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import RoutineSheetImport from './RoutineSheetImport';
 
+import AmSheetHistory from './AmSheetHistory';
+
 const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
 
 /* ทะเบียน "งานรูทีน" ฝั่งซ่อมบำรุง — ตารางแม่ของเช็กลิสต์ประจำ
@@ -89,6 +91,7 @@ const PmRegistry: React.FC = () => {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [amLink, setAmLink] = useState<{ line: string; url: string } | null>(null);
+  const [amHistory, setAmHistory] = useState(false);   // เปิดตารางย้อนหลังรายเดือนอยู่ไหม
 
   const load = useCallback(async () => {
     try {
@@ -326,6 +329,11 @@ const PmRegistry: React.FC = () => {
                 🔗 ลิงก์ {line}
               </button>
             ))}
+            <span style={{ flex: 1 }} />
+            <button onClick={() => setAmHistory(v => !v)}
+              style={{ ...btn, ...(amHistory ? { background: '#2b2119', borderColor: '#2b2119', color: '#fff' } : {}) }}>
+              📅 ดูใบเช็กย้อนหลัง
+            </button>
           </div>
           {amLink && (
             <div style={{ marginTop: 10, background: '#fff', border: '1px solid var(--line,#eee3d9)', borderRadius: 10, padding: '9px 12px' }}>
@@ -343,6 +351,10 @@ const PmRegistry: React.FC = () => {
             </div>
           )}
         </div>
+      )}
+
+      {amHistory && amLines.length > 0 && (
+        <AmSheetHistory lines={amLines} onClose={() => setAmHistory(false)} />
       )}
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>

@@ -8557,6 +8557,140 @@ app.get('/api/am-sheet/open/:token', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══════════ ดูใบเช็กย้อนหลัง — มุมมองรายเดือน (ตารางเหมือนใบกระดาษ) ═══════════
+   ตอบคำถามที่ใบกระดาษเคยตอบได้แต่ระบบยังตอบไม่ได้: "เดือนนี้กะไหนไม่มีใครกรอกบ้าง"
+   1 แถว = 1 วันทำงาน · 1 ช่อง = 1 กะ (จ–พฤ 3 กะ · ศ/อา 2 กะ · เสาร์ปกติหยุด)
+
+   🔴 ห้ามเรียก buildAmSheet/ensureAmSheet ตรงนี้เด็ดขาด — สองตัวนั้น "เปิดใบให้ถ้ายังไม่มี"
+      เปิดดูย้อนหลังเดือนเดียวจะสร้างใบร่างเปล่าเป็นร้อยใบ แล้ว **ช่องว่างที่แปลว่า
+      "กะนั้นไม่มีใครกรอก" จะกลายเป็นใบร่างทั้งเดือน** = ตัวเลขที่ต้องใช้ตามงานหายเกลี้ยง
+      (เส้นนี้อ่านอย่างเดียวล้วน ๆ ทุกคำสั่ง)                                            */
+const daysInMonth = (month) => {
+  const [y, m] = month.split('-').map(Number);
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+};
+
+async function buildAmMonth(month, line) {
+  const nDays = daysInMonth(month);
+  const first = `${month}-01`;
+  const last = `${month}-${String(nDays).padStart(2, '0')}`;
+  const sheets = await dbAll(
+    `SELECT id, work_day, shift, line_status, status, submitted_by, submitted_at
+       FROM am_sheets WHERE line = ? AND work_day >= ? AND work_day <= ?`, [line, first, last]);
+
+  // นับผลตรวจของทุกใบในเดือนด้วยคำสั่งเดียว — ยิงทีละใบคือ 90 คำสั่งต่อการเปิดหน้า 1 ครั้ง
+  const counts = sheets.length
+    ? await dbAll(
+      `SELECT sheet_id, result, COUNT(*) AS n FROM am_sheet_items
+        WHERE result IS NOT NULL AND sheet_id IN (${sheets.map(() => '?').join(',')})
+        GROUP BY sheet_id, result`, sheets.map(s => s.id))
+    : [];
+  const cnt = {};
+  for (const c of counts) {
+    const k = String(c.sheet_id);
+    cnt[k] = cnt[k] || { ok: 0, ng: 0 };
+    if (c.result === 'ok' || c.result === 'ng') cnt[k][c.result] = Number(c.n) || 0;
+  }
+  // จำนวนข้อตรวจ "ตอนนี้" ของไลน์นี้ — ใบที่ส่งแล้วใช้ยอดของใบเองแทน (ทะเบียนอาจถูกแก้ทีหลัง)
+  const total = Number((await dbGet(
+    "SELECT COUNT(*) AS n FROM duty_routines WHERE sheet = 'am' AND active = 1 AND machine = ?", [line]))?.n || 0);
+
+  const byKey = {};
+  for (const sh of sheets) byKey[`${sh.work_day}|${sh.shift}`] = sh;
+
+  const days = [];
+  let filled = 0, expected = 0, ngTotal = 0;
+  for (let d = 1; d <= nDays; d++) {
+    const date = `${month}-${String(d).padStart(2, '0')}`;
+    const wd = amShift.weekdayOf(date);
+    const planned = amShift.shiftsForWeekday(wd).map(x => x.key);
+    /* เสาร์ (หรือวันที่ไม่มีกะ) ไม่นับเป็น "ขาด" แต่ถ้ามีคนมาทำ OT แล้วกรอกไว้ ต้องโชว์
+       ไม่งั้นใบที่กรอกจริงหายไปจากตารางเฉย ๆ ซึ่งแย่กว่าตารางมีช่องเกิน                */
+    const extra = sheets.filter(x => x.work_day === date && !planned.includes(x.shift)).map(x => x.shift);
+    const shiftKeys = [...planned, ...Array.from(new Set(extra))];
+    const cells = shiftKeys.map(shift => {
+      const sh = byKey[`${date}|${shift}`];
+      const isPlanned = planned.includes(shift);
+      if (isPlanned) expected += 1;
+      if (!sh) return { shift, planned: isPlanned, state: 'none' };
+      const c = cnt[String(sh.id)] || { ok: 0, ng: 0 };
+      const answered = c.ok + c.ng;
+      const submitted = (sh.status || 'draft') === 'submitted';
+      if (submitted && isPlanned) filled += 1;
+      ngTotal += c.ng;
+      return {
+        shift, planned: isPlanned, id: sh.id,
+        state: submitted ? (c.ng > 0 ? 'ng' : 'ok') : 'draft',
+        ok: c.ok, ng: c.ng, answered,
+        total: submitted ? answered : total,
+        lineStatus: sh.line_status || '',
+        submittedBy: sh.submitted_by || '', submittedAt: sh.submitted_at || '',
+      };
+    });
+    days.push({ day: d, date, weekday: wd, holiday: planned.length === 0, cells });
+  }
+  return { month, line, days, summary: { expected, filled, missing: expected - filled, ng: ngTotal, total } };
+}
+
+// ตารางรายเดือนของไลน์เดียว — อ่านอย่างเดียว ไม่เปิดใบใหม่
+app.get('/api/am-sheet/month', async (req, res) => {
+  try {
+    const month = String(req.query.month || '').trim() || workDayBKK().slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(month)) return res.status(400).json({ error: 'เดือนต้องเป็นรูปแบบ YYYY-MM' });
+    const lines = await amLines();
+    const line = String(req.query.line || '').trim() || lines[0] || '';
+    if (!line) return res.json({ month, line: '', lines, days: [], summary: { expected: 0, filled: 0, missing: 0, ng: 0, total: 0 } });
+    if (!lines.includes(line)) return res.status(400).json({ error: `ไม่พบใบเช็กของ "${line}"` });
+    res.json({ ...(await buildAmMonth(month, line)), lines });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* เปิดดูใบที่กรอกไปแล้ว 1 ใบ — อ่านอย่างเดียว
+   อ่านหัวข้อจาก am_sheet_items (snapshot ตอนกรอก) ไม่ใช่จากทะเบียนปัจจุบัน
+   ทะเบียนถูกแก้/ลบทีหลังได้ ใบเก่าต้องยังอ่านรู้เรื่องว่าวันนั้นตรวจอะไรไปบ้าง            */
+app.get('/api/am-sheet/view', async (req, res) => {
+  try {
+    const id = Number(req.query.id);
+    if (!id) return res.status(400).json({ error: 'id จำเป็น' });
+    const sheet = await dbGet('SELECT * FROM am_sheets WHERE id = ?', [id]);
+    if (!sheet) return res.status(404).json({ error: 'ไม่พบใบนี้' });
+    const rows = await dbAll(
+      `SELECT node_key, title, result, cause, checked_by, updated_at,
+         CASE WHEN photo IS NULL OR photo = '' THEN 0 ELSE 1 END AS has_photo,
+         CASE WHEN photo LIKE 'http%' THEN photo ELSE NULL END AS photo_url
+       FROM am_sheet_items WHERE sheet_id = ?`, [id]);
+    // เรียงตามลำดับในทะเบียน ข้อที่ถูกลบออกจากทะเบียนแล้วไปต่อท้าย (ยังต้องเห็น)
+    const ord = {};
+    for (const r of await dbAll(
+      "SELECT node_key, sort_order, id FROM duty_routines WHERE sheet = 'am' AND machine = ?", [sheet.line])) {
+      ord[r.node_key] = Number(r.sort_order ?? r.id ?? 0);
+    }
+    const items = rows
+      .map(r => ({
+        nodeKey: r.node_key, title: r.title || r.node_key,
+        result: r.result || null, cause: r.cause || '',
+        hasPhoto: !!r.has_photo, photoUrl: r.photo_url || null,
+        checkedBy: r.checked_by || '', updatedAt: r.updated_at || '',
+        gone: !(r.node_key in ord),            // ข้อนี้ถูกเอาออกจากทะเบียนไปแล้ว
+      }))
+      .sort((a, b) => (ord[a.nodeKey] ?? 1e9) - (ord[b.nodeKey] ?? 1e9))
+      .map((x, i) => ({ seq: i + 1, ...x }));
+    res.json({
+      sheet: {
+        id: sheet.id, workDay: sheet.work_day, shift: sheet.shift, line: sheet.line,
+        lineStatus: sheet.line_status || '', status: sheet.status || 'draft',
+        submittedBy: sheet.submitted_by || '', submittedAt: sheet.submitted_at || '',
+      },
+      items,
+      summary: {
+        total: items.length,
+        ok: items.filter(i => i.result === 'ok').length,
+        ng: items.filter(i => i.result === 'ng').length,
+      },
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // สถานะไลน์ระหว่างกะ — บันทึกไว้เฉย ๆ ไม่ซ่อนข้อตรวจ (ตามที่เคาะไว้)
 app.post('/api/am-sheet/line-status', async (req, res) => {
   if (rateLimited(req.ip, 60, 60000, 'amsheet-line')) return res.status(429).json({ error: 'เรียกถี่เกินไป รอสักครู่' });
