@@ -589,6 +589,12 @@ const REPAIR_STATUS = {
   closed: { label: 'ปิดงานแล้ว', color: C.good },
 };
 
+// "2 ชม. 15 น." — แฝดกับ downLabel() ใน index.js แต่การ์ดต้องคำนวณเองจากนาทีของแต่ละแถบ
+const fmtMin = (min) => {
+  const h = Math.floor(min / 60), m = min % 60;
+  return h ? `${h} ชม.${m ? ` ${m} น.` : ''}` : `${m} น.`;
+};
+
 function buildRepairCardSVG(d) {
   const el = [];
   const push = (s) => el.push(s);
@@ -655,11 +661,40 @@ function buildRepairCardSVG(d) {
   };
   if (d.symptom) block('อาการที่แจ้ง', d.symptom, C.dim, 4);
 
+  /* ── แถบเวลาเครื่องหยุด — เทียบกับครั้งก่อน ๆ ของอาการเดียวกัน ────────────
+     ตัวเลข "หยุด 1 ชม. 20 น." ลอย ๆ ไม่บอกว่ามากหรือน้อย ต้องมีอะไรให้เทียบ
+     สเกลของแถบ = ครั้งที่นานที่สุดในกลุ่ม → แถบยาวเต็ม = สถิติแย่ที่สุดเท่าที่เคยเจอ
+     ผู้เรียกส่ง downBars มาเฉพาะตอนมีครั้งก่อนให้เทียบจริง ไม่มีก็ตกไปใช้แถวตัวเลขข้างล่าง */
+  const bars = Array.isArray(d.downBars) ? d.downBars.filter(b => b && b.mins != null) : [];
+  if (bars.length >= 2) {
+    const max = Math.max(...bars.map(b => b.mins)) || 1;
+    y += 13;
+    push(text(PX, y + 10, 11.5, 700, C.dim, 'เวลาเครื่องหยุด'));
+    push(text(W - PX, y + 10, 10.5, 500, C.dim, 'เทียบครั้งก่อน ๆ', 'end'));
+    y += 20;
+    for (const b of bars) {
+      const h = b.me ? 12 : 8;
+      /* ⚠️ แถบครั้งก่อนห้ามใช้ C.line — เข้มเกือบเท่าราง (C.surf2) จนแถบที่ยาวเต็มดูเหมือนไม่มีแถบ
+         (เจอตอนดูรูปที่เรนเดอร์จริง: ครั้งที่นานที่สุดกลับเป็นแถบที่มองไม่เห็นที่สุด) */
+      const tint = b.me ? prio.color : C.dim;
+      // ป้ายกับตัวเลขอยู่ "เหนือ" แถบของตัวเอง — วางใต้แถบแล้วอ่านเหมือนเป็นของแถบถัดไป
+      push(text(PX, y + 9, 11, b.me ? 700 : 500, b.me ? C.ink : C.dim, b.label));
+      push(text(W - PX, y + 9, b.me ? 13 : 11.5, b.me ? 800 : 600, b.me ? C.ink : C.dim, fmtMin(b.mins), 'end'));
+      y += 14;
+      const w = Math.max(3, Math.round((b.mins / max) * fullW));
+      push(`<rect x="${PX}" y="${y}" width="${fullW}" height="${h}" rx="${h / 2}" fill="${C.surf2}"/>`);
+      push(`<rect x="${PX}" y="${y}" width="${w}" height="${h}" rx="${h / 2}" fill="${tint}"${b.me ? '' : ' opacity="0.6"'}/>`);
+      y += h + 9;
+    }
+    y -= 4;
+  }
+
   // ── แถวข้อมูลสั้น (ไอคอน + หัวข้อ + ค่า) ──
   const rows = [];
   rows.push({ ic: 'warn', label: 'ความเร่งด่วน', value: prio.label, color: prio.color });
   if (d.assigneeName) rows.push({ ic: 'user', label: 'ช่างที่รับงาน', value: d.assigneeName, color: C.ink });
-  if (d.downLabel) rows.push({ ic: 'clock', label: d.downClosed ? 'เครื่องหยุดรวม' : 'เครื่องหยุดมาแล้ว',
+  // มีแถบแล้วไม่ต้องมีแถวตัวเลขซ้ำอีก — แถบบอกตัวเลขเดียวกันอยู่แล้ว
+  if (d.downLabel && bars.length < 2) rows.push({ ic: 'clock', label: d.downClosed ? 'เครื่องหยุดรวม' : 'เครื่องหยุดมาแล้ว',
     value: d.downLabel, color: d.downClosed ? C.ink : C.crit });
   if (rows.length) {
     y += 12;

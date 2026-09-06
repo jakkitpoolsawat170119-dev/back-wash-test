@@ -11278,8 +11278,13 @@ const clearMaintDraft = (chatId, userId) =>
    ยิงทีเดียวแล้วส่งต่อให้ทุกจอใช้ — กระดานเปิดบ่อย ไม่ควรถาม DB ซ้ำหลายรอบ */
 async function maintCounts(date) {
   // downList = เครื่องที่หยุดอยู่ตอนนี้ + หยุดมากี่นาที (สรุปของทีมช่างเอาไปขึ้นบล็อก "ต้องรีบ")
-  const out = { open: 0, wip: 0, downNow: 0, downList: [], pmToday: 0, pmLate: 0, rtDue: 0, matLow: 0 };
+  const out = { open: 0, wip: 0, downNow: 0, downList: [], pmToday: 0, pmLate: 0, rtDue: 0, matLow: 0, gap: 0 };
   try {
+    /* ใบที่ปิดแล้วแต่ไม่มีสาเหตุหรือวิธีแก้ = ค้นเจอก็ไม่ได้คำตอบ (คลังความรู้มีรูแต่ไม่มีใครเห็น)
+       COALESCE(...,'') เทียบครอบทั้ง NULL และ '' — Postgres/SQLite เทียบสองอย่างนี้คนละแบบ */
+    out.gap = Number((await dbGet(
+      "SELECT COUNT(*) AS n FROM incidents WHERE status = 'closed' AND (COALESCE(cause,'') = '' OR COALESCE(fix,'') = '')",
+      []))?.n || 0);
     const inc = await dbAll(
       "SELECT status, machine, down_from, down_to FROM incidents WHERE COALESCE(status, 'open') <> 'closed'", []);
     for (const r of inc) {
@@ -11356,8 +11361,10 @@ async function buildMaintHome(date) {
     [{ text: `🗓 งาน PM · วันนี้ ${c.pmToday}${c.pmLate ? ` · เกินกำหนด ${c.pmLate}` : ''}`, callback_data: 'm:pm' }],
     [{ text: `🔁 งานรูทีน · ถึงคิว ${rtLeft}`, callback_data: 'm:rt' }],
     [{ text: `📦 อะไหล่/วัสดุ${c.matLow ? ` · ใกล้หมด ${c.matLow}` : ''}`, callback_data: 'm:mat' }],
-    [{ text: '🔄 รีเฟรช', callback_data: 'm:home' }],
   ];
+  // โผล่เฉพาะตอนมีของค้างจริง — ไม่มีของค้างแล้วยังโชว์ปุ่ม = เมนูรกโดยไม่ได้อะไร
+  if (c.gap) kb.push([{ text: `✍️ เติมสาเหตุที่ยังขาด · ${c.gap}`, callback_data: 'm:gap' }]);
+  kb.push([{ text: '🔄 รีเฟรช', callback_data: 'm:home' }]);
   if (unbound) kb.push([{ text: '🔧 ผมเป็นช่าง (ผูกบัญชี)', callback_data: 'm:bind' }]);
   return { text: L.join('\n'), keyboard: kb };
 }
@@ -11377,6 +11384,64 @@ async function buildRepairList() {
     ? `🔴 <b>งานซ่อมที่ยังไม่ปิด</b> · ${rows.length} งาน\n\nแตะเลือกใบงานเพื่อรับงาน/ปิดงาน 👇`
     : `✅ <b>ไม่มีงานซ่อมค้าง</b>\n\nเครื่องเดินครบทุกตัว 🎉`;
   return { text, keyboard: kb };
+}
+
+/* ── กระดาน "เติมสาเหตุที่ยังขาด" ─────────────────────────────────────────
+   ใบที่ปิดแล้วแต่ไม่มีสาเหตุ/วิธีแก้ = ค้นเจอในคลังความรู้ก็ไม่ได้คำตอบ
+   หน้าเว็บมีป้ายเตือนอยู่แล้ว แต่ไม่มีใครนั่งเปิดเว็บไล่ทีละใบ — ช่างอยู่ในกลุ่มทั้งวัน
+   เลยทำทางเติมจากในกลุ่มให้ กดปุ่ม → พิมพ์ตอบ → จบ                              */
+async function buildGapList() {
+  const rows = await dbAll(
+    `SELECT id, title, machine, cause, fix, occurred_at FROM incidents
+      WHERE status = 'closed' AND (COALESCE(cause,'') = '' OR COALESCE(fix,'') = '')
+      ORDER BY id DESC`, []);
+  const kb = rows.slice(0, 12).map(r => {
+    // บอกตั้งแต่บนปุ่มว่าใบนี้ขาดอะไร ช่างจะได้เลือกใบที่ตอบได้ก่อน
+    const need = !r.cause && !r.fix ? 'ขาดทั้งคู่' : !r.cause ? 'ขาดสาเหตุ' : 'ขาดวิธีแก้';
+    return [{ text: clip(`${r.machine ? `${r.machine} · ` : ''}${r.title} — ${need}`), callback_data: `m:gapf:${r.id}` }];
+  });
+  kb.push([{ text: '⬅️ กลับ', callback_data: 'm:home' }, { text: '🔄 รีเฟรช', callback_data: 'm:gap' }]);
+  const text = rows.length
+    ? `✍️ <b>ใบที่ปิดแล้วแต่ยังไม่มีสาเหตุ/วิธีแก้</b> · ${rows.length} ใบ\n`
+      + `\nใบพวกนี้ค้นเจอในคลังความรู้ แต่เปิดมาแล้วไม่ได้คำตอบ`
+      + `\nจำได้ใบไหน แตะแล้วพิมพ์ตอบได้เลย 👇`
+      + (rows.length > 12 ? `\n\n<i>โชว์ 12 ใบล่าสุด · เติมแล้วกดรีเฟรชจะมีใบถัดไปขึ้นมา</i>` : '')
+    : `🎉 <b>คลังความรู้ครบแล้ว</b>\n\nใบที่ปิดไปมีสาเหตุและวิธีแก้ครบทุกใบ`;
+  return { text, keyboard: kb };
+}
+
+// ถามข้อถัดไปของการเติมความรู้ — ถามเฉพาะช่องที่ยังว่างจริง
+async function gapAsk(chatId, who, row, step) {
+  const head = `✍️ <b>เติมความรู้ใบ #${row.id}</b>\n🔩 ${escapeHtml(row.machine || 'ไม่ระบุเครื่อง')}`
+    + `\n📌 ${escapeHtml(row.title || '')}`
+    + (row.symptom ? `\n📝 ${escapeHtml(String(row.symptom).slice(0, 200))}` : '');
+  if (step === 'cause') {
+    return askText(chatId, who,
+      `${head}\n\n🔍 <b>ตอนนั้นเกิดจากอะไรครับ?</b> พิมพ์สั้น ๆ พอ\n\n<i>พิมพ์ “ยกเลิก” เพื่อเลิก</i>`, 'สาเหตุ…');
+  }
+  return askText(chatId, who,
+    `${head}${row.cause ? `\n🔍 สาเหตุ: ${escapeHtml(row.cause)}` : ''}`
+    + `\n\n🔧 <b>แก้ยังไงครับ?</b> พิมพ์สั้น ๆ พอ\n\n<i>พิมพ์ “ยกเลิก” เพื่อเลิก</i>`, 'วิธีแก้…');
+}
+
+/* บันทึกความรู้ที่เติมมา แล้วทำตามลำดับ 5 ขั้นเดียวกับตอนปิดงาน
+   (UPDATE → อ่านแถวใหม่ → syncIncident → touchMachineNote → เด้งการ์ด)
+   ข้ามขั้นไหนไปโน้ตใน vault กับการ์ดในกลุ่มจะค้างข้อมูลเก่า                        */
+async function saveGapAnswer(id, patch) {
+  const sets = [], args = [];
+  if (patch.cause != null) { sets.push('cause = ?'); args.push(patch.cause); }
+  if (patch.fix != null) { sets.push('fix = ?'); args.push(patch.fix); }
+  if (!sets.length) return null;
+  sets.push('updated_at = ?'); args.push(nowBKK());
+  await db.exec(`UPDATE incidents SET ${sets.join(', ')} WHERE id = ?`, [...args, id]);
+  const fresh = await getIncident(id);
+  try {
+    const sync = await syncIncident(fresh);
+    if (sync.path) await db.exec('UPDATE incidents SET vault_path = ? WHERE id = ?', [sync.path, id]);
+  } catch { /* เขียนโน้ตไม่ได้ก็ไม่บล็อกการเติมความรู้ */ }
+  touchMachineNote(fresh.machine);
+  await refreshRepairCard(id);
+  return fresh;
 }
 
 /* ── การ์ดใบแจ้งซ่อม 1 ใบ ────────────────────────────────────────────────
@@ -11416,6 +11481,12 @@ function repairCard(row) {
   const s = row.status || 'open';
   if (s === 'open') kb.push([{ text: '🙋 รับงาน', callback_data: `m:take:${row.id}` }]);
   else if (s === 'wip') kb.push([{ text: '✅ ปิดงาน', callback_data: `m:close:${row.id}` }]);
+  /* ปิดแล้วแต่ความรู้ไม่ครบ → ให้เติมจากการ์ดได้เลย ตรงจุดที่คนเพิ่งอ่านเรื่องนี้อยู่
+     (ถามตอนที่ยังจำได้ ดีกว่าไปตามเก็บทีหลังตอนลืมแล้ว) */
+  else if (s === 'closed' && (!row.cause || !row.fix)) {
+    kb.push([{ text: !row.cause && !row.fix ? '✍️ เติมสาเหตุ + วิธีแก้' : !row.cause ? '✍️ เติมสาเหตุ' : '✍️ เติมวิธีแก้',
+      callback_data: `m:gapf:${row.id}` }]);
+  }
   kb.push([{ text: '📖 ประวัติเครื่องนี้', callback_data: `m:hist:${row.id}` },
            { text: '📋 งานซ่อมทั้งหมด', callback_data: 'm:rep' }]);
   return { text: L.join('\n'), keyboard: kb };
@@ -11433,18 +11504,19 @@ const getIncident = async (id) => (await dbAll('SELECT * FROM incidents WHERE id
 const repairSig = (t) => String(t || '').toLowerCase().replace(/[\s\u200b.,\-_/()[\]"'`]+/g, '');
 
 async function repairRepeat(row) {
-  const none = { times: 1, lastDate: null, closedBefore: 0 };
+  const none = { times: 1, lastDate: null, closedBefore: 0, prevDowns: [] };
   try {
     if (row.ref_key) {
       const rows = await dbAll(
-        'SELECT id, occurred_at, status FROM incidents WHERE ref_key = ? ORDER BY occurred_at', [row.ref_key]);
+        'SELECT id, occurred_at, status, down_from, down_to FROM incidents WHERE ref_key = ? ORDER BY occurred_at',
+        [row.ref_key]);
       return summarizeRepeat(rows, row);
     }
     const sig = repairSig(row.title);
     if (!row.machine || !sig) return none;
     const rows = (await dbAll(
-      'SELECT id, title, occurred_at, status FROM incidents WHERE machine = ? ORDER BY occurred_at', [row.machine]))
-      .filter(r => repairSig(r.title) === sig);
+      'SELECT id, title, occurred_at, status, down_from, down_to FROM incidents WHERE machine = ? ORDER BY occurred_at',
+      [row.machine])).filter(r => repairSig(r.title) === sig);
     return summarizeRepeat(rows, row);
   } catch (e) { console.error('[repair-card] นับซ้ำไม่สำเร็จ', row.id, e.message); return none; }
 }
@@ -11459,6 +11531,13 @@ function summarizeRepeat(rows, row) {
     times: prev.length + 1,                                  // ใบนี้คือครั้งที่เท่าไหร่
     lastDate: prev.length ? prev[prev.length - 1].occurred_at : null,
     closedBefore: prev.filter(r => r.status === 'closed').length,
+    /* เวลาที่เครื่องหยุดของครั้งก่อน ๆ — เอาไปเป็น "สเกล" ของแถบเวลาบนการ์ด
+       แถบที่ไม่มีอะไรให้เทียบก็แค่แถบเต็มความยาวเสมอ = ไม่ได้บอกอะไรเลย
+       เอาเฉพาะใบที่กรอกเวลาครบ (ใบที่ไม่ได้กรอกไม่ใช่ "หยุด 0 นาที") ล่าสุดก่อน */
+    prevDowns: prev.slice().reverse()
+      .map(r => ({ date: r.occurred_at, mins: downMinutes(r.down_from, r.down_to) }))
+      .filter(x => x.mins != null && x.mins > 0)
+      .slice(0, 3),
   };
 }
 
@@ -11494,6 +11573,13 @@ async function repairCardPhoto(row) {
       assigneeName: row.assignee ? dutyName(row.assignee) : '',
       downLabel: closed && closedMin != null ? downLabel(closedMin) : (soFar != null ? downLabel(soFar) : ''),
       downClosed: !!(closed && closedMin != null),
+      /* แถบเวลาเครื่องหยุด — ส่งไปเฉพาะตอนมีของให้เทียบจริง (ครั้งก่อนมีเวลาที่กรอกครบ)
+         ไม่มีอะไรเทียบ = แถบเต็มความยาวตลอด ซึ่งกินที่บนการ์ดฟรี ๆ โดยไม่บอกอะไรเพิ่ม
+         → กรณีนั้นตกไปใช้แถวตัวเลขธรรมดาเหมือนเดิม (ดู rows ใน buildRepairCardSVG) */
+      downBars: rep.prevDowns.length && (closedMin != null || soFar != null)
+        ? [{ label: closed ? 'ครั้งนี้ (ปิดแล้ว)' : 'ครั้งนี้ · ยังหยุดอยู่', mins: closedMin != null ? closedMin : soFar, me: true },
+           ...rep.prevDowns.map(x => ({ label: thaiDate(x.date), mins: x.mins, me: false }))]
+        : [],
       fix: closed ? (row.fix || '') : '',
       repeatTimes: rep.times,
       repeatLastLabel: rep.lastDate
@@ -11941,6 +12027,21 @@ async function handleMaintUpdate(upd) {
     }
     if (data.startsWith('m:hist:')) { await show(await buildMachineHistory(Number(data.slice(7)))); return true; }
 
+    // ── เติมสาเหตุ/วิธีแก้ที่ยังขาด ──
+    if (data === 'm:gap') { await show(await buildGapList()); return true; }
+    if (data.startsWith('m:gapf:')) {
+      const tech = await requireTech(cq); if (!tech) return true;
+      const id = Number(data.slice(7));
+      const row = await getIncident(id);
+      if (!row) { await ack('ไม่พบใบงานนี้'); return true; }
+      if (row.cause && row.fix) { await ack('ใบนี้มีครบแล้ว ✅'); await show(await buildGapList()); return true; }
+      const step = row.cause ? 'fix' : 'cause';
+      await setMaintDraft(chatId, userId, { kind: 'gap', refId: id, step, data: {} });
+      await ack('พิมพ์ตอบได้เลย');
+      await gapAsk(chatId, who, row, step);
+      return true;
+    }
+
     if (data.startsWith('m:take:')) {
       const tech = await requireTech(cq); if (!tech) return true;
       const id = Number(data.slice(7));
@@ -12139,6 +12240,32 @@ async function handleMaintUpdate(upd) {
   if (/^\/?(ยกเลิก|cancel)$/i.test(text)) {
     await clearMaintDraft(chatId, userId);
     await tgApi('sendMessage', { chat_id: chatId, text: '✕ ยกเลิกแล้ว' });
+    return true;
+  }
+
+  /* เติมความรู้ใบเก่า — ถามทีละช่องที่ยังว่าง จบแล้วเด้งกระดานให้เติมใบถัดไปต่อได้เลย
+     (คนที่ยอมเติมใบหนึ่ง มักเติมต่ออีก 2-3 ใบถ้าไม่ต้องเดินกลับไปหาเมนูเอง) */
+  if (draft.kind === 'gap') {
+    const id = draft.ref_id;
+    const row = await getIncident(id);
+    if (!row) { await clearMaintDraft(chatId, userId); await tgApi('sendMessage', { chat_id: chatId, text: '⚠️ ไม่พบใบงานนี้แล้ว' }); return true; }
+    if (draft.step === 'cause') {
+      const fresh = await saveGapAnswer(id, { cause: text });
+      if (fresh && !fresh.fix) {
+        await setMaintDraft(chatId, userId, { step: 'fix' });
+        await gapAsk(chatId, who, fresh, 'fix');
+        return true;
+      }
+    } else {
+      await saveGapAnswer(id, { fix: text });
+    }
+    await clearMaintDraft(chatId, userId);
+    const kb = await buildGapList();
+    await tgApi('sendMessage', {
+      chat_id: chatId, parse_mode: 'HTML',
+      text: `✅ <b>บันทึกแล้ว — ใบ #${id} มีคำตอบครบแล้ว</b>\n\n${kb.text}`,
+      reply_markup: { inline_keyboard: kb.keyboard },
+    });
     return true;
   }
 
