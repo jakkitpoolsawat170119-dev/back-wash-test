@@ -11318,18 +11318,40 @@ async function maintCounts(date) {
 async function dueRoutines(date) {
   const people = await maintTeamRows();
   if (!people.length) return [];
-  const lastMap = {};
+  /* ── "ทำครั้งล่าสุดเมื่อไหร่" ต้องเป็นเรื่องของตัวงาน ไม่ใช่ของคน ────────────
+     routine_state ผูก UNIQUE(state_date, assignee, node_key) = ประวัติ "ใครทำวันไหน"
+     แต่ตอนย้ายเจ้าของงานถาวร แก้แค่ duty_routines.person_key → ประวัติยังอยู่ชื่อคนเดิม
+     ถ้าหา lastDone ด้วยชื่อคนอย่างเดียว เจ้าของใหม่จะได้ null = **ถึงคิวทันทีทุกวัน**
+     งานรายเดือนที่คนเดิมเพิ่งทำเมื่อวาน พอย้ายเจ้าของก็เด้งขึ้นกระดานทันที และเด้งไปเรื่อย ๆ
+     จนกว่าเจ้าของใหม่จะติ๊ก (เจอตอนตรวจโค้ดข้อ "ประวัติติ๊กเก่าตอนย้ายเจ้าของ")
+
+     ✅ แก้ที่การคำนวณ ไม่ใช่ที่ข้อมูล — ไม่ย้าย/ไม่เขียนทับประวัติของใครทั้งนั้น
+        (ประวัติคือ "ใครทำวันนั้น" ซึ่งก็คือคนเดิมจริง ๆ การย้ายตามคือการปลอมประวัติ)
+     ⚠️ ใช้ของสำรองได้เฉพาะงานที่มี **เจ้าของอยู่คนเดียว** — node_key ซ้ำข้ามคนได้จริง
+        (ทีมผลิตแชร์ filter/mix/pour อยู่ 6 ตัว) งานที่หลายคนถือ ถ้าเหมารวมกันจะกลายเป็น
+        "นายติ๊กแล้ว ม้ำถือว่าทำแล้วด้วย" ซึ่งผิดคนละแบบ                                */
+  const lastMap = {};      // ติ๊กล่าสุด ต่อคน+งาน (ของเดิม)
+  const nodeLast = {};     // ติ๊กล่าสุดของงานนั้น ไม่สนว่าใครทำ (ของสำรอง)
+  const soleOwner = {};    // งานนี้มีเจ้าของอยู่คนเดียวไหม
   try {
     const rows = await dbAll(
       'SELECT assignee, node_key, MAX(state_date) AS last_done FROM routine_state WHERE checked = 1 GROUP BY assignee, node_key', []);
-    for (const r of rows) lastMap[`${r.assignee}|${r.node_key}`] = r.last_done;
+    for (const r of rows) {
+      lastMap[`${r.assignee}|${r.node_key}`] = r.last_done;
+      if (!nodeLast[r.node_key] || String(r.last_done) > String(nodeLast[r.node_key])) nodeLast[r.node_key] = r.last_done;
+    }
+    for (const r of await dbAll(
+      'SELECT node_key, COUNT(*) AS n FROM duty_routines WHERE active = 1 GROUP BY node_key', [])) {
+      soleOwner[r.node_key] = Number(r.n) === 1;
+    }
   } catch { /* ช่างมัน */ }
   const out = [];
   for (const p of people) {
     const nodes = flattenRoutine(await buildRoutineTree(p.person_key));
     for (const n of nodes) {
       if (n.ownerRole && n.ownerRole !== 'mt') continue;        // ไม่ใช่งานของช่าง
-      const last = lastMap[`${p.person_key}|${n.key}`] || null;
+      const last = lastMap[`${p.person_key}|${n.key}`]
+        || (soleOwner[n.key] ? nodeLast[n.key] : null) || null;
       const doneToday = last === date;
       if (!doneToday && !routineDue(n.freq, last, date)) continue;
       out.push({ owner: p.person_key, key: n.key, title: n.title, machine: n.machine || 'ไม่ระบุเครื่อง',
