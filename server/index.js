@@ -10,7 +10,8 @@ const { AsyncLocalStorage } = require('node:async_hooks');
 const axios = require('axios');
 const FormData = require('form-data');
 const Anthropic = require('@anthropic-ai/sdk');
-const { renderShiftCardPNG, renderKpiCardPNG, canRenderCard, renderBeforeAfterCardPNG } = require('./shiftCard');
+const { renderShiftCardPNG, renderKpiCardPNG, canRenderCard, renderBeforeAfterCardPNG,
+  renderRepairCardPNG } = require('./shiftCard');
 const amShift = require('./shiftSchedule');   // mirror ของ client/src/shiftSchedule.ts — แก้ต้องแก้คู่กัน
 const vault = require('./vault');
 const articlePage = require('./articlePage');
@@ -882,6 +883,12 @@ async function initDb() {
   for (const col of ['priority', 'assignee', 'card_chat_id', 'card_msg_id']) {
     try { await db.exec(`ALTER TABLE incidents ADD COLUMN ${col} TEXT`); } catch { /* มีแล้ว */ }
   }
+  /* migration: การ์ดในกลุ่มเป็นข้อความหรือรูป — 'photo' = การ์ด PNG (ของใหม่ 6 ก.ย.) · NULL/'text' = ของเดิม
+     ⚠️ ต้องจำไว้ที่แถว ไม่ใช่เดาจาก canRenderCard() ตอนแก้ — Telegram แก้ข้อความเป็นรูปข้ามชนิดไม่ได้
+        การ์ดที่โพสต์ไปแล้วก่อนอัปเดตยังต้องแก้แบบข้อความไปตลอดอายุของมัน                      */
+  for (const col of ['card_kind']) {
+    try { await db.exec(`ALTER TABLE incidents ADD COLUMN ${col} TEXT`); } catch { /* มีแล้ว */ }
+  }
   /* migration: ที่มาของใบ + กุญแจกันเปิดซ้ำ
      source: 'web' หน้าเว็บ · 'bot' wizard แจ้งซ่อมในบอท · 'ai' ระบบเฝ้าคุณภาพอัตโนมัติ
              · 'amsheet' ใบเช็ก AM รายกะ (เฟสถัดไป)
@@ -1511,6 +1518,27 @@ const tgApi = async (method, payload) => {
   if (!token) { console.log(`[TG] ${method} skipped (no token)`); return null; }
   try { const r = await axios.post(`https://api.telegram.org/bot${token}/${method}`, payload); return r.data; }
   catch (e) { console.error(`[TG] ${method} error`, e.response?.data || e.message); return null; }
+};
+
+/* เรียก Telegram Bot API แบบแนบไฟล์ (multipart) — คู่กับ tgApi ที่ส่ง JSON ล้วน
+   ใช้กับ sendPhoto/editMessageMedia ที่ต้องอัปโหลด buffer จากเครื่องเรา
+   fields = ค่าธรรมดา (ค่าที่เป็น object จะถูก JSON.stringify ให้ ตามที่ Telegram ต้องการ)
+   file   = { field, buffer, filename } → อ้างถึงใน media ด้วย `attach://<field>`
+   ⚠️ อ่าน token จาก tgToken() เหมือน tgApi → ต้องเรียกใต้ runAsBot/inTopic ไม่งั้นตกไปบอทหลัก */
+const tgApiForm = async (method, fields, file) => {
+  const token = tgToken();
+  if (!token) { console.log(`[TG] ${method} skipped (no token)`); return null; }
+  try {
+    const form = new FormData();
+    for (const [k, v] of Object.entries(fields)) {
+      if (v == null) continue;
+      form.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
+    }
+    if (file) form.append(file.field, file.buffer, { filename: file.filename, contentType: 'image/png' });
+    const r = await axios.post(`https://api.telegram.org/bot${token}/${method}`, form, {
+      headers: form.getHeaders(), maxBodyLength: Infinity, maxContentLength: Infinity });
+    return r.data;
+  } catch (e) { console.error(`[TG] ${method} error`, JSON.stringify(e.response?.data) || e.message); return null; }
 };
 
 // ── ช่องทาง Telegram ของระบบลงยอดผลิต (SPP) ────────────────────────────────
@@ -5900,28 +5928,54 @@ app.post('/api/tasks', (req, res) => {
     });
 });
 
-app.post('/api/tasks/update', (req, res) => {
-  const { id, status, actualCount, title, detail, doneBy } = req.body;
+/* แก้งานใน daily_tasks — ใช้ทั้ง "ติ๊ก/บันทึกผล" (ของเดิม) และ "แก้ไขงานมอบหมาย" จากกระดาน
+   ⚠️ สองความหมายที่ห้ามปนกัน:
+     · ไม่ส่ง key มาเลย      = ไม่แตะของเดิม  → COALESCE(?, col)
+     · ส่ง key มาเป็นค่าว่าง = ล้างค่าทิ้ง     → ต้องต่อ SET เองทีละช่อง (COALESCE ทำไม่ได้)
+   ช่อง machine/due_time/priority อยู่กลุ่มหลัง เพราะ "ลบเครื่อง/ลบเวลาที่กรอกผิด" ต้องทำได้จริง */
+app.post('/api/tasks/update', async (req, res) => {
+  const b = req.body || {};
+  const { id, status, actualCount, title, detail, doneBy } = b;
   if (!id) return res.status(400).json({ error: 'id จำเป็น' });
+  const has = (k) => Object.prototype.hasOwnProperty.call(b, k);
   const completedAt = status === 'done' ? nowBKK() : null;
   // ปิดงานพร้อมแนบรูปหลังทำ (หน้าติดตามผลใบตรวจ) — ไม่ส่งมาก็ไม่แตะของเดิม (COALESCE)
-  const di = filterImgs(req.body.doneImages);
-  db.run(`UPDATE daily_tasks SET
-      status = COALESCE(?, status),
-      actual_count = COALESCE(?, actual_count),
-      title = COALESCE(?, title),
-      detail = COALESCE(?, detail),
-      done_images = COALESCE(?, done_images),
-      done_by = COALESCE(?, done_by),
-      completed_at = CASE WHEN ? = 'done' THEN ? ELSE completed_at END
-    WHERE id = ?`,
-    [status || null, actualCount == null ? null : Number(actualCount), title || null, detail || null,
-      di.length ? JSON.stringify(di) : null, doneBy || null, status || '', completedAt, id],
-    (err) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ success: true });
-      scheduleVaultSyncForTask(id);
-    });
+  const di = filterImgs(b.doneImages);
+  const sets = [
+    'status = COALESCE(?, status)', 'actual_count = COALESCE(?, actual_count)',
+    'title = COALESCE(?, title)', 'detail = COALESCE(?, detail)',
+    'done_images = COALESCE(?, done_images)', 'done_by = COALESCE(?, done_by)',
+    "completed_at = CASE WHEN ? = 'done' THEN ? ELSE completed_at END",
+  ];
+  const args = [status || null, actualCount == null ? null : Number(actualCount), title || null, detail || null,
+    di.length ? JSON.stringify(di) : null, doneBy || null, status || '', completedAt];
+
+  if (has('machine')) { sets.push('machine = ?'); args.push(String(b.machine || '').trim() || null); }
+  if (has('dueTime')) {
+    const t = String(b.dueTime || '').trim();
+    if (t && !/^\d{1,2}:\d{2}$/.test(t)) return res.status(400).json({ error: 'เวลาต้องเป็นรูปแบบ HH:MM' });
+    sets.push('due_time = ?'); args.push(t || null);
+  }
+  // 'urgent' = การ์ดแดง · อย่างอื่นถือเป็นงานปกติ (เก็บ null ไม่ใช่ '' — Postgres/SQLite เทียบ '' คนละแบบ)
+  if (has('priority')) { sets.push('priority = ?'); args.push(b.priority === 'urgent' ? 'urgent' : null); }
+
+  try {
+    /* UNIQUE(task_date, line_name, category, title) — เปลี่ยนชื่อไปชนงานเดิมของคนเดียวกันได้
+       ไม่กันไว้จะเด้ง error ดิบ ๆ จาก DB ที่หน้าเว็บอ่านไม่รู้เรื่อง (บทเรียนเดียวกับ pm/update) */
+    if (title) {
+      const cur = await dbGet('SELECT task_date, line_name, category, title FROM daily_tasks WHERE id = ?', [id]);
+      if (!cur) return res.status(404).json({ error: 'ไม่พบงานนี้' });
+      if (String(title) !== cur.title) {
+        const dup = await dbGet(
+          'SELECT id FROM daily_tasks WHERE task_date = ? AND line_name = ? AND category = ? AND title = ? AND id <> ?',
+          [cur.task_date, cur.line_name, cur.category, String(title), id]);
+        if (dup) return res.status(409).json({ error: 'duplicate', message: `มีงาน "${title}" ของคนเดียวกันในวันนี้อยู่แล้ว` });
+      }
+    }
+    await db.exec(`UPDATE daily_tasks SET ${sets.join(', ')} WHERE id = ?`, [...args, id]);
+    res.json({ success: true });
+    scheduleVaultSyncForTask(id);
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ย้ายงานมอบหมายไปให้อีกคน (ลากการ์ดในบอร์ดหน้าที่)
@@ -11235,20 +11289,127 @@ function repairCard(row) {
 
 const getIncident = async (id) => (await dbAll('SELECT * FROM incidents WHERE id = ?', [id]))[0] || null;
 
-// โพสต์การ์ดเข้ากลุ่มครั้งแรก แล้วจำ message_id ไว้แก้ทีหลัง
+/* ── "เครื่องนี้เจออาการนี้ครั้งที่ N แล้ว" ────────────────────────────────
+   ช่างที่กำลังจะกดรับงานต้องรู้ก่อนว่านี่ไม่ใช่ครั้งแรก — ซ่อมซ้ำที่ 4 แปลว่าแก้ไม่ตรงสาเหตุ
+   เกณฑ์จับคู่ "อาการเดียวกัน" เลือกให้แม่นไว้ก่อน เพราะบอกเลขผิดแย่กว่าไม่บอกเลย:
+     · มี ref_key (ใบที่เกิดจากใบเช็ก AM) → นับจาก ref_key ตรง ๆ = ข้อตรวจเดียวกันของไลน์เดียวกัน
+     · ไม่มี → เครื่องเดียวกัน + ชื่อเรื่องเหมือนกันหลังตัดช่องว่าง/เครื่องหมาย/ตัวพิมพ์
+   ไม่ทำ fuzzy match และไม่ใช้ AI — เดาใกล้เคียงแล้วนับรวมมั่วเสียหายกว่านับได้น้อย
+   ⚠️ ใบที่ "เจอซ้ำแล้วต่อในใบเดิม" (ใบเช็ก AM) ไม่เพิ่มเลข ถูกแล้ว — ยังเป็นใบงานใบเดียวกันอยู่ */
+const repairSig = (t) => String(t || '').toLowerCase().replace(/[\s\u200b.,\-_/()[\]"'`]+/g, '');
+
+async function repairRepeat(row) {
+  const none = { times: 1, lastDate: null, closedBefore: 0 };
+  try {
+    if (row.ref_key) {
+      const rows = await dbAll(
+        'SELECT id, occurred_at, status FROM incidents WHERE ref_key = ? ORDER BY occurred_at', [row.ref_key]);
+      return summarizeRepeat(rows, row);
+    }
+    const sig = repairSig(row.title);
+    if (!row.machine || !sig) return none;
+    const rows = (await dbAll(
+      'SELECT id, title, occurred_at, status FROM incidents WHERE machine = ? ORDER BY occurred_at', [row.machine]))
+      .filter(r => repairSig(r.title) === sig);
+    return summarizeRepeat(rows, row);
+  } catch (e) { console.error('[repair-card] นับซ้ำไม่สำเร็จ', row.id, e.message); return none; }
+}
+
+// rows = ใบทั้งหมดที่ถือว่า "อาการเดียวกัน" (รวมใบปัจจุบัน) → แปลงเป็นตัวเลขบนการ์ด
+function summarizeRepeat(rows, row) {
+  // occurred_at เป็นวันที่ล้วน — 2 ใบวันเดียวกันต้องตัดสินด้วย id ไม่งั้นทั้งคู่ขึ้น "ครั้งที่ 2"
+  const ord = (r) => `${r.occurred_at || ''}#${String(r.id).padStart(12, '0')}`;
+  const mine = ord(row);
+  const prev = rows.filter(r => String(r.id) !== String(row.id) && ord(r) < mine).sort((a, b) => (ord(a) < ord(b) ? -1 : 1));
+  return {
+    times: prev.length + 1,                                  // ใบนี้คือครั้งที่เท่าไหร่
+    lastDate: prev.length ? prev[prev.length - 1].occurred_at : null,
+    closedBefore: prev.filter(r => r.status === 'closed').length,
+  };
+}
+
+/* ── การ์ดใบแจ้งซ่อมแบบรูป (PNG) ──────────────────────────────────────────
+   ตัวที่ปักอยู่ในกลุ่มช่างเป็นรูป · repairCard() ที่เป็นข้อความยังอยู่ ใช้ตอนเปิดดูใบงาน
+   จากเมนูในบอท (show() = editMessageText แก้ข้อความที่กดมา ซึ่งเป็นคนละใบกับการ์ดที่ปัก)
+   คืน null เมื่อเรนเดอร์ไม่ได้ (lib/ฟอนต์ไม่พร้อม) → ผู้เรียกตกกลับไปใช้การ์ดข้อความ      */
+async function repairCardPhoto(row) {
+  if (!canRenderCard()) return null;
+  const st = srStatus(row.status || 'open');
+  const pr = srPrio(row.priority);
+  const rep = await repairRepeat(row);
+  const imgs = parseImgs(row.images);
+  const after = parseImgs(row.result_images);
+  const closed = (row.status || 'open') === 'closed';
+  const closedMin = downMinutes(row.down_from, row.down_to);
+  const soFar = row.down_from && !row.down_to ? downSoFar(row) : null;
+  const footL = [imgs.length ? `แนบรูป ${imgs.length} รูป` : 'ยังไม่แนบรูป',
+    after.length ? `หลังซ่อม ${after.length} รูป` : ''].filter(Boolean).join(' · ');
+  const SRC_LABEL = { amsheet: 'จากใบเช็ก AM', bot: 'แจ้งจากบอท', web: 'แจ้งจากเว็บ', ai: 'ระบบเฝ้าคุณภาพ' };
+
+  let png = null;
+  try {
+    png = renderRepairCardPNG({
+      kicker: `แจ้งซ่อม #${row.id}`,
+      title: row.title || 'ใบแจ้งซ่อม',
+      machine: row.machine || 'ไม่ระบุเครื่อง',
+      operator: row.operator || '',
+      dateLabel: row.occurred_at ? thaiDate(row.occurred_at) : '',
+      status: row.status || 'open',
+      priority: row.priority || 'warn',
+      symptom: row.symptom || '',
+      assigneeName: row.assignee ? dutyName(row.assignee) : '',
+      downLabel: closed && closedMin != null ? downLabel(closedMin) : (soFar != null ? downLabel(soFar) : ''),
+      downClosed: !!(closed && closedMin != null),
+      fix: closed ? (row.fix || '') : '',
+      repeatTimes: rep.times,
+      repeatLastLabel: rep.lastDate
+        ? `ครั้งก่อน ${thaiDate(rep.lastDate)}${rep.closedBefore ? ` · ปิดไปแล้ว ${rep.closedBefore} ใบ` : ''}`
+        : '',
+      footer: footL,
+      footerRight: SRC_LABEL[row.source] || '',
+    });
+  } catch (e) { console.error('[repair-card] เรนเดอร์รูปไม่สำเร็จ', row.id, e.message); return null; }
+  if (!png) return null;
+
+  /* caption สั้น ๆ แต่ต้องมี — ข้อความในรูปค้นหาไม่ได้ ก๊อปไม่ได้ อ่านด้วยโปรแกรมอ่านหน้าจอไม่ได้
+     ใส่แค่ที่ต้องใช้ค้นย้อนหลังในกลุ่ม (เลขใบ/เครื่อง/หัวข้อ/สถานะ) รายละเอียดที่เหลืออยู่ในรูป */
+  const caption = [
+    `🆘 <b>แจ้งซ่อม #${row.id}</b>　${st.icon} ${st.label}`,
+    `🔩 ${escapeHtml(row.machine || 'ไม่ระบุเครื่อง')}　${pr.icon} ${pr.label}`,
+    row.title ? `📌 ${escapeHtml(row.title)}` : '',
+    rep.times >= 2 ? `🔁 <b>เจออาการนี้ครั้งที่ ${rep.times}</b>` : '',
+  ].filter(Boolean).join('\n').slice(0, 1024);
+
+  return { png, caption, keyboard: repairCard(row).keyboard };
+}
+
+/* โพสต์การ์ดเข้ากลุ่มครั้งแรก แล้วจำ message_id + ชนิดการ์ดไว้แก้ทีหลัง
+   เรนเดอร์รูปไม่ได้ → ตกกลับไปการ์ดข้อความแบบเดิม (บอทต้องไม่เงียบเพราะเรื่องหน้าตา) */
 async function postRepairCard(id, chatId) {
   const row = await getIncident(id);
   if (!row) return;
-  const card = repairCard(row);
-  const r = await tgApi('sendMessage', {
-    chat_id: chatId, text: card.text, parse_mode: 'HTML',
-    reply_markup: { inline_keyboard: card.keyboard },
-  });
-  const mid = r?.result?.message_id;
+  const photo = await repairCardPhoto(row);
+  let mid = null, kind = 'text';
+  if (photo) {
+    const r = await tgApiForm('sendPhoto', {
+      chat_id: chatId, caption: photo.caption, parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: photo.keyboard },
+    }, { field: 'photo', buffer: photo.png, filename: `repair-${id}.png` });
+    mid = r?.result?.message_id;
+    if (mid) kind = 'photo';
+  }
+  if (!mid) {
+    const card = repairCard(row);
+    const r = await tgApi('sendMessage', {
+      chat_id: chatId, text: card.text, parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: card.keyboard },
+    });
+    mid = r?.result?.message_id;
+  }
   if (mid) {
     try {
-      await db.exec('UPDATE incidents SET card_chat_id = ?, card_msg_id = ? WHERE id = ?',
-        [String(chatId), String(mid), id]);
+      await db.exec('UPDATE incidents SET card_chat_id = ?, card_msg_id = ?, card_kind = ? WHERE id = ?',
+        [String(chatId), String(mid), kind, id]);
     } catch { /* ไม่ได้ก็ไม่เป็นไร แค่แก้การ์ดเดิมไม่ได้ */ }
   }
 }
@@ -11256,16 +11417,38 @@ async function postRepairCard(id, chatId) {
 // แก้การ์ดเดิมให้ตรงกับสถานะล่าสุด (ไม่มีการ์ดเดิม = ข้ามเงียบ ๆ)
 /* ⚠️ เรียกจาก HTTP endpoint ตรง ๆ ไม่ได้ — ต้องผ่าน bumpRepairCard() ข้างล่างเท่านั้น
    tgApi อ่าน token/chat จาก botCtx (AsyncLocalStorage) ถ้าไม่มี store จะตกไปบอทหลัก
-   = ไปแก้ข้อความในกลุ่มผลิตด้วย message_id ที่ไม่มีอยู่จริง แล้วพังเงียบ           */
+   = ไปแก้ข้อความในกลุ่มผลิตด้วย message_id ที่ไม่มีอยู่จริง แล้วพังเงียบ
+
+   ⚠️ แก้ข้ามชนิดไม่ได้ — การ์ดที่โพสต์เป็นข้อความจะกลายเป็นรูปทีหลังไม่ได้ (และกลับกัน)
+      ต้องดู card_kind ของแถวนั้นเสมอ ไม่ใช่ดูว่าตอนนี้เรนเดอร์รูปได้ไหม               */
 async function refreshRepairCard(id) {
   const row = await getIncident(id);
-  if (!row || !row.card_chat_id || !row.card_msg_id) return false;   // ใบนี้ไม่ได้เปิดจากกลุ่ม
+  if (!row || !row.card_chat_id || !row.card_msg_id) return 'no-card';   // ใบนี้ไม่ได้เปิดจากกลุ่ม
+  if (row.card_kind === 'photo') {
+    const photo = await repairCardPhoto(row);
+    // เรนเดอร์ไม่ได้ชั่วคราว → ยังแก้ปุ่ม/caption ให้ตรงสถานะได้ ดีกว่าปล่อยการ์ดค้างสถานะเก่า
+    if (!photo) {
+      const st = srStatus(row.status || 'open');
+      const r = await tgApi('editMessageCaption', {
+        chat_id: row.card_chat_id, message_id: Number(row.card_msg_id),
+        caption: `🆘 <b>แจ้งซ่อม #${row.id}</b>　${st.icon} ${st.label}`, parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: repairCard(row).keyboard },
+      });
+      return r?.ok ? 'edited' : 'failed';
+    }
+    const r = await tgApiForm('editMessageMedia', {
+      chat_id: row.card_chat_id, message_id: Number(row.card_msg_id),
+      media: { type: 'photo', media: 'attach://card', caption: photo.caption, parse_mode: 'HTML' },
+      reply_markup: { inline_keyboard: photo.keyboard },
+    }, { field: 'card', buffer: photo.png, filename: `repair-${row.id}.png` });
+    return r?.ok ? 'edited' : 'failed';
+  }
   const card = repairCard(row);
-  await tgApi('editMessageText', {
+  const r = await tgApi('editMessageText', {
     chat_id: row.card_chat_id, message_id: Number(row.card_msg_id),
     text: card.text, parse_mode: 'HTML', reply_markup: { inline_keyboard: card.keyboard },
   });
-  return true;
+  return r?.ok ? 'edited' : 'failed';
 }
 
 /* เด้งการ์ดในกลุ่มจากฝั่ง HTTP — จุดเดียวในระบบที่รู้เรื่อง bot context
@@ -11273,7 +11456,7 @@ async function refreshRepairCard(id) {
    (ผิดพลาดตรงนี้มองจากหน้าเว็บไม่เห็นเลย เพราะ tgApi กลืน error แล้ว endpoint ยังตอบ 200) */
 async function bumpRepairCard(id) {
   try {
-    return (await inTopic('incident', () => refreshRepairCard(id))) ? 'edited' : 'no-card';
+    return await inTopic('incident', () => refreshRepairCard(id));
   } catch (e) {
     console.error('[repair-card] refresh ไม่สำเร็จ', id, e.message);
     return 'failed';
@@ -11561,7 +11744,17 @@ async function handleMaintUpdate(upd) {
     const who = whoOf(cq.from);
     const ack = (text, alert) => tgApi('answerCallbackQuery', {
       callback_query_id: cq.id, ...(text ? { text } : {}), ...(alert ? { show_alert: true } : {}) });
+    /* ⚠️ กดปุ่มมาจาก "การ์ดใบแจ้งซ่อม" ที่เป็นรูป → แก้ทับเป็นข้อความไม่ได้
+       (Telegram: editMessageText กับข้อความที่ไม่มีข้อความ = error) และถึงแก้ได้ก็ไม่ควร —
+       การ์ดที่ปักไว้ในกลุ่มจะกลายเป็นเมนูไป ทีมช่างหาใบงานไม่เจอ
+       → ส่งข้อความใหม่แทน ปล่อยการ์ดเดิมคาที่ (ครอบทุกปุ่มนำทางที่โผล่บนการ์ดได้) */
     const show = async (kb, note) => {
+      if (cq.message?.photo) {
+        await tgApi('sendMessage', { chat_id: chatId, text: kb.text, parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: kb.keyboard } });
+        await ack(note);
+        return;
+      }
       await tgApi('editMessageText', {
         chat_id: chatId, message_id: cq.message.message_id,
         text: kb.text, parse_mode: 'HTML', reply_markup: { inline_keyboard: kb.keyboard } });
@@ -11623,8 +11816,14 @@ async function handleMaintUpdate(upd) {
       await db.exec('UPDATE incidents SET status = ?, assignee = ?, updated_at = ? WHERE id = ?',
         ['wip', tech.person_key, nowBKK(), id]);
       const fresh = await getIncident(id);
-      await show(repairCard(fresh), 'รับงานแล้ว 🔧');
-      if (String(cq.message.message_id) !== String(fresh.card_msg_id || '')) await refreshRepairCard(id);
+      // กดจากการ์ดที่ปักไว้เอง = เด้งการ์ดใบนั้นในที่พอ · กดจากที่อื่น = ตอบตรงนั้นแล้วค่อยเด้งการ์ด
+      if (String(cq.message.message_id) === String(fresh.card_msg_id || '')) {
+        await refreshRepairCard(id);
+        await ack('รับงานแล้ว 🔧');
+      } else {
+        await show(repairCard(fresh), 'รับงานแล้ว 🔧');
+        await refreshRepairCard(id);
+      }
       return true;
     }
 

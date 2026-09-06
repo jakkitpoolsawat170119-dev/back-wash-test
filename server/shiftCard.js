@@ -30,8 +30,14 @@ const W = 452;      // ความกว้าง logical (px) — เรนเ
 const PX = 20;      // padding ซ้าย/ขวา
 
 // ── helpers ─────────────────────────────────────────────────────────────────
+/* ⚠️ ำ (U+0E33) ต้องแตกเป็น นิคหิต+สระอา (U+0E4D U+0E32) ก่อนเสมอ
+   resvg + Sarabun shape ำ ผิด: ตัวที่อยู่ถัดไปจะถูกวางทับจนอ่านไม่ออก
+   ("ปั๊มน้ำดิบ" → ด ทับ ำ) เป็นทั้งกลางคำและข้ามคำ ไม่ใช่แค่ตรงตัวคั่น
+   รูปแบบแตกร่างเรนเดอร์ถูกต้อง 100% และกินความกว้างเท่าเดิม (นิคหิต=สระบน ไม่กินที่)
+   → measure()/wrap() ที่วัดจากสตริงต้นฉบับยังตรงอยู่ ไม่ต้องแก้ตาม            */
 const esc = (s) => String(s == null ? '' : s)
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  .replace(/\u0E33/g, '\u0E4D\u0E32');
 
 // ประมาณความกว้างตัวอักษร (ไทย+ละติน) เพื่อ wrap เอง — SVG <text> ไม่ตัดบรรทัดให้
 function charW(ch, size) {
@@ -90,6 +96,11 @@ function icon(name, x, y, s, color) {
     case 'clip': return g(`<rect x="${s * 0.2}" y="${s * 0.16}" width="${s * 0.6}" height="${s * 0.72}" rx="${s * 0.08}"/><rect x="${s * 0.36}" y="${s * 0.1}" width="${s * 0.28}" height="${s * 0.14}" rx="${s * 0.04}" fill="${color}" stroke="none"/><line x1="${s * 0.34}" y1="${s * 0.46}" x2="${s * 0.66}" y2="${s * 0.46}"/><line x1="${s * 0.34}" y1="${s * 0.64}" x2="${s * 0.66}" y2="${s * 0.64}"/>`);
     case 'warn': return `<g transform="translate(${x} ${y})"><path d="M${s * 0.5} ${s * 0.12} L${s * 0.92} ${s * 0.84} L${s * 0.08} ${s * 0.84} Z" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round"/><line x1="${s * 0.5}" y1="${s * 0.4}" x2="${s * 0.5}" y2="${s * 0.62}" stroke="${color}" stroke-width="1.7" stroke-linecap="round"/><circle cx="${s * 0.5}" cy="${s * 0.73}" r="0.9" fill="${color}" stroke="${color}"/></g>`;
     case 'spark': return `<g transform="translate(${x} ${y})"><path d="M${s * 0.5} ${s * 0.1} L${s * 0.58} ${s * 0.42} L${s * 0.9} ${s * 0.5} L${s * 0.58} ${s * 0.58} L${s * 0.5} ${s * 0.9} L${s * 0.42} ${s * 0.58} L${s * 0.1} ${s * 0.5} L${s * 0.42} ${s * 0.42} Z" fill="${color}" stroke="none"/></g>`;
+    case 'wrench': return g(`<path d="M${s * 0.263} ${s * 0.136} A${s * 0.18} ${s * 0.18} 0 1 1 ${s * 0.136} ${s * 0.263}"/><line x1="${s * 0.44}" y1="${s * 0.44}" x2="${s * 0.86}" y2="${s * 0.86}"/>`);
+    case 'repeat': return g(`<path d="M${s * 0.14} ${s * 0.5} A${s * 0.36} ${s * 0.36} 0 0 1 ${s * 0.86} ${s * 0.5}"/><polyline points="${s * 0.7},${s * 0.42} ${s * 0.86},${s * 0.5} ${s * 0.92},${s * 0.33}"/><path d="M${s * 0.86} ${s * 0.5} A${s * 0.36} ${s * 0.36} 0 0 1 ${s * 0.14} ${s * 0.5}"/><polyline points="${s * 0.3},${s * 0.58} ${s * 0.14},${s * 0.5} ${s * 0.08},${s * 0.67}"/>`);
+    case 'clock': return g(`<circle cx="${s * 0.5}" cy="${s * 0.5}" r="${s * 0.38}"/><polyline points="${s * 0.5},${s * 0.27} ${s * 0.5},${s * 0.53} ${s * 0.69},${s * 0.61}"/>`);
+    case 'user': return g(`<circle cx="${s * 0.5}" cy="${s * 0.33}" r="${s * 0.17}"/><path d="M${s * 0.17} ${s * 0.9} A${s * 0.33} ${s * 0.33} 0 0 1 ${s * 0.83} ${s * 0.9}"/>`);
+    case 'check': return g(`<polyline points="${s * 0.16},${s * 0.53} ${s * 0.4},${s * 0.76} ${s * 0.86},${s * 0.24}"/>`);
     default: return '';
   }
 }
@@ -402,9 +413,11 @@ function renderKpiCardPNG(data) {
 // ⚠️ beforeUri/afterUri ต้องเป็น data: URI เท่านั้น — resvg ไม่ดาวน์โหลด URL ระยะไกลให้
 //    ผู้เรียกต้อง fetch มาแปลงเป็น base64 ก่อน (ดู fetchAsDataUri ใน index.js)
 // ═══════════════════════════════════════════════════════════════════════════
-// วางข้อความหลายชิ้นต่อกันแนวนอน โดยแยกเป็น <text> คนละชิ้น
-// เหตุผล: ตัวอักษรที่อยู่ถัดจากสระ ำ จะถูกกลืนหายตอน shaping (resvg + Sarabun)
-// เช่น "คุณ ม้ำ · 21/07" จะได้ "คุณ ม้ำ 21/07" (จุดหาย) → ห้ามให้มีอะไรตามหลัง ำ ในรันเดียวกัน
+/* วางข้อความหลายชิ้นต่อกันแนวนอน โดยแยกเป็น <text> คนละชิ้น — ใช้ตอนต้องการ
+   ขนาด/น้ำหนัก/สีต่างกันในบรรทัดเดียว (เช่น ตัวคั่นสีจาง คร่อมข้อความสีปกติ)
+   ⚠️ ตำแหน่งแต่ละชิ้นมาจาก measure() ซึ่งเป็นค่าประมาณ — ระยะห่างตรงรอยต่อจะเพี้ยนได้เล็กน้อย
+      ข้อความยาว ๆ ที่ไม่ต้องแยกสี ใช้ text() ชิ้นเดียวจะได้ระยะจากฟอนต์จริง แม่นกว่า
+   (เดิมฟังก์ชันนี้มีไว้แก้อาการ ำ กลืนตัวถัดไปด้วย — ย้ายไปแก้ที่ esc() แล้ว ไม่ต้องแยกเพราะเหตุนั้นอีก) */
 function textRun(x, y, parts, gap = 7) {
   const out = [];
   let cx = x;
@@ -428,10 +441,9 @@ function buildBeforeAfterSVG(d) {
   push(`<rect x="0" y="0" width="${W}" height="${headH}" fill="${C.good}" opacity="0.07"/>`);
   push(`<rect x="0" y="0" width="4" height="${headH}" fill="${C.good}"/>`);
   push(icon('clip', PX, 14, 15, C.good));
-  // kicker ห้ามลงท้ายด้วยข้อความต่อท้าย — ตัวอักษรหลังสระ ำ จะโดนกลืน (ดู textRun)
   push(text(PX + 22, 26, 12.5, 600, C.dim, d.kicker || 'บันทึกผลงานประจำ'));
   titleLines.forEach((ln, i) => push(text(PX, 52 + i * 22, 17, 700, C.ink, ln)));
-  // ชื่อคน/วันที่/เวลา — แยกชิ้นเพราะชื่ออาจลงท้ายด้วย ำ (เช่น "ม้ำ") แล้วกลืนตัวคั่น
+  // ชื่อคน/วันที่/เวลา — แยกชิ้นเพื่อให้ตัวคั่น · จางกว่าตัวหนังสือ
   const metaY = 52 + titleLines.length * 22 + 4;
   const metaParts = [];
   [d.personName, d.dateLabel, d.timeLabel].filter(Boolean).forEach((t, i) => {
@@ -478,7 +490,7 @@ ${el.join('\n')}
 </g></svg>`;
   };
   const label = (x, main, sub, tint) => {
-    // label ลงท้ายด้วย ำ ("ก่อนทำ"/"หลังทำ") → คำต่อท้ายต้องแยกชิ้น ไม่งั้นโดนกลืน
+    // แยกชิ้นเพื่อให้คำขยาย (sub) จางกว่าหัวข้อ
     push(textRun(x, y + 11, [
       { t: main, size: 11.5, weight: 700, fill: tint },
       ...(sub ? [{ t: sub, size: 10.5, weight: 600, fill: C.line }] : []),
@@ -558,5 +570,138 @@ function renderBeforeAfterCardPNG(data) {
   return r.render().asPng();
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// buildRepairCardSVG — การ์ดใบแจ้งซ่อม 1 ใบ (ตัวที่ปักอยู่ในกลุ่มช่าง)
+// การ์ดใบนี้ "แก้ทับตัวเอง" ทุกครั้งที่สถานะเปลี่ยน (รับงาน/ปิดงาน) → ต้องวาดได้ทุกสถานะ
+// จากข้อมูลชุดเดียวกัน ไม่ใช่คนละแบบต่อสถานะ
+//
+// ⚠️ ห้ามใส่ emoji ลงใน SVG — resvg เรนเดอร์ emoji สีไม่ได้ ได้กล่องเปล่าหรือหาย
+//    ทุกไอคอนต้องมาจาก icon() · ทุกสถานะ/ความเร่งด่วนสื่อด้วย "สี + คำ" ไม่ใช่สีอย่างเดียว
+// ═══════════════════════════════════════════════════════════════════════════
+const REPAIR_PRIO = {
+  stop: { label: 'หยุดไลน์', color: C.crit },
+  warn: { label: 'ยังเดินได้ แต่มีปัญหา', color: C.warn },
+  low: { label: 'ไว้ทำตอนว่าง', color: C.good },
+};
+const REPAIR_STATUS = {
+  open: { label: 'รอรับงาน', color: C.crit },
+  wip: { label: 'กำลังซ่อม', color: C.accent },
+  closed: { label: 'ปิดงานแล้ว', color: C.good },
+};
+
+function buildRepairCardSVG(d) {
+  const el = [];
+  const push = (s) => el.push(s);
+  let y = 0;
+  const prio = REPAIR_PRIO[d.priority] || REPAIR_PRIO.warn;
+  const st = REPAIR_STATUS[d.status] || REPAIR_STATUS.open;
+  const fullW = W - PX * 2;
+
+  // ── 1) HEADER — แถบสีซ้ายบอกความเร่งด่วน · ป้ายสถานะมุมขวา ──
+  const titleLines = wrap(d.title || 'ใบแจ้งซ่อม', fullW - 4, 17).slice(0, 2);
+  const metaParts = [];
+  [d.machine, d.operator ? `แจ้งโดย ${d.operator}` : '', d.dateLabel].filter(Boolean).forEach((t, i) => {
+    if (i) metaParts.push({ t: '·', size: 12, weight: 500, fill: C.line });
+    metaParts.push({ t, size: 12, weight: 500, fill: C.dim });
+  });
+  const headH = 44 + titleLines.length * 22 + (metaParts.length ? 24 : 6);
+  push(`<rect x="0" y="0" width="${W}" height="${headH}" fill="${C.surf}"/>`);
+  push(`<rect x="0" y="0" width="${W}" height="${headH}" fill="${prio.color}" opacity="0.07"/>`);
+  push(`<rect x="0" y="0" width="4" height="${headH}" fill="${prio.color}"/>`);
+  push(icon('wrench', PX, 14, 15, prio.color));
+  push(text(PX + 22, 26, 12.5, 700, C.dim, d.kicker || 'ใบแจ้งซ่อม'));
+  // ป้ายสถานะ — วาดขวาสุดของบรรทัด kicker
+  {
+    const pw = measure(st.label, 11.5) + 22;
+    push(`<rect x="${W - PX - pw}" y="13" width="${pw}" height="20" rx="10" fill="${st.color}" opacity="0.16"/>`);
+    push(`<circle cx="${W - PX - pw + 11}" cy="23" r="3.2" fill="${st.color}"/>`);
+    push(text(W - PX - pw + 18, 27, 11.5, 700, st.color, st.label));
+  }
+  titleLines.forEach((ln, i) => push(text(PX, 52 + i * 22, 17, 700, C.ink, ln)));
+  if (metaParts.length) push(textRun(PX, 52 + titleLines.length * 22 + 4, metaParts));
+  y = headH;
+  push(`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
+
+  /* ── 2) แถบ "เจออาการนี้ครั้งที่ N แล้ว" ────────────────────────────────
+     เหตุผลที่ต้องเด่นกว่าแถวอื่น: ช่างที่กำลังจะรับงานต้องเห็นก่อนตัดสินใจว่า
+     "นี่ไม่ใช่ครั้งแรก" — ซ่อมแบบเดิมซ้ำที่ 4 แปลว่าแก้ไม่ตรงสาเหตุ
+     ครั้งแรก (times<2) ไม่ต้องขึ้นอะไรเลย ไม่งั้นการ์ดรกโดยไม่ได้ข้อมูลเพิ่ม */
+  if (d.repeatTimes >= 2) {
+    const bandH = d.repeatLastLabel ? 50 : 38;
+    push(`<rect x="0" y="${y}" width="${W}" height="${bandH}" fill="${C.warn}" opacity="0.1"/>`);
+    push(`<rect x="0" y="${y}" width="3" height="${bandH}" fill="${C.warn}"/>`);
+    push(icon('repeat', PX, y + (d.repeatLastLabel ? 13 : 11), 16, C.warn));
+    // แยก 3 ชิ้นเพื่อเน้นเฉพาะตัวเลขครั้งให้ใหญ่+สีส้ม ส่วนที่เหลือเป็นตัวหนังสือปกติ
+    push(textRun(PX + 24, y + 24, [
+      { t: 'เจออาการนี้', size: 13, weight: 600, fill: C.ink, gap: 5 },
+      { t: `ครั้งที่ ${d.repeatTimes}`, size: 14, weight: 800, fill: C.warn, gap: 5 },
+      { t: 'แล้ว', size: 13, weight: 600, fill: C.ink },
+    ]));
+    if (d.repeatLastLabel) push(text(PX + 24, y + 41, 11.5, 500, C.dim, d.repeatLastLabel));
+    y += bandH;
+    push(`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
+  }
+
+  // ── กล่องข้อความยาว (อาการ / วิธีแก้) ──
+  const block = (label, body, tint, maxLines) => {
+    const lines = wrap(body, fullW - 24, 13).slice(0, maxLines);
+    y += 13;
+    push(text(PX, y + 10, 11.5, 700, tint, label));
+    y += 18;
+    push(`<rect x="${PX}" y="${y}" width="${fullW}" height="${lines.length * 19 + 16}" rx="9" fill="${C.surf2}"/>`);
+    push(`<rect x="${PX}" y="${y}" width="3" height="${lines.length * 19 + 16}" rx="1.5" fill="${tint}" opacity="0.55"/>`);
+    lines.forEach((ln, i) => push(text(PX + 13, y + 22 + i * 19, 13, 500, C.ink, ln)));
+    y += lines.length * 19 + 16;
+  };
+  if (d.symptom) block('อาการที่แจ้ง', d.symptom, C.dim, 4);
+
+  // ── แถวข้อมูลสั้น (ไอคอน + หัวข้อ + ค่า) ──
+  const rows = [];
+  rows.push({ ic: 'warn', label: 'ความเร่งด่วน', value: prio.label, color: prio.color });
+  if (d.assigneeName) rows.push({ ic: 'user', label: 'ช่างที่รับงาน', value: d.assigneeName, color: C.ink });
+  if (d.downLabel) rows.push({ ic: 'clock', label: d.downClosed ? 'เครื่องหยุดรวม' : 'เครื่องหยุดมาแล้ว',
+    value: d.downLabel, color: d.downClosed ? C.ink : C.crit });
+  if (rows.length) {
+    y += 12;
+    for (const r of rows) {
+      push(icon(r.ic, PX + 1, y + 2, 14, C.dim));
+      push(text(PX + 22, y + 13, 12.5, 500, C.dim, r.label));
+      push(text(W - PX, y + 13, 12.5, 700, r.color, r.value, 'end'));
+      y += 24;
+    }
+    y -= 2;
+  }
+
+  if (d.fix) block('วิธีแก้', d.fix, C.good, 4);
+
+  // ── FOOTER ──
+  y += 14;
+  const footH = 38;
+  push(`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
+  push(`<rect x="0" y="${y}" width="${W}" height="${footH}" fill="${C.surf}"/>`);
+  if (d.footer) push(text(PX, y + 24, 11.5, 500, C.dim, d.footer));
+  if (d.footerRight) push(text(W - PX, y + 24, 11.5, 500, C.dim, d.footerRight, 'end'));
+  y += footH;
+
+  const H = y;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<defs><clipPath id="rcrp"><rect x="0" y="0" width="${W}" height="${H}" rx="22"/></clipPath></defs>
+<g clip-path="url(#rcrp)">
+<rect x="0" y="0" width="${W}" height="${H}" fill="${C.bg}"/>
+${el.join('\n')}
+</g></svg>`;
+}
+
+function renderRepairCardPNG(data) {
+  if (!canRenderCard()) return null;
+  const svg = buildRepairCardSVG(data);
+  const r = new Resvg(svg, {
+    fitTo: { mode: 'width', value: W * 2 },
+    font: { fontFiles: FONT_FILES, defaultFontFamily: FONT, loadSystemFonts: false },
+    background: C.bg,
+  });
+  return r.render().asPng();
+}
+
 module.exports = { renderShiftCardPNG, buildShiftCardSVG, renderKpiCardPNG, buildKpiCardSVG, canRenderCard,
-  renderBeforeAfterCardPNG, buildBeforeAfterSVG };
+  renderBeforeAfterCardPNG, buildBeforeAfterSVG, renderRepairCardPNG, buildRepairCardSVG };

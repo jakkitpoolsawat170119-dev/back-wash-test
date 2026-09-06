@@ -116,6 +116,7 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
   const [zoom, setZoom] = useState<string | null>(null);
   const [menu, setMenu] = useState('');            // "personKey|nodeKey" ที่กางเมนู ⋯ อยู่
   const [edit, setEdit] = useState('');            // "personKey|nodeKey" ที่กำลังแก้ไขอยู่ (ทีละงาน)
+  const [editTask, setEditTask] = useState(0);     // id งานมอบหมายที่กำลังแก้ไขอยู่ (0 = ไม่มี)
   // ลากได้ทั้งงานประจำ (มอบต่อเฉพาะวันนั้น) และงานมอบหมาย (ย้ายเจ้าของถาวร)
   type DragItem = { kind: 'node'; n: Node } | { kind: 'adhoc'; t: Adhoc };
   const [drag, setDrag] = useState<{ from: string; item: DragItem; title: string; x: number; y: number; over: string } | null>(null);
@@ -368,6 +369,9 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
   /* ── งานมอบหมายเฉพาะกิจ 1 บรรทัด — งานแทรกระหว่างวัน (ไม่ใช่ PM ประจำ) ──
      ด่วน = ขีดแดงซ้าย · รูปโหลดตอนกดดู · ลากไปการ์ดคนอื่น = ย้ายเจ้าของถาวร        */
   const AdhocRow: React.FC<{ p: Person; t: Adhoc; showWho?: boolean; showMachine?: boolean }> = ({ p, t, showWho, showMachine }) => {
+    if (editTask === t.id) {
+      return <EditAdhoc task={t} machines={machines} reload={load} onMsg={setMsg} onClose={() => setEditTask(0)} />;
+    }
     const done = t.status === 'done';
     const urgent = t.priority === 'urgent' && !done;
     const others = people.filter(x => x.key !== p.key);
@@ -412,6 +416,10 @@ const MaintenanceBoard: React.FC<{ operatorName: string | null }> = ({ operatorN
               style={{ ...btn, padding: '4px 9px', fontSize: 12, flex: 'none' }}>🖼</button>
           )}
           {im === 'loading' && <span style={{ fontSize: 12, color: '#a89e94', flex: 'none', marginTop: 5 }}>⏳</span>}
+          {!done && (
+            <button onClick={() => setEditTask(t.id)} title="แก้ชื่อ / เครื่อง / เวลา / ความด่วน"
+              style={{ ...btn, padding: '4px 9px', fontSize: 12, flex: 'none' }}>✏️</button>
+          )}
           <button onClick={() => delAdhoc(t)} title="ลบงานนี้"
             style={{ ...btn, padding: '4px 9px', fontSize: 12, flex: 'none', color: '#c0b6ac' }}>✕</button>
         </div>
@@ -757,6 +765,79 @@ const AddRoutine: React.FC<{
    "งานนั้น ๆ ต้องแก้ไขได้ตลอด" (user เคาะ 28 ส.ค.) — เดิมแก้ได้ที่หน้าทะเบียนอย่างเดียว
    ส่งเฉพาะช่องที่ฟอร์มนี้มี → เซิร์ฟเวอร์คงค่าที่เหลือไว้เอง (เจ้าของ · ลำดับ · บทบาท · mono)
    ⚠️ ต้องประกาศระดับบนสุดเหมือน AddRoutine ไม่งั้นพิมพ์อยู่แล้วโดน re-render ล้างทิ้ง       */
+/* ── แก้ไขงานมอบหมายเฉพาะกิจ (การ์ดแดง) ────────────────────────────────────
+   เดิมงานที่มอบไปแล้วทำได้แค่ ติ๊ก / ลบ / ลากย้ายคน — พิมพ์ชื่อผิดหรือนัดเวลาผิด
+   ต้องลบทิ้งแล้วมอบใหม่ ซึ่งทำให้รูปที่แนบไว้กับประวัติหายไปด้วย
+   ใช้ /api/tasks/update เส้นเดียวกับตอนติ๊ก — ช่องไหนไม่ส่งไปเซิร์ฟเวอร์ไม่แตะ
+   (ไม่แก้ "วันที่" กับ "คนรับ" ตรงนี้: ย้ายคนใช้ลากการ์ด ส่วนเลื่อนวันยังไม่มีใครขอ)   */
+const EditAdhoc: React.FC<{
+  task: Adhoc; machines: string[]; reload: () => Promise<void>;
+  onMsg: (s: string) => void; onClose: () => void;
+}> = ({ task, machines, reload, onMsg, onClose }) => {
+  const [title, setTitle] = useState(task.title);
+  const [machine, setMachine] = useState(task.machine || '');
+  const [dueTime, setDueTime] = useState(task.dueTime || '');
+  const [urgent, setUrgent] = useState(task.priority === 'urgent');
+  const [busy, setBusy] = useState(false);
+  const lbl: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--ink-soft,#6d6259)', marginBottom: 3 };
+  const fld: React.CSSProperties = { ...inp, width: '100%', boxSizing: 'border-box', fontSize: 13, fontWeight: 500, marginBottom: 7 };
+
+  const save = async () => {
+    if (!title.trim()) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${apiUrl}/api/tasks/update`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: task.id, title: title.trim(), machine: machine.trim(),
+          dueTime: dueTime.trim(), priority: urgent ? 'urgent' : 'normal',
+        }),
+      });
+      const d = await r.json().catch(() => null);
+      if (!r.ok) { onMsg(`❌ ${d?.message || d?.error || 'บันทึกไม่สำเร็จ'}`); return; }
+      onMsg(`✅ แก้ไข “${title.trim()}” แล้ว`);
+      onClose();
+      await reload();
+    } catch { onMsg('❌ บันทึกไม่สำเร็จ — เช็คเน็ต'); } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ margin: '4px 0', border: '1px solid #f0bdb3', background: '#fff8f6', borderRadius: 12, padding: 10 }}>
+      <div style={{ fontFamily: 'Kanit, sans-serif', fontSize: 12, fontWeight: 600, color: '#b3261e', marginBottom: 7 }}>
+        ✏️ แก้ไขงานมอบหมาย
+      </div>
+      <label style={lbl}>งานที่ต้องทำ</label>
+      <input autoFocus value={title} onChange={e => setTitle(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && save()} style={fld} />
+
+      <label style={lbl}>เครื่องจักร</label>
+      <input list={`ah-ed-${task.id}`} value={machine} onChange={e => setMachine(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && save()} placeholder="เลือกจากรายการ หรือพิมพ์เอง (เว้นว่าง = ไม่ผูกเครื่อง)"
+        style={fld} />
+      <datalist id={`ah-ed-${task.id}`}>{machines.map(m => <option key={m} value={m} />)}</datalist>
+
+      <label style={lbl}>เวลาที่ต้องเสร็จ (ไม่บังคับ)</label>
+      <input type="time" value={dueTime} onChange={e => setDueTime(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && save()} style={fld} />
+
+      <button onClick={() => setUrgent(u => !u)} style={{
+        ...btn, background: urgent ? '#c62828' : '#fff', borderColor: urgent ? '#c62828' : 'var(--line,#eee3d9)',
+        color: urgent ? '#fff' : 'var(--ink-soft,#6d6259)',
+      }}>{urgent ? '🔴 ด่วน' : '○ ไม่ด่วน'}</button>
+
+      <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button onClick={save} disabled={busy || !title.trim()} style={{
+          ...btn, background: '#ff6b00', borderColor: '#ff6b00', color: '#fff', opacity: busy || !title.trim() ? 0.5 : 1,
+        }}>{busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>
+        <button onClick={onClose} style={btn}>ยกเลิก</button>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--ink-soft,#6d6259)', marginTop: 7, lineHeight: 1.5 }}>
+        ย้ายให้คนอื่นทำ = ลากการ์ดงานไปวางที่การ์ดของเขา · รูปที่แนบไว้ไม่หายไปตอนแก้
+      </div>
+    </div>
+  );
+};
+
 const EditRoutine: React.FC<{
   node: Node; machines: string[]; reload: () => Promise<void>;
   onMsg: (s: string) => void; onClose: () => void;
