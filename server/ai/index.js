@@ -62,6 +62,11 @@ function openrouterClient() {
     _openrouter = new OpenAI({
       apiKey: process.env.OPENROUTER_API_KEY,
       baseURL: OPENROUTER_BASE_URL,
+      // 🔴 ต้องมีเพดานเวลา — เจอจริง 7 ก.ย.: kimi-k2.6 อ่านรูปแล้วค้าง 533 วินาทีก่อนหลุดเอง
+      //    บน Render คำขอแบบนี้กินตัวประมวลผลทิ้งไว้เป็นสิบนาที และผู้ใช้เห็นเหมือนแอปพัง
+      //    ยอมล้มเร็วแล้วบอกให้ลองใหม่ ดีกว่าค้างจนหมดความอดทน
+      timeout: Number(process.env.AI_TIMEOUT_MS) || 180000,
+      maxRetries: 1,
       // OpenRouter ใช้ 2 หัวนี้จัดอันดับ/แสดงที่มา — ไม่ใส่ก็ได้ แต่ใส่แล้วดูออกว่าเรียกมาจากแอปไหน
       defaultHeaders: {
         'HTTP-Referer': process.env.PUBLIC_WEB_URL || 'https://back-wash-test.onrender.com',
@@ -94,6 +99,10 @@ function wrapProviderError(err, provider) {
   if (status === 402 || lowCredit) msg = `เครดิต ${provider} หมด — เติมเงินแล้วใช้ได้ทันที (ระหว่างนี้ทำเองตามปกติได้)`;
   else if (status === 401) msg = `คีย์ ${provider} ไม่ถูกต้อง — ตรวจค่าใน environment variables`;
   else if (status === 429) msg = 'เรียก AI ถี่เกินไป รอสักครู่แล้วลองใหม่';
+  // หมดเวลา/ต่อไม่ติด = ยังใช้ไม่ได้ชั่วคราว ไม่ใช่แอปพัง — ต้องบอกให้ลองใหม่ ไม่ใช่โยน 500
+  else if (/timeout|timed out|terminated|ECONNRESET|ETIMEDOUT|socket hang up|aborted/i.test(String(err && err.message || ''))
+        || (err && (err.name === 'APIConnectionTimeoutError' || err.name === 'APIConnectionError')))
+    msg = 'AI ตอบช้าเกินไป (เกินเวลาที่รอไหว) — ลองใหม่อีกครั้ง หรือลดขนาด/จำนวนรูปลง';
   if (!msg) return err;
   const e = new Error(msg);
   e.status = 503;      // ให้ endpoint ตอบ 503 (บริการยังไม่พร้อม) ไม่ใช่ 500 (แอปพัง)

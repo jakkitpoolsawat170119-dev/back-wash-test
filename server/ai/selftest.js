@@ -177,5 +177,21 @@ const withStub = (handler, fn) => new Promise((resolve, reject) => {
     });
   });
 
+  // เจอจริง 7 ก.ย.: kimi-k2.6 อ่านรูปค้าง 533 วินาทีแล้วหลุดเอง → เคยได้ 500 (เหมือนแอปพัง)
+  await withStub((req, res) => { /* ไม่ตอบเลย ปล่อยให้ค้างจนหมดเวลา */ }, async (ai) => {
+    process.env.AI_TIMEOUT_MS = '1200';
+    delete require.cache[require.resolve('./index.js')];
+    const fresh = require('./index.js');
+    let caught = null;
+    try { await fresh.createMessage('assist', { max_tokens: 10, messages: [{ role: 'user', content: 'hi' }] }); }
+    catch (e) { caught = e; }
+    delete process.env.AI_TIMEOUT_MS;
+    t('AI ตอบช้าจนหมดเวลา → 503 บอกให้ลองใหม่ ไม่ใช่ 500', () => {
+      assert.ok(caught, 'ต้อง throw');
+      assert.strictEqual(caught.status, 503);
+      assert.ok(/ช้าเกินไป/.test(caught.message), 'ข้อความต้องบอกว่าช้าเกินไป: ' + caught.message);
+    });
+  });
+
   console.log('\n✅ ผ่านหมด ' + pass + ' ข้อ');
 })().catch(e => { console.error('\n❌ ' + e.message); process.exit(1); });
