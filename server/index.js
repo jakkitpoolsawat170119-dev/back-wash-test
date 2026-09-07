@@ -8851,7 +8851,9 @@ app.post('/api/am-sheet/link', async (req, res) => {
       await db.exec('INSERT INTO am_sheet_links (token, line, created_by, created_at, active) VALUES (?, ?, ?, ?, 1)',
         [token, line, b.by || null, nowBKK()]);
     }
-    const base = String(process.env.PUBLIC_WEB_URL || b.baseUrl || '').replace(/\/$/, '');
+    // ต้องแยกจาก PUBLIC_WEB_URL — ตัวนั้นตั้งเป็นโดเมน Render (ใช้เป็น HTTP-Referer ของ AI)
+    // ไม่ใช่โดเมนหน้าเว็บจริงที่ผู้ใช้กดลิงก์ ถ้าใช้ตัวเดียวกันลิงก์จะพาไปเจอ "Cannot GET /"
+    const base = String(process.env.PUBLIC_APP_URL || b.baseUrl || '').replace(/\/$/, '');
     const url = base ? `${base}/?amsheet=${token}` : `/?amsheet=${token}`;
     if (b.sendToGroup && base) {
       try {
