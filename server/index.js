@@ -9,7 +9,6 @@ const crypto = require('crypto');
 const { AsyncLocalStorage } = require('node:async_hooks');
 const axios = require('axios');
 const FormData = require('form-data');
-const Anthropic = require('@anthropic-ai/sdk');
 const { renderShiftCardPNG, renderKpiCardPNG, canRenderCard, renderBeforeAfterCardPNG,
   renderRepairCardPNG } = require('./shiftCard');
 const amShift = require('./shiftSchedule');   // mirror ของ client/src/shiftSchedule.ts — แก้ต้องแก้คู่กัน
@@ -17,6 +16,7 @@ const vault = require('./vault');
 const articlePage = require('./articlePage');
 const chartSvg = require('./chartSvg');
 const jsGenPrompt = require('./jsGenPrompt');
+const ai = require('./ai');   // ชั้นกลางเลือกเจ้า/รุ่นต่อจุด — ดู server/ai/index.js
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -3940,7 +3940,6 @@ const SPP_DAMAGE_KINDS = [
 // บน Opus 5 thinking เปิดเป็นค่าเริ่มต้น และ max_tokens คุมทั้ง thinking+คำตอบรวมกัน
 // ถ้าปล่อยเปิดต้องเผื่อ max_tokens เยอะขึ้นมากโดยไม่ได้อะไรกลับมา
 // (ปิด thinking ใช้ได้เมื่อ effort ไม่เกิน high — low ผ่าน)
-const SPP_PARSE_MODEL = process.env.SPP_PARSE_MODEL || 'claude-opus-5';
 
 const SPP_PARSE_FORMAT = {
   type: 'json_schema',
@@ -3978,12 +3977,10 @@ const SPP_PARSE_FORMAT = {
 
 // คืน null เมื่อไม่ได้ตั้ง ANTHROPIC_API_KEY หรือ AI ล่ม → บอทถอยไปโหมดกดปุ่มเอง
 async function parseSppFreeText(text) {
-  const client = getAnthropic();
-  if (!client) return null;
+  if (!ai.available('parse')) return null;
 
   try {
-    const resp = await client.messages.create({
-      model: SPP_PARSE_MODEL,
+    const resp = await ai.createMessage('parse', {
       max_tokens: 1024,
       thinking: { type: 'disabled' },
       output_config: { effort: 'low', format: SPP_PARSE_FORMAT },
@@ -4000,6 +3997,9 @@ async function parseSppFreeText(text) {
           '- ตัวเลขที่มาหลังคำว่า "เลข" หรือ "เลขหน้าเครื่อง" หรือ "counter" คือ counter',
           '- machine = ชื่อเครื่องตามที่พิมพ์มา ("Linear#3", "L3") · เขียน "-" หรือไม่ได้บอกให้ใส่ ""',
           '- อย่าเดาค่าที่ข้อความไม่ได้บอก ให้ใส่ค่าว่าง/0 แล้วระบุชื่อช่องนั้นใน missing',
+          // เจอตอนย้ายไป Kimi (7 ก.ย.): ตัวเลขจำนวนติดมาใน product_text ("golden 80") → จับคู่ SKU พลาด
+          // กติกานี้แก้ได้ตรงจุดโดยไม่กระทบชื่อที่มีเลขจริง ("Syrup 800", "ปี๊บ 1x20") — ทดสอบเทียบแล้ว
+          '- ตัวเลขที่นับเป็น prod_qty หรือ counter แล้ว ห้ามติดอยู่ใน product_text อีก ("golden 80 กล่อง" → product_text="golden") · แต่ตัวเลขที่เป็นส่วนหนึ่งของชื่อสินค้าเองต้องเก็บไว้ ("Syrup 800", "ปี๊บ 1x20")',
         ].join('\n'),
         cache_control: { type: 'ephemeral' },
       }],
@@ -4483,7 +4483,7 @@ async function sppTryPlanText(chatId, userId, draft, text, user) {
   let out = null;
 
   if (!items.length) {
-    if (!getAnthropic()) {
+    if (!ai.available('parse')) {
       return sppSend(chatId, '⚠️ ยังตั้งค่า AI ไม่เสร็จ — ลงแผนผ่านหน้าเว็บไปก่อนได้');
     }
     try {
@@ -4629,7 +4629,7 @@ async function sppShiftNudgeTick() {
 // ไม่สร้างสมองที่สอง — คำตอบจึงตรงกับที่ถามในหน้าเว็บเสมอ
 // session ผูกกับ chat เพื่อให้ถามต่อเนื่องได้ ("แล้วเดือนก่อนล่ะ")
 async function sppAskHistory(chatId, userId, text, user) {
-  if (!getAnthropic()) return sppSend(chatId, '⚠️ ยังตั้งค่า AI ไม่เสร็จ — ดูย้อนหลังที่หน้า "ประวัติยอดผลิต" ในเว็บได้');
+  if (!ai.available('assist')) return sppSend(chatId, '⚠️ ยังตั้งค่า AI ไม่เสร็จ — ดูย้อนหลังที่หน้า "ประวัติยอดผลิต" ในเว็บได้');
   await sppTg('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {});
   try {
     const out = await runAssistantConversation({
@@ -7498,15 +7498,14 @@ function routeFinding(f) {
 }
 // AI fallback — เรียก Claude เดาผู้รับเมื่อกฎไม่เข้า (คืน null ถ้าไม่มี key / ตอบไม่ได้)
 async function aiSuggestAssignee(finding, roster) {
-  const client = getAnthropic();
-  if (!client) return null;
+  if (!ai.available('assign')) return null;
   const list = roster.map(p => `${p.person_key}=${p.name} (${p.role || ''})`).join('; ');
   const prompt = `ใบตรวจโรงงานอาหาร มีประเด็นที่กฎอัตโนมัติแบ่งไม่ได้ ช่วยเลือกผู้รับผิดชอบที่เหมาะสมที่สุด 1 คน จากรายชื่อนี้เท่านั้น\n`
     + `รายชื่อ (key=ชื่อ · หน้าที่): ${list}\n`
     + `ประเด็น: ${finding.issue || '-'}\nสถานที่: ${finding.location || '-'}\n`
     + `ตอบเป็น JSON บรรทัดเดียวเท่านั้น: {"owner_key":"...","category":"cleaning|maintenance","reason":"เหตุผลสั้นๆ","confidence":0.0-1.0}`;
   try {
-    const resp = await client.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: 300, messages: [{ role: 'user', content: prompt }] });
+    const resp = await ai.createMessage('assign', { max_tokens: 300, messages: [{ role: 'user', content: prompt }] });
     const txt = resp.content.filter(b => b.type === 'text').map(b => b.text).join('');
     const m = txt.match(/\{[\s\S]*\}/); if (!m) return null;
     const j = JSON.parse(m[0]);
@@ -7743,9 +7742,8 @@ function matchPersonByName(raw, roster) {
   return loose.length === 1 ? loose[0].person_key : null;
 }
 app.post('/api/audit/read-sheet', async (req, res) => {
-  const client = getAnthropic();
   // ไม่มีคีย์ = ปิดเฉพาะฟีเจอร์อ่านรูป (503) ฟอร์มพิมพ์มือต้องใช้ได้ตามปกติ
-  if (!client) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์ — พิมพ์แถวเองได้ตามปกติ' });
+  if (!ai.available('sheet')) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่าคีย์ AI บนเซิร์ฟเวอร์ — พิมพ์แถวเองได้ตามปกติ' });
   const imgs = (Array.isArray(req.body.images) ? req.body.images : [])
     .filter(im => im && im.data)
     .map(im => ({
@@ -7780,8 +7778,8 @@ app.post('/api/audit/read-sheet', async (req, res) => {
     + '• รูปหนึ่งรูปใช้กับแถวเดียวเท่านั้น ห้ามชี้กรอบเดียวกันให้หลายแถว'
     + tileNote + dims;
   try {
-    const resp = await client.messages.create({
-      model: 'claude-opus-4-8', max_tokens: 8000,
+    const resp = await ai.createMessage('sheet', {
+      max_tokens: 8000,
       thinking: { type: 'adaptive' },
       // structured output → JSON ตรงสเปกแน่นอน · effort medium พอสำหรับอ่านตาราง (ปรับลงได้ถ้าช้า)
       output_config: { effort: 'medium', format: { type: 'json_schema', schema: READ_SHEET_SCHEMA } },
@@ -7816,11 +7814,12 @@ app.post('/api/audit/read-sheet', async (req, res) => {
       })
       .filter(r => r.issue);
     const u = resp.usage || {};
-    console.log(`[read-sheet] imgs=${imgs.length} rows=${rows.length} boxes=${rows.filter(r => r.photoBox).length} in=${u.input_tokens || 0} out=${u.output_tokens || 0}`);
+    console.log(`[read-sheet] ${ai.describe('sheet')} imgs=${imgs.length} rows=${rows.length} boxes=${rows.filter(r => r.photoBox).length} in=${u.input_tokens || 0} out=${u.output_tokens || 0}`);
     res.json({ count: rows.length, rows });
   } catch (err) {
     console.error('[read-sheet] error', err.message);
-    res.status(500).json({ error: `อ่านเอกสารไม่สำเร็จ: ${err.message}` });
+    // เครดิตหมด/คีย์ผิด/ยิงถี่ = 503 "ยังใช้ไม่ได้" ไม่ใช่ 500 "แอปพัง" — ฝั่งเว็บจะได้บอกให้พิมพ์เอง
+    res.status(err.status || 500).json({ error: `อ่านเอกสารไม่สำเร็จ: ${err.message}` });
   }
 });
 
@@ -7853,8 +7852,7 @@ const READ_ROUTINE_SCHEMA = {
   additionalProperties: false,
 };
 app.post('/api/routine/read-sheet', async (req, res) => {
-  const client = getAnthropic();
-  if (!client) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์ — พิมพ์แถวเองได้ตามปกติ' });
+  if (!ai.available('routine')) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่าคีย์ AI บนเซิร์ฟเวอร์ — พิมพ์แถวเองได้ตามปกติ' });
   const imgs = (Array.isArray(req.body.images) ? req.body.images : [])
     .filter(im => im && im.data)
     .map(im => ({ data: String(im.data), media_type: im.media_type || 'image/jpeg' }))
@@ -7879,8 +7877,8 @@ app.post('/api/routine/read-sheet', async (req, res) => {
     + '• group = ชื่อไลน์/เครื่องจักรจากหัวเอกสารของแผ่นที่แถวนั้นอยู่ ทุกแถวในแผ่นเดียวกันต้องได้ group เดียวกัน'
     + knownNote + tileNote;
   try {
-    const resp = await client.messages.create({
-      model: 'claude-opus-5', max_tokens: 16000,
+    const resp = await ai.createMessage('routine', {
+      max_tokens: 16000,
       thinking: { type: 'adaptive' },
       output_config: { effort: 'medium', format: { type: 'json_schema', schema: READ_ROUTINE_SCHEMA } },
       messages: [{
@@ -7908,11 +7906,12 @@ app.post('/api/routine/read-sheet', async (req, res) => {
       }))
       .filter(r => r.title);
     const u = resp.usage || {};
-    console.log(`[routine-sheet] imgs=${imgs.length} rows=${rows.length} unclear=${rows.filter(r => r.unclear).length} in=${u.input_tokens || 0} out=${u.output_tokens || 0}`);
+    console.log(`[routine-sheet] ${ai.describe('routine')} imgs=${imgs.length} rows=${rows.length} unclear=${rows.filter(r => r.unclear).length} in=${u.input_tokens || 0} out=${u.output_tokens || 0}`);
     res.json({ count: rows.length, rows });
   } catch (err) {
     console.error('[routine-sheet] error', err.message);
-    res.status(500).json({ error: `อ่านเอกสารไม่สำเร็จ: ${err.message}` });
+    // เครดิตหมด/คีย์ผิด/ยิงถี่ = 503 "ยังใช้ไม่ได้" ไม่ใช่ 500 "แอปพัง" — ฝั่งเว็บจะได้บอกให้พิมพ์เอง
+    res.status(err.status || 500).json({ error: `อ่านเอกสารไม่สำเร็จ: ${err.message}` });
   }
 });
 
@@ -12854,13 +12853,6 @@ app.post('/api/task-templates/delete-one', (req, res) => {
 // ── ผู้ช่วย AI (Claude) — พิมพ์ภาษาคน → สร้างงาน / สืบค้นข้อมูลการผลิต ───────
 // เลเยอร์ tool-calling ตัวเดียว ใช้ได้ทั้งหน้าเว็บ (/api/assistant) และ Telegram (ผ่าน n8n)
 // ═══════════════════════════════════════════════════════════════════════════
-let _anthropic = null;
-const getAnthropic = () => {
-  if (!process.env.ANTHROPIC_API_KEY) return null;
-  if (!_anthropic) _anthropic = new Anthropic(); // อ่าน ANTHROPIC_API_KEY จาก env
-  return _anthropic;
-};
-
 // ── ความรู้ + สืบค้น DB โดยตรง (แนวทาง "สมองรวม") ─────────────────────────
 // สรุป schema เป็นบรรทัดสั้นๆ "table(col1, col2, …)" จาก DDL จริง → ใส่ system prompt
 const SCHEMA_SUMMARY = SCHEMA.map((ddl) => {
@@ -13392,13 +13384,13 @@ function normalizeHandoverDraft(input) {
 
 const ASSISTANT_FLAVORS = 'Amazon, FDS, Golden, Freshy Lychee, Freshy Strawberry, Senorita Coconut, Senorita Caramel, Freshy Blue Hawaii, Freshy Lime, Freshy Green Apple, Freshy Sala, Senorita Yuzu, Senorita Peach, MLH 02, Freshy Pineapple, Freshy Grape, Freshy Punch, Freshy blue Lemon, Senorita Fres Mint, Freshy Orange, Signature Rose, Freshy Shine Muscat Grape, Freshy Peach, Freshy Mango, Dilute W-Molass';
 
-// สร้าง system prompt ของผู้ช่วย — async เพราะดึงความจำถาวร (เฟส 2) มาแปะด้วย
-async function buildAssistantSystem(operator) {
-  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
-  const memBlock = await memoryPromptBlock(operator); // เฟส 2
+// ส่วน "คงที่" ของ system prompt — นี่คือก้อนที่ติด cache_control
+// ⚠️ ห้ามเอาวันที่ / ความจำถาวร / อะไรที่เปลี่ยนรายคนรายวัน มาใส่ในนี้เด็ดขาด
+//    cache เป็น prefix match — ไบต์เดียวเปลี่ยนคือเสีย cache ทั้งก้อน (ของเดิมเอาวันที่+ความจำ
+//    ใส่ปนไว้ในนี้ ทำให้สั่ง "จำ" ทีเดียว cache รีเซ็ตทั้งก้อนทุกครั้ง)
+function assistantSystemStable() {
   return [
     'คุณเป็นผู้ช่วยอัจฉริยะสำหรับบันทึกและวิเคราะห์ข้อมูลการผลิตน้ำเชื่อม/น้ำหวานของโรงงาน คุยแบบเป็นกันเองแต่มืออาชีพ',
-    `วันนี้คือ ${today} (เขตเวลา Asia/Bangkok)`,
     'สายการผลิต/CIP: Line 1 (Syrup), Line 2 และ Line 3 (Flavour), Line 4 (Mixing/Pasteurizer)',
     `รสชาติที่มี: ${ASSISTANT_FLAVORS}`,
     'ถ้าผู้ใช้พิมพ์ชื่อรสผิด/สะกดเพี้ยน/เป็นภาษาไทย ให้จับคู่กับรสที่ใกล้เคียงที่สุดในลิสต์เอง (เช่น "อเมซอน"→Amazon, "ลิ้นจี่"→Freshy Lychee) ไม่แน่ใจค่อยถามยืนยัน',
@@ -13444,8 +13436,32 @@ async function buildAssistantSystem(operator) {
     '• ตอบภาษาไทย กระชับ อ่านง่าย เน้นตัวเลขสำคัญ ใส่ emoji พอประมาณ',
     '• ห้ามใช้ Markdown (** ## ฯลฯ) — หน้าแชทแสดงข้อความธรรมดา ใช้ • ขึ้นบรรทัดใหม่ และ emoji จัดรูปแบบแทน',
     '• ใช้บริบทจากบทสนทนาก่อนหน้าเมื่อเป็นคำถามต่อเนื่อง',
-    memBlock ? '\n' + memBlock : '',
   ].join('\n');
+}
+
+// ส่วน "ผันแปร" — วันที่ (เปลี่ยนทุกวัน) + ความจำถาวร (เปลี่ยนทุกครั้งที่สั่งจำ/ลืม)
+// ต้องต่อ "ท้าย" ก้อนคงที่เสมอ ห้ามย้ายขึ้นไปข้างบน ไม่งั้น cache พังเหมือนเดิม
+async function assistantSystemVolatile(operator) {
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+  const memBlock = await memoryPromptBlock(operator); // เฟส 2
+  return [`วันนี้คือ ${today} (เขตเวลา Asia/Bangkok)`, memBlock || ''].filter(Boolean).join('\n');
+}
+
+// system ทั้งก้อนต่อกันเป็นสตริงเดียว — ไว้ให้เทสต์/ผู้เรียกภายนอกใช้ (ของจริงส่งเป็น 2 บล็อก)
+async function buildAssistantSystem(operator) {
+  return assistantSystemStable() + '\n' + (await assistantSystemVolatile(operator));
+}
+
+// หน้าแชท (เว็บ + Telegram) แสดงข้อความธรรมดา — Markdown ที่หลุดมาจะเห็นเป็นดอกจัน/ชาร์ปโต้ง ๆ
+// system สั่งห้ามอยู่แล้ว แต่โมเดลไม่ได้ทำตาม 100% (Kimi หลุด 1 ใน 3 ครั้งตอนทดสอบ 7 ก.ย.)
+// ข้อบังคับของหน้าจอแบบนี้ต้องบังคับด้วยโค้ด ไม่ใช่ฝากไว้กับดุลพินิจโมเดล — และได้ผลกับทุกเจ้า
+function stripChatMarkdown(text) {
+  return String(text || '')
+    .replace(/\*\*(.+?)\*\*/gs, '$1')       // **ตัวหนา**
+    .replace(/(^|\s)\*(\S[^*\n]*?)\*(?=\s|$)/g, '$1$2') // *เอียง* (ไม่แตะ • หรือ * ที่ติดตัวเลข)
+    .replace(/^#{1,6}\s+/gm, '')             // ## หัวข้อ
+    .replace(/^\s*[-*]\s+/gm, '• ')          // - รายการ → •
+    .trim();
 }
 
 // เลเยอร์คุยกับ Claude ที่ใช้ร่วมกัน — หน้าเว็บ (/api/assistant), ต่อหลังกดยืนยัน (เฟส 3), วิเคราะห์สิ้นกะ (เฟส 1)
@@ -13454,10 +13470,13 @@ async function buildAssistantSystem(operator) {
 // → แนบเป็น image block เทิร์นแรก (vision อ่านรูปแผน) · รูปส่งเฉพาะเทิร์นนี้ ไม่เก็บลง history
 async function runAssistantConversation(opts) {
   const { userMessage, image = null, images = null, operator = null, session = null, persist = true, maxTurns = 12, systemExtra = '', forceTool = null } = opts;
-  const client = getAnthropic();
-  if (!client) throw new Error('ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์');
-  let system = await buildAssistantSystem(operator);
-  if (systemExtra) system += '\n\n' + systemExtra;
+  if (!ai.available('assist')) throw Object.assign(new Error('ยังไม่ได้ตั้งค่าคีย์ AI บนเซิร์ฟเวอร์'), { status: 503, aiUnavailable: true });
+  // โหมดบังคับเรียก tool = งานแกะข้อความเป็นฟิลด์ (รับกะ/ลงแผน) ใช้รุ่นเก่งกว่า — ดูเหตุผลใน server/ai/index.js
+  const assistPurpose = forceTool ? 'assist_extract' : 'assist';
+  // แยก 2 ก้อน: ก้อนคงที่ (ติด cache) → ก้อนผันแปร (วันที่ + ความจำ + hint รายคำขอ, ไม่ติด cache)
+  const systemStable = assistantSystemStable();
+  let systemVolatile = await assistantSystemVolatile(operator);
+  if (systemExtra) systemVolatile += '\n\n' + systemExtra;
 
   const actions = [];
   const ctx = { session, pending: [], resolved: [], handoverDraft: null, planDraft: null }; // pending = การ์ดยืนยัน, handoverDraft = ร่างฟอร์มรับกะ, planDraft = ร่างแผนผลิต
@@ -13481,18 +13500,21 @@ async function runAssistantConversation(opts) {
   const messages = [...history.map(r => ({ role: r.role, content: r.content })), { role: 'user', content: firstContent }];
   let reply = '';
   for (let turn = 0; turn < maxTurns; turn++) {
-    const resp = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001', max_tokens: 4096,
-      // prompt caching: จุด cache ท้าย system → tools+system (ส่วนหัวที่ซ้ำทุกครั้ง) อ่านจาก cache เหลือ ~0.1x
-      // หมายเหตุ: system มีวันที่+ความจำถาวร → cache รีเซ็ตเมื่อเปลี่ยน ซึ่งไม่บ่อย
-      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+    const resp = await ai.createMessage(assistPurpose, {
+      max_tokens: 4096,
+      // prompt caching: จุด cache อยู่ท้ายก้อนคงที่ → tools+ก้อนคงที่ อ่านจาก cache เหลือ ~0.1x
+      // วันที่ + ความจำถาวร + hint รายคำขอ อยู่ในก้อนที่ 2 ซึ่ง "ไม่ติด cache" จึงเปลี่ยนได้โดย cache ไม่พัง
+      system: [
+        { type: 'text', text: systemStable, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: systemVolatile },
+      ],
       tools: ASSISTANT_TOOLS, messages,
       // บังคับเรียก tool เจาะจงเฉพาะเทิร์นแรก (กันโมเดลแค่ "บรรยาย" ว่าทำแล้วโดยไม่เรียก tool จริง) —
       // เทิร์นถัดไปปล่อย auto ตามปกติ ไม่งั้นจะวนบังคับเรียกซ้ำไม่รู้จบ
       ...(turn === 0 && forceTool ? { tool_choice: { type: 'tool', name: forceTool } } : {}),
     });
     const u = resp.usage || {};
-    console.log(`[assistant] turn=${turn} cache_read=${u.cache_read_input_tokens || 0} cache_write=${u.cache_creation_input_tokens || 0} in=${u.input_tokens || 0} out=${u.output_tokens || 0}`);
+    console.log(`[assistant] ${ai.describe(assistPurpose)} turn=${turn} cache_read=${u.cache_read_input_tokens || 0} cache_write=${u.cache_creation_input_tokens || 0} in=${u.input_tokens || 0} out=${u.output_tokens || 0}`);
     if (resp.stop_reason !== 'tool_use') {
       reply = resp.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
       break;
@@ -13509,7 +13531,7 @@ async function runAssistantConversation(opts) {
     }
     messages.push({ role: 'user', content: toolResults });
   }
-  reply = reply || 'รับทราบครับ';
+  reply = stripChatMarkdown(reply) || 'รับทราบครับ';
   // เก็บบทสนทนารอบนี้ไว้ต่อ session (จำกัดไว้ ~30 ข้อความล่าสุดต่อ session)
   if (persist && session) {
     const ts = nowBKK();
@@ -13539,7 +13561,7 @@ const ASSISTANT_INTENT_HINTS = {
 };
 
 app.post('/api/assistant', async (req, res) => {
-  if (!getAnthropic()) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์' });
+  if (!ai.available('assist')) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่าคีย์ AI บนเซิร์ฟเวอร์' });
   const { message, operator, session, image, images, intent } = req.body;
   // รวมรูป: images (อาเรย์ หลายส่วน) หรือ image (เดี่ยว) — จำกัด 6 รูปกัน payload บวม
   let imgs = Array.isArray(images) ? images.filter(im => im && im.data).map(im => ({ data: String(im.data), media_type: im.media_type || 'image/jpeg' })) : [];
@@ -13553,7 +13575,7 @@ app.post('/api/assistant', async (req, res) => {
     res.json({ reply, actions, pending, handoverDraft, planDraft });
   } catch (err) {
     console.error('[assistant] error', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -13587,7 +13609,7 @@ app.post('/api/assistant/confirm', async (req, res) => {
       const note = approve
         ? `[ระบบ] ผู้ใช้กดยืนยันรายการ #${act.id} แล้ว — ${message}. ถ้ามีขั้นตอนถัดไปในงานชุดที่กำลังทำอยู่ ให้ทำต่อทันที (เช่นเสนอบันทึกรายการถัดไป/สรุปผล) ถ้าไม่มีก็ตอบรับสั้นๆ`
         : `[ระบบ] ผู้ใช้ยกเลิกรายการ #${act.id} (${act.summary}). ถามผู้ใช้ว่าต้องการแก้ไขหรือข้ามขั้นตอนนี้ไหม`;
-      if (getAnthropic()) {
+      if (ai.available('assist')) {
         try {
           const conv = await runAssistantConversation({ userMessage: note, operator: operator || act.operator_name, session: act.session });
           followUp = conv.reply;
@@ -14282,8 +14304,11 @@ app.post('/api/posts/delete', async (req, res) => {
 // ═══ ให้ AI เขียนโค้ดลงบล็อก "โค้ดที่รันได้" ════════════════════════════════
 // endpoint นี้ไม่ผ่าน runAssistantConversation() เพราะตัวนั้นส่งชุดเครื่องมือ 23 ตัว
 // ไปด้วยเสมอและปิดไม่ได้ — งานนี้ต้องการแค่ข้อความเข้า/ข้อความออก ไม่มีเครื่องมือ
-const JS_GEN_MODEL = process.env.SPP_JS_MODEL || 'claude-sonnet-5';
-const JS_GEN_EFFORT = process.env.SPP_JS_EFFORT || 'medium';
+// ⚠️ ค่าตั้งต้น 'low' เพราะ Kimi นับ "ความคิด" รวมใน output_tokens
+//    วัดจริง 7 ก.ย.: effort medium ใช้ output 15,524 จากเพดาน 16,000 (เกือบชน = เสี่ยงได้โค้ดไม่ครบ)
+//    · effort low ใช้ 7,867 เร็วกว่า 24 วินาที และโค้ด WebGL ที่ได้ยังใช้งานได้ครบ
+//    ถ้าสลับกลับไป Anthropic ให้ตั้ง SPP_JS_EFFORT=medium (ค่าที่จูนไว้เดิมของ Sonnet 5)
+const JS_GEN_EFFORT = process.env.SPP_JS_EFFORT || 'low';
 
 // แยกเป็นฟังก์ชันเล็ก ๆ ไว้ให้ "ผู้ช่วยเขียนทั้งบทความ" (เฟส 2) เรียกต่อได้โดยไม่ต้องรื้อ handler
 //
@@ -14292,9 +14317,8 @@ const JS_GEN_EFFORT = process.env.SPP_JS_EFFORT || 'medium';
 //    ผู้ใช้เห็นเป็น "โค้ดยาวเกินโควตา เลยได้มาไม่ครบ" — 16000 คือค่าที่คู่มือ API แนะนำ
 //    สำหรับการเรียกแบบไม่ stream (สูงกว่านี้เสี่ยง HTTP timeout ต้องเปลี่ยนไปใช้ stream)
 //    เพดานนี้เป็นแค่ "ห้ามเกิน" ไม่ได้จองโทเคนไว้ล่วงหน้า โหมด 2D สั้น ๆ จึงไม่แพงขึ้นเลย
-async function callJsGen(client, { messages, effort, maxTokens = 16000 }) {
-  return client.messages.create({
-    model: JS_GEN_MODEL,
+async function callJsGen(_client, { messages, effort, maxTokens = 16000 }) {
+  return ai.createMessage('jsgen', {
     max_tokens: maxTokens,
     thinking: { type: 'adaptive' },
     output_config: { effort },
@@ -14305,10 +14329,10 @@ async function callJsGen(client, { messages, effort, maxTokens = 16000 }) {
 }
 
 app.post('/api/blog/js-gen', async (req, res) => {
-  const client = getAnthropic();
+  const client = null; // ชั้นกลางเลือกไคลเอนต์เอง — ตัวแปรนี้คงไว้ให้ callJsGen รับพารามิเตอร์เดิม
   // ไม่มีคีย์ = ปิดเฉพาะปุ่มนี้ (503) เขียนโค้ดเองในบล็อกยังทำได้ตามปกติ
-  if (!client) {
-    return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์ — เขียนโค้ดเองในบล็อกได้ตามปกติ' });
+  if (!ai.available('jsgen')) {
+    return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่าคีย์ AI บนเซิร์ฟเวอร์ — เขียนโค้ดเองในบล็อกได้ตามปกติ' });
   }
   if (rateLimited(req.ip, 8, 60000, 'jsgen')) {
     return res.status(429).json({ error: 'สั่งถี่เกินไป รอสักครู่แล้วลองใหม่' });
@@ -14392,7 +14416,7 @@ app.post('/api/blog/js-gen', async (req, res) => {
   } catch (e) {
     // e.extract = คำตอบมาแล้วแต่แกะไม่ได้ (422) · ที่เหลือคือ upstream ล้ม (502)
     console.error('[js-gen] failed', e.message);
-    res.status(e.extract ? 422 : 502).json({ error: e.message || 'เรียกโมเดลไม่สำเร็จ' });
+    res.status(e.status || (e.extract ? 422 : 502)).json({ error: e.message || 'เรียกโมเดลไม่สำเร็จ' });
   }
 });
 

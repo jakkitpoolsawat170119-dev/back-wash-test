@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:ai": "node ai/selftest.js"
   },
   "keywords": [],
   "author": "",
@@ -19,6 +20,7 @@
     "express": "^5.2.1",
     "form-data": "^4.0.5",
     "multer": "^2.1.1",
+    "openai": "^7.10.0",
     "pg": "^8.22.0",
     "sqlite3": "5.1.7"
   },
