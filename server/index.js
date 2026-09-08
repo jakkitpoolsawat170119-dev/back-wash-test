@@ -10,7 +10,7 @@ const { AsyncLocalStorage } = require('node:async_hooks');
 const axios = require('axios');
 const FormData = require('form-data');
 const { renderShiftCardPNG, renderKpiCardPNG, canRenderCard, renderBeforeAfterCardPNG,
-  renderRepairCardPNG } = require('./shiftCard');
+  renderRepairCardPNG, renderAmSheetCardPNG } = require('./shiftCard');
 const amShift = require('./shiftSchedule');   // mirror ของ client/src/shiftSchedule.ts — แก้ต้องแก้คู่กัน
 const vault = require('./vault');
 const articlePage = require('./articlePage');
@@ -6879,7 +6879,10 @@ app.post('/api/incidents/close', async (req, res) => {
        b.result !== undefined ? (String(b.result).trim() || null) : cur.result,
        imgs ? photoJson(imgs) : cur.result_images,
        downTo || null, nowBKK(), b.id]);
-    res.json({ success: true, ...(await afterIncidentCommand(b.id)) });
+    const done = await afterIncidentCommand(b.id);
+    // การ์ดบทเรียนไม่ควรถ่วง/ล้มการปิดงาน — ส่งไม่ผ่านก็แค่ไม่มีใบสรุปเด้งในกลุ่ม
+    postLessonCard(b.id).catch(() => {});
+    res.json({ success: true, ...done });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -8791,6 +8794,31 @@ async function amOpenRepairs(sheet, items, by) {
   return { opened, repeated };
 }
 
+/* การ์ดสรุปใบเช็ก AM — รูปของข้อที่ไม่ปกติต้องอยู่ในการ์ดด้วย
+   ตัวเลขอย่างเดียวบอกไม่ได้ว่า "ไม่ปกติ" ที่ช่างเจอหน้าตาเป็นยังไง
+   โชว์ได้ 4 ข้อ (การ์ดกว้าง 452 ใส่ 45 ข้อไม่ไหว) ที่เหลือขึ้นเป็น "+ อีก N รายการ" */
+async function amSheetCardPng({ data, line, date, shift, by, opened, repeated }) {
+  if (!canRenderCard()) return null;
+  const shown = data.items.filter(x => x.result === 'ng').slice(0, 4);
+  /* อ่านรูปจากตารางตรง ๆ ไม่ใช้ photoUrl ของ buildAmSheet — ตัวนั้นให้เฉพาะรูปที่เป็น URL
+     แต่เครื่องที่ไม่มี Supabase เก็บรูปเป็น data: ไว้ในคอลัมน์ ซึ่งก็ต้องขึ้นการ์ดเหมือนกัน */
+  const photos = await Promise.all(shown.map(async (x) => {
+    const r = (await dbAll('SELECT photo FROM am_sheet_items WHERE sheet_id = ? AND node_key = ?',
+      [data.sheet.id, x.nodeKey]))[0];
+    return r ? r.photo : null;
+  }));
+  const uris = (await Promise.allSettled(photos.map(fetchAsDataUri)))
+    .map(r => (r.status === 'fulfilled' ? r.value : null));
+  try {
+    return renderAmSheetCardPNG({
+      line, dateLabel: thaiDate(date), shiftLabel: `กะ${shift}`, lineStatus: data.sheet.lineStatus,
+      total: data.summary.total, ok: data.summary.ok, ng: data.summary.ng,
+      ngItems: shown.map((x, i) => ({ seq: x.seq, title: x.title, cause: x.cause, uri: uris[i] })),
+      openedCount: opened, repeatedCount: repeated, by,
+    });
+  } catch (e) { console.error('[amsheet] เรนเดอร์การ์ดไม่สำเร็จ', e.message); return null; }
+}
+
 app.post('/api/am-sheet/submit', async (req, res) => {
   if (rateLimited(req.ip, 30, 60000, 'amsheet-submit')) return res.status(429).json({ error: 'เรียกถี่เกินไป รอสักครู่' });
   const b = req.body || {};
@@ -8812,16 +8840,21 @@ app.post('/api/am-sheet/submit', async (req, res) => {
 
     const { opened, repeated } = await amOpenRepairs(data.sheet, data.items, by);
 
-    /* แจ้งเข้ากลุ่มช่าง — รอบนี้เป็นข้อความธรรมดา (การ์ดรูป PNG เป็นงานรอบหน้า)
-       ⚠️ sendMessage ของ Telegram จำกัด 4096 ตัวอักษร และโปรเจกต์นี้ไม่มีที่ไหนจัดการลิมิตนี้เลย
-          จึงส่งเฉพาะข้อไม่ปกติ สูงสุด 10 ข้อ แล้วสรุปที่เหลือเป็นตัวเลข                        */
+    /* แจ้งเข้ากลุ่มช่างเป็น "การ์ดสรุป" ตามที่หน้ากรอกสัญญาไว้
+       (กดส่งครั้งเดียวเกิด 2 อย่าง: การ์ดสรุปเข้ากลุ่ม + ใบแจ้งซ่อมของข้อที่ไม่ปกติ)
+       เรนเดอร์รูปไม่ได้ → ถอยไปข้อความธรรมดาแบบเดิม บอทต้องไม่เงียบเพราะเรื่องหน้าตา
+       ⚠️ ข้อความในรูปค้นหาไม่ได้ เลขใบซ่อม/ตัวเลขที่ต้องใช้ค้นย้อนหลังจึงต้องอยู่ใน caption ด้วย */
     const ngItems = data.items.filter(x => x.result === 'ng');
-    const L = [
+    const caption = [
       `📋 <b>ใบเช็ก AM — ${escapeHtml(a.line)}</b>`,
       `${a.date} · กะ${escapeHtml(a.shift)} · โดย ${escapeHtml(by)}`,
-      `━━━━━━━━━━━━━━━━`,
       `✅ ปกติ ${data.summary.ok}　⚠️ ไม่ปกติ ${data.summary.ng}　รวม ${data.summary.total} ข้อ`,
-    ];
+      opened.length ? `🆘 เปิดใบแจ้งซ่อมใหม่ ${opened.length} ใบ: ${opened.map(x => '#' + x.id).join(' ')}` : '',
+      repeated.length ? `🔁 เจอซ้ำ ต่อในใบเดิม ${repeated.length} ใบ: ${repeated.map(x => '#' + x.id).join(' ')}` : '',
+    ].filter(Boolean).join('\n');
+    /* ข้อความสำรอง — ⚠️ sendMessage จำกัด 4096 ตัวอักษร และโปรเจกต์นี้ไม่มีที่ไหนจัดการลิมิตนี้เลย
+       จึงไล่ข้อไม่ปกติได้สูงสุด 10 ข้อ แล้วสรุปที่เหลือเป็นตัวเลข */
+    const L = [caption];
     if (ngItems.length) {
       L.push('', '<b>ข้อที่ไม่ปกติ</b>');
       for (const it of ngItems.slice(0, 10)) {
@@ -8830,9 +8863,14 @@ app.post('/api/am-sheet/submit', async (req, res) => {
       }
       if (ngItems.length > 10) L.push(`… และอีก ${ngItems.length - 10} ข้อ (ดูในแอป)`);
     }
-    if (opened.length) L.push('', `🆘 เปิดใบแจ้งซ่อมใหม่ ${opened.length} ใบ: ${opened.map(x => '#' + x.id).join(' ')}`);
-    if (repeated.length) L.push(`🔁 เจอซ้ำ ต่อในใบเดิม ${repeated.length} ใบ: ${repeated.map(x => '#' + x.id).join(' ')}`);
-    try { await notify('duty', L.join('\n')); } catch (e) { console.error('[amsheet] แจ้งกลุ่มไม่สำเร็จ', e.message); }
+    try {
+      await inTopic('duty', async () => {
+        const png = await amSheetCardPng({ data, line: a.line, date: a.date, shift: a.shift, by,
+          opened: opened.length, repeated: repeated.length });
+        if (png) return sendPhotoBufferToTelegram(png, 'image/png', caption);
+        return sendToTelegram(L.join('\n'));
+      });
+    } catch (e) { console.error('[amsheet] แจ้งกลุ่มไม่สำเร็จ', e.message); }
 
     res.json({ success: true, opened, repeated, ...(await buildAmSheet(a.date, a.shift, a.line, by)) });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -11568,7 +11606,7 @@ function summarizeRepeat(rows, row) {
    ตัวที่ปักอยู่ในกลุ่มช่างเป็นรูป · repairCard() ที่เป็นข้อความยังอยู่ ใช้ตอนเปิดดูใบงาน
    จากเมนูในบอท (show() = editMessageText แก้ข้อความที่กดมา ซึ่งเป็นคนละใบกับการ์ดที่ปัก)
    คืน null เมื่อเรนเดอร์ไม่ได้ (lib/ฟอนต์ไม่พร้อม) → ผู้เรียกตกกลับไปใช้การ์ดข้อความ      */
-async function repairCardPhoto(row) {
+async function repairCardPhoto(row, kicker) {
   if (!canRenderCard()) return null;
   const st = srStatus(row.status || 'open');
   const pr = srPrio(row.priority);
@@ -11594,7 +11632,7 @@ async function repairCardPhoto(row) {
   let png = null;
   try {
     png = renderRepairCardPNG({
-      kicker: `แจ้งซ่อม #${row.id}`,
+      kicker: kicker || `แจ้งซ่อม #${row.id}`,
       title: row.title || 'ใบแจ้งซ่อม',
       machine: row.machine || 'ไม่ระบุเครื่อง',
       operator: row.operator || '',
@@ -11612,6 +11650,7 @@ async function repairCardPhoto(row) {
         ? [{ label: closed ? 'ครั้งนี้ (ปิดแล้ว)' : 'ครั้งนี้ · ยังหยุดอยู่', mins: closedMin != null ? closedMin : soFar, me: true },
            ...rep.prevDowns.map(x => ({ label: thaiDate(x.date), mins: x.mins, me: false }))]
         : [],
+      cause: row.cause || '',
       fix: closed ? (row.fix || '') : '',
       photoUris, photoTotal: imgs.length,
       afterUris, afterTotal: after.length,
@@ -11715,6 +11754,33 @@ async function bumpRepairCard(id) {
     console.error('[repair-card] refresh ไม่สำเร็จ', id, e.message);
     return 'failed';
   }
+}
+
+/* ── การ์ดบทเรียนตอนปิดงาน ────────────────────────────────────────────────
+   ปิดงานแล้วระบบไป "แก้การ์ดใบเดิมทับที่เดิม" ซึ่งลอยไปไกลบนสกรอลล์ของกลุ่มแล้ว
+   = ถูกตามที่เขียนไว้ แต่ไม่มีใครเห็น ซึ่งเท่ากับไม่มีรายงาน
+   → โพสต์ใบใหม่ตอนจบงาน ให้บทเรียน (อาการ → สาเหตุ → วิธีแก้ → รูปหลังซ่อม) เด้งขึ้นมาเอง
+   ⚠️ ใบนี้เป็น "ภาพนิ่ง ณ ตอนปิด" ไม่ใช่การ์ดที่แก้ทับตัวเอง — ตัวที่ระบบตามแก้ยังเป็น
+      การ์ดเดิม (card_msg_id) ถ้ามีคนมาเติมสาเหตุทีหลัง ใบบทเรียนจะไม่ขยับตาม        */
+async function postLessonCard(id) {
+  const row = await getIncident(id);
+  if (!row || (row.status || 'open') !== 'closed') return;
+  const head = [
+    `✅ <b>ปิดงานแล้ว — แจ้งซ่อม #${row.id}</b>`,
+    `🔩 ${escapeHtml(row.machine || 'ไม่ระบุเครื่อง')}　📌 ${escapeHtml(row.title || '')}`,
+    row.fix ? `🔧 <b>วิธีแก้:</b> ${escapeHtml(String(row.fix).slice(0, 300))}` : '',
+    row.cause ? '' : '⚠️ ยังไม่ได้เติม "สาเหตุที่แท้จริง" — กดปุ่มบนการ์ดเติมได้เลย',
+  ].filter(Boolean).join('\n');
+  try {
+    await inTopic('incident', async () => {
+      const photo = await repairCardPhoto(row, `บทเรียนจากใบซ่อม #${row.id}`);
+      if (!photo) return sendToTelegram(`${head}\n\n${repairCard(row).text}`);
+      await tgApiForm('sendPhoto', {
+        chat_id: tgChatId(), caption: head.slice(0, 1024), parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: photo.keyboard },
+      }, { field: 'photo', buffer: photo.png, filename: `lesson-${id}.png` });
+    });
+  } catch (e) { console.error('[lesson-card] ส่งไม่สำเร็จ', id, e.message); }
 }
 
 /* ── งาน PM (งานที่วางแผนไว้ล่วงหน้า) ────────────────────────────────────
@@ -12130,6 +12196,7 @@ async function handleMaintUpdate(upd) {
       touchMachineNote(fresh.machine);
       await ack('ปิดงานแล้ว ✅');
       await refreshRepairCard(id);
+      await postLessonCard(id);
       // งานที่แก้เฉพาะหน้า มักต้องตามด้วยงานจริงทีหลัง — ถามเลยตอนที่ยังนึกออก
       await tgApi('sendMessage', {
         chat_id: chatId, parse_mode: 'HTML',

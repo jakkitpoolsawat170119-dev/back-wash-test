@@ -747,6 +747,7 @@ function buildRepairCardSVG(d) {
     y -= 2;
   }
 
+  if (d.cause) block('สาเหตุที่แท้จริง', d.cause, C.warn, 3);
   if (d.fix) block('วิธีแก้', d.fix, C.good, 4);
   photoRow('รูปหลังซ่อม', d.afterUris, d.afterTotal, C.good);
 
@@ -779,5 +780,156 @@ function renderRepairCardPNG(data) {
   return r.render().asPng();
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// buildAmSheetCardSVG — การ์ดสรุปใบเช็ก AM 1 ใบ (1 ไลน์ × 1 กะ) เข้ากลุ่มช่าง
+// 45 ข้อใส่ในการ์ดกว้าง 452 ไม่ไหว → สรุปเป็นตัวเลข + ไล่เฉพาะข้อที่ไม่ปกติ (สูงสุด 4 ข้อ)
+// คนอ่านในกลุ่มต้องการ 2 อย่างเท่านั้น: "กะนี้ตรวจครบไหม" กับ "เจออะไรผิดปกติบ้าง"
+//
+// ⚠️ ห้ามใส่ emoji ลงใน SVG — resvg เรนเดอร์ emoji สีไม่ได้ (ใช้ icon() แทน)
+// ═══════════════════════════════════════════════════════════════════════════
+const AM_LINE_STATUS = {
+  inprocess: { label: 'Inprocess', color: C.good },
+  cip: { label: 'CIP', color: '#4aa8e0' },
+  idle: { label: 'ว่าง', color: C.dim },
+};
+
+function buildAmSheetCardSVG(d) {
+  const el = [];
+  const push = (s) => el.push(s);
+  let y = 0;
+  const fullW = W - PX * 2;
+  const total = Math.max(0, Number(d.total) || 0);
+  const ok = Math.max(0, Number(d.ok) || 0);
+  const ng = Math.max(0, Number(d.ng) || 0);
+  const left = Math.max(0, total - ok - ng);
+  const stt = AM_LINE_STATUS[d.lineStatus] || null;
+
+  // ── 1) HEADER — ชื่อไลน์ + ป้ายสถานะไลน์ + วัน/กะ ──
+  const headH = 88;
+  push(`<rect x="0" y="0" width="${W}" height="${headH}" fill="${C.surf}"/>`);
+  push(`<rect x="0" y="0" width="${W}" height="${headH}" fill="${C.accent}" opacity="0.07"/>`);
+  push(`<rect x="0" y="0" width="4" height="${headH}" fill="${C.accent}"/>`);
+  push(icon('clip', PX, 14, 15, C.accent));
+  push(text(PX + 22, 26, 12.5, 700, C.dim, 'ใบเช็ก AM LIST'));
+  if (stt) {
+    const pw = measure(stt.label, 11.5) + 22;
+    push(`<rect x="${W - PX - pw}" y="13" width="${pw}" height="20" rx="10" fill="${stt.color}" opacity="0.16"/>`);
+    push(`<circle cx="${W - PX - pw + 11}" cy="23" r="3.2" fill="${stt.color}"/>`);
+    push(text(W - PX - pw + 18, 27, 11.5, 700, stt.color, stt.label));
+  }
+  push(text(PX, 56, 20, 700, C.ink, d.line || 'ใบเช็ก AM'));
+  push(text(PX, 76, 12.5, 500, C.dim, [d.dateLabel, d.shiftLabel].filter(Boolean).join(' · ')));
+  y = headH;
+  push(`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
+
+  // ── 2) HERO — โดนัท ปกติ/ไม่ปกติ/ยังไม่ตรวจ + ตัวเลขข้าง ๆ ──
+  const heroH = 116;
+  push(`<rect x="0" y="${y}" width="${W}" height="${heroH}" fill="${C.surf}"/>`);
+  const cx = PX + 50, cy = y + heroH / 2, r = 38, thick = 13;
+  push(donut(cx, cy, r, thick, [
+    { value: ok, color: C.good }, { value: ng, color: C.crit }, { value: left, color: C.line },
+  ]));
+  // "13/15" กลางวง — ตัวเลขที่ตรวจแล้วใหญ่ ตัวหารเล็กและจาง (แยกชิ้นเพื่อคุมขนาดคนละแบบ)
+  {
+    const big = String(ok), small = `/${total}`;
+    const bw = measure(big, 23), sw = measure(small, 13);
+    const sx = cx - (bw + sw) / 2;
+    push(text(sx, cy + 3, 23, 760, C.ink, big));
+    push(text(sx + bw, cy + 3, 13, 600, C.dim, small));
+    push(text(cx, cy + 20, 10.5, 500, C.dim, 'ปกติ', 'middle'));
+  }
+  // ป้ายกำกับ 3 บรรทัด — สี + คำ + ตัวเลข (ห้ามสื่อด้วยสีอย่างเดียว อ่านกลางไลน์แสงจ้า)
+  {
+    const lx = PX + 108;
+    let ly = y + 34;
+    for (const s of [{ t: 'ปกติ', v: ok, c: C.good }, { t: 'ไม่ปกติ', v: ng, c: C.crit }, { t: 'ยังไม่ตรวจ', v: left, c: C.line }]) {
+      push(`<circle cx="${lx + 5}" cy="${ly - 4}" r="4.5" fill="${s.c}"/>`);
+      push(text(lx + 17, ly, 13, 500, C.ink, s.t));
+      push(text(W - PX, ly, 14, 800, s.v > 0 ? C.ink : C.dim, String(s.v), 'end'));
+      ly += 26;
+    }
+  }
+  y += heroH;
+  push(`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
+
+  // ── 3) ข้อที่ไม่ปกติ — หัวข้อ + รายการ (รูปของปัญหาอยู่ในแถวเดียวกับข้อ) ──
+  const items = (Array.isArray(d.ngItems) ? d.ngItems : []).slice(0, 4);
+  y += 14;
+  if (ng > 0) {
+    push(icon('warn', PX, y - 2, 15, C.crit));
+    push(text(PX + 22, y + 10, 13, 700, C.crit, `พบผิดปกติ ${ng} รายการ`));
+  } else {
+    push(icon('check', PX, y - 2, 15, C.good));
+    push(text(PX + 22, y + 10, 13, 700, C.good, 'ไม่พบสิ่งผิดปกติ'));
+  }
+  y += 20;
+
+  for (const it of items) {
+    const ph = it.uri ? 56 : 0;
+    const tw = fullW - 24 - (ph ? ph + 10 : 0);
+    const titleLines = wrap(`${it.seq ? `${it.seq}. ` : ''}${it.title || ''}`, tw, 12.5).slice(0, 2);
+    const causeLines = wrap(`สาเหตุ: ${it.cause || '—'}`, tw, 11).slice(0, 2);
+    const textH = titleLines.length * 17 + causeLines.length * 15;
+    const boxH = Math.max(ph + 16, textH + 18);
+    y += 8;
+    push(`<rect x="${PX}" y="${y}" width="${fullW}" height="${boxH}" rx="9" fill="${C.surf2}"/>`);
+    push(`<rect x="${PX}" y="${y}" width="3" height="${boxH}" rx="1.5" fill="${C.crit}" opacity="0.55"/>`);
+    // จัดข้อความกลางกล่องแนวตั้ง — กล่องสูงตามรูป (56px) ข้อความ 2 บรรทัดจะลอยอยู่ข้างบนถ้าไม่จัด
+    let ty = y + (boxH - textH) / 2;
+    titleLines.forEach((ln, i) => push(text(PX + 13, ty + 12 + i * 17, 12.5, 700, C.ink, ln)));
+    ty += titleLines.length * 17;
+    causeLines.forEach((ln, i) => push(text(PX + 13, ty + 11 + i * 15, 11, 500, C.dim, ln)));
+    if (it.uri) push(photoCell(PX + fullW - ph - 8, y + 8, ph, ph, it.uri));
+    y += boxH;
+  }
+  if (ng > items.length) {
+    y += 10;
+    push(text(PX, y + 8, 12, 600, C.dim, `+ อีก ${ng - items.length} รายการ (ดูในแอป)`));
+    y += 12;
+  }
+  if (items.length) y += 6;
+
+  /* ── 4) ใบแจ้งซ่อมที่เกิดจากใบเช็กใบนี้ ──
+     กดส่งครั้งเดียวเกิด 2 อย่าง (การ์ด + ใบซ่อม) — ถ้าการ์ดไม่บอก คนอ่านไม่รู้ว่าใบซ่อมเปิดให้แล้ว */
+  if (d.openedCount || d.repeatedCount) {
+    const parts = [];
+    if (d.openedCount) parts.push(`เปิดใบแจ้งซ่อมใหม่ ${d.openedCount} ใบ`);
+    if (d.repeatedCount) parts.push(`เจอซ้ำ ต่อในใบเดิม ${d.repeatedCount} ใบ`);
+    y += 8;
+    push(`<rect x="${PX}" y="${y}" width="${fullW}" height="34" rx="9" fill="${C.crit}" opacity="0.1"/>`);
+    push(icon('wrench', PX + 11, y + 9, 15, C.crit));
+    push(text(PX + 34, y + 22, 12.5, 700, C.ink, parts.join(' · ')));
+    y += 34;
+  }
+
+  // ── FOOTER ──
+  y += 14;
+  const footH = 38;
+  push(`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
+  push(`<rect x="0" y="${y}" width="${W}" height="${footH}" fill="${C.surf}"/>`);
+  if (d.by) push(text(PX, y + 24, 11.5, 500, C.dim, `ผู้รายงาน ${d.by}`));
+  push(text(W - PX, y + 24, 11.5, 500, C.dim, 'ใบเช็ก AM List', 'end'));
+  y += footH;
+
+  const H = y;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<defs><clipPath id="rcam"><rect x="0" y="0" width="${W}" height="${H}" rx="22"/></clipPath></defs>
+<g clip-path="url(#rcam)">
+<rect x="0" y="0" width="${W}" height="${H}" fill="${C.bg}"/>
+${el.join('\n')}
+</g></svg>`;
+}
+
+function renderAmSheetCardPNG(data) {
+  if (!canRenderCard()) return null;
+  const r = new Resvg(buildAmSheetCardSVG(data), {
+    fitTo: { mode: 'width', value: W * 2 },
+    font: { fontFiles: FONT_FILES, defaultFontFamily: FONT, loadSystemFonts: false },
+    background: C.bg,
+  });
+  return r.render().asPng();
+}
+
 module.exports = { renderShiftCardPNG, buildShiftCardSVG, renderKpiCardPNG, buildKpiCardSVG, canRenderCard,
-  renderBeforeAfterCardPNG, buildBeforeAfterSVG, renderRepairCardPNG, buildRepairCardSVG };
+  renderBeforeAfterCardPNG, buildBeforeAfterSVG, renderRepairCardPNG, buildRepairCardSVG,
+  renderAmSheetCardPNG, buildAmSheetCardSVG };
