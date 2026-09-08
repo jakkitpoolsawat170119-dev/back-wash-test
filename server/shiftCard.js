@@ -589,6 +589,17 @@ const REPAIR_STATUS = {
   closed: { label: 'ปิดงานแล้ว', color: C.good },
 };
 
+/* วาดรูปถ่าย 1 ใบลงกรอบ (ครอบแบบ slice ไม่ยืดผิดสัดส่วน)
+   ⚠️ uri ต้องเป็น data: URI เท่านั้น — resvg ไม่ดาวน์โหลด URL ระยะไกลให้ (ดู fetchAsDataUri ใน index.js) */
+let photoSeq = 0;
+function photoCell(x, y, w, h, uri) {
+  const cid = `rcp${photoSeq++}`;
+  return `<defs><clipPath id="${cid}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8"/></clipPath></defs>`
+    + `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="${C.surf2}"/>`
+    + `<image href="${uri}" x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${cid})"/>`
+    + `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="none" stroke="${C.line}" stroke-width="1"/>`;
+}
+
 // "2 ชม. 15 น." — แฝดกับ downLabel() ใน index.js แต่การ์ดต้องคำนวณเองจากนาทีของแต่ละแถบ
 const fmtMin = (min) => {
   const h = Math.floor(min / 60), m = min % 60;
@@ -659,7 +670,36 @@ function buildRepairCardSVG(d) {
     lines.forEach((ln, i) => push(text(PX + 13, y + 22 + i * 19, 13, 500, C.ink, ln)));
     y += lines.length * 19 + 16;
   };
+  /* ── แถวรูปถ่าย ────────────────────────────────────────────────────────
+     ช่างที่เห็นการ์ดในกลุ่มต้องเห็นอาการได้ทันทีโดยไม่ต้องเปิดเว็บ
+     ต้องอยู่ในการ์ดใบเดียวกัน ห้ามส่งเป็นอัลบั้มตามหลัง — อัลบั้มหลายรูป
+     Telegram แก้ทับตัวเองไม่ได้ การ์ดจะค้างสถานะเก่าไปตลอดชีวิตใบงาน
+     โชว์ได้มากสุด 3 ใบ เกินนั้นติดป้าย +N (การ์ดยาวเกินไปคนเลื่อนผ่าน) */
+  const photoRow = (label, uris, total, tint) => {
+    const list = (Array.isArray(uris) ? uris : []).filter(Boolean).slice(0, 3);
+    if (!list.length) return;
+    const g = 8;
+    const h = list.length === 1 ? 172 : list.length === 2 ? 140 : 106;
+    const cw = Math.floor((fullW - g * (list.length - 1)) / list.length);
+    y += 13;
+    push(text(PX, y + 10, 11.5, 700, tint, label));
+    y += 18;
+    list.forEach((uri, i) => {
+      const x = PX + i * (cw + g);
+      // ใบสุดท้ายกินที่ที่เหลือทั้งหมด — ปัดเศษของ cw ทำให้ขอบขวาไม่ตรงกับกล่องอื่นในการ์ด
+      push(photoCell(x, y, i === list.length - 1 ? PX + fullW - x : cw, h, uri));
+    });
+    const extra = Math.max(total || list.length, list.length) - list.length;
+    if (extra > 0) {
+      const bw = measure(`+${extra}`, 12) + 16;
+      push(`<rect x="${PX + fullW - bw - 6}" y="${y + h - 26}" width="${bw}" height="20" rx="10" fill="${C.bg}" opacity="0.82"/>`);
+      push(text(PX + fullW - bw / 2 - 6, y + h - 11, 12, 800, C.ink, `+${extra}`, 'middle'));
+    }
+    y += h;
+  };
+
   if (d.symptom) block('อาการที่แจ้ง', d.symptom, C.dim, 4);
+  photoRow('รูปที่แนบมาตอนแจ้ง', d.photoUris, d.photoTotal, C.dim);
 
   /* ── แถบเวลาเครื่องหยุด — เทียบกับครั้งก่อน ๆ ของอาการเดียวกัน ────────────
      ตัวเลข "หยุด 1 ชม. 20 น." ลอย ๆ ไม่บอกว่ามากหรือน้อย ต้องมีอะไรให้เทียบ
@@ -708,6 +748,7 @@ function buildRepairCardSVG(d) {
   }
 
   if (d.fix) block('วิธีแก้', d.fix, C.good, 4);
+  photoRow('รูปหลังซ่อม', d.afterUris, d.afterTotal, C.good);
 
   // ── FOOTER ──
   y += 14;

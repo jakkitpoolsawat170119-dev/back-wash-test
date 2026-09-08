@@ -11578,8 +11578,17 @@ async function repairCardPhoto(row) {
   const closed = (row.status || 'open') === 'closed';
   const closedMin = downMinutes(row.down_from, row.down_to);
   const soFar = row.down_from && !row.down_to ? downSoFar(row) : null;
-  const footL = [imgs.length ? `แนบรูป ${imgs.length} รูป` : 'ยังไม่แนบรูป',
-    after.length ? `หลังซ่อม ${after.length} รูป` : ''].filter(Boolean).join(' · ');
+  /* รูปที่แนบมาต้องอยู่ในการ์ด ไม่ใช่แค่บอกจำนวน — ช่างที่เห็นในกลุ่มต้องเห็นอาการทันที
+     โหลดรูปพลาดใบหนึ่งไม่ล้มทั้งการ์ด (การ์ดที่รูปไม่ครบ ดีกว่าไม่มีการ์ดเลย)
+     ⚠️ การ์ดเรนเดอร์ใหม่ทุกครั้งที่สถานะเปลี่ยน = โหลดรูปใหม่ทุกครั้ง จึงเอาแค่ 3 ใบที่โชว์จริง */
+  const toUris = async (list) => (await Promise.allSettled(list.slice(0, 3).map(fetchAsDataUri)))
+    .map(r => (r.status === 'fulfilled' ? r.value : null)).filter(Boolean);
+  const photoUris = imgs.length ? await toUris(imgs) : [];
+  const afterUris = closed && after.length ? await toUris(after) : [];
+
+  // จำนวนรูปขึ้น footer เฉพาะตอนที่โชว์รูปจริงไม่ได้ — โชว์ได้แล้วเขียนซ้ำก็ไม่ได้อะไรเพิ่ม
+  const footL = [imgs.length ? (photoUris.length ? '' : `แนบรูป ${imgs.length} รูป`) : 'ยังไม่แนบรูป',
+    after.length && !afterUris.length ? `หลังซ่อม ${after.length} รูป` : ''].filter(Boolean).join(' · ');
   const SRC_LABEL = { amsheet: 'จากใบเช็ก AM', bot: 'แจ้งจากบอท', web: 'แจ้งจากเว็บ', ai: 'ระบบเฝ้าคุณภาพ' };
 
   let png = null;
@@ -11604,6 +11613,8 @@ async function repairCardPhoto(row) {
            ...rep.prevDowns.map(x => ({ label: thaiDate(x.date), mins: x.mins, me: false }))]
         : [],
       fix: closed ? (row.fix || '') : '',
+      photoUris, photoTotal: imgs.length,
+      afterUris, afterTotal: after.length,
       repeatTimes: rep.times,
       repeatLastLabel: rep.lastDate
         ? `ครั้งก่อน ${thaiDate(rep.lastDate)}${rep.closedBefore ? ` · ปิดไปแล้ว ${rep.closedBefore} ใบ` : ''}`
