@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import PmPlan from './PmPlan';
+import '../pm.css';
 
 const apiUrl = (import.meta.env.VITE_API_BASE as string) || 'https://back-wash-test.onrender.com';
 const todayBKK = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
@@ -7,11 +9,16 @@ const shiftDay = (d: string, days: number) =>
 const daysBetween = (a: string, b: string) =>
   Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
 
-/* ── หน้ารวมงาน PM ─────────────────────────────────────────────────────────
-   งาน PM = งานที่วางแผนไว้ว่าจะทำวันไหน (บำรุงรักษา / ปรับปรุง / แก้ไข)
+/* ── หน้า "งาน PM" ────────────────────────────────────────────────────────
+   3 แท็บ:
+   📅 แผนประจำปี  = กระจกอ่านอย่างเดียวของแอปทีมช่าง (PmPlan.tsx)
+   📋 งานเพิ่มเอง = ตารางของแอปนี้เอง (daily_tasks category='pm') — แก้ได้เต็มที่
+   📈 สรุปผล      = S-Curve + ตารางรายเครื่องของแผนประจำปี (PmPlan.tsx)
+
+   งานเพิ่มเอง = งานที่วางแผนไว้ว่าจะทำวันไหน (บำรุงรักษา / ปรับปรุง / แก้ไข)
    ⚠️ คนละอย่างกับ "งานรูทีน" (ทะเบียนงานรูทีน) ที่เป็นเช็กลิสต์ทำซ้ำตามรอบ
    ตั้งจากบอทได้อยู่แล้ว แต่บอทเห็นทีละหน้าจอและแก้วันที่ไม่ได้ —
-   หน้านี้เห็นทั้งก้อนล่วงหน้า (เกินกำหนด / วันนี้ / กำลังจะถึง) และเลื่อนวันได้ */
+   แท็บนี้เห็นทั้งก้อนล่วงหน้า (เกินกำหนด / วันนี้ / กำลังจะถึง) และเลื่อนวันได้ */
 type Kind = '' | 'pm' | 'up' | 'fix';
 type Remind = 'none' | 'day' | 'prev';
 type Row = {
@@ -161,7 +168,7 @@ const PmForm: React.FC<{
   );
 };
 
-const PmBoard: React.FC<{ operatorName?: string }> = ({ operatorName }) => {
+const PmAdhoc: React.FC<{ operatorName?: string; onCount?: (n: number) => void }> = ({ operatorName, onCount }) => {
   const [data, setData] = useState<Report | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -226,6 +233,7 @@ const PmBoard: React.FC<{ operatorName?: string }> = ({ operatorName }) => {
     rows.filter(r => !pick || (r.machine || 'ไม่ระบุเครื่อง') === pick), [pick]);
 
   const openCount = data ? data.late.length + data.todayList.length + data.soon.length + data.later.length : 0;
+  useEffect(() => { if (data && onCount) onCount(openCount); }, [data, openCount, onCount]);
 
   /* ── การ์ดงาน 1 ใบ ── */
   const rowCard = (r: Row, tone: 'late' | 'today' | 'soon' | 'later' | 'done') => {
@@ -332,17 +340,9 @@ const PmBoard: React.FC<{ operatorName?: string }> = ({ operatorName }) => {
 
   return (
     <div style={{ fontFamily: 'Sarabun, sans-serif' }}>
-      <div style={{
-        fontFamily: 'Kanit, sans-serif', fontSize: 11.5, fontWeight: 600, color: '#c24f00',
-        background: '#fff3ea', display: 'inline-flex', gap: 6, padding: '4px 12px', borderRadius: 999, marginBottom: 10,
-      }}>🔧 งานซ่อมบำรุง</div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-        <h1 style={{ fontFamily: 'Kanit, sans-serif', fontSize: 'clamp(20px,2.6vw,25px)', fontWeight: 600, margin: 0, letterSpacing: '-.02em' }}>
-          งาน PM ที่วางแผนไว้
-        </h1>
-        <span style={{ fontSize: 13, color: 'var(--ink-soft,#6d6259)' }}>
-          งานที่ตั้งไว้ว่าจะทำวันไหน — ตั้งจากบอทหรือจากที่นี่ก็ได้ · เลื่อนวันได้เฉพาะที่นี่
-        </span>
+      <div style={{ fontSize: 12.5, color: 'var(--ink-soft,#6d6259)', margin: '4px 0 12px', lineHeight: 1.6 }}>
+        งานที่ตั้งเพิ่มเอง นอกเหนือจากแผนประจำปี — ตั้งจากบอทหรือจากที่นี่ก็ได้ · เลื่อนวัน/ปิดงานทำที่นี่ได้เลย
+        <br />(แผนประจำปีอยู่แท็บซ้ายมือ และแก้ได้ที่แอปทีมช่างเท่านั้น)
       </div>
 
       {/* ── ตัวเลขรวม ── */}
@@ -438,6 +438,43 @@ const PmBoard: React.FC<{ operatorName?: string }> = ({ operatorName }) => {
           โหลดข้อมูลไม่สำเร็จ — กด 🔄 รีเฟรชอีกครั้ง
         </div>
       )}
+    </div>
+  );
+};
+
+/* ── เปลือก: หัวเรื่อง + 3 แท็บ ─────────────────────────────────────────── */
+type Tab = 'plan' | 'adhoc' | 'sum';
+
+const PmBoard: React.FC<{ operatorName?: string }> = ({ operatorName }) => {
+  const [tab, setTab] = useState<Tab>('plan');
+  const [planCount, setPlanCount] = useState<number | null>(null);
+  const [adhocCount, setAdhocCount] = useState<number | null>(null);
+  const today = todayBKK();
+  const TABS: [Tab, string, number | null][] = [
+    ['plan', '📅 แผนประจำปี', planCount],
+    ['adhoc', '📋 งานเพิ่มเอง', adhocCount],
+    ['sum', '📈 สรุปผล', null],
+  ];
+  return (
+    <div className="pmx">
+      <div className="eyebrow">🔧 งานซ่อมบำรุง</div>
+      <div className="phead">
+        <h1>งาน PM</h1>
+        <div className="sub">แผนบำรุงรักษาเชิงป้องกัน · ปีแผน {today.slice(0, 4)}</div>
+      </div>
+      <div className="itabs" role="tablist">
+        {TABS.map(([k, label, n]) => (
+          <button key={k} role="tab" aria-selected={tab === k}
+            className={`itab${tab === k ? ' on' : ''}`} onClick={() => setTab(k)}>
+            {label}{n != null && n > 0 && <span className="n">{n}</span>}
+          </button>
+        ))}
+      </div>
+      {/* PmPlan ถือ state ของมุมมอง/สัปดาห์ไว้ — สลับ แผนประจำปี ↔ สรุปผล จึงไม่รีเซ็ต */}
+      {tab !== 'adhoc' && (
+        <PmPlan tab={tab} today={today} onCounts={setPlanCount} onNewAdhoc={() => setTab('adhoc')} />
+      )}
+      {tab === 'adhoc' && <PmAdhoc operatorName={operatorName} onCount={setAdhocCount} />}
     </div>
   );
 };

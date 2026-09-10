@@ -55,7 +55,7 @@ const MENU: MenuRow[] = [
   { pane: 'cost', ic: '💰', label: 'ต้นทุนต่อ batch', sub: true },
   { head: 'งานซ่อมบำรุง', ic: '🔧' },
   { pane: 'maint', ic: '👷', label: 'กระดานทีมซ่อมบำรุง', sub: true },
-  { pane: 'pm', ic: '🗓', label: 'งาน PM ที่วางแผนไว้', sub: true },
+  { pane: 'pm', ic: '🗓', label: 'งาน PM', sub: true },
   { pane: 'pmreg', ic: '🔁', label: 'ทะเบียนงานรูทีน', sub: true },
   { pane: 'downtime', ic: '⏱', label: 'เวลาเครื่องหยุด', sub: true },
   { head: 'Knowledge management', ic: '📚', km: true },

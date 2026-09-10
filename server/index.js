@@ -13,6 +13,7 @@ const { renderShiftCardPNG, renderKpiCardPNG, canRenderCard, renderBeforeAfterCa
   renderRepairCardPNG, renderAmSheetCardPNG } = require('./shiftCard');
 const amShift = require('./shiftSchedule');   // mirror ของ client/src/shiftSchedule.ts — แก้ต้องแก้คู่กัน
 const vault = require('./vault');
+const pm = require('./pmSync');   // ดึงแผน PM จากแอปทีมช่าง (Netlify) — กระจกอ่านอย่างเดียว
 const articlePage = require('./articlePage');
 const chartSvg = require('./chartSvg');
 const jsGenPrompt = require('./jsGenPrompt');
@@ -767,6 +768,68 @@ const SCHEMA = [
       uploaded_by TEXT,
       created_at TEXT
     )`,
+  /* ══ งาน PM รายปี 52 สัปดาห์ ══════════════════════════════════════════════
+     🔴 3 ตารางแรกเป็น "กระจก" ของแอปทีมช่าง (Netlify + Firebase spp-am)
+        pmSync เขียนทับทุกรอบ — ห้ามเอาข้อมูลของแอปนี้ไปฝากไว้ เดี๋ยวหายเงียบ
+     เจ้าของแผน/ผลปิดงานคือแอปทีมช่าง แอปนี้อ่านอย่างเดียว (ดู server/pmSync.js) */
+  `CREATE TABLE IF NOT EXISTS pm_items (
+      net_id TEXT PRIMARY KEY,      -- w01–w30 (+ รายการที่เพิ่มบน Netlify)
+      name TEXT,
+      freq TEXT,                    -- '2 wk.' | '1 month' | '6 months' (ดิบจาก Netlify)
+      weeks TEXT,                   -- JSON array เลขสัปดาห์ ISO ที่ครบกำหนด (ใช้ได้ทุกปี ไม่ผูกปี)
+      deleted INTEGER DEFAULT 0,    -- ลบบน Netlify = ซ่อน (ไม่ลบจริง งานย่อยจะได้ไม่หาย)
+      is_custom INTEGER DEFAULT 0,  -- รายการที่เพิ่มใหม่บน Netlify (ไม่มีในแผนตั้งต้น)
+      updated_at TEXT,
+      synced_at TEXT
+    )`,
+  // ผลปิดงานรายสัปดาห์ · key = {net_id}_{iso_year}_{week} (คีย์เดียวกับ Firebase)
+  `CREATE TABLE IF NOT EXISTS pm_done (
+      key TEXT PRIMARY KEY,
+      net_id TEXT,
+      iso_year INTEGER,
+      week INTEGER,
+      done INTEGER DEFAULT 1,
+      done_by TEXT,
+      done_date TEXT,
+      note TEXT,
+      updated_at TEXT,
+      synced_at TEXT
+    )`,
+  // รอบที่ปิดใช้งาน — ไม่นับทั้งตัวตั้งและตัวหาร
+  `CREATE TABLE IF NOT EXISTS pm_skip (
+      key TEXT PRIMARY KEY,
+      net_id TEXT,
+      iso_year INTEGER,
+      week INTEGER,
+      reason TEXT,
+      updated_at TEXT,
+      synced_at TEXT
+    )`,
+  /* ── ต่อจากนี้เป็นของแอปนี้เอง (Netlify ไม่มีช่องเก็บ) — pmSync ห้ามแตะ ──── */
+  // ลิสต์งานย่อยต่อเครื่อง · every = ทำทุกกี่ "รอบของเครื่อง" (1 = ทุกครั้ง)
+  // ⚠️ ถี่กว่ารอบของเครื่องไม่ได้ — จุดของงานย่อยเป็น subset ของรอบแม่เสมอ
+  //    (ถ้านับงานย่อยเป็นรอบด้วย เลขทั้งหน้าจะเด้งจาก 234 เป็นหลายร้อยทันที)
+  `CREATE TABLE IF NOT EXISTS pm_jobs (
+      id ${db.pk},
+      net_id TEXT,
+      title TEXT,
+      every INTEGER DEFAULT 1,
+      sort_order INTEGER DEFAULT 0,
+      active INTEGER DEFAULT 1,
+      created_at TEXT
+    )`,
+  // ผู้รับผิดชอบตั้งต้นรายเครื่อง — Netlify มีแต่ doneBy หลังปิดงาน ไม่มี assignee ล่วงหน้า
+  `CREATE TABLE IF NOT EXISTS pm_item_meta (
+      net_id TEXT PRIMARY KEY,
+      owner TEXT,
+      updated_at TEXT
+    )`,
+  // ชื่อพ้องของเครื่องจักร — Netlify เขียน "ไลน์ต้ม 1" ทะเบียนเขียน "Line ต้ม 1"
+  `CREATE TABLE IF NOT EXISTS machine_alias (
+      alias TEXT PRIMARY KEY,
+      machine_name TEXT,
+      created_at TEXT
+    )`,
 ];
 
 // [ชื่อ, PIN, สิทธิ์] — seed ครั้งแรกเท่านั้น แก้สิทธิ์ทีหลังได้ที่หน้า "ผู้ใช้และสิทธิ์"
@@ -1011,6 +1074,8 @@ async function initDb() {
   await seedMaintBoard();
   // seed เช็คลิสต์ AM List 45 รายการ (ถอดจากเอกสาร Line ต้ม 1/2/3, idempotent)
   await seedAmListRoutines();
+  // seed ชื่อพ้อง + เครื่องจักรที่แผน PM อ้างถึงแต่ยังไม่มีในทะเบียน (idempotent)
+  await seedPmMachines();
   // migration (ระบบลงยอดผลิต): เตรียมคอลัมน์สิทธิ์ไว้ก่อน — ยังไม่บังคับใช้จนถึงเฟส 3
   try { await db.exec("ALTER TABLE operators ADD COLUMN role TEXT DEFAULT 'operator'"); } catch { /* มีแล้ว */ }
   // batch_id: ผูกรายงานเข้ากับชุดของกะ — NULL = รายงานเดี่ยวแบบเดิม (ลิงก์เก่ายังใช้ได้)
@@ -7339,6 +7404,340 @@ async function markPmDone(id, byName) {
   return row;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   แผน PM รายปี 52 สัปดาห์ — กระจกอ่านอย่างเดียวของแอปทีมช่าง (Netlify)
+   ตัวดึงข้อมูล + ปฏิทิน ISO อยู่ที่ server/pmSync.js
+   🔴 เส้นในหมวดนี้ "อ่านอย่างเดียว" ทั้งหมด ยกเว้น 3 เส้นท้าย
+      (ลิสต์งานย่อย · ผู้รับผิดชอบ · ปุ่มดึงเดี๋ยวนี้) ซึ่งเป็นข้อมูลของแอปนี้เอง
+   ปิดงาน / เลื่อนวัน / แก้แผน ทำที่แอปทีมช่างที่เดียว
+   ══════════════════════════════════════════════════════════════════════════ */
+
+// ชื่อพ้องที่ต้องมีแน่ ๆ — Netlify เขียน "ไลน์ต้ม 1" ทะเบียนเครื่องเขียน "Line ต้ม 1"
+// (ทะเบียนงานรูทีน/ใบเช็ก AM ยึด "Line ต้ม N" อยู่แล้ว ห้ามแตกเป็นชื่อที่ 2)
+const PM_ALIAS_SEED = [
+  ['ไลน์ต้ม 1', 'Line ต้ม 1'], ['ไลน์ต้ม 2', 'Line ต้ม 2'],
+  ['ไลน์ต้ม 3', 'Line ต้ม 3'], ['ไลน์ต้ม 4', 'Line ต้ม 4'],
+];
+
+// seed ชื่อพ้อง + เติมเครื่องที่แผน PM อ้างถึงแต่ยังไม่มีในทะเบียน (idempotent)
+async function seedPmMachines() {
+  try {
+    for (const [alias, name] of PM_ALIAS_SEED) {
+      const has = await dbGet('SELECT alias FROM machine_alias WHERE alias = ?', [alias]);
+      if (!has) {
+        await db.exec('INSERT INTO machine_alias (alias, machine_name, created_at) VALUES (?, ?, ?)',
+          [alias, name, nowBKK()]);
+      }
+    }
+    const aliasRows = await dbAll('SELECT alias, machine_name FROM machine_alias', []);
+    const aliasMap = new Map(aliasRows.map((r) => [r.alias, r.machine_name]));
+    let added = 0, i = 0;
+    for (const it of pm.baselineItems()) {
+      const name = aliasMap.get(it.name) || it.name;
+      i += 1;
+      if (!name) continue;
+      const has = await dbGet('SELECT id FROM machines WHERE name = ?', [name]);
+      if (has) continue;
+      await db.exec('INSERT INTO machines (name, sort_order, active, created_at) VALUES (?, ?, 1, ?)',
+        [name, 200 + i, nowBKK()]);
+      added += 1;
+    }
+    if (added) console.log(`[pm] เพิ่มเครื่องจักรจากแผน PM เข้าทะเบียน ${added} รายการ`);
+  } catch (e) { console.error('[pm] seedPmMachines failed', e.message); }
+}
+
+/* อ่านทุกอย่างของปีนั้นมาประกอบเป็นโครงเดียว — ใช้ร่วมกันทั้ง 3 เส้น GET
+   🔑 หน่วยนับคือ "เครื่อง × สัปดาห์" เท่านั้น งานย่อยเป็นรายละเอียดข้างใน ไม่ใช่หน่วยนับ
+      (ถ้านับงานย่อยด้วย ตัวเลขจะเด้งจากหลักร้อยเป็นหลายร้อยทันที และทุกจอจะไม่ตรงกัน) */
+async function pmLoad(year) {
+  const today = todayBKK();
+  const cur = pm.isoWeekOf(today);
+  const [items, jobs, metas, dones, skips, aliasRows] = await Promise.all([
+    dbAll('SELECT * FROM pm_items WHERE deleted = 0 ORDER BY net_id', []),
+    dbAll('SELECT * FROM pm_jobs WHERE active = 1 ORDER BY net_id, sort_order, id', []),
+    dbAll('SELECT * FROM pm_item_meta', []),
+    dbAll('SELECT * FROM pm_done WHERE iso_year = ?', [year]),
+    dbAll('SELECT * FROM pm_skip WHERE iso_year = ?', [year]),
+    dbAll('SELECT alias, machine_name FROM machine_alias', []),
+  ]);
+  const aliasMap = new Map(aliasRows.map((r) => [r.alias, r.machine_name]));
+  const ownerOf = new Map(metas.map((m) => [m.net_id, m.owner || '']));
+  const doneOf = new Map(dones.map((d) => [`${d.net_id}_${d.week}`, d]));
+  const skipOf = new Map(skips.map((d) => [`${d.net_id}_${d.week}`, d]));
+  const jobsOf = new Map();
+  for (const j of jobs) { if (!jobsOf.has(j.net_id)) jobsOf.set(j.net_id, []); jobsOf.get(j.net_id).push(j); }
+
+  const out = items.map((r) => {
+    let weeks = [];
+    try { weeks = JSON.parse(r.weeks || '[]'); } catch { weeks = []; }
+    weeks = weeks.map(Number).filter((n) => n >= 1 && n <= 53).sort((a, b) => a - b);
+    const step = pm.stepOf(r.freq, weeks);
+    const myJobs = (jobsOf.get(r.net_id) || []).map((j) => ({
+      id: j.id, title: j.title, every: Math.max(1, Number(j.every) || 1),
+      freqLabel: pm.jobFreqLabel(step, j.every),
+      weeks: pm.jobWeeks(weeks, j.every),
+    }));
+    const cycles = weeks.map((w) => {
+      const d = doneOf.get(`${r.net_id}_${w}`);
+      const s = skipOf.get(`${r.net_id}_${w}`);
+      const { monday, sunday } = pm.weekRange(year, w);
+      return {
+        week: w, monday, sunday,
+        status: pm.cycleStatus(year, w, cur, !!d, !!s),
+        doneBy: d?.done_by || '', doneDate: d?.done_date || '', note: d?.note || '',
+        reason: s?.reason || '',
+        jobs: myJobs.filter((j) => j.weeks.includes(w)).map((j) => j.title),
+      };
+    });
+    const n = (st) => cycles.filter((c) => c.status === st).length;
+    const doneN = n('done'); const overN = n('over'); const skipN = n('skip');
+    const dueN = doneN + overN;                       // "ถึงกำหนดแล้ว" = ทำแล้ว + เลยกำหนด
+    const doneDates = cycles.map((c) => c.doneDate).filter(Boolean).sort();
+    const next = cycles.find((c) => c.status === 'due') || cycles.find((c) => c.status === 'future');
+    return {
+      netId: r.net_id, name: r.name, machine: aliasMap.get(r.name) || r.name,
+      freq: r.freq, freqLabel: pm.freqLabel(r.freq), step,
+      isCustom: !!r.is_custom, owner: ownerOf.get(r.net_id) || '',
+      weeks, cycles, jobs: myJobs,
+      stat: {
+        planned: weeks.length,          // รอบทั้งปีตามแผน
+        active: weeks.length - skipN,   // ตัวหาร "ทั้งปี" = รอบที่ไม่ปิดใช้งาน
+        due: dueN, done: doneN, over: overN, skip: skipN,
+        thisWeek: n('due'),
+        pct: dueN ? Math.round((doneN / dueN) * 100) : null,   // ห้ามโชว์ % ลอย ๆ ไม่มีตัวหาร
+        lastDone: doneDates.length ? doneDates[doneDates.length - 1] : '',
+        nextWeek: next ? next.week : null,
+        nextMonday: next ? next.monday : '',
+      },
+    };
+  });
+  return { today, cur, year, items: out };
+}
+
+// เวลาที่ดึงล่าสุด — หลัง Render รีสตาร์ต ตัวแปรในหน่วยความจำจะว่าง ต้องถอยไปดูรอยประทับในตาราง
+// (ไม่งั้นแถบ "อัปเดตล่าสุด" บนหน้าเว็บจะว่างทุกครั้งที่เซิร์ฟเวอร์ตื่นใหม่ ทั้งที่ข้อมูลมีอยู่)
+async function pmSyncInfo() {
+  const l = pm.pmLastSync();
+  let at = l.at;
+  if (!at) {
+    try { at = (await dbGet('SELECT MAX(synced_at) AS a FROM pm_items', []))?.a || null; }
+    catch { /* ตารางยังไม่พร้อม */ }
+  }
+  return { syncedAt: at, syncOk: l.ok, netlifyUrl: pm.NETLIFY_URL };
+}
+const pmYearOf = (q) => {
+  const y = Number(q);
+  return (y >= 2000 && y <= 2100) ? y : pm.isoWeekOf(todayBKK()).year;
+};
+
+/* ── แผนทั้งปี: ป้อนตารางทั้งปี · ตามเครื่องจักร · ปฏิทินเดือน ─────────────── */
+app.get('/api/maint/pm/plan', async (req, res) => {
+  try {
+    const year = pmYearOf(req.query.year);
+    const { cur, items } = await pmLoad(year);
+    const weeksInYear = pm.isoWeeksInYear(year);
+    // แถบเดือนของตาราง — สัปดาห์ ISO สังกัดเดือนของ "วันพฤหัส" ไม่ใช่วันจันทร์
+    const months = [];
+    for (let w = 1; w <= weeksInYear; w += 1) {
+      const m = pm.monthOfIsoWeek(year, w);
+      if (!months.length || months[months.length - 1].month !== m) months.push({ month: m, weeks: 1, from: w });
+      else months[months.length - 1].weeks += 1;
+    }
+    const reg = await dbAll(
+      `SELECT title, COUNT(DISTINCT net_id) AS uses FROM pm_jobs WHERE active = 1
+        GROUP BY title ORDER BY uses DESC, title`, []);
+    const people = (await maintTeamRows()).map((p) => ({ key: p.person_key, name: p.name }));
+    res.json({
+      year, weeksInYear, curYear: cur.year, curWeek: cur.week, months, items,
+      jobRegistry: reg.map((r) => ({ title: r.title, uses: Number(r.uses) || 0 })),
+      people, ...(await pmSyncInfo()),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ── งานสัปดาห์นี้ + งานค้างจากสัปดาห์ก่อน ─────────────────────────────────
+   งานค้างยกมาไว้บนสุดจนกว่าจะปิดงานหรือปิดรอบที่แอปทีมช่าง ไม่ปล่อยตกไปกับสัปดาห์เก่า */
+app.get('/api/maint/pm/week', async (req, res) => {
+  try {
+    const year = pmYearOf(req.query.year);
+    const weeksInYear = pm.isoWeeksInYear(year);
+    const { cur, items } = await pmLoad(year);
+    const week = Math.min(weeksInYear, Math.max(1,
+      Number(req.query.week) || (cur.year === year ? cur.week : 1)));
+    const entry = (it, c) => ({
+      netId: it.netId, name: it.name, machine: it.machine, freqLabel: it.freqLabel,
+      owner: it.owner, week: c.week, monday: c.monday, sunday: c.sunday,
+      status: c.status, doneBy: c.doneBy, doneDate: c.doneDate, note: c.note, reason: c.reason,
+      jobs: c.jobs, lateWeeks: c.status === 'over' ? Math.max(0, cur.week - c.week) : 0,
+    });
+    const thisWeek = []; const late = []; let skipCount = 0;
+    for (const it of items) {
+      for (const c of it.cycles) {
+        if (c.week === week) { thisWeek.push(entry(it, c)); if (c.status === 'skip') skipCount += 1; }
+        else if (c.status === 'over' && c.week < week) late.push(entry(it, c));
+      }
+    }
+    late.sort((a, b) => b.week - a.week);   // ใกล้ปัจจุบันที่สุดขึ้นก่อน
+    const active = thisWeek.filter((t) => t.status !== 'skip');
+    const doneN = active.filter((t) => t.status === 'done').length;
+    const { monday, sunday } = pm.weekRange(year, week);
+    res.json({
+      year, week, weeksInYear, monday, sunday,
+      curYear: cur.year, curWeek: cur.week, isCurrent: cur.year === year && cur.week === week,
+      thisWeek, late: late.slice(0, 50), lateTotal: late.length,
+      stat: {
+        total: active.length, done: doneN, left: active.length - doneN,
+        pct: active.length ? Math.round((doneN / active.length) * 100) : null,
+        late: late.length, skip: skipCount,
+      },
+      ...(await pmSyncInfo()),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ── สรุปผล: S-Curve + ตารางรายเครื่อง ────────────────────────────────────
+   ⚠️ 2 ตัวเลขนี้คนละตัวหาร ห้ามเอามาวางคู่กันลอย ๆ:
+      "ทำได้ตามแผนที่ถึงกำหนด" = done / (done+over)   · S-Curve = สะสม / รอบทั้งปีที่ไม่ปิดใช้งาน */
+app.get('/api/maint/pm/summary', async (req, res) => {
+  try {
+    const year = pmYearOf(req.query.year);
+    const { cur, items } = await pmLoad(year);
+    const weeksInYear = pm.isoWeeksInYear(year);
+    const curMonth = cur.year === year ? pm.monthOfIsoWeek(year, Math.min(cur.week, weeksInYear))
+      : (cur.year > year ? 11 : -1);
+    const T = { planned: 0, active: 0, due: 0, done: 0, over: 0, skip: 0 };
+    for (const it of items) {
+      T.planned += it.stat.planned; T.active += it.stat.active; T.due += it.stat.due;
+      T.done += it.stat.done; T.over += it.stat.over; T.skip += it.stat.skip;
+    }
+    // S-Curve รายเดือน — นับที่ "เดือนของสัปดาห์ตามแผน" ทั้งสองเส้น จะได้เทียบกันตรง ๆ
+    const planByMonth = Array(12).fill(0); const doneByMonth = Array(12).fill(0);
+    for (const it of items) {
+      for (const c of it.cycles) {
+        if (c.status === 'skip') continue;
+        const m = pm.monthOfIsoWeek(year, c.week);
+        planByMonth[m] += 1;
+        if (c.status === 'done') doneByMonth[m] += 1;
+      }
+    }
+    let pc = 0; let dc = 0;
+    const curve = planByMonth.map((_, m) => {
+      pc += planByMonth[m]; dc += doneByMonth[m];
+      return {
+        month: m,
+        plan: T.active ? Math.round((pc / T.active) * 1000) / 10 : 0,
+        actual: (m <= curMonth && T.active) ? Math.round((dc / T.active) * 1000) / 10 : null,
+      };
+    });
+    const rows = items.map((it) => ({
+      netId: it.netId, name: it.name, machine: it.machine, freqLabel: it.freqLabel,
+      planned: it.stat.planned, active: it.stat.active, due: it.stat.due,
+      done: it.stat.done, over: it.stat.over, skip: it.stat.skip, pct: it.stat.pct,
+      lastDone: it.stat.lastDone, nextWeek: it.stat.nextWeek,
+    })).sort((a, b) => (a.pct ?? 101) - (b.pct ?? 101) || b.over - a.over);
+    const cm = curve[curMonth] || null;
+    res.json({
+      year, curYear: cur.year, curWeek: cur.week, curMonth,
+      total: {
+        ...T,
+        pctDue: T.due ? Math.round((T.done / T.due) * 100) : null,   // ตัวหาร = รอบที่ถึงกำหนด
+        machines: items.length, machinesOver: items.filter((i) => i.stat.over > 0).length,
+      },
+      curve,
+      gap: cm && cm.actual != null ? Math.round((cm.plan - cm.actual) * 10) / 10 : null,
+      rows, ...(await pmSyncInfo()),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ── ต่อจากนี้เป็นส่วนที่ "เขียนได้" — ข้อมูลของแอปนี้เอง Netlify ไม่มีช่องเก็บ ── */
+
+// ลิสต์งานย่อยต่อเครื่อง (เพิ่ม/แก้/ลบ/เรียง) — หัวหน้างานขึ้นไป
+app.post('/api/maint/pm/jobs', requireRole('supervisor'), async (req, res) => {
+  const b = req.body || {};
+  const action = String(b.action || 'add');
+  try {
+    if (action === 'reorder') {
+      const ids = Array.isArray(b.ids) ? b.ids.map(Number).filter(Boolean) : [];
+      for (let i = 0; i < ids.length; i += 1) {
+        await db.exec('UPDATE pm_jobs SET sort_order = ? WHERE id = ?', [i + 1, ids[i]]);
+      }
+      return res.json({ success: true, ordered: ids.length });
+    }
+    if (action === 'delete') {
+      const id = Number(b.id);
+      if (!id) return res.status(400).json({ error: 'id จำเป็น' });
+      await db.exec('DELETE FROM pm_jobs WHERE id = ?', [id]);
+      return res.json({ success: true });
+    }
+    if (action === 'update') {
+      const id = Number(b.id);
+      const cur = id ? await dbGet('SELECT * FROM pm_jobs WHERE id = ?', [id]) : null;
+      if (!cur) return res.status(404).json({ error: 'ไม่พบงานย่อยนี้' });
+      const title = b.title === undefined ? cur.title : String(b.title || '').trim();
+      if (!title) return res.status(400).json({ error: 'ชื่องานว่างไม่ได้' });
+      const every = b.every === undefined ? cur.every : await pmEveryOf(cur.net_id, b.every);
+      const dup = await dbGet('SELECT id FROM pm_jobs WHERE net_id = ? AND title = ? AND id <> ?',
+        [cur.net_id, title, id]);
+      if (dup) return res.status(409).json({ error: `"${title}" มีอยู่ในเครื่องนี้แล้ว` });
+      await db.exec('UPDATE pm_jobs SET title = ?, every = ? WHERE id = ?', [title, every, id]);
+      return res.json({ success: true, id, title, every });
+    }
+    // add
+    const netId = String(b.netId || '').trim();
+    const title = String(b.title || '').trim();
+    if (!netId || !title) return res.status(400).json({ error: 'ต้องระบุรายการ PM และชื่องาน' });
+    const item = await dbGet('SELECT net_id FROM pm_items WHERE net_id = ?', [netId]);
+    if (!item) return res.status(404).json({ error: 'ไม่พบรายการ PM นี้ในแผนที่ดึงมา' });
+    const dup = await dbGet('SELECT id FROM pm_jobs WHERE net_id = ? AND title = ?', [netId, title]);
+    if (dup) return res.status(409).json({ error: `"${title}" มีอยู่ในเครื่องนี้แล้ว` });
+    const last = await dbGet('SELECT MAX(sort_order) AS m FROM pm_jobs WHERE net_id = ?', [netId]);
+    const every = await pmEveryOf(netId, b.every);
+    await db.exec(
+      'INSERT INTO pm_jobs (net_id, title, every, sort_order, active, created_at) VALUES (?, ?, ?, ?, 1, ?)',
+      [netId, title, every, (Number(last?.m) || 0) + 1, nowBKK()]);
+    return res.json({ success: true, netId, title, every });
+  } catch (err) { return res.status(500).json({ error: err.message }); }
+});
+
+// every = ทำทุกกี่รอบของเครื่อง — ถี่กว่ารอบเครื่องไม่ได้ และห้ามเกินจำนวนรอบทั้งปี
+async function pmEveryOf(netId, raw) {
+  const n = Math.max(1, Math.round(Number(raw) || 1));
+  const row = await dbGet('SELECT weeks FROM pm_items WHERE net_id = ?', [netId]);
+  let weeks = [];
+  try { weeks = JSON.parse(row?.weeks || '[]'); } catch { weeks = []; }
+  return Math.min(n, Math.max(1, weeks.length));
+}
+
+// ผู้รับผิดชอบตั้งต้นรายเครื่อง (Netlify มีแต่ doneBy หลังปิดงาน ไม่มี assignee ล่วงหน้า)
+app.post('/api/maint/pm/owner', requireRole('supervisor'), async (req, res) => {
+  const netId = String(req.body?.netId || '').trim();
+  const owner = String(req.body?.owner || '').trim();
+  if (!netId) return res.status(400).json({ error: 'netId จำเป็น' });
+  try {
+    await db.exec(
+      `INSERT INTO pm_item_meta (net_id, owner, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT (net_id) DO UPDATE SET owner = excluded.owner, updated_at = excluded.updated_at`,
+      [netId, owner, nowBKK()]);
+    res.json({ success: true, netId, owner });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ปุ่ม "ดึงเดี๋ยวนี้" — กันรัวด้วยระยะห่างขั้นต่ำ (ตัวดึงอัตโนมัติทำชั่วโมงละครั้งอยู่แล้ว)
+let _pmSyncClickAt = 0;
+app.post('/api/maint/pm/sync', async (req, res) => {
+  const since = Date.now() - _pmSyncClickAt;
+  if (since < 20000) {
+    return res.status(429).json({ error: 'เพิ่งดึงไปเมื่อครู่ — รออีกสักครู่แล้วลองใหม่', ...(await pmSyncInfo()) });
+  }
+  _pmSyncClickAt = Date.now();
+  try {
+    const r = await pm.pmSync();
+    if (!r.ok) return res.status(502).json({ error: `ดึงจากแอปทีมช่างไม่สำเร็จ — ${r.error}`, ...(await pmSyncInfo()) });
+    res.json({ success: true, ...r, ...(await pmSyncInfo()) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/maint/pm', async (req, res) => {
   const today = todayBKK();
   const soonDays = Math.min(90, Math.max(1, Number(req.query.soon) || 7));
@@ -9352,6 +9751,7 @@ app.post('/api/report/tick', async (req, res) => {
   await qualityWatchTick();
   await sheetSyncTick(); // ให้ tick ที่ n8n ยิงครบเท่า setInterval (สำคัญเมื่อ Render หลับนอกช่วง window)
   await vaultTick();     // ตาข่ายกันพลาดของ Obsidian — ทำงานจริงชั่วโมงละครั้ง
+  await pm.pmSyncTick();  // ดึงแผน PM จากแอปทีมช่าง — ชั่วโมงละครั้งเหมือนกัน
   res.json({ ok: true, at: new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }) });
 });
 
@@ -14923,7 +15323,7 @@ if (require.main === module) {
         // บอทซ่อมบำรุง — คนละบอทอีกตัว แอปเป็นเจ้าของ webhook เอง (ไม่ต้องผ่าน Duty Gate ใน n8n)
         registerMaintWebhook();
         // ตัวจับเวลาส่งรายงานอัตโนมัติ + วิเคราะห์สิ้นกะ (เฟส 1) — เช็กทุกนาที (ต้องให้เซิร์ฟเวอร์ตื่นอยู่; มี Keep-Warm ping ช่วย)
-        setInterval(() => { reportTick(); reminderTick(); shiftAnalysisTick(); kpiReportTick(); kpiAlertTick(); qualityWatchTick(); sheetSyncTick(); sppShiftNudgeTick(); vaultTick(); }, 60 * 1000);
+        setInterval(() => { reportTick(); reminderTick(); shiftAnalysisTick(); kpiReportTick(); kpiAlertTick(); qualityWatchTick(); sheetSyncTick(); sppShiftNudgeTick(); vaultTick(); pm.pmSyncTick(); }, 60 * 1000);
         console.log('[report] scheduler started (every 60s) + shift-analysis');
       });
     })
