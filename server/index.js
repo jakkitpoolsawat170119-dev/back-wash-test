@@ -824,6 +824,11 @@ const SCHEMA = [
       owner TEXT,
       updated_at TEXT
     )`,
+  // กันแจ้งเตือนซ้ำ · key = {isoYear}_{week}_{open|chase} — จองคีย์ก่อนส่งจริง
+  `CREATE TABLE IF NOT EXISTS pm_notify_log (
+      key TEXT PRIMARY KEY,
+      sent_at TEXT
+    )`,
   // ชื่อพ้องของเครื่องจักร — Netlify เขียน "ไลน์ต้ม 1" ทะเบียนเขียน "Line ต้ม 1"
   `CREATE TABLE IF NOT EXISTS machine_alias (
       alias TEXT PRIMARY KEY,
@@ -1037,6 +1042,8 @@ async function initDb() {
   try { await db.exec('ALTER TABLE report_config ADD COLUMN kpi_alert_enabled INTEGER DEFAULT 0'); } catch { /* มีแล้ว */ }
   // เฝ้าค่าคุณภาพ: ค่าหลุดสเปก → เปิดเหตุการณ์ให้อัตโนมัติ (แผน KM ข้อ 5) — ปิดไว้ก่อนเป็นค่าเริ่มต้น
   try { await db.exec('ALTER TABLE report_config ADD COLUMN quality_watch_enabled INTEGER DEFAULT 0'); } catch { /* มีแล้ว */ }
+  // แจ้งเตือนงาน PM เข้ากลุ่มช่าง — เปิดไว้ตั้งแต่ต้น (ต่างจาก alert ตัวอื่นที่ default ปิด)
+  try { await db.exec('ALTER TABLE report_config ADD COLUMN pm_notify_enabled INTEGER DEFAULT 1'); } catch { /* มีแล้ว */ }
   try { await db.exec('ALTER TABLE report_config ADD COLUMN kpi_alert_streak_days INTEGER DEFAULT 2'); } catch { /* มีแล้ว */ }
   try { await db.exec('ALTER TABLE report_config ADD COLUMN kpi_alert_cip_stale_hours INTEGER DEFAULT 30'); } catch { /* มีแล้ว */ }
   // migration (ERP เฟส 1): สิทธิ์ผู้ใช้ — 'operator' | 'supervisor' | 'admin'
@@ -1543,6 +1550,7 @@ const NOTIFY_ROUTE = {
   material: 'maint',  // วัสดุใกล้หมด
   incident: 'maint',  // เหตุการณ์ + ค่าหลุดสเปกเปิดเหตุการณ์ให้
   sop: 'maint',       // คู่มือ/SOP รออนุมัติ
+  pm: 'maint',        // แผน PM รายสัปดาห์ (จันทร์เปิดสัปดาห์ · ศุกร์ตามที่ยังไม่ปิด)
   production: 'main', // ยอดผลิต · CIP · KPI · ส่ง/รับกะ · ผู้ช่วย AI
 };
 // ส่งข้อความตามหัวข้อ — ใช้แทน sendToTelegram ตรง ๆ ในจุดที่ต้องเลือกกลุ่ม
@@ -7738,6 +7746,132 @@ app.post('/api/maint/pm/sync', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ══════════════ แจ้งเตือนงาน PM เข้ากลุ่มช่าง ══════════════
+   2 จังหวะต่อสัปดาห์ (เคาะกับ user 10 ก.ย. 2026):
+     จันทร์ 08:00 — เปิดสัปดาห์ บอกว่าสัปดาห์นี้ต้องทำอะไรบ้าง + ค้างเท่าไร
+     ศุกร์ 16:00 — ตามเฉพาะตัวที่ยังไม่ปิด ก่อนสัปดาห์จะจบ
+   ไม่มีอะไรต้องบอก = เงียบ (ไม่ส่งข้อความเปล่า ๆ ให้กลุ่มรก)
+
+   🔑 กันยิงซ้ำด้วยการ "จองคีย์" ใน pm_notify_log ก่อนทำงานจริง — INSERT ชนได้ครั้งเดียว
+      (วิธีเดียวกับ spp_shift_nudge · ปลอดภัยแม้ n8n เคาะซ้ำหรือมีหลาย instance)
+   ⚠️ เทียบเวลาแบบ hm >= เป้าหมาย ไม่ใช่ตรงนาทีเป๊ะ — ถ้า tick หายไปนาทีนึงจะได้ไม่เงียบทั้งสัปดาห์ */
+const PM_NOTIFY_AT = {
+  open: { wd: 1, hm: '08:00', label: 'จันทร์เช้า' },
+  chase: { wd: 5, hm: '16:00', label: 'ศุกร์บ่าย' },
+};
+const PM_TH_MON = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+const pmShortDate = (d) => `${Number(String(d).slice(8, 10))} ${PM_TH_MON[Number(String(d).slice(5, 7)) - 1]}`;
+
+// ตัดลิสต์ยาว ๆ ให้เหลือพอดีข้อความ Telegram (เพดาน 4096 ตัวอักษร)
+const pmCap = (arr, n, more) => (arr.length <= n ? arr : [...arr.slice(0, n), `   <i>…และอีก ${arr.length - n} ${more}</i>`]);
+
+/* ประกอบข้อความ — คืน null ถ้าไม่มีอะไรต้องบอก
+   อ่านจาก pmLoad() ตัวเดียวกับหน้าเว็บ ตัวเลขในกลุ่มกับบนเว็บจึงไม่มีทางเพี้ยนจากกัน */
+async function buildPmNotify(kind) {
+  const today = todayBKK();
+  const cur = pm.isoWeekOf(today);
+  const { items } = await pmLoad(cur.year);
+  const { monday, sunday } = pm.weekRange(cur.year, cur.week);
+
+  const thisWeek = []; const late = [];
+  let done = 0; let due = 0;
+  for (const it of items) {
+    done += it.stat.done; due += it.stat.due;
+    for (const c of it.cycles) {
+      if (c.week === cur.week) { if (c.status !== 'skip') thisWeek.push({ it, c }); }
+      else if (c.status === 'over' && c.week < cur.week) late.push({ it, c });
+    }
+  }
+  const left = thisWeek.filter((r) => r.c.status !== 'done');
+  if (!thisWeek.length && !late.length) return null;              // สัปดาห์ว่างจริง ๆ
+  if (kind === 'chase' && !left.length && !late.length) return null; // ปิดครบแล้ว ไม่ต้องตาม
+
+  // 1 บรรทัด = 1 รอบ (เครื่อง × สัปดาห์) · งานย่อยเป็นบรรทัดลูกใต้ชื่อเครื่อง
+  const line = ({ it, c }) => {
+    // ปิดแล้วขึ้นต้นด้วย ✅ และบอกคนปิดจริง — ไม่ต้องโชว์ "ยังไม่มอบหมาย" ให้สับสน
+    const head = c.status === 'done'
+      ? `✅ <b>${escapeHtml(it.name)}</b> — ปิดแล้ว${c.doneBy ? ` โดย ${escapeHtml(c.doneBy)}` : ''}`
+      : `• <b>${escapeHtml(it.name)}</b> — 👤 ${escapeHtml(it.owner || 'ยังไม่มอบหมาย')}`;
+    if (!c.jobs.length) return head;
+    let jobs = c.jobs.join(' · ');
+    if (jobs.length > 110) jobs = `${jobs.slice(0, 108)}…`;
+    return `${head}\n   └ ${escapeHtml(jobs)}`;
+  };
+  const lateLine = ({ it, c }) =>
+    `• <b>${escapeHtml(it.name)}</b> W${c.week} — ค้าง ${cur.week - c.week} สัปดาห์`;
+
+  const L = [];
+  if (kind === 'open') {
+    L.push(`🗓 <b>งาน PM สัปดาห์ที่ ${cur.week}</b> (${pmShortDate(monday)}–${pmShortDate(sunday)})`);
+    L.push(`สัปดาห์นี้มี <b>${thisWeek.length}</b> รอบ`
+      + (thisWeek.length - left.length ? ` · ปิดแล้ว <b>${thisWeek.length - left.length}</b>` : '')
+      + (late.length ? ` · ค้างจากสัปดาห์ก่อน <b>${late.length}</b>` : ''));
+    if (thisWeek.length) {
+      // ที่ยังไม่ปิดขึ้นก่อนเสมอ — คนอ่านในกลุ่มต้องเห็นของที่ต้องลงมือก่อน
+      const sorted = [...left, ...thisWeek.filter((r) => r.c.status === 'done')];
+      L.push('', '📌 <b>ต้องทำสัปดาห์นี้</b>', ...pmCap(sorted.map(line), 12, 'รอบ'));
+    }
+  } else {
+    const daysLeft = Math.max(0, Math.round((Date.parse(`${sunday}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000));
+    L.push(`⏰ <b>สัปดาห์ที่ ${cur.week} เหลืออีก ${daysLeft} วัน</b> (ถึง อา. ${pmShortDate(sunday)})`);
+    L.push(left.length
+      ? `ยังไม่ปิด <b>${left.length}</b> จาก <b>${thisWeek.length}</b> รอบของสัปดาห์นี้`
+      : `รอบของสัปดาห์นี้ปิดครบแล้ว ✅ (${thisWeek.length} รอบ)`);
+    if (left.length) L.push('', '📌 <b>ที่ยังไม่ปิด</b>', ...pmCap(left.map(line), 12, 'รอบ'));
+  }
+
+  if (late.length) {
+    const oldest = [...late].sort((a, b) => a.c.week - b.c.week);
+    L.push('', `⚠️ <b>ค้างจากสัปดาห์ก่อน ${late.length} รอบ</b> — ค้างนานสุด:`,
+      ...pmCap(oldest.map(lateLine), 5, 'รอบ'));
+  }
+
+  // ทุก % ต้องพกตัวหาร — ห้ามโชว์ 93% ลอย ๆ
+  if (due) L.push('', `📈 ถึงวันนี้ทำได้ <b>${done}</b> จาก <b>${due}</b> รอบที่ถึงกำหนด = <b>${Math.round((done / due) * 100)}%</b>`);
+  L.push(`🔧 ปิดงาน/แก้แผนที่ <a href="${pm.NETLIFY_URL}">แอปทีมช่าง</a> — หน้าเว็บของแอปนี้อ่านอย่างเดียว`);
+  return L.join('\n');
+}
+
+async function pmNotifyTick(atStr) {
+  try {
+    const cfg = await getReportConfig();
+    if (!cfg.pmNotifyEnabled) return;
+    const bkk = atStr || new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' });
+    const hm = bkk.slice(11, 16);
+    const wd = new Date(`${bkk.slice(0, 10)}T12:00:00`).getDay();
+    const kind = Object.keys(PM_NOTIFY_AT).find((k) => PM_NOTIFY_AT[k].wd === wd && hm >= PM_NOTIFY_AT[k].hm);
+    if (!kind) return;
+
+    const cur = pm.isoWeekOf(bkk.slice(0, 10));
+    const key = `${cur.year}_${cur.week}_${kind}`;
+    // จองคีย์ก่อนทำงานจริง — ชนแล้วออกเงียบ ๆ แปลว่ารอบนี้ส่งไปแล้ว
+    try { await db.exec('INSERT INTO pm_notify_log (key, sent_at) VALUES (?, ?)', [key, nowBKK()]); }
+    catch { return; }
+
+    await pm.pmSync();   // ดึงของสดก่อนบอกกลุ่ม (ดึงไม่ได้ก็ใช้ของเดิม ไม่ล้ม)
+    const msg = await buildPmNotify(kind);
+    if (!msg) { console.log(`[pm-notify] ${key} ไม่มีอะไรต้องบอก — เงียบไว้`); return; }
+    await notify('pm', msg);
+    console.log(`[pm-notify] ${key} ส่งเข้ากลุ่มช่างแล้ว`);
+  } catch (e) { console.error('[pm-notify] tick error', e.message); }
+}
+
+/* ดูตัวอย่าง/ส่งทดสอบ — ไม่ต้องรอถึงวันจันทร์ และไม่แตะคีย์กันยิงซ้ำของรอบจริง
+   preview: true = คืนข้อความเฉย ๆ ไม่ส่งเข้ากลุ่ม */
+app.post('/api/maint/pm/notify-test', requireRole('supervisor'), async (req, res) => {
+  const kind = req.body?.kind === 'chase' ? 'chase' : 'open';
+  try {
+    const msg = await buildPmNotify(kind);
+    if (!msg) {
+      return res.json({ success: true, skipped: true, kind,
+        message: 'ตอนนี้ไม่มีรอบของสัปดาห์นี้และไม่มีงานค้าง — ถึงเวลาจริงระบบจะเงียบ ไม่ส่งข้อความเปล่า' });
+    }
+    if (req.body?.preview) return res.json({ success: true, kind, preview: msg });
+    await notify('pm', msg);
+    res.json({ success: true, sent: true, kind, preview: msg });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/maint/pm', async (req, res) => {
   const today = todayBKK();
   const soonDays = Math.min(90, Math.max(1, Number(req.query.soon) || 7));
@@ -9607,6 +9741,7 @@ async function getReportConfig() {
     kpiAlertStreakDays: r.kpi_alert_streak_days == null ? 2 : Number(r.kpi_alert_streak_days),
     kpiAlertCipStaleHours: r.kpi_alert_cip_stale_hours == null ? 30 : Number(r.kpi_alert_cip_stale_hours),
     qualityWatchEnabled: !!r.quality_watch_enabled,
+    pmNotifyEnabled: r.pm_notify_enabled == null ? true : !!r.pm_notify_enabled,
   };
   return _reportConfigCache;
 }
@@ -9618,7 +9753,7 @@ app.get('/api/report/config', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.post('/api/report/config', async (req, res) => {
-  const { autoEnabled, times, weekdays, onlyIfPending, autoAtShiftEnd, shiftAnalysisEnabled, kpiWeeklyEnabled, kpiMonthlyEnabled, kpiAlertEnabled, kpiAlertStreakDays, kpiAlertCipStaleHours, qualityWatchEnabled } = req.body;
+  const { autoEnabled, times, weekdays, onlyIfPending, autoAtShiftEnd, shiftAnalysisEnabled, kpiWeeklyEnabled, kpiMonthlyEnabled, kpiAlertEnabled, kpiAlertStreakDays, kpiAlertCipStaleHours, qualityWatchEnabled, pmNotifyEnabled } = req.body;
   try {
     const cfg = await getReportConfig();
     const sae = shiftAnalysisEnabled == null ? cfg.shiftAnalysisEnabled : shiftAnalysisEnabled;
@@ -9628,8 +9763,9 @@ app.post('/api/report/config', async (req, res) => {
     const ksd = kpiAlertStreakDays == null ? cfg.kpiAlertStreakDays : Math.max(1, Number(kpiAlertStreakDays) || 2);
     const kch = kpiAlertCipStaleHours == null ? cfg.kpiAlertCipStaleHours : Math.max(1, Number(kpiAlertCipStaleHours) || 30);
     const qw = qualityWatchEnabled == null ? cfg.qualityWatchEnabled : qualityWatchEnabled;
-    await db.exec('UPDATE report_config SET auto_enabled = ?, times = ?, weekdays = ?, only_if_pending = ?, auto_at_shift_end = ?, shift_analysis_enabled = ?, kpi_weekly_enabled = ?, kpi_monthly_enabled = ?, kpi_alert_enabled = ?, kpi_alert_streak_days = ?, kpi_alert_cip_stale_hours = ?, quality_watch_enabled = ?, updated_at = ? WHERE id = ?',
-      [autoEnabled ? 1 : 0, JSON.stringify(times || []), JSON.stringify(weekdays || []), onlyIfPending ? 1 : 0, autoAtShiftEnd ? 1 : 0, sae ? 1 : 0, kw ? 1 : 0, km ? 1 : 0, ka ? 1 : 0, ksd, kch, qw ? 1 : 0, nowBKK(), cfg.id]);
+    const pmn = pmNotifyEnabled == null ? cfg.pmNotifyEnabled : pmNotifyEnabled;
+    await db.exec('UPDATE report_config SET auto_enabled = ?, times = ?, weekdays = ?, only_if_pending = ?, auto_at_shift_end = ?, shift_analysis_enabled = ?, kpi_weekly_enabled = ?, kpi_monthly_enabled = ?, kpi_alert_enabled = ?, kpi_alert_streak_days = ?, kpi_alert_cip_stale_hours = ?, quality_watch_enabled = ?, pm_notify_enabled = ?, updated_at = ? WHERE id = ?',
+      [autoEnabled ? 1 : 0, JSON.stringify(times || []), JSON.stringify(weekdays || []), onlyIfPending ? 1 : 0, autoAtShiftEnd ? 1 : 0, sae ? 1 : 0, kw ? 1 : 0, km ? 1 : 0, ka ? 1 : 0, ksd, kch, qw ? 1 : 0, pmn ? 1 : 0, nowBKK(), cfg.id]);
     invalidateReportConfig(); // ให้ tick อ่านค่าใหม่
     _sentAutoKeys.clear();     // เปลี่ยนเวลาส่ง → ยอมส่งซ้ำในเวลาใหม่ได้
     res.json({ success: true });
@@ -9752,6 +9888,7 @@ app.post('/api/report/tick', async (req, res) => {
   await sheetSyncTick(); // ให้ tick ที่ n8n ยิงครบเท่า setInterval (สำคัญเมื่อ Render หลับนอกช่วง window)
   await vaultTick();     // ตาข่ายกันพลาดของ Obsidian — ทำงานจริงชั่วโมงละครั้ง
   await pm.pmSyncTick();  // ดึงแผน PM จากแอปทีมช่าง — ชั่วโมงละครั้งเหมือนกัน
+  await pmNotifyTick();   // แจ้งงาน PM เข้ากลุ่มช่าง — จันทร์เช้า / ศุกร์บ่าย
   res.json({ ok: true, at: new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }) });
 });
 
@@ -15306,7 +15443,8 @@ module.exports = { app, initDb, shiftJustEnded, shiftsForWeekday, factoryShiftsF
   __test_parsePlanHeader: parsePlanHeader, __test_looksLikePlanText: looksLikePlanText,
   __test_parsePlanItems: parsePlanItems,
   __test_resolveSku: resolveSku, __test_normAlias: normAlias, __test_normMachine: normMachine,
-  buildShiftCardData, runShiftAnalysis, getQualitySpecs, setQualitySpec, formatThaiDate };
+  buildShiftCardData, runShiftAnalysis, getQualitySpecs, setQualitySpec, formatThaiDate,
+  __test_pmNotifyTick: pmNotifyTick, __test_buildPmNotify: buildPmNotify };
 
 if (require.main === module) {
   initDb()
@@ -15323,7 +15461,7 @@ if (require.main === module) {
         // บอทซ่อมบำรุง — คนละบอทอีกตัว แอปเป็นเจ้าของ webhook เอง (ไม่ต้องผ่าน Duty Gate ใน n8n)
         registerMaintWebhook();
         // ตัวจับเวลาส่งรายงานอัตโนมัติ + วิเคราะห์สิ้นกะ (เฟส 1) — เช็กทุกนาที (ต้องให้เซิร์ฟเวอร์ตื่นอยู่; มี Keep-Warm ping ช่วย)
-        setInterval(() => { reportTick(); reminderTick(); shiftAnalysisTick(); kpiReportTick(); kpiAlertTick(); qualityWatchTick(); sheetSyncTick(); sppShiftNudgeTick(); vaultTick(); pm.pmSyncTick(); }, 60 * 1000);
+        setInterval(() => { reportTick(); reminderTick(); shiftAnalysisTick(); kpiReportTick(); kpiAlertTick(); qualityWatchTick(); sheetSyncTick(); sppShiftNudgeTick(); vaultTick(); pm.pmSyncTick(); pmNotifyTick(); }, 60 * 1000);
         console.log('[report] scheduler started (every 60s) + shift-analysis');
       });
     })

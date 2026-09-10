@@ -395,6 +395,16 @@
 .pmx .ot{font-size:12.8px;font-weight:600;line-height:1.4;color:var(--ink)}
 .pmx .os{font-size:11px;color:var(--muted);line-height:1.4;white-space:nowrap}
 
+/* ── ตัวอย่างข้อความแจ้งเตือน (ฟองแชทแบบ Telegram) ─────── */
+.pmx .notifyprev{
+  background:var(--surface-2);border:1px solid var(--line);border-radius:14px;
+  padding:12px 14px;font-size:13px;line-height:1.75;color:var(--ink);
+  max-height:420px;overflow-y:auto;word-break:break-word;
+}
+.pmx .notifyprev b{font-weight:700}
+.pmx .notifyprev a{color:var(--cip1)}
+.pmx .notifyprev i{color:var(--muted);font-size:12px}
+
 /* ── มือถือ ─────────────────────────────────────────────── */
 @media(max-width:760px){
   .pmx .wkprog{grid-template-columns:1fr}

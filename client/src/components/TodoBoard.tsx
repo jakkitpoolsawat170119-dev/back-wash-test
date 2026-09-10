@@ -1435,7 +1435,7 @@ const CalendarTab: React.FC<{ card: React.CSSProperties; onOpenDate: (date: stri
 };
 
 // ─── Report scheduling ─────────────────────────────────────────
-type ReportCfg = { autoEnabled: boolean; times: string[]; weekdays: number[]; onlyIfPending: boolean; autoAtShiftEnd: boolean; kpiWeeklyEnabled: boolean; kpiMonthlyEnabled: boolean; kpiAlertEnabled: boolean; kpiAlertStreakDays: number; kpiAlertCipStaleHours: number; qualityWatchEnabled: boolean; once: { id: number; run_at: string }[] };
+type ReportCfg = { autoEnabled: boolean; times: string[]; weekdays: number[]; onlyIfPending: boolean; autoAtShiftEnd: boolean; kpiWeeklyEnabled: boolean; kpiMonthlyEnabled: boolean; kpiAlertEnabled: boolean; kpiAlertStreakDays: number; kpiAlertCipStaleHours: number; qualityWatchEnabled: boolean; pmNotifyEnabled: boolean; once: { id: number; run_at: string }[] };
 const SHIFT_TIMES: [string, string][] = [['14:00', '14:00'], ['18:00', '18:00'], ['22:00', '22:00'], ['06:00', '06:00']];
 const WEEKDAY_OPTS: [number, string][] = [[1, 'จ'], [2, 'อ'], [3, 'พ'], [4, 'พฤ'], [5, 'ศ'], [6, 'ส'], [0, 'อา']];
 
@@ -1655,7 +1655,7 @@ const ReportTab: React.FC<{ card: React.CSSProperties }> = ({ card }) => {
   };
   const saveCfg = async (patch: Partial<ReportCfg>) => {
     if (!cfg) return; const next = { ...cfg, ...patch }; setCfg(next);
-    await fetch(`${apiUrl}/api/report/config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ autoEnabled: next.autoEnabled, times: next.times, weekdays: next.weekdays, onlyIfPending: next.onlyIfPending, autoAtShiftEnd: next.autoAtShiftEnd, kpiWeeklyEnabled: next.kpiWeeklyEnabled, kpiMonthlyEnabled: next.kpiMonthlyEnabled, kpiAlertEnabled: next.kpiAlertEnabled, kpiAlertStreakDays: next.kpiAlertStreakDays, kpiAlertCipStaleHours: next.kpiAlertCipStaleHours, qualityWatchEnabled: next.qualityWatchEnabled }) });
+    await fetch(`${apiUrl}/api/report/config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ autoEnabled: next.autoEnabled, times: next.times, weekdays: next.weekdays, onlyIfPending: next.onlyIfPending, autoAtShiftEnd: next.autoAtShiftEnd, kpiWeeklyEnabled: next.kpiWeeklyEnabled, kpiMonthlyEnabled: next.kpiMonthlyEnabled, kpiAlertEnabled: next.kpiAlertEnabled, kpiAlertStreakDays: next.kpiAlertStreakDays, kpiAlertCipStaleHours: next.kpiAlertCipStaleHours, qualityWatchEnabled: next.qualityWatchEnabled, pmNotifyEnabled: next.pmNotifyEnabled }) });
   };
   const sendNow = async () => { setMsg('กำลังส่ง…'); try { const r = await fetch(`${apiUrl}/api/duty/telegram`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: todayBKK() }) }); const d = await r.json(); setMsg(d.sent ? '✅ ส่งเข้า Telegram แล้ว' : '⚠️ ยังไม่ได้ตั้งค่า Telegram บนเซิร์ฟเวอร์'); } catch { setMsg('❌ ส่งไม่สำเร็จ'); } };
   const sendKpiNow = async (period: 'weekly' | 'monthly') => {
@@ -1797,6 +1797,19 @@ const ReportTab: React.FC<{ card: React.CSSProperties }> = ({ card }) => {
           <button onClick={() => runWatch(false)} style={{ flex: 1, border: '1px solid #eee', background: '#fff', borderRadius: 12, padding: 11, fontWeight: 800, fontSize: '.8rem', color: '#546e7a', cursor: 'pointer' }}>⚡ ตรวจย้อนหลัง 7 วัน</button>
         </div>
         {watchMsg && <div style={{ textAlign: 'center', fontSize: '.8rem', color: '#78828a', marginTop: 8, lineHeight: 1.6 }}>{watchMsg}</div>}
+      </div>
+
+      <div style={{ background: '#fff', border: '1px solid #eee', borderRadius: 16, padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: '.88rem', fontWeight: 800 }}>🗓 แจ้งงาน PM เข้ากลุ่มช่าง</div>
+            <div style={{ fontSize: '.68rem', color: '#9aa0a6', lineHeight: 1.5 }}>
+              จันทร์ 08:00 เปิดสัปดาห์ (ต้องทำอะไรบ้าง + ค้างเท่าไร) · ศุกร์ 16:00 ตามเฉพาะตัวที่ยังไม่ปิด
+              <br />ไม่มีรอบและไม่มีงานค้าง = เงียบ · ดูตัวอย่างข้อความก่อนส่งได้ที่หน้า “งาน PM”
+            </div>
+          </div>
+          <Toggle on={cfg.pmNotifyEnabled} onClick={() => saveCfg({ pmNotifyEnabled: !cfg.pmNotifyEnabled })} />
+        </div>
       </div>
 
       <div style={{ fontSize: '.72rem', color: '#9aa0a6', textAlign: 'center', marginTop: 4, lineHeight: 1.6 }}>บันทึกอัตโนมัติเมื่อแก้ไข · เซิร์ฟเวอร์เช็กทุกนาที</div>

@@ -893,6 +893,61 @@ const JobSheet: React.FC<{
   );
 };
 
+/* ══════════════ ตัวอย่างข้อความที่จะเข้ากลุ่มช่าง ══════════════
+   ดูก่อนได้ว่าจันทร์เช้า/ศุกร์บ่ายกลุ่มจะเห็นอะไร แล้วค่อยกดส่งจริง
+   (กดดูไม่ส่ง — ปุ่มส่งแยกต่างหาก จะได้ไม่เผลอยิงเข้ากลุ่มตอนลองเล่น) */
+const NotifySheet: React.FC<{
+  busy: boolean; onClose: () => void;
+  onLoad: (kind: 'open' | 'chase') => Promise<{ preview?: string; message?: string } | null>;
+  onSend: (kind: 'open' | 'chase') => Promise<boolean>;
+}> = ({ busy, onClose, onLoad, onSend }) => {
+  const [kind, setKind] = useState<'open' | 'chase'>('open');
+  const [res, setRes] = useState<{ kind: string; text: string; note: string } | null>(null);
+  const [sent, setSent] = useState('');
+  useEffect(() => {
+    let alive = true;
+    onLoad(kind).then((r) => {
+      if (alive) {
+        setRes({ kind, text: r?.preview || '', note: r?.preview ? '' : (r?.message || 'โหลดตัวอย่างไม่สำเร็จ') });
+      }
+    });
+    return () => { alive = false; };
+  }, [kind, onLoad]);
+  const cur = res && res.kind === kind ? res : null;   // ผลของ kind อื่น = ยังไม่ใช่ของรอบนี้
+  const text = cur?.text || '';
+  return (
+    <div className="backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="sheet">
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <h3>📮 ข้อความที่จะเข้ากลุ่มช่าง</h3>
+            <div className="hint">ส่งอัตโนมัติ จันทร์ 08:00 และ ศุกร์ 16:00 · เปิด/ปิดสวิตช์ได้ที่ตั้งค่ารายงาน</div>
+          </div>
+          <button className="ibtn sm" onClick={onClose}>✕ ปิด</button>
+        </div>
+        <div className="rngs" style={{ marginBottom: 10 }}>
+          <button className={`rng${kind === 'open' ? ' on' : ''}`}
+            onClick={() => { setKind('open'); setSent(''); }}>จันทร์เช้า — เปิดสัปดาห์</button>
+          <button className={`rng${kind === 'chase' ? ' on' : ''}`}
+            onClick={() => { setKind('chase'); setSent(''); }}>ศุกร์บ่าย — ตามที่ยังไม่ปิด</button>
+        </div>
+        {text
+          ? <div className="notifyprev" dangerouslySetInnerHTML={{ __html: text.replace(/\n/g, '<br/>') }} />
+          : <div className="infobox">{cur ? cur.note : '⏳ กำลังโหลด…'}</div>}
+        <div className="acts">
+          <button className="ibtn pri" disabled={busy || !text}
+            onClick={() => onSend(kind).then((ok) => setSent(ok ? '✅ ส่งเข้ากลุ่มช่างแล้ว' : ''))}>
+            📤 ส่งเข้ากลุ่มจริงเดี๋ยวนี้
+          </button>
+          {sent && <span style={{ fontSize: 12.5, color: 'var(--ok)', fontWeight: 600 }}>{sent}</span>}
+          <div className="sp" />
+          <span className="ro-note">กดดูเฉย ๆ ไม่ส่ง · การส่งทดสอบไม่กระทบรอบส่งอัตโนมัติ</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 /* ══════════════ ตัวหลัก ══════════════ */
 type View = 'week' | 'year' | 'machine' | 'month';
 
@@ -910,6 +965,7 @@ const PmPlan: React.FC<{
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
     const [sheet, setSheet] = useState('');
+    const [notifyOpen, setNotifyOpen] = useState(false);
     const canEdit = authRole() === 'supervisor' || authRole() === 'admin';
 
     const loadPlan = useCallback(async () => {
@@ -958,6 +1014,16 @@ const PmPlan: React.FC<{
       } catch { setMsg('❌ ต่อเซิร์ฟเวอร์ไม่ได้'); return false; } finally { setBusy(false); }
     };
 
+    const loadNotify = useCallback(async (kind: 'open' | 'chase') => {
+      try {
+        const r = await fetch(`${apiUrl}/api/maint/pm/notify-test`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({ kind, preview: true }),
+        });
+        return await r.json();
+      } catch { return null; }
+    }, []);
+
     const doSync = async () => {
       setBusy(true); setMsg('');
       try {
@@ -995,6 +1061,9 @@ const PmPlan: React.FC<{
           <button className="ibtn" onClick={doSync} disabled={busy}>
             {busy ? '⏳ กำลังดึง…' : '🔄 ดึงจากแอปทีมช่างเดี๋ยวนี้'}
           </button>
+          {canEdit && (
+            <button className="ibtn" onClick={() => setNotifyOpen(true)}>📮 ข้อความแจ้งเตือนกลุ่มช่าง</button>
+          )}
         </div>
 
         {msg && <div className={msg.startsWith('✅') ? 'infobox' : 'errbox'} style={{ marginBottom: 12 }}>{msg}</div>}
@@ -1021,6 +1090,15 @@ const PmPlan: React.FC<{
             {view === 'machine' && <ByMachine p={plan} onPick={setSheet} />}
             {view === 'month' && <MonthCalendar p={plan} today={today} />}
           </>
+        )}
+
+        {notifyOpen && (
+          <NotifySheet busy={busy} onClose={() => setNotifyOpen(false)} onLoad={loadNotify}
+            onSend={async (kind) => {
+              const ok = await post('/api/maint/pm/notify-test', { kind });
+              if (ok) setMsg('✅ ส่งข้อความแจ้งเตือนเข้ากลุ่มช่างแล้ว');
+              return ok;
+            }} />
         )}
 
         {item && plan && (
