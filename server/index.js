@@ -835,6 +835,140 @@ const SCHEMA = [
       machine_name TEXT,
       created_at TEXT
     )`,
+
+  /* ══ ทะเบียนเครื่องจักรแบบเชื่อมโยง (Machine Hub) ══════════════════════════
+     คู่ที่ "เป็นไปได้" อยู่ที่ machine_links · คู่ "ของจริงรายวัน" อยู่ที่ machine_runs
+     ทุกตารางอ้างเครื่องด้วย machines.name — คีย์เดียวกับ duty_routines / incidents /
+     ชื่อไฟล์โน้ตใน vault · เปลี่ยนชื่อเครื่องต้อง UPDATE ตามให้ครบทุกตารางในกลุ่มนี้
+     ══════════════════════════════════════════════════════════════════════════ */
+  `CREATE TABLE IF NOT EXISTS machine_links (
+      id ${db.pk},
+      line_name TEXT,
+      packer_name TEXT,
+      note TEXT,
+      sort_order INTEGER DEFAULT 0,
+      active INTEGER DEFAULT 1,
+      created_at TEXT,
+      UNIQUE(line_name, packer_name)
+    )`,
+  // สินค้าประจำคู่ = ประโยค "Line ต้ม1 ผลิต Amazon ใช้เครื่องบรรจุ L2" ในโน้ตโจทย์
+  // ใช้เดาไลน์ให้รอบวันนี้ ตอนเครื่องบรรจุตัวเดียวรับได้หลายไลน์ (ไม่ต้องถามคน)
+  // ⚠️ flavor_norm ต้องเป็น '' ห้าม NULL — Postgres ถือ NULL ต่างกันเสมอ UNIQUE จะเลิกกันซ้ำ
+  `CREATE TABLE IF NOT EXISTS machine_link_products (
+      id ${db.pk},
+      link_id INTEGER,
+      flavor TEXT,
+      flavor_norm TEXT DEFAULT '',
+      sku_code TEXT,
+      note TEXT,
+      sort_order INTEGER DEFAULT 0,
+      active INTEGER DEFAULT 1,
+      created_at TEXT,
+      UNIQUE(link_id, flavor_norm)
+    )`,
+  /* กฎเตือน — ช่องเงื่อนไขที่เว้นว่าง = "อะไรก็ได้" · AND กันทุกช่องที่ไม่ว่าง
+     specificity มาก = จำเพาะมาก = ขึ้นก่อนในเช็กลิสต์ (ยืมสำนวนจาก assign_rules)
+     🔑 หลายกฎเข้าพร้อมกันได้ ข้อของทุกกฎรวมเป็นใบเดียว — ไม่ใช่ "ผู้ชนะคนเดียว"
+     items = JSON [{key,title,detail,needPhoto,needQc}] — key ต้องนิ่งตลอดกาล
+       เพราะ run_check_items ใช้ (check_id, item_key) เป็น ON CONFLICT target */
+  `CREATE TABLE IF NOT EXISTS machine_rules (
+      id ${db.pk},
+      code TEXT,
+      title TEXT,
+      timing TEXT DEFAULT 'start',
+      line_name TEXT DEFAULT '',
+      packer_name TEXT DEFAULT '',
+      packer_key TEXT DEFAULT '',
+      product_pattern TEXT DEFAULT '',
+      shift TEXT DEFAULT '',
+      items TEXT,
+      owner_role TEXT,
+      note TEXT,
+      specificity INTEGER DEFAULT 0,
+      notify INTEGER DEFAULT 1,
+      active INTEGER DEFAULT 1,
+      deleted INTEGER DEFAULT 0,
+      created_at TEXT,
+      updated_at TEXT
+    )`,
+  /* 1 แถว = "วันนี้ เครื่องบรรจุตัวนี้ ผลิตสินค้าตัวนี้ ป้อนจากไลน์นี้"
+     ตั้งต้นจากแผนบรรจุ (shift_plans) แล้วคนแก้ทับได้ — 🔴 manual ชนะ plan เสมอ
+     ⚠️ packer_key / flavor_norm ต้องเป็น '' ห้าม NULL (เหตุผลเดียวกับข้างบน) */
+  `CREATE TABLE IF NOT EXISTS machine_runs (
+      id ${db.pk},
+      work_day TEXT,
+      shift TEXT,
+      packer_name TEXT DEFAULT '',
+      packer_key TEXT DEFAULT '',
+      line_name TEXT,
+      flavor TEXT,
+      flavor_norm TEXT DEFAULT '',
+      sku_code TEXT,
+      target_boxes INTEGER,
+      source TEXT DEFAULT 'plan',
+      line_source TEXT,
+      plan_key TEXT DEFAULT '',
+      status TEXT DEFAULT 'draft',
+      confirmed_by TEXT,
+      confirmed_at TEXT,
+      note TEXT,
+      created_at TEXT,
+      updated_at TEXT,
+      UNIQUE(work_day, shift, packer_key, flavor_norm)
+    )`,
+  // ใบเช็กของรอบ — 1 รอบมีได้หลายใบตามจังหวะ (start/during/end) · โครงยกมาจาก am_sheets
+  `CREATE TABLE IF NOT EXISTS run_checks (
+      id ${db.pk},
+      run_id INTEGER,
+      work_day TEXT,
+      shift TEXT,
+      machine_name TEXT,
+      timing TEXT,
+      status TEXT DEFAULT 'draft',
+      opened_by TEXT,
+      opened_at TEXT,
+      submitted_by TEXT,
+      submitted_at TEXT,
+      card_chat_id TEXT,
+      card_msg_id TEXT,
+      card_kind TEXT,
+      updated_at TEXT,
+      UNIQUE(run_id, timing)
+    )`,
+  // title/detail เก็บเป็น snapshot — แก้กฎทีหลังแล้วใบเก่าต้องยังอ่านรู้เรื่อง
+  // (กติกาเดียวกับ am_sheet_items) · result = NULL | 'ok' | 'ng'
+  `CREATE TABLE IF NOT EXISTS run_check_items (
+      id ${db.pk},
+      check_id INTEGER,
+      item_key TEXT,
+      rule_id INTEGER,
+      title TEXT,
+      detail TEXT,
+      need_photo INTEGER DEFAULT 0,
+      need_qc INTEGER DEFAULT 0,
+      result TEXT,
+      cause TEXT,
+      photo TEXT,
+      photo_at TEXT,
+      checked_by TEXT,
+      qc_by TEXT,
+      updated_at TEXT,
+      UNIQUE(check_id, item_key)
+    )`,
+  // ลิงก์สาธารณะ 1 ต่อ 1 เครื่อง ปักหมุดในกลุ่มได้ (แพทเทิร์นเดียวกับ am_sheet_links)
+  `CREATE TABLE IF NOT EXISTS run_check_links (
+      token TEXT PRIMARY KEY,
+      machine_name TEXT,
+      created_by TEXT,
+      created_at TEXT,
+      last_used_at TEXT,
+      active INTEGER DEFAULT 1
+    )`,
+  // กันยิงซ้ำ · key = 'run:{run_id}:{timing}' — จองคีย์ก่อนส่งจริง (วิธีเดียวกับ pm_notify_log)
+  `CREATE TABLE IF NOT EXISTS run_notify_log (
+      key TEXT PRIMARY KEY,
+      sent_at TEXT
+    )`,
 ];
 
 // [ชื่อ, PIN, สิทธิ์] — seed ครั้งแรกเท่านั้น แก้สิทธิ์ทีหลังได้ที่หน้า "ผู้ใช้และสิทธิ์"
@@ -959,7 +1093,7 @@ async function initDb() {
   }
   /* migration: ที่มาของใบ + กุญแจกันเปิดซ้ำ
      source: 'web' หน้าเว็บ · 'bot' wizard แจ้งซ่อมในบอท · 'ai' ระบบเฝ้าคุณภาพอัตโนมัติ
-             · 'amsheet' ใบเช็ก AM รายกะ (เฟสถัดไป)
+             · 'amsheet' ใบเช็ก AM รายกะ · 'runcheck' เช็กลิสต์รอบเดินเครื่อง
      ref_key: กุญแจ 1 ต่อ 1 กับต้นทาง เช่น 'am:Line ต้ม 2:am31' — ใบเช็ก AM ใบเดิมจะได้ไม่เปิดซ้ำ
      ⚠️ ยังไม่ใส่ UNIQUE index — กติกาจริงคือ "เจอซ้ำให้ต่อในใบเดิม" (UPDATE) ไม่ใช่ปฏิเสธ
         และบน Postgres ค่า '' ซ้ำไม่ได้แต่ NULL ซ้ำได้ ใส่ตอนนี้จะเป็นระเบิดเวลา            */
@@ -988,6 +1122,31 @@ async function initDb() {
   try { await db.exec('ALTER TABLE machines ADD COLUMN vault_path TEXT'); } catch { /* มีแล้ว */ }
   // migration (ERP เฟส 3): ค่าเสียโอกาสต่อชั่วโมงของเครื่องนี้ (ว่าง = ใช้ค่ากลางจาก cost_config)
   try { await db.exec('ALTER TABLE machines ADD COLUMN downtime_cost REAL'); } catch { /* มีแล้ว */ }
+  /* migration (Machine Hub): จัดหมวด + ชื่อที่โชว์ + คีย์สั้น
+     🔴 name ยังเป็น join key เดิม ห้ามเปลี่ยน — duty_routines.machine / incidents.machine /
+        daily_tasks.machine / ชื่อไฟล์โน้ตใน vault / [[wikilink]] อ้างอยู่ทั้งหมด
+        ชื่อสวยที่เอาไว้โชว์ ("เครื่องบรรจุ L2") อยู่ใน label ไม่ใช่ name ("ไลน์ L2")
+     mkey = คีย์สั้นที่ตรงกับผลของ normMachine() — ใช้จับ [L2] ในแผนบรรจุเข้ากับเครื่อง
+            ⚠️ ต้องเป็น NULL ห้ามเป็น '' เพราะมี unique index (NULL หลายตัวไม่ชนกัน แต่ '' ชน)
+     pm_net_id = w01..w30 ผูกตรงกับ pm_items.net_id ไม่ต้องเดาจากชื่อ                      */
+  for (const [col, type] of [
+    ['grp', 'TEXT'],          // line | packer | central | tool
+    ['mkey', 'TEXT'],         // boil1..4, icing, sugar, l1..l4, a1..a3, robot, ml300, manual, pail
+    ['label', 'TEXT'],
+    ['spec', 'TEXT'],
+    ['pm_net_id', 'TEXT'],
+  ]) {
+    try { await db.exec(`ALTER TABLE machines ADD COLUMN ${col} ${type}`); } catch { /* มีแล้ว */ }
+  }
+  /* Machine Hub: รอบเดินเครื่องต้องจำว่า "เกิดจากบรรทัดไหนของแผน"
+     คนย้ายเครื่อง/แก้สินค้าแล้วคีย์ UNIQUE เปลี่ยน — ถ้าตามด้วยคีย์นั้นอย่างเดียว ดึงแผนรอบหน้า
+     จะสร้างแถวเดิมขึ้นมาซ้ำอีกใบ (เจอตอนทดสอบ: แถว "ไม่รู้ว่าเครื่องไหน" ที่คนเติมเครื่องให้แล้ว) */
+  try { await db.exec("ALTER TABLE machine_runs ADD COLUMN plan_key TEXT DEFAULT ''"); } catch { /* มีแล้ว */ }
+  /* กฎเตือน: "ปิดใช้" กับ "ลบ" ต้องแยกกัน — ปิดใช้คือ active=0 (ยังเห็นในลิสต์ กดเปิดกลับได้)
+     ลบคือ deleted=1 ซ่อนถาวรแต่แถวยังอยู่ เพราะใบเช็กเก่าอ้าง rule_id ไว้ (สำนวนเดียวกับ pm_items) */
+  try { await db.exec('ALTER TABLE machine_rules ADD COLUMN deleted INTEGER DEFAULT 0'); } catch { /* มีแล้ว */ }
+  // สวิตช์การ์ดเช็กลิสต์เดินเครื่อง — default 0 (ปิด) ตั้งใจให้ต้องเปิดเอง ดูเหตุผลที่ getReportConfig
+  try { await db.exec('ALTER TABLE report_config ADD COLUMN run_notify_enabled INTEGER DEFAULT 0'); } catch { /* มีแล้ว */ }
   // seed แถวตั้งค่าต้นทุน (แถวเดียว เหมือน report_config)
   try {
     const cc = await dbAll('SELECT id FROM cost_config LIMIT 1', []);
@@ -1083,6 +1242,9 @@ async function initDb() {
   await seedAmListRoutines();
   // seed ชื่อพ้อง + เครื่องจักรที่แผน PM อ้างถึงแต่ยังไม่มีในทะเบียน (idempotent)
   await seedPmMachines();
+  // seed หมวด/ชื่อที่โชว์/คีย์สั้น ให้เครื่องในทะเบียน + ชื่อพ้องฝั่งเครื่องบรรจุ (idempotent)
+  await seedMachineGroups();
+  await seedMachineRules();
   // migration (ระบบลงยอดผลิต): เตรียมคอลัมน์สิทธิ์ไว้ก่อน — ยังไม่บังคับใช้จนถึงเฟส 3
   try { await db.exec("ALTER TABLE operators ADD COLUMN role TEXT DEFAULT 'operator'"); } catch { /* มีแล้ว */ }
   // batch_id: ผูกรายงานเข้ากับชุดของกะ — NULL = รายงานเดี่ยวแบบเดิม (ลิงก์เก่ายังใช้ได้)
@@ -1137,6 +1299,13 @@ async function initDb() {
     'CREATE INDEX IF NOT EXISTS ix_prod_reports_sku ON production_reports (sku_keyword)',
     'CREATE INDEX IF NOT EXISTS ix_prod_reports_status ON production_reports (status)',
     'CREATE INDEX IF NOT EXISTS ix_prod_events_report ON production_report_events (report_id)',
+    // Machine Hub — mkey ต้อง unique เพราะใช้จับ [L2] จากแผนบรรจุเข้าเครื่องตัวเดียว
+    'CREATE UNIQUE INDEX IF NOT EXISTS ux_machines_mkey ON machines (mkey)',
+    'CREATE INDEX IF NOT EXISTS ix_machine_links_packer ON machine_links (packer_name)',
+    'CREATE INDEX IF NOT EXISTS ix_link_products_link ON machine_link_products (link_id)',
+    'CREATE INDEX IF NOT EXISTS ix_machine_runs_day ON machine_runs (work_day)',
+    'CREATE INDEX IF NOT EXISTS ix_run_checks_run ON run_checks (run_id)',
+    'CREATE INDEX IF NOT EXISTS ix_run_check_items_chk ON run_check_items (check_id)',
   ]) {
     try { await db.exec(ix); } catch (e) { console.error('[db] index failed', e.message); }
   }
@@ -1552,6 +1721,7 @@ const NOTIFY_ROUTE = {
   sop: 'maint',       // คู่มือ/SOP รออนุมัติ
   pm: 'maint',        // แผน PM รายสัปดาห์ (จันทร์เปิดสัปดาห์ · ศุกร์ตามที่ยังไม่ปิด)
   production: 'main', // ยอดผลิต · CIP · KPI · ส่ง/รับกะ · ผู้ช่วย AI
+  runcheck: 'maint',  // เช็กลิสต์เดินเครื่อง (กฎเตือนของทะเบียนเครื่องจักร) — คนทำคือช่าง/พนักงานหน้าเครื่อง
 };
 // ส่งข้อความตามหัวข้อ — ใช้แทน sendToTelegram ตรง ๆ ในจุดที่ต้องเลือกกลุ่ม
 const notify = (topic, ...args) => runAsBot(NOTIFY_ROUTE[topic] || 'main', () => sendToTelegram(...args));
@@ -6462,50 +6632,171 @@ async function seedAmListRoutines() {
 }
 // ══ Knowledge management ═════════════════════════════════════════════════════
 // ทะเบียนเครื่องจักร (ERP Phase 1) — ชื่อเครื่องใช้เป็น [[wikilink]] ปลายทางของโน้ตใน vault
+/* 🔴 เส้นนี้มีคนเรียก 4 ที่ (MachineRegistry · PmRegistry · IncidentBoard · MaintenanceBoard)
+      เพิ่มฟิลด์ใหม่ได้ แต่ "คีย์เดิม 10 ตัว" ห้ามเปลี่ยนชื่อ/ความหมาย/หายไปเด็ดขาด
+      id · code · name · line · installedAt · lastPm · note · vaultPath · pmCount · openIncidents  */
 app.get('/api/machines', async (req, res) => {
   try {
+    const grpFilter = String(req.query.grp || '').trim();
     const rows = await dbAll('SELECT * FROM machines WHERE active = 1 ORDER BY sort_order, id', []);
     // นับงาน PM ที่ผูกกับเครื่องนี้ + เหตุการณ์ที่ยังไม่ปิด — ให้หน้าทะเบียนเห็นภาพโดยไม่ต้องยิงซ้ำ
-    const pm = await dbAll("SELECT machine, COUNT(*) AS n FROM duty_routines WHERE active = 1 AND machine IS NOT NULL AND machine <> '' GROUP BY machine", []);
+    // 🔴 ห้ามตั้งชื่อตัวแปรนี้ว่า pm — จะไปบังโมดูล pm (pmSync) ที่ใช้หา ISO week ข้างล่าง
+    const pmCounts = await dbAll("SELECT machine, COUNT(*) AS n FROM duty_routines WHERE active = 1 AND machine IS NOT NULL AND machine <> '' GROUP BY machine", []);
     // นับใบที่ยังไม่ปิดทั้งหมด รวม 'wip' (ช่างรับไปแล้วแต่ยังซ่อมไม่เสร็จ = ยังค้างอยู่จริง)
     // สำนวนเดียวกับ maintCounts และ buildRepairList ในบอท ที่นับถูกอยู่แล้ว
     const inc = await dbAll("SELECT machine, COUNT(*) AS n FROM incidents WHERE COALESCE(status, 'open') <> 'closed' AND machine IS NOT NULL AND machine <> '' GROUP BY machine", []);
     const nOf = (list, name) => Number((list.find(x => x.machine === name) || {}).n || 0);
-    res.json({
-      machines: rows.map(r => ({
-        id: r.id, code: r.code || '', name: r.name, line: r.line_name || '',
-        installedAt: r.installed_at || '', lastPm: r.last_pm || '', note: r.note || '',
-        vaultPath: r.vault_path || '',
-        pmCount: nOf(pm, r.name), openIncidents: nOf(inc, r.name),
-      })),
-    });
+
+    // ── ของใหม่: คู่ไลน์ / กฎเตือน / สัปดาห์ PM รอบหน้า ────────────────────
+    // นับคู่ทั้ง 2 ฝั่งแล้วบวกกัน — เครื่องหนึ่งเป็นได้ทั้งไลน์หรือเครื่องบรรจุ อีกฝั่งจะเป็น 0 เอง
+    const [linkL, linkP, ruleL, ruleP] = await Promise.all([
+      dbAll('SELECT line_name AS k, COUNT(*) AS n FROM machine_links WHERE active = 1 GROUP BY line_name', []),
+      dbAll('SELECT packer_name AS k, COUNT(*) AS n FROM machine_links WHERE active = 1 GROUP BY packer_name', []),
+      dbAll("SELECT line_name AS k, COUNT(*) AS n FROM machine_rules WHERE active = 1 AND deleted = 0 AND line_name <> '' GROUP BY line_name", []),
+      dbAll("SELECT packer_name AS k, COUNT(*) AS n FROM machine_rules WHERE active = 1 AND deleted = 0 AND packer_name <> '' GROUP BY packer_name", []),
+    ]);
+    const kOf = (list, name) => Number((list.find(x => x.k === name) || {}).n || 0);
+
+    /* สัปดาห์ PM รอบหน้า — อ่าน pm_items ตรง ๆ ไม่เรียก pmLoad()
+       เพราะเส้นนี้โดนเรียกจาก 4 หน้า การลาก done/skip/jobs มาด้วยทำให้ทุกหน้าช้าโดยไม่ได้ใช้
+       (หน้ารายละเอียดที่ต้องการของครบใช้ /api/machines/detail ซึ่งเรียก pmLoad เต็ม)   */
+    const curWeek = pm.isoWeekOf(todayBKK()).week;
+    const pmItems = await dbAll('SELECT net_id, weeks, freq FROM pm_items WHERE deleted = 0', []).catch(() => []);
+    const pmNext = new Map();
+    for (const it of pmItems) {
+      let weeks = [];
+      try { weeks = JSON.parse(it.weeks || '[]').map(Number).filter((n) => n >= 1 && n <= 53).sort((a, b) => a - b); } catch { weeks = []; }
+      // รอบหน้า = สัปดาห์ตามแผนที่ยัง >= สัปดาห์นี้ · หมดปีแล้วก็วนกลับไปรอบแรกของปีหน้า
+      const nx = weeks.find((w) => w >= curWeek);
+      pmNext.set(it.net_id, { week: nx || weeks[0] || null, freq: it.freq || '', rollover: !nx && !!weeks.length });
+    }
+
+    const out = rows
+      .filter((r) => !grpFilter || (r.grp || 'tool') === grpFilter)
+      .map((r) => {
+        const nx = pmNext.get(r.pm_net_id) || {};
+        return {
+          // ── คีย์เดิม (ห้ามแตะ) ──
+          id: r.id, code: r.code || '', name: r.name, line: r.line_name || '',
+          installedAt: r.installed_at || '', lastPm: r.last_pm || '', note: r.note || '',
+          vaultPath: r.vault_path || '',
+          pmCount: nOf(pmCounts, r.name), openIncidents: nOf(inc, r.name),
+          // ── ของใหม่ (Machine Hub) ──
+          grp: r.grp || 'tool',
+          mkey: r.mkey || '',
+          label: r.label || r.name,            // ชื่อที่โชว์ — ว่างเมื่อไหร่ถอยไปใช้ชื่อจริง
+          spec: r.spec || '',
+          pmNetId: r.pm_net_id || '',
+          linkCount: kOf(linkL, r.name) + kOf(linkP, r.name),
+          ruleCount: kOf(ruleL, r.name) + kOf(ruleP, r.name),
+          pmNextWeek: nx.week || null,
+          pmFreq: nx.freq || '',
+          pmRollover: !!nx.rollover,           // true = รอบหน้าข้ามไปปีถัดไปแล้ว
+        };
+      });
+    res.json({ machines: out });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-app.post('/api/machines', async (req, res) => {
-  const { id, code, name, line, installedAt, lastPm, note } = req.body;
+/* ══ เปลี่ยนชื่อเครื่อง = ต้องตามไปแก้ทุกที่ที่อ้างชื่อเดิม ═══════════════════════
+   `machines.name` เป็น join key แบบ "ข้อความ" ไม่ใช่ id — ตารางที่อ้างชื่อไว้จะกำพร้าเงียบ ๆ
+   ถ้าไม่ตามไปแก้ · **รายการนี้คือที่เดียวที่ต้องดูแล** เพิ่มตารางใหม่ที่เก็บชื่อเครื่องต้องมาเติมตรงนี้ด้วย
+
+   🔴 ห้ามใส่คอลัมน์ "line" ของฝั่งผลิต/CIP ลงในรายการนี้เด็ดขาด — คำว่า line มี 4 ความหมายในระบบ
+      (`Line 1/2/3` ของ CIP · `Line ต้ม N` · `ไลน์ L1` เครื่องบรรจุ · `Linear#1` ที่พนักงานพิมพ์)
+      `production_logs.line_name` · `line_state` · `cip_specs.line` · `daily_tasks.line_name`
+      เป็นคนละ namespace กับทะเบียนเครื่องจักร ตามไปแก้ = พังของที่ไม่เกี่ยวกัน
+   🔴 `shift_plans.machine_code` · `production_reports.machine` · `sku_master.machine` ก็ไม่ใช่ —
+      เก็บ "รหัสเครื่องในแผน" (`[L2]` / `Linear#3`) ที่จับคู่ผ่าน `normMachine()` ไม่ใช่ชื่อในทะเบียน  */
+const MACHINE_NAME_REFS = [
+  ['duty_routines', 'machine'],       // ทะเบียนงานรูทีน + 45 ข้อของใบเช็ก AM (sheet='am')
+  ['incidents', 'machine'], ['incidents', 'line_name'],
+  ['daily_tasks', 'machine'],         // งานที่มอบหมายระหว่างวัน (ช่อง "พื้นที่/เครื่องจักร")
+  ['am_sheets', 'line'], ['am_sheet_links', 'line'],
+  ['posts', 'machine'],               // บทความ KM → ปลายทาง [[wikilink]] ในวอลต์
+  ['tg_incident_draft', 'machine'],   // ร่างแจ้งซ่อมที่ยังค้างอยู่ในบอท
+  ['machine_alias', 'machine_name'],  // นามแฝงต้องชี้ชื่อใหม่ ไม่งั้นบอทหาเครื่องไม่เจอทั้งชุด
+  ['machine_links', 'line_name'], ['machine_links', 'packer_name'],
+  ['machine_rules', 'line_name'], ['machine_rules', 'packer_name'],
+  ['machine_runs', 'line_name'], ['machine_runs', 'packer_name'],
+  ['run_checks', 'machine_name'], ['run_check_links', 'machine_name'],
+];
+
+async function cascadeMachineRename(oldName, newName) {
+  const changed = {};
+  for (const [tbl, col] of MACHINE_NAME_REFS) {
+    try {
+      const r = await dbRun(`UPDATE ${tbl} SET ${col} = ? WHERE ${col} = ?`, [newName, oldName]);
+      const n = Number(r && r.changes) || 0;
+      if (n) changed[`${tbl}.${col}`] = n;
+    } catch (e) { console.error('[machines] cascade', tbl, col, e.message); }
+  }
+  /* ref_key ของใบแจ้งซ่อมมี "ชื่อเครื่อง" ฝังอยู่ข้างใน ('am:<ไลน์>:<ข้อ>' · 'run:<เครื่อง>:<ข้อ>')
+     ไม่ตามไปแก้ = ใบที่ยังเปิดค้างอยู่กลายเป็นคนละ key กับที่ระบบจะสร้างครั้งหน้า
+     → เจออาการเดิมแล้วเปิดใบใหม่ซ้อนใบเก่า **ตัวกันซ้ำตายเงียบ ๆ**
+     ประกอบ key ใหม่ใน JS ไม่ใช่ใน SQL — โปรเจกต์นี้ไม่มีชั้นแปลง dialect (prod=PG · local=SQLite) */
+  for (const prefix of ['am', 'run']) {
+    const head = `${prefix}:${oldName}:`;
+    const rows = await dbAll('SELECT id, ref_key FROM incidents WHERE ref_key LIKE ?', [`${head}%`]);
+    for (const r of rows) {
+      await db.exec('UPDATE incidents SET ref_key = ? WHERE id = ?',
+        [`${prefix}:${newName}:${String(r.ref_key).slice(head.length)}`, r.id]);
+    }
+    if (rows.length) changed[`incidents.ref_key(${prefix}:)`] = rows.length;
+  }
+  // ชื่อเก่าต้องยังหาเจอ — คนที่พิมพ์ชื่อเดิมใส่บอท/ใบเช็กจะได้ไม่หลุด
+  const dup = await dbGet('SELECT alias FROM machine_alias WHERE alias = ?', [oldName]);
+  if (!dup) {
+    await db.exec('INSERT INTO machine_alias (alias, machine_name, created_at) VALUES (?, ?, ?)',
+      [oldName, newName, nowBKK()]);
+  }
+  return changed;
+}
+
+app.post('/api/machines', requireRole('supervisor'), async (req, res) => {
+  const { id, code, name, line, installedAt, lastPm, note, grp, mkey, label, spec, pmNetId } = req.body;
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'name จำเป็น' });
+  const nm = String(name).trim();
+  // ช่องที่ไม่ได้ส่งมา = ไม่แก้ (ฟอร์มเก่าส่งมาแค่ 7 ช่อง ห้ามให้มันล้าง grp/mkey/label ทิ้ง)
+  const has = (k) => Object.prototype.hasOwnProperty.call(req.body, k);
   try {
     let rowId = id;
+    let renamed = null;
     if (id) {
+      const before = await dbGet('SELECT name FROM machines WHERE id = ?', [id]);
       await db.exec('UPDATE machines SET code = ?, name = ?, line_name = ?, installed_at = ?, last_pm = ?, note = ? WHERE id = ?',
-        [code || null, name.trim(), line || null, installedAt || null, lastPm || null, note || null, id]);
+        [code || null, nm, line || null, installedAt || null, lastPm || null, note || null, id]);
+      if (before && before.name && before.name !== nm) renamed = before.name;
     } else {
       const max = (await dbAll('SELECT MAX(sort_order) AS m FROM machines', []))[0];
       const order = (max && max.m != null ? Number(max.m) : -1) + 1;
       const r = await dbRun(
         `INSERT INTO machines (code, name, line_name, installed_at, last_pm, note, sort_order, active, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-        [code || null, name.trim(), line || null, installedAt || null, lastPm || null, note || null, order, nowBKK()]);
+        [code || null, nm, line || null, installedAt || null, lastPm || null, note || null, order, nowBKK()]);
       rowId = r.lastID;
+    }
+    // ฟิลด์ Machine Hub — เขียนเฉพาะช่องที่ client ส่งมาจริง
+    for (const [k, col] of [['grp', 'grp'], ['mkey', 'mkey'], ['label', 'label'], ['spec', 'spec'], ['pmNetId', 'pm_net_id']]) {
+      if (!has(k)) continue;
+      const v = String(req.body[k] ?? '').trim();
+      // mkey ต้องเป็น NULL ไม่ใช่ '' — มี unique index อยู่ ('' หลายตัวชนกัน แต่ NULL ไม่ชน)
+      await db.exec(`UPDATE machines SET ${col} = ? WHERE id = ?`, [v || null, rowId]);
+    }
+    // เปลี่ยนชื่อ = ตามไปแก้ทุกตารางที่อ้างชื่อเดิม + เก็บชื่อเก่าเป็นนามแฝง (ดูรายการด้านบน)
+    let cascaded = null;
+    if (renamed) {
+      cascaded = await cascadeMachineRename(renamed, nm);
+      console.log(`[machines] เปลี่ยนชื่อ "${renamed}" → "${nm}"`, cascaded);
     }
     // เขียนโน้ตให้ทันที — คนกดบันทึกแล้วต้องเห็นไฟล์ในวอลต์เลย ไม่ต้องกดซิงก์อีกที
     const cur = (await dbAll('SELECT * FROM machines WHERE id = ?', [rowId]))[0];
     const sync = cur ? await syncMachineNote(cur) : {};
-    res.json({ success: true, id: rowId, vaultPath: sync.path || null, vaultError: sync.error || null, vaultSkipped: sync.skipped || null });
+    res.json({ success: true, id: rowId, renamedFrom: renamed, cascaded,
+      vaultPath: sync.path || null, vaultError: sync.error || null, vaultSkipped: sync.skipped || null });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 // ซิงก์โน้ตทุกเครื่องในทะเบียนเข้า vault รอบเดียว (ใช้ตอนเริ่มใช้งาน / หลังแก้ทะเบียนงาน PM)
-app.post('/api/machines/sync-notes', async (req, res) => {
+app.post('/api/machines/sync-notes', requireRole('supervisor'), async (req, res) => {
   try {
     const rows = await dbAll('SELECT * FROM machines WHERE active = 1 ORDER BY sort_order, id', []);
     const results = [];
@@ -6519,10 +6810,1518 @@ app.post('/api/machines/sync-notes', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/machines/delete', async (req, res) => {
+app.post('/api/machines/delete', requireRole('supervisor'), async (req, res) => {
   if (!req.body.id) return res.status(400).json({ error: 'id จำเป็น' });
   try { await db.exec('UPDATE machines SET active = 0 WHERE id = ?', [req.body.id]); res.json({ success: true }); }
   catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ══ Machine Hub — หน้ารายละเอียดเครื่อง + คู่ไลน์↔เครื่องบรรจุ ═══════════════
+   ใช้ query-string (?id=) ไม่ใช่ /:id — กันชนกับ segment 'delete' / 'sync-notes'
+   ที่จดทะเบียนไว้ก่อนหน้าใต้ /api/machines/…                                     */
+app.get('/api/machines/detail', async (req, res) => {
+  const id = Number(req.query.id || 0);
+  if (!id) return res.status(400).json({ error: 'id จำเป็น' });
+  try {
+    const m = await dbGet('SELECT * FROM machines WHERE id = ?', [id]);
+    if (!m) return res.status(404).json({ error: 'ไม่พบเครื่องจักรนี้ในทะเบียน' });
+
+    /* แผน PM — กระจกอ่านอย่างเดียวจากแอปทีมช่าง · จับด้วย pm_net_id ก่อน
+       ถอยไปจับด้วยชื่อเฉพาะเครื่องเก่าที่ยังไม่มี net_id (seed ใส่ให้แล้ว 30 ตัว)
+       ห้ามให้ทั้งเส้นพังเพราะ PM อ่านไม่ได้ — เครื่องที่ไม่มีแผน PM ก็ต้องเปิดหน้าได้ */
+    let pmBlock = null;
+    try {
+      const year = pm.isoWeekOf(todayBKK()).year;
+      const loaded = await pmLoad(year);
+      const it = loaded.items.find((x) => (m.pm_net_id && x.netId === m.pm_net_id) || x.machine === m.name);
+      if (it) pmBlock = { ...it, year, cur: loaded.cur };
+    } catch (e) { pmBlock = null; }
+
+    const [routines, incRows, rules, runs] = await Promise.all([
+      dbAll(`SELECT id, node_key, title, goal, method, owner_role, co_owner_role, sheet, freq, person_key
+               FROM duty_routines WHERE active = 1 AND machine = ? ORDER BY sort_order, id`, [m.name]),
+      dbAll(`SELECT id, title, occurred_at, created_at, status, priority, assignee, source,
+                    down_from, down_to, vault_path, cause, fix
+               FROM incidents WHERE machine = ?
+              ORDER BY COALESCE(occurred_at, created_at) DESC, id DESC LIMIT 20`, [m.name]),
+      dbAll(`SELECT * FROM machine_rules WHERE active = 1 AND deleted = 0 AND (packer_name = ? OR line_name = ?)
+              ORDER BY specificity DESC, id`, [m.name, m.name]),
+      dbAll(`SELECT id, work_day, shift, packer_name, line_name, flavor, target_boxes, status, source, line_source
+               FROM machine_runs WHERE packer_name = ? OR line_name = ?
+              ORDER BY work_day DESC, id DESC LIMIT 10`, [m.name, m.name]),
+    ]);
+
+    const incidents = incRows.map((r) => ({
+      id: r.id, title: r.title, occurredAt: r.occurred_at || r.created_at || '',
+      status: r.status || 'open', priority: r.priority || '', assignee: r.assignee || '',
+      source: r.source || '', cause: r.cause || '', fix: r.fix || '',
+      downFrom: r.down_from || '', downTo: r.down_to || '',
+      minutes: downMinutes(r.down_from, r.down_to), vaultPath: r.vault_path || '',
+    }));
+
+    res.json({
+      machine: {
+        id: m.id, name: m.name, label: m.label || m.name, code: m.code || '',
+        grp: m.grp || 'tool', mkey: m.mkey || '', spec: m.spec || '',
+        line: m.line_name || '', installedAt: m.installed_at || '', lastPm: m.last_pm || '',
+        note: m.note || '', downtimeCost: m.downtime_cost == null ? null : Number(m.downtime_cost),
+        pmNetId: m.pm_net_id || '', vaultPath: m.vault_path || '',
+      },
+      pm: pmBlock,
+      routines: routines.map((r) => ({
+        id: r.id, nodeKey: r.node_key || '', title: r.title || '', goal: r.goal || '',
+        method: r.method || '', ownerRole: r.owner_role || '', coOwnerRole: r.co_owner_role || '',
+        sheet: r.sheet || '', freq: r.freq || '', shared: !r.person_key,
+      })),
+      incidents,
+      downtime: {
+        count: incidents.length,
+        minutes: incidents.reduce((n, r) => n + (r.minutes || 0), 0),
+        openCount: incidents.filter((r) => r.downFrom && !r.downTo).length,
+      },
+      links: await linksOf(m),
+      rules: rules.map(shapeRule),
+      runs: runs.map((r) => ({
+        id: r.id, workDay: r.work_day, shift: r.shift || '', packer: r.packer_name || '',
+        line: r.line_name || '', flavor: r.flavor || '', targetBoxes: r.target_boxes,
+        status: r.status || 'draft', source: r.source || '', lineSource: r.line_source || '',
+      })),
+      netlifyUrl: pm.NETLIFY_URL,
+      aliases: (await dbAll('SELECT alias FROM machine_alias WHERE machine_name = ? ORDER BY alias', [m.name])).map((a) => a.alias),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// กฎ 1 แถว → รูปที่หน้าเว็บใช้ (items เก็บเป็น JSON string เพราะต้องใช้ได้ทั้ง SQLite และ PG)
+function shapeRule(r) {
+  let items = [];
+  try { items = JSON.parse(r.items || '[]'); } catch { items = []; }
+  return {
+    id: r.id, code: r.code || '', title: r.title || '', timing: r.timing || 'start',
+    lineName: r.line_name || '', packerName: r.packer_name || '', packerKey: r.packer_key || '',
+    productPattern: r.product_pattern || '', shift: r.shift || '',
+    ownerRole: r.owner_role || '', note: r.note || '',
+    specificity: Number(r.specificity) || 0, notify: r.notify == null ? 1 : Number(r.notify),
+    active: r.active == null ? 1 : Number(r.active),
+    items: Array.isArray(items) ? items : [],
+  };
+}
+
+/* คู่ของเครื่องหนึ่งตัว — ไลน์ผลิตดูฝั่ง packer / เครื่องบรรจุดูฝั่ง line
+   คืนทั้ง 2 ฝั่งเสมอ ให้หน้าเว็บไม่ต้องรู้ว่าตัวเองเป็นหมวดไหน */
+async function linksOf(m) {
+  const rows = await dbAll(
+    'SELECT * FROM machine_links WHERE active = 1 AND (line_name = ? OR packer_name = ?) ORDER BY sort_order, id',
+    [m.name, m.name]);
+  return decorateLinks(rows);
+}
+
+// เติมชื่อที่โชว์ + สินค้าประจำคู่ให้ลิสต์คู่ (ยิงคำถามสินค้าครั้งเดียวสำหรับทุกคู่)
+async function decorateLinks(rows) {
+  if (!rows.length) return [];
+  const names = await dbAll('SELECT name, label, grp FROM machines WHERE active = 1', []);
+  const labelOf = new Map(names.map((x) => [x.name, x.label || x.name]));
+  const prods = await dbAll(
+    `SELECT * FROM machine_link_products WHERE active = 1 AND link_id IN (${rows.map(() => '?').join(',')})
+      ORDER BY sort_order, id`, rows.map((r) => r.id));
+  const byLink = new Map();
+  for (const p of prods) {
+    if (!byLink.has(p.link_id)) byLink.set(p.link_id, []);
+    byLink.get(p.link_id).push({ id: p.id, flavor: p.flavor || '', skuCode: p.sku_code || '', note: p.note || '' });
+  }
+  return rows.map((r) => ({
+    id: r.id,
+    lineName: r.line_name, lineLabel: labelOf.get(r.line_name) || r.line_name,
+    packerName: r.packer_name, packerLabel: labelOf.get(r.packer_name) || r.packer_name,
+    note: r.note || '',
+    products: byLink.get(r.id) || [],
+  }));
+}
+
+// รายการคู่ทั้งหมด (หน้าผังเชื่อมโยง)
+app.get('/api/machine-links', async (req, res) => {
+  try {
+    const rows = await dbAll('SELECT * FROM machine_links WHERE active = 1 ORDER BY sort_order, id', []);
+    const machines = await dbAll(
+      "SELECT id, name, label, grp, mkey FROM machines WHERE active = 1 AND grp IN ('line','packer') ORDER BY sort_order, id", []);
+    res.json({
+      links: await decorateLinks(rows),
+      lines: machines.filter((x) => x.grp === 'line').map((x) => ({ name: x.name, label: x.label || x.name, mkey: x.mkey || '' })),
+      packers: machines.filter((x) => x.grp === 'packer').map((x) => ({ name: x.name, label: x.label || x.name, mkey: x.mkey || '' })),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* สร้าง/แก้คู่ + สินค้าประจำคู่ ในคำขอเดียว
+   products ที่หายไปจาก array = ปิด active ไม่ลบแถวทิ้ง (กันประวัติหาย + id ไม่วน)   */
+app.post('/api/machine-links', requireRole('supervisor'), async (req, res) => {
+  const { id, lineName, packerName, note } = req.body;
+  const products = Array.isArray(req.body.products) ? req.body.products : [];
+  if (!lineName || !packerName) return res.status(400).json({ error: 'ต้องเลือกทั้งไลน์ผลิตและเครื่องบรรจุ' });
+  try {
+    const ln = await dbGet('SELECT name, grp FROM machines WHERE name = ? AND active = 1', [lineName]);
+    const pk = await dbGet('SELECT name, grp FROM machines WHERE name = ? AND active = 1', [packerName]);
+    if (!ln) return res.status(400).json({ error: `ไม่พบ "${lineName}" ในทะเบียนเครื่องจักร` });
+    if (!pk) return res.status(400).json({ error: `ไม่พบ "${packerName}" ในทะเบียนเครื่องจักร` });
+
+    // กันคู่ซ้ำเองก่อนถึง UNIQUE เพื่อให้ข้อความผิดพลาดอ่านรู้เรื่อง
+    const dup = await dbGet('SELECT id FROM machine_links WHERE line_name = ? AND packer_name = ?', [lineName, packerName]);
+    let linkId = id ? Number(id) : (dup ? dup.id : 0);
+    if (dup && id && Number(id) !== dup.id) {
+      return res.status(409).json({ error: 'คู่นี้ผูกไว้แล้ว — ไปแก้ที่แถวเดิมแทน' });
+    }
+    const hasNote = Object.prototype.hasOwnProperty.call(req.body, 'note');
+    // ชื่อคู่เดิมก่อนแก้ — ย้ายคู่ไปเครื่องอื่นแล้วโน้ตของเครื่องที่ถูกถอดออกต้องอัปเดตด้วย
+    const prev = linkId ? await dbGet('SELECT line_name, packer_name FROM machine_links WHERE id = ?', [linkId]) : null;
+    if (linkId) {
+      // ช่องที่ไม่ได้ส่งมา = ไม่แก้ — ปุ่ม "ผูกคู่เร็ว" ที่ส่งแค่ line+packer ต้องไม่ล้างหมายเหตุเดิมทิ้ง
+      await db.exec(
+        `UPDATE machine_links SET line_name = ?, packer_name = ?${hasNote ? ', note = ?' : ''}, active = 1 WHERE id = ?`,
+        hasNote ? [lineName, packerName, note || null, linkId] : [lineName, packerName, linkId]);
+    } else {
+      const r = await dbRun(
+        'INSERT INTO machine_links (line_name, packer_name, note, sort_order, active, created_at) VALUES (?, ?, ?, 0, 1, ?)',
+        [lineName, packerName, note || null, nowBKK()]);
+      linkId = r.lastID;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'products')) {
+      const keep = [];
+      for (let i = 0; i < products.length; i += 1) {
+        const raw = products[i] || {};
+        const flavor = String(raw.flavor || '').trim();
+        if (!flavor) continue;
+        const fnorm = normAlias(flavor);          // '' ไม่ได้ — เป็นคีย์ UNIQUE ร่วมกับ link_id
+        if (!fnorm) continue;
+        keep.push(fnorm);
+        const ex = await dbGet('SELECT id FROM machine_link_products WHERE link_id = ? AND flavor_norm = ?', [linkId, fnorm]);
+        if (ex) {
+          await db.exec('UPDATE machine_link_products SET flavor = ?, sku_code = ?, note = ?, sort_order = ?, active = 1 WHERE id = ?',
+            [flavor, raw.skuCode || null, raw.note || null, i, ex.id]);
+        } else {
+          await db.exec(
+            `INSERT INTO machine_link_products (link_id, flavor, flavor_norm, sku_code, note, sort_order, active, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+            [linkId, flavor, fnorm, raw.skuCode || null, raw.note || null, i, nowBKK()]);
+        }
+      }
+      if (keep.length) {
+        await db.exec(
+          `UPDATE machine_link_products SET active = 0
+            WHERE link_id = ? AND flavor_norm NOT IN (${keep.map(() => '?').join(',')})`, [linkId, ...keep]);
+      } else {
+        await db.exec('UPDATE machine_link_products SET active = 0 WHERE link_id = ?', [linkId]);
+      }
+    }
+
+    const row = await dbGet('SELECT * FROM machine_links WHERE id = ?', [linkId]);
+    touchMachineNotes(lineName, packerName, prev && prev.line_name, prev && prev.packer_name);
+    res.json({ success: true, link: (await decorateLinks([row]))[0] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/machine-links/delete', requireRole('supervisor'), async (req, res) => {
+  const id = Number(req.body.id || 0);
+  if (!id) return res.status(400).json({ error: 'id จำเป็น' });
+  try {
+    const row = await dbGet('SELECT line_name, packer_name FROM machine_links WHERE id = ?', [id]);
+    await db.exec('UPDATE machine_links SET active = 0 WHERE id = ?', [id]);
+    await db.exec('UPDATE machine_link_products SET active = 0 WHERE link_id = ?', [id]);
+    touchMachineNotes(row && row.line_name, row && row.packer_name);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ══ เสนอ "สินค้าที่เคยวิ่งบนเครื่องบรรจุตัวนี้จริง" จากใบลงยอดผลิตย้อนหลัง ═════
+   ⚠️ ข้อจำกัดที่ต้องรู้: ใบลงยอดผลิต (production_reports) มี "เครื่อง + สินค้า"
+      แต่ **ไม่มีไลน์ต้ม** — ไม่มีตารางไหนในระบบบันทึกว่าไลน์ไหนป้อนเข้าเครื่องไหน
+      เส้นนี้จึงเสนอได้แค่ (เครื่องบรรจุ × สินค้า) · คนเป็นคนเลือกว่าไลน์ไหน
+   🔴 อ่านอย่างเดียว ไม่เขียน DB — กติกาเดียวกับ sku_alias ที่ห้ามให้ระบบเดาแล้วบันทึกเอง */
+app.get('/api/machine-links/suggest', async (req, res) => {
+  const days = Math.min(365, Math.max(7, Number(req.query.days) || 90));
+  try {
+    const since = new Date(Date.now() - days * 86400000).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    const rows = await dbAll(
+      `SELECT machine, sku_code, sku_keyword, product_name, COUNT(*) AS n, MAX(work_day) AS last_day
+         FROM production_reports
+        WHERE work_day >= ? AND machine IS NOT NULL AND machine <> ''
+        GROUP BY machine, sku_code, sku_keyword, product_name`, [since]);
+
+    const packers = await dbAll("SELECT name, label, mkey FROM machines WHERE active = 1 AND grp = 'packer'", []);
+    const byKey = new Map(packers.filter((p) => p.mkey).map((p) => [p.mkey, p]));
+
+    // สินค้าที่ผูกไว้กับคู่ของเครื่องนั้นแล้ว — ไม่ต้องเสนอซ้ำ
+    const linked = await dbAll(
+      `SELECT l.packer_name AS packer, p.flavor_norm AS fnorm
+         FROM machine_link_products p JOIN machine_links l ON l.id = p.link_id
+        WHERE p.active = 1 AND l.active = 1`, []);
+    const already = new Set(linked.map((x) => `${x.packer}|${x.fnorm}`));
+
+    const out = new Map();
+    let unmatched = 0;
+    for (const r of rows) {
+      const p = byKey.get(normMachine(r.machine));       // "Linear#2 (Lina Pack)" → l2 → ไลน์ L2
+      if (!p) { unmatched += 1; continue; }
+      const flavor = (r.product_name || r.sku_keyword || '').trim();
+      if (!flavor) continue;
+      const fnorm = normAlias(flavor);
+      if (!fnorm || already.has(`${p.name}|${fnorm}`)) continue;
+      const key = `${p.name}|${fnorm}`;
+      const cur = out.get(key);
+      if (cur) { cur.count += Number(r.n) || 0; if (r.last_day > cur.lastDay) cur.lastDay = r.last_day; continue; }
+      out.set(key, {
+        packerName: p.name, packerLabel: p.label || p.name,
+        flavor, skuCode: r.sku_code || '', count: Number(r.n) || 0, lastDay: r.last_day || '',
+      });
+    }
+    res.json({
+      days, since,
+      suggestions: [...out.values()].sort((a, b) => b.count - a.count).slice(0, 40),
+      unmatchedRows: unmatched,
+      // บอกหน้าเว็บตรง ๆ ว่าเดาไลน์ให้ไม่ได้ จะได้ไม่ไปโชว์ช่องไลน์ลอย ๆ
+      note: 'ใบลงยอดผลิตไม่มีข้อมูลไลน์ต้ม — เสนอได้เฉพาะ "เครื่องบรรจุ × สินค้า" เท่านั้น',
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ══ รอบเดินเครื่องรายวัน (machine_runs) ══════════════════════════════════════
+   1 แถว = "วันทำงานนี้ กะนี้ เครื่องบรรจุตัวนี้ ผลิตสินค้าตัวนี้ ป้อนจากไลน์ไหน"
+   ตั้งต้นจากแผนบรรจุ (shift_plans → resolveDayPlan) แล้วคนแก้ทับได้
+
+   🔴 manual ชนะ plan เสมอ — ดึงแผนใหม่ห้ามทับ line_name / status / confirmed_by
+      และห้ามแตะแถวที่ source='manual' เลยแม้แต่ช่องเดียว (กันของที่คนแก้หายตอนแผนเปลี่ยน)
+   🔴 อ่านอย่างเดียวห้ามสร้างแถว — เปิดดูย้อนหลังแล้วเกิดรอบเปล่าเป็นร้อย คือบทเรียนจากใบเช็ก AM
+      (สัญญาณ "วันนี้ยังไม่มีใครกรอก" ตายทันทีที่ระบบสร้างใบให้เอง)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* "[L3+L4]" → ['l3','l4'] · "Linear#2 (Lina Pack)" → ['l2'] · ไม่รู้จัก → []
+   ต่างจาก extractMachine() ที่คืนเครื่องเดียว — แผนบรรจุ 1 บรรทัดลงได้หลายเครื่องพร้อมกัน
+   ตัวคั่นครบทุกแบบที่เจอในแผนจริง: "L3+L4" · "L1,L2" · "L1/L2" · "L1 และ L2"                */
+const splitMachineCodes = (text) => {
+  const t = String(text || '');
+  const bracket = t.match(/\[([^\]]+)\]/);
+  const src = bracket ? bracket[1] : t;
+  const out = [];
+  for (const part of src.split(/[+,/&]|และ/)) {
+    const k = normMachine(part);
+    if (k && !out.includes(k)) out.push(k);
+  }
+  return out;
+};
+
+// ชื่อสินค้าที่คนอ่าน — แผนเก็บ "Amazon 850×12 [L2]" ไว้ทั้งก้อน รหัสเครื่องอยู่ในวงเล็บเหลี่ยม
+const planFlavorText = (s) => String(s || '').replace(/\s*\[[^\]]*\]\s*/g, ' ').replace(/\s+/g, ' ').trim();
+
+
+// ตัวเลือกกะของวันนั้น = ตารางกะจริง (จ–พฤ 3 กะ · ศ/อา 2 กะ · เสาร์ OT) + กะที่แผนลงไว้จริง
+// ⚠️ ตารางกะใช้ 'เช้า/บ่าย/ดึก' แต่ shift_plans ใช้ 'กะเช้า/กะบ่าย/กะดึก' — เติม "กะ" ให้ตรงชุดเดียว
+const runShiftOptions = (workDay, extra = []) => {
+  const out = amShift.allowedShifts(workDay).map((s) => (s === 'OT' ? 'OT' : `กะ${s}`));
+  for (const s of extra) if (s && !out.includes(s)) out.push(s);
+  return out;
+};
+
+/* ดึงแผนบรรจุของวันนั้นมาตั้งเป็นรอบเดินเครื่อง (idempotent — เรียกกี่ครั้งก็ได้)
+   อ่านทั้งวันเสมอไม่แยกกะ เพราะแต่ละแถวเก็บลง "กะของตัวเอง" อยู่แล้ว
+   (ถ้าส่งกะเข้าไป resolveDayPlan จะถอยไปคืนทั้งวันเมื่อกะนั้นไม่มีแผน แล้วรอบจะไปโผล่ผิดกะ) */
+async function ensureRunsFromPlan(workDay) {
+  const day = await resolveDayPlan(workDay, null);
+  const packers = await dbAll("SELECT name, label, mkey FROM machines WHERE active = 1 AND grp = 'packer'", []);
+  const byKey = new Map(packers.filter((p) => p.mkey).map((p) => [String(p.mkey).toLowerCase(), p]));
+  const now = nowBKK();
+  let rows = 0, noMachine = 0;
+  const unknownKey = [], conflicts = [], keys = new Set();
+
+  for (const p of day) {
+    const shift = normalizeShift(p.plan.shift || '');
+    const flavor = planFlavorText(p.plan.flavor);
+    const fnorm = normAlias(flavor);
+    if (!shift || !fnorm) continue;          // ไม่มีกะ/ไม่มีชื่อสินค้า = คีย์ UNIQUE ไม่ครบ ข้ามไป
+    // รหัสเครื่องอยู่คนละที่ใน 2 ยุคของแผน: คอลัมน์ machine_code (ใหม่) กับวงเล็บในชื่อสินค้า (เก่า)
+    const codes = splitMachineCodes(p.plan.machine_code || '');
+    const use = codes.length ? codes : splitMachineCodes(p.plan.flavor);
+    if (!use.length) noMachine += 1;
+    const target = p.plan.target_boxes == null ? null : Number(p.plan.target_boxes);
+    const sku = p.sku ? skuIdOf(p.sku) : null;
+    // ไม่รู้เครื่อง → ยังสร้าง 1 แถวด้วย packer_key '' ให้คนเห็นแล้วเลือกเครื่องเอง (ดีกว่าหายเงียบ)
+    const list = use.length ? use : [''];
+
+    for (let i = 0; i < list.length; i += 1) {
+      const code = list[i];
+      const m = code ? byKey.get(code) : null;
+      if (code && !m && !unknownKey.includes(code)) unknownKey.push(code);
+      /* plan_key = ที่อยู่ของ "บรรทัดในแผน" ไม่ใช่ของเครื่อง — ลำดับ i ทำให้แผนที่ลง 2 เครื่อง
+         ("[L3+L4]") ได้ 2 แถวที่นิ่ง และแผนที่ถูกแก้เครื่องทีหลังจะอัปเดตแถวเดิม ไม่ใช่งอกใบใหม่ */
+      const planKey = `${shift}|${fnorm}|${i}`;
+      keys.add(planKey);
+      rows += 1;
+
+      const ex = await dbGet('SELECT id, source FROM machine_runs WHERE work_day = ? AND plan_key = ?', [workDay, planKey]);
+      if (ex) {
+        if ((ex.source || 'plan') === 'manual') continue;         // 🔴 manual ชนะ plan — ไม่แตะแม้แต่ช่องเดียว
+        try {
+          // 🔴 ไม่มี line_name / status / confirmed_by ในนี้โดยตั้งใจ — ของที่คนตัดสินไปแล้วห้ามถูกแผนทับ
+          await db.exec(
+            `UPDATE machine_runs SET flavor = ?, flavor_norm = ?, packer_name = ?, packer_key = ?,
+                    sku_code = COALESCE(?, sku_code), target_boxes = ?, updated_at = ?
+              WHERE id = ?`,
+            [flavor, fnorm, m ? m.name : '', code, sku, target, now, ex.id]);
+        } catch { conflicts.push(`${code ? code.toUpperCase() : '—'} · ${flavor}`); }
+        continue;
+      }
+
+      /* แผนบรรจุ 1 บรรทัดที่ลง 2 เครื่อง ไม่ได้บอกว่าเครื่องไหนกี่กล่อง
+         → ใส่เป้าเต็มทั้งคู่ แล้วให้หน้าเว็บติดป้าย "แผนเดียวกันลง N เครื่อง" ไว้เตือนตา
+         (หารสองเองคือการเดาตัวเลขที่ไม่มีในแผน — ห้ามทำ) */
+      try {
+        await db.exec(
+          `INSERT INTO machine_runs
+             (work_day, shift, packer_name, packer_key, line_name, flavor, flavor_norm, sku_code,
+              target_boxes, source, line_source, plan_key, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, 'plan', NULL, ?, 'draft', ?, ?)
+           ON CONFLICT (work_day, shift, packer_key, flavor_norm) DO UPDATE SET
+              flavor = excluded.flavor,
+              packer_name = excluded.packer_name,
+              sku_code = COALESCE(excluded.sku_code, machine_runs.sku_code),
+              target_boxes = excluded.target_boxes,
+              plan_key = excluded.plan_key,
+              updated_at = excluded.updated_at
+            WHERE machine_runs.source <> 'manual'`,
+          [workDay, shift, m ? m.name : '', code, flavor, fnorm, sku, target, planKey, now, now]);
+      } catch { conflicts.push(`${code ? code.toUpperCase() : '—'} · ${flavor}`); }
+    }
+  }
+  /* บรรทัดที่หายไปจากแผน (คนแก้แผนทีหลัง) — รอบที่ยังเป็นร่างให้พับเป็น "ยกเลิก"
+     ไม่ลบทิ้ง: ยังเห็นอยู่ในตารางแบบจาง ๆ กดคืนค่าได้ถ้าแผนกลับมา
+     🔴 รอบที่คนยืนยันไปแล้วห้ามแตะ — แค่รายงานให้คนตัดสินเอง (ของจริงอาจเดินไปแล้ว)      */
+  const dropped = [];
+  const staleConfirmed = [];
+  const stale = await dbAll(
+    `SELECT id, plan_key, packer_key, flavor, status FROM machine_runs
+      WHERE work_day = ? AND source = 'plan' AND plan_key <> '' AND COALESCE(status, 'draft') <> 'cancelled'`,
+    [workDay]).catch(() => []);
+  for (const r of stale) {
+    if (keys.has(r.plan_key)) continue;
+    const label = `${r.packer_key ? r.packer_key.toUpperCase() : '—'} · ${r.flavor || ''}`.trim();
+    if ((r.status || 'draft') !== 'draft') { staleConfirmed.push(label); continue; }
+    await db.exec("UPDATE machine_runs SET status = 'cancelled', updated_at = ? WHERE id = ?", [now, r.id]);
+    dropped.push(label);
+  }
+
+  return { planRows: day.length, rows, noMachine, unknownKey, conflicts, dropped, staleConfirmed };
+}
+
+/* เติมไลน์ต้มที่ป้อน — เฉพาะแถวที่ยังว่าง และเฉพาะเมื่อ "มีคำตอบเดียว" เท่านั้น
+   ① สินค้าตัวนี้ถูกผูกไว้กับคู่ของเครื่องนี้ → line_source='product' (แม่นสุด คนผูกไว้เอง)
+   ② เครื่องนี้มีคู่เดียวในระบบ            → line_source='guess'   (ไม่มีอะไรให้เลือกผิด)
+   ③ หลายคู่ / สินค้าโยงหลายไลน์            → ปล่อยว่าง ให้คนเลือก 🔴 ห้ามเดามั่ว
+      (เดาผิดแล้วคนกดยืนยันตามโดยไม่ดู = ข้อมูลเสียแบบเงียบ ๆ แย่กว่าช่องว่างสีส้ม)          */
+async function guessRunLines(workDay) {
+  const rows = await dbAll(
+    `SELECT id, packer_name, flavor_norm FROM machine_runs
+      WHERE work_day = ? AND packer_name <> '' AND (line_name IS NULL OR line_name = '')
+        AND COALESCE(status, 'draft') <> 'cancelled'`, [workDay]).catch(() => []);
+  if (!rows.length) return 0;
+  const links = await dbAll('SELECT id, line_name, packer_name FROM machine_links WHERE active = 1', []);
+  const prods = await dbAll("SELECT link_id, flavor_norm FROM machine_link_products WHERE active = 1 AND flavor_norm <> ''", []);
+  const lineOf = new Map(links.map((l) => [l.id, l.line_name]));
+  let filled = 0;
+  for (const r of rows) {
+    const mine = links.filter((l) => l.packer_name === r.packer_name);
+    if (!mine.length) continue;
+    const ids = new Set(mine.map((l) => l.id));
+    const byProduct = [...new Set(prods
+      .filter((p) => ids.has(p.link_id) && p.flavor_norm === r.flavor_norm)
+      .map((p) => lineOf.get(p.link_id)).filter(Boolean))];
+    let line = '', src = '';
+    if (byProduct.length === 1) { line = byProduct[0]; src = 'product'; }
+    else if (!byProduct.length && mine.length === 1) { line = mine[0].line_name; src = 'guess'; }
+    if (!line) continue;
+    // กันชนซ้ำ: ระหว่างนี้อาจมีคนเพิ่งเลือกไลน์เอง — เงื่อนไขท้ายทำให้ของคนไม่โดนทับ
+    await db.exec(
+      `UPDATE machine_runs SET line_name = ?, line_source = ?, updated_at = ?
+        WHERE id = ? AND (line_name IS NULL OR line_name = '')`, [line, src, nowBKK(), r.id]);
+    filled += 1;
+  }
+  return filled;
+}
+
+const shapeRun = (r, labelOf) => ({
+  id: r.id, workDay: r.work_day, shift: r.shift || '',
+  packerName: r.packer_name || '', packerKey: r.packer_key || '',
+  packerLabel: r.packer_name ? (labelOf.get(r.packer_name) || r.packer_name) : '',
+  lineName: r.line_name || '', lineLabel: r.line_name ? (labelOf.get(r.line_name) || r.line_name) : '',
+  flavor: r.flavor || '', flavorNorm: r.flavor_norm || '', skuCode: r.sku_code || '',
+  targetBoxes: r.target_boxes == null ? null : Number(r.target_boxes),
+  source: r.source || 'plan', lineSource: r.line_source || '',
+  status: r.status || 'draft', confirmedBy: r.confirmed_by || '', confirmedAt: r.confirmed_at || '',
+  note: r.note || '',
+});
+
+/* รอบเดินเครื่องของวัน (+กะ) · seed=1 = "ขอดึงแผนมาตั้งให้ด้วย"
+   🔴 ดึงแผนได้เฉพาะวันทำงานปัจจุบันหรืออนาคตเท่านั้น — ย้อนหลังคือการอ่านประวัติ ห้ามเขียนอะไรทั้งนั้น
+      (ใช้ workDayBKK ไม่ใช่ todayBKK: ตี 2 ของวันที่ 14 ยังเป็นวันทำงานของวันที่ 13 คนกะดึกต้องดึงแผนได้) */
+app.get('/api/machine-runs', async (req, res) => {
+  try {
+    const date = String(req.query.date || '').trim() || workDayBKK();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'วันที่ไม่ถูกต้อง' });
+    const shift = normalizeShift(String(req.query.shift || '').trim());
+    const canSeed = date >= workDayBKK();
+    let seeded = null, seedSkipped = '';
+    if (String(req.query.seed || '') === '1') {
+      // seed = การ "เขียน" ที่ห้อยอยู่บนเส้นอ่าน — ต้องเช็กสิทธิ์เองเพราะ requireRole ครอบทั้งเส้นไม่ได้
+      // (คนทั่วไปต้องอ่านตารางรอบได้) · ไม่มีสิทธิ์/วันย้อนหลัง = อ่านต่อไปเฉย ๆ ไม่ต้องตอบ error
+      const who = await whoIs(req);
+      if (!canSeed) seedSkipped = 'past';
+      else if ((ROLE_RANK[(who || {}).role] || 0) < ROLE_RANK.supervisor) seedSkipped = 'role';
+      else {
+        seeded = await ensureRunsFromPlan(date);
+        seeded.filled = await guessRunLines(date);
+      }
+    }
+
+    const all = await dbAll('SELECT * FROM machine_runs WHERE work_day = ? ORDER BY shift, packer_key, id', [date]);
+    const machines = await dbAll(
+      "SELECT name, label, grp, mkey FROM machines WHERE active = 1 AND grp IN ('line','packer') ORDER BY sort_order, id", []);
+    const labelOf = new Map(machines.map((m) => [m.name, m.label || m.name]));
+    const links = await dbAll('SELECT line_name, packer_name FROM machine_links WHERE active = 1', []);
+
+    // ไลน์ที่ "ผูกคู่ไว้กับเครื่องนี้" — หน้าเว็บเอาไปดันขึ้นหัว dropdown แต่ยังเลือกไลน์อื่นได้
+    const candidates = {};
+    for (const l of links) {
+      if (!candidates[l.packer_name]) candidates[l.packer_name] = [];
+      if (!candidates[l.packer_name].includes(l.line_name)) candidates[l.packer_name].push(l.line_name);
+    }
+
+    const byShift = {};
+    for (const r of all) byShift[r.shift || ''] = (byShift[r.shift || ''] || 0) + 1;
+
+    res.json({
+      date, shift, canSeed, seeded, seedSkipped,
+      shifts: runShiftOptions(date, Object.keys(byShift)),
+      byShift,
+      runs: all.filter((r) => !shift || (r.shift || '') === shift).map((r) => shapeRun(r, labelOf)),
+      lines: machines.filter((m) => m.grp === 'line').map((m) => ({ name: m.name, label: m.label || m.name })),
+      packers: machines.filter((m) => m.grp === 'packer').map((m) => ({ name: m.name, label: m.label || m.name, mkey: m.mkey || '' })),
+      candidates,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* เพิ่ม/แก้รอบด้วยมือ
+   แก้เฉพาะ "ไลน์" → source เดิมคงไว้ (แถวยังมาจากแผน) แต่ line_source='manual' กันตัวเดาทับ
+   แก้ช่องอื่น (สินค้า/เป้า/เครื่อง/กะ) → source='manual' ทั้งแถว = ล็อกจากการดึงแผนใหม่ถาวร   */
+app.post('/api/machine-runs', requireRole('supervisor'), async (req, res) => {
+  const b = req.body || {};
+  const has = (k) => Object.prototype.hasOwnProperty.call(b, k);
+  const id = Number(b.id || 0);
+  try {
+    const nameOk = async (name, grp) => !name
+      || !!(await dbGet('SELECT name FROM machines WHERE name = ? AND active = 1 AND grp = ?', [name, grp]));
+    const lineName = has('lineName') ? String(b.lineName || '').trim() : null;
+    const packerName = has('packerName') ? String(b.packerName || '').trim() : null;
+    if (lineName && !(await nameOk(lineName, 'line'))) return res.status(400).json({ error: `"${lineName}" ไม่ใช่ไลน์ผลิตในทะเบียน` });
+    if (packerName && !(await nameOk(packerName, 'packer'))) return res.status(400).json({ error: `"${packerName}" ไม่ใช่เครื่องบรรจุในทะเบียน` });
+
+    if (id) {
+      const cur = await dbGet('SELECT * FROM machine_runs WHERE id = ?', [id]);
+      if (!cur) return res.status(404).json({ error: 'ไม่พบรอบเดินเครื่องนี้' });
+      const set = [], val = [];
+      const put = (col, v) => { set.push(`${col} = ?`); val.push(v); };
+      let heavy = false;                       // heavy = แก้เนื้อแผน ไม่ใช่แค่เติมไลน์
+
+      if (lineName !== null && lineName !== (cur.line_name || '')) {
+        put('line_name', lineName || null);
+        put('line_source', lineName ? 'manual' : null);
+      }
+      if (has('flavor')) {
+        const flavor = planFlavorText(b.flavor);
+        const fnorm = normAlias(flavor);
+        if (!fnorm) return res.status(400).json({ error: 'ต้องมีชื่อสินค้า' });
+        if (fnorm !== (cur.flavor_norm || '')) { put('flavor', flavor); put('flavor_norm', fnorm); heavy = true; }
+        else if (flavor !== (cur.flavor || '')) put('flavor', flavor);
+      }
+      if (packerName !== null && packerName !== (cur.packer_name || '')) {
+        const pk = await dbGet('SELECT mkey FROM machines WHERE name = ?', [packerName]);
+        put('packer_name', packerName);
+        put('packer_key', (pk && pk.mkey) ? String(pk.mkey).toLowerCase() : '');
+        heavy = true;
+      }
+      if (has('targetBoxes')) {
+        const n = b.targetBoxes === '' || b.targetBoxes == null ? null : Number(b.targetBoxes);
+        if (n != null && !Number.isFinite(n)) return res.status(400).json({ error: 'เป้าต้องเป็นตัวเลข' });
+        if (n !== (cur.target_boxes == null ? null : Number(cur.target_boxes))) { put('target_boxes', n); heavy = true; }
+      }
+      if (has('note')) put('note', String(b.note || '').trim() || null);
+      if (heavy && (cur.source || 'plan') !== 'manual') put('source', 'manual');
+      if (!set.length) return res.json({ success: true, unchanged: true });
+
+      /* ย้ายเครื่อง/เปลี่ยนสินค้า = ย้ายคีย์ UNIQUE (work_day, shift, packer_key, flavor_norm)
+         ถ้าปลายทางมีรอบอยู่แล้วต้องตอบเป็นข้อความ ไม่ใช่ปล่อยให้ constraint เด้ง SQL ดิบใส่หน้าคน
+         (เจอจริงตอนย้ายแถว "ไม่รู้ว่าเครื่องไหน" ไปทับรอบที่คนเพิ่มเองไว้แล้ว)                */
+      const at = (col, fallback) => {
+        const i = set.findIndex((x) => x.startsWith(`${col} =`));
+        return i < 0 ? fallback : val[i];
+      };
+      const nextKey = { pkey: at('packer_key', cur.packer_key || ''), fnorm: at('flavor_norm', cur.flavor_norm || '') };
+      if (nextKey.pkey !== (cur.packer_key || '') || nextKey.fnorm !== (cur.flavor_norm || '')) {
+        const clash = await dbGet(
+          `SELECT id FROM machine_runs WHERE work_day = ? AND shift = ? AND packer_key = ? AND flavor_norm = ? AND id <> ?`,
+          [cur.work_day, cur.shift, nextKey.pkey, nextKey.fnorm, id]);
+        if (clash) return res.status(409).json({ error: 'กะนี้มีรอบของเครื่อง+สินค้าคู่นี้อยู่แล้ว — รวมกับแถวเดิมแทน', id: clash.id });
+      }
+
+      put('updated_at', nowBKK());
+      val.push(id);
+      await db.exec(`UPDATE machine_runs SET ${set.join(', ')} WHERE id = ?`, val);
+      const row = await dbGet('SELECT * FROM machine_runs WHERE id = ?', [id]);
+      const labelOf = new Map((await dbAll('SELECT name, label FROM machines WHERE active = 1', [])).map((m) => [m.name, m.label || m.name]));
+      return res.json({ success: true, run: shapeRun(row, labelOf) });
+    }
+
+    // ── เพิ่มรอบใหม่ด้วยมือ ──
+    const workDay = String(b.workDay || '').trim() || workDayBKK();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(workDay)) return res.status(400).json({ error: 'วันที่ไม่ถูกต้อง' });
+    const shift = normalizeShift(String(b.shift || '').trim());
+    if (!shift) return res.status(400).json({ error: 'ต้องเลือกกะ' });
+    const flavor = planFlavorText(b.flavor);
+    const fnorm = normAlias(flavor);
+    if (!fnorm) return res.status(400).json({ error: 'ต้องใส่ชื่อสินค้า' });
+    if (!packerName) return res.status(400).json({ error: 'ต้องเลือกเครื่องบรรจุ' });
+    const pk = await dbGet('SELECT mkey FROM machines WHERE name = ?', [packerName]);
+    const pkey = (pk && pk.mkey) ? String(pk.mkey).toLowerCase() : '';
+    // กันซ้ำเองก่อนชน UNIQUE เพื่อให้ข้อความอ่านรู้เรื่อง (แถวเดิมอาจถูกยกเลิกไว้ — บอกให้ไปเปิดใหม่)
+    const dup = await dbGet(
+      'SELECT id, status FROM machine_runs WHERE work_day = ? AND shift = ? AND packer_key = ? AND flavor_norm = ?',
+      [workDay, shift, pkey, fnorm]);
+    if (dup) {
+      return res.status(409).json({
+        error: dup.status === 'cancelled'
+          ? 'รอบนี้มีอยู่แล้วแต่ถูกยกเลิกไว้ — กด "คืนค่า" ที่แถวเดิมแทน'
+          : 'รอบนี้มีอยู่แล้วในตาราง — แก้ที่แถวเดิมแทน',
+        id: dup.id,
+      });
+    }
+    const now = nowBKK();
+    const r = await dbRun(
+      `INSERT INTO machine_runs
+         (work_day, shift, packer_name, packer_key, line_name, flavor, flavor_norm, sku_code,
+          target_boxes, source, line_source, status, note, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, 'draft', ?, ?, ?)`,
+      [workDay, shift, packerName, pkey, lineName || null, flavor, fnorm, b.skuCode || null,
+        b.targetBoxes == null || b.targetBoxes === '' ? null : Number(b.targetBoxes),
+        lineName ? 'manual' : null, String(b.note || '').trim() || null, now, now]);
+    const row = await dbGet('SELECT * FROM machine_runs WHERE id = ?', [r.lastID]);
+    const labelOf = new Map((await dbAll('SELECT name, label FROM machines WHERE active = 1', [])).map((m) => [m.name, m.label || m.name]));
+    res.json({ success: true, run: shapeRun(row, labelOf) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* เปลี่ยนสถานะรอบ — ทีละแถว (id) หรือทั้งกะ (workDay + shift + all)
+   ยืนยันต้องมีไลน์ก่อนเสมอ: รอบที่ไม่รู้ว่าป้อนจากไลน์ไหน ยิงกฎเตือนในขั้นถัดไปไม่ได้
+   "ยืนยันทั้งกะ" จึงข้ามแถวที่ยังไม่เลือกไลน์แล้วรายงานกลับ ไม่ใช่ล้มทั้งคำขอ                */
+async function setRunStatus(req, res, status) {
+  const b = req.body || {};
+  const by = (req.who && req.who.name) || '';
+  try {
+    let rows = [];
+    if (b.id) {
+      const one = await dbGet('SELECT * FROM machine_runs WHERE id = ?', [Number(b.id)]);
+      if (!one) return res.status(404).json({ error: 'ไม่พบรอบเดินเครื่องนี้' });
+      rows = [one];
+    } else if (Array.isArray(b.ids) && b.ids.length) {
+      rows = await dbAll(`SELECT * FROM machine_runs WHERE id IN (${b.ids.map(() => '?').join(',')})`, b.ids.map(Number));
+    } else if (b.workDay) {
+      const shift = normalizeShift(String(b.shift || '').trim());
+      rows = await dbAll(
+        `SELECT * FROM machine_runs WHERE work_day = ?${shift ? ' AND shift = ?' : ''}
+           AND COALESCE(status, 'draft') <> 'cancelled'`, shift ? [b.workDay, shift] : [b.workDay]);
+    } else return res.status(400).json({ error: 'ต้องระบุ id หรือ workDay' });
+
+    const now = nowBKK();
+    let changed = 0;
+    const skipped = [];
+    for (const r of rows) {
+      if ((r.status || 'draft') === status) continue;
+      if (status === 'confirmed' && !(r.line_name || '').trim()) {
+        skipped.push(`${r.packer_name || r.packer_key || '—'} · ${r.flavor || ''}`.trim());
+        continue;
+      }
+      const stamp = status === 'confirmed';
+      await db.exec(
+        `UPDATE machine_runs SET status = ?, updated_at = ?${stamp ? ', confirmed_by = ?, confirmed_at = ?' : ''} WHERE id = ?`,
+        stamp ? [status, now, by, now, r.id] : [status, now, r.id]);
+      changed += 1;
+      /* 🏁 ปิดงานบรรจุ = สัญญาณ "บรรจุจบแล้ว" ที่ user เคาะไว้ — ยิงการ์ดทันทีไม่ต้องรอนาฬิกา
+         (นาฬิกา "ก่อนจบกะ 1 ชม." ยังทำงานอยู่ แต่คีย์ run:{id}:end กันไม่ให้ยิงซ้ำ)
+         ไม่ await ผลลัพธ์เข้าคำตอบ — ส่งการ์ดพลาดต้องไม่ทำให้ปุ่มปิดงานล้ม                */
+      if (status === 'done') {
+        fireRunNotify(r, 'end').catch((e) => console.error('[run-notify] ยิงตอนปิดงานไม่สำเร็จ', e.message));
+      }
+    }
+    res.json({ success: true, changed, skipped });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+}
+app.post('/api/machine-runs/confirm', requireRole('supervisor'), (req, res) => setRunStatus(req, res, 'confirmed'));
+app.post('/api/machine-runs/done', requireRole('supervisor'), (req, res) => setRunStatus(req, res, 'done'));
+app.post('/api/machine-runs/cancel', requireRole('supervisor'), (req, res) => setRunStatus(req, res, 'cancelled'));
+app.post('/api/machine-runs/reopen', requireRole('supervisor'), (req, res) => setRunStatus(req, res, 'draft'));
+
+/* ══ กฎเตือน (machine_rules) ═══════════════════════════════════════════════════
+   กฎ = "ถ้าวันนี้เครื่องนี้ผลิตสินค้าตัวนี้ → ต้องทำอะไรบ้าง ตอนไหน"
+   เงื่อนไขช่องไหนเว้นว่าง = "อะไรก็ได้" · ช่องที่กรอกทั้งหมดต้องตรงพร้อมกัน (AND)
+
+   🔴 หลายกฎเข้าพร้อมกันได้ — ไม่ใช่ "ผู้ชนะคนเดียว" ข้อของทุกกฎรวมเป็นใบเดียว ข้อซ้ำตัดทิ้ง
+   🔴 packer_key / specificity เซิร์ฟเวอร์คิดเองเสมอ ห้ามเชื่อค่าที่ client ส่งมา
+      (ค่าพวกนี้เป็นตัวตัดสินว่ากฎไหนเข้า/ขึ้นก่อน ปล่อยให้ client กำหนด = ปลอมลำดับได้)
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+const RULE_TIMING = ['start', 'during', 'end'];
+const RULE_TIMING_LABEL = { start: 'ก่อนเริ่มบรรจุ', during: 'ระหว่างเดินเครื่อง', end: 'หลังบรรจุจบ' };
+
+/* ความจำเพาะ = "กฎนี้เจาะจงแค่ไหน" ใช้เรียงลำดับข้อในเช็กลิสต์ (มากขึ้นก่อน)
+   สินค้า 8 > เครื่อง 4 > ไลน์ 2 > กะ 1 — สินค้าหนักสุดเพราะระบุตัวงานได้แคบที่สุด
+   ("Amazon บน L2" เจาะจงกว่า "อะไรก็ได้บน L2") · เลขนี้ตรงกับที่โชว์ใน mockup */
+const ruleSpecificity = (r) => (r.product_pattern ? 8 : 0) + (r.packer_name ? 4 : 0)
+  + (r.line_name ? 2 : 0) + (r.shift ? 1 : 0);
+
+// คีย์ของข้อ — ห้ามซ้ำกับของที่เคยใช้แม้แต่ครั้งเดียว เพราะ run_check_items ใช้เป็น ON CONFLICT target
+// (ใช้สุ่มแทนเลขรันนิ่ง: ลบข้อ 2 แล้วเพิ่มใหม่จะได้เลข 2 ซ้ำ ไปทับผลติ๊กของใบเก่า)
+const newItemKey = () => 'k' + require('crypto').randomBytes(4).toString('hex');
+
+/* รายการที่ต้องทำของกฎ — เก็บเป็น JSON string (ต้องใช้ได้ทั้ง SQLite และ PG)
+   ข้อที่ไม่มีชื่อถูกตัดทิ้ง · ข้อเดิมต้องส่ง key กลับมาด้วยไม่งั้นถือเป็นข้อใหม่ */
+function normalizeRuleItems(raw) {
+  const out = [];
+  for (const it of (Array.isArray(raw) ? raw : [])) {
+    const title = String((it || {}).title || '').trim();
+    if (!title) continue;
+    out.push({
+      key: String((it || {}).key || '').trim() || newItemKey(),
+      title,
+      detail: String(it.detail || '').trim(),
+      needPhoto: !!it.needPhoto,
+      needQc: !!it.needQc,
+    });
+  }
+  return out;
+}
+
+/* กฎนี้เข้ากับรอบเดินเครื่องนี้ไหม — ช่องว่างในกฎ = อะไรก็ได้
+   เทียบสินค้าผ่าน normAlias ทั้งคู่ ("Amazon 850×12" ↔ "amazon" ต้องเจอกัน
+   ไม่งั้นคนต้องพิมพ์ชื่อเป๊ะ ๆ ซึ่งเป็นไปไม่ได้กับชื่อในแผนที่สะกดกันคนละแบบ) */
+function ruleHitsRun(rule, run) {
+  if (rule.line_name && rule.line_name !== (run.line_name || '')) return false;
+  if (rule.packer_name && rule.packer_name !== (run.packer_name || '')) return false;
+  if (rule.shift && rule.shift !== (run.shift || '')) return false;
+  if (rule.product_pattern) {
+    const want = normAlias(rule.product_pattern);
+    if (!want) return true;                       // กรอกมาแต่เหลือแต่อักขระพิเศษ = ไม่ใช้กรอง
+    if (!normAlias(run.flavor || '').includes(want)) return false;
+  }
+  return true;
+}
+
+/* กฎทั้งหมดที่เข้ากับรอบนี้ เรียงจำเพาะมากขึ้นก่อน
+   🔑 ไม่ตัดเหลือกฎเดียว — "ล้างหัวพิมพ์" กับ "ตรวจ o-ring" ต้องได้ทั้งคู่ถ้าเข้าเงื่อนไขทั้งคู่ */
+const matchRules = (rules, run) => rules
+  .filter((r) => ruleHitsRun(r, run))
+  .sort((a, b) => (b.specificity || 0) - (a.specificity || 0) || a.id - b.id);
+
+/* รวมข้อของทุกกฎที่เข้า → ใบเดียวต่อ (รอบ × จังหวะ)
+   ข้อซ้ำตัดทิ้งโดยดูที่ "ชื่อข้อ" ไม่ใช่ key — กฎ 2 ตัวเขียนข้อเดียวกันคนละ key ได้
+   (คนติ๊กไม่ควรเห็น "ล้างหัวพิมพ์" 2 บรรทัดเพราะบังเอิญมีกฎซ้อนกัน) */
+function mergeRuleItems(hitRules) {
+  const seen = new Set(), items = [];
+  for (const r of hitRules) {
+    for (const it of (r.items || [])) {
+      const dedup = normAlias(it.title);
+      if (!dedup || seen.has(dedup)) continue;
+      seen.add(dedup);
+      items.push({ ...it, ruleId: r.id, ruleTitle: r.title });
+    }
+  }
+  return items;
+}
+
+// กฎที่ใช้งานอยู่ทั้งหมด (ผ่าน shapeRule แล้ว — มี items เป็น array พร้อมใช้)
+const activeRules = async () => (await dbAll(
+  'SELECT * FROM machine_rules WHERE active = 1 AND deleted = 0 ORDER BY specificity DESC, id', []))
+  .map(shapeRuleRow);
+
+// แถวดิบ + items ที่แปลงแล้ว — ใช้ภายในฝั่งเซิร์ฟเวอร์ (คนละรูปกับ shapeRule ที่ส่งให้หน้าเว็บ)
+function shapeRuleRow(r) {
+  let items = [];
+  try { items = JSON.parse(r.items || '[]'); } catch { items = []; }
+  return { ...r, items: Array.isArray(items) ? items : [] };
+}
+
+app.get('/api/machine-rules', async (req, res) => {
+  try {
+    const rows = await dbAll('SELECT * FROM machine_rules WHERE deleted = 0 ORDER BY specificity DESC, id', []);
+    const machines = await dbAll(
+      "SELECT name, label, grp, mkey FROM machines WHERE active = 1 AND grp IN ('line','packer') ORDER BY sort_order, id", []);
+    const counts = { all: 0, start: 0, during: 0, end: 0, off: 0 };
+    for (const r of rows) {
+      if (!r.active) { counts.off += 1; continue; }
+      counts.all += 1;
+      counts[RULE_TIMING.includes(r.timing) ? r.timing : 'start'] += 1;
+    }
+    res.json({
+      rules: rows.map(shapeRule),
+      counts,
+      timings: RULE_TIMING.map((k) => ({ key: k, label: RULE_TIMING_LABEL[k] })),
+      lines: machines.filter((m) => m.grp === 'line').map((m) => ({ name: m.name, label: m.label || m.name })),
+      packers: machines.filter((m) => m.grp === 'packer').map((m) => ({ name: m.name, label: m.label || m.name, mkey: m.mkey || '' })),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/machine-rules', requireRole('supervisor'), async (req, res) => {
+  const b = req.body || {};
+  const id = Number(b.id || 0);
+  try {
+    const title = String(b.title || '').trim();
+    if (!title) return res.status(400).json({ error: 'ต้องตั้งชื่อกฎ' });
+    const timing = RULE_TIMING.includes(String(b.timing || '')) ? String(b.timing) : 'start';
+    const lineName = String(b.lineName || '').trim();
+    const packerName = String(b.packerName || '').trim();
+    // ชื่อเครื่องต้องมีจริงในทะเบียน — กฎที่ชี้ไปยังเครื่องที่ไม่มีอยู่จะไม่มีวันเข้าเงื่อนไข แล้วไม่มีใครรู้ว่าทำไม
+    const chk = async (name, grp) => !name
+      || !!(await dbGet('SELECT name FROM machines WHERE name = ? AND active = 1 AND grp = ?', [name, grp]));
+    if (!(await chk(lineName, 'line'))) return res.status(400).json({ error: `"${lineName}" ไม่ใช่ไลน์ผลิตในทะเบียน` });
+    if (!(await chk(packerName, 'packer'))) return res.status(400).json({ error: `"${packerName}" ไม่ใช่เครื่องบรรจุในทะเบียน` });
+
+    const items = normalizeRuleItems(b.items);
+    if (!items.length) return res.status(400).json({ error: 'ต้องมีรายการที่ต้องทำอย่างน้อย 1 ข้อ' });
+
+    // 🔴 packer_key + specificity คิดที่นี่เท่านั้น — ไม่อ่านจาก body เด็ดขาด
+    const pk = packerName ? await dbGet('SELECT mkey FROM machines WHERE name = ?', [packerName]) : null;
+    const row = {
+      title, timing, line_name: lineName, packer_name: packerName,
+      packer_key: (pk && pk.mkey) ? String(pk.mkey).toLowerCase() : '',
+      product_pattern: String(b.productPattern || '').trim(),
+      shift: normalizeShift(String(b.shift || '').trim()),
+      items: JSON.stringify(items),
+      owner_role: String(b.ownerRole || '').trim() || null,
+      note: String(b.note || '').trim() || null,
+      notify: b.notify === false || b.notify === 0 ? 0 : 1,
+      active: b.active === false || b.active === 0 ? 0 : 1,
+    };
+    row.specificity = ruleSpecificity(row);
+
+    if (id) {
+      const cur = await dbGet('SELECT id, line_name, packer_name FROM machine_rules WHERE id = ? AND deleted = 0', [id]);
+      if (!cur) return res.status(404).json({ error: 'ไม่พบกฎนี้' });
+      await db.exec(
+        `UPDATE machine_rules SET title = ?, timing = ?, line_name = ?, packer_name = ?, packer_key = ?,
+                product_pattern = ?, shift = ?, items = ?, owner_role = ?, note = ?, specificity = ?,
+                notify = ?, active = ?, updated_at = ? WHERE id = ?`,
+        [row.title, row.timing, row.line_name, row.packer_name, row.packer_key, row.product_pattern,
+          row.shift, row.items, row.owner_role, row.note, row.specificity, row.notify, row.active, nowBKK(), id]);
+      const out = await dbGet('SELECT * FROM machine_rules WHERE id = ?', [id]);
+      // ย้ายกฎไปเครื่องอื่น = โน้ตของเครื่องเดิมต้องเลิกโชว์กฎนี้ด้วย
+      touchMachineNotes(row.line_name, row.packer_name, cur.line_name, cur.packer_name);
+      return res.json({ success: true, rule: shapeRule(out) });
+    }
+    const ins = await dbRun(
+      `INSERT INTO machine_rules (code, title, timing, line_name, packer_name, packer_key, product_pattern,
+          shift, items, owner_role, note, specificity, notify, active, deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      [String(b.code || '').trim() || null, row.title, row.timing, row.line_name, row.packer_name, row.packer_key,
+        row.product_pattern, row.shift, row.items, row.owner_role, row.note, row.specificity,
+        row.notify, row.active, nowBKK(), nowBKK()]);
+    const out = await dbGet('SELECT * FROM machine_rules WHERE id = ?', [ins.lastID]);
+    touchMachineNotes(row.line_name, row.packer_name);
+    res.json({ success: true, rule: shapeRule(out) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// เปิด/ปิดใช้ชั่วคราว — คนละเรื่องกับลบ (ปิดไว้ = ยังเห็นในลิสต์ กดเปิดกลับได้)
+app.post('/api/machine-rules/toggle', requireRole('supervisor'), async (req, res) => {
+  const id = Number((req.body || {}).id || 0);
+  if (!id) return res.status(400).json({ error: 'id จำเป็น' });
+  try {
+    const cur = await dbGet('SELECT active, line_name, packer_name FROM machine_rules WHERE id = ? AND deleted = 0', [id]);
+    if (!cur) return res.status(404).json({ error: 'ไม่พบกฎนี้' });
+    const next = cur.active ? 0 : 1;
+    await db.exec('UPDATE machine_rules SET active = ?, updated_at = ? WHERE id = ?', [next, nowBKK(), id]);
+    touchMachineNotes(cur.line_name, cur.packer_name);
+    res.json({ success: true, active: next });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ลบ = ซ่อนถาวร ไม่ล้างแถวทิ้ง — ใบเช็กเก่าอ้าง rule_id อยู่ ลบจริงแล้วประวัติจะหาที่มาไม่เจอ
+app.post('/api/machine-rules/delete', requireRole('supervisor'), async (req, res) => {
+  const id = Number((req.body || {}).id || 0);
+  if (!id) return res.status(400).json({ error: 'id จำเป็น' });
+  try {
+    const cur = await dbGet('SELECT line_name, packer_name FROM machine_rules WHERE id = ?', [id]);
+    await db.exec('UPDATE machine_rules SET deleted = 1, active = 0, updated_at = ? WHERE id = ?', [nowBKK(), id]);
+    touchMachineNotes(cur && cur.line_name, cur && cur.packer_name);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* 🧪 ลองกฎกับรอบเดินเครื่องจริงของวันนั้น — อ่านอย่างเดียว ไม่เขียน ไม่ส่งการ์ด
+   ใช้ 2 ที่: ปุ่ม "ลองกับแผนวันนี้" ในหน้าแก้กฎ (ส่ง draft มาลองได้โดยยังไม่บันทึก)
+             และการ์ด "กฎที่จะยิงวันนี้" ในแท็บ 📅 วันนี้
+   ⚠️ รอบที่ถูกยกเลิกไม่นับ · รอบที่ยังไม่เลือกไลน์ยังนับ (กฎที่ไม่ได้ระบุไลน์ก็เข้าได้อยู่ดี) */
+app.post('/api/machine-rules/preview', async (req, res) => {
+  const b = req.body || {};
+  try {
+    const date = String(b.date || '').trim() || workDayBKK();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'วันที่ไม่ถูกต้อง' });
+    const shift = normalizeShift(String(b.shift || '').trim());
+    const runs = (await dbAll(
+      `SELECT * FROM machine_runs WHERE work_day = ? AND COALESCE(status, 'draft') <> 'cancelled'
+        ORDER BY shift, packer_key, id`, [date]))
+      .filter((r) => !shift || (r.shift || '') === shift);
+
+    let rules = await activeRules();
+    // ร่างที่ยังไม่บันทึก — เอามาแทนตัวเดิม (หรือเพิ่มเข้าไปถ้าเป็นกฎใหม่) เพื่อให้ลองก่อนบันทึกได้
+    if (b.draft) {
+      const d = b.draft;
+      const pk = d.packerName ? await dbGet('SELECT mkey FROM machines WHERE name = ?', [d.packerName]) : null;
+      const draft = {
+        id: Number(d.id || 0) || -1,
+        title: String(d.title || '').trim() || '(กฎที่กำลังแก้)',
+        timing: RULE_TIMING.includes(String(d.timing || '')) ? d.timing : 'start',
+        line_name: String(d.lineName || '').trim(),
+        packer_name: String(d.packerName || '').trim(),
+        packer_key: (pk && pk.mkey) ? String(pk.mkey).toLowerCase() : '',
+        product_pattern: String(d.productPattern || '').trim(),
+        shift: normalizeShift(String(d.shift || '').trim()),
+        items: normalizeRuleItems(d.items),
+        owner_role: d.ownerRole || '',
+      };
+      draft.specificity = ruleSpecificity(draft);
+      rules = rules.filter((r) => r.id !== draft.id).concat([draft]);
+      rules.sort((a, b2) => (b2.specificity || 0) - (a.specificity || 0) || a.id - b2.id);
+    }
+
+    const byRule = {};
+    const out = runs.map((run) => {
+      const hits = matchRules(rules, run);
+      for (const h of hits) byRule[h.id] = (byRule[h.id] || 0) + 1;
+      const timings = {};
+      for (const t of RULE_TIMING) {
+        const sub = hits.filter((h) => (h.timing || 'start') === t);
+        if (!sub.length) continue;
+        timings[t] = {
+          rules: sub.map((h) => ({ id: h.id, title: h.title, ownerRole: h.owner_role || '', specificity: h.specificity || 0 })),
+          items: mergeRuleItems(sub),
+        };
+      }
+      return {
+        runId: run.id, shift: run.shift || '',
+        packerName: run.packer_name || '', packerKey: run.packer_key || '',
+        lineName: run.line_name || '', flavor: run.flavor || '',
+        status: run.status || 'draft',
+        hitCount: hits.length,
+        timings,
+      };
+    });
+    res.json({
+      date, shift,
+      runs: out,
+      byRule,
+      totalRuns: runs.length,
+      hitRuns: out.filter((r) => r.hitCount).length,
+      timingLabel: RULE_TIMING_LABEL,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ══ ใบเช็กของรอบเดินเครื่อง (run_checks) ══════════════════════════════════════
+   1 ใบ = 1 รอบเดินเครื่อง × 1 จังหวะ (ก่อนเริ่ม / ระหว่างเดิน / หลังจบ)
+   ข้อในใบ = ข้อของทุกกฎที่เข้ากับรอบนั้น รวมกันแล้วตัดข้อซ้ำ (ผ่าน mergeRuleItems)
+
+   🔴 title/detail เป็น "snapshot" — แก้กฎทีหลังแล้วใบที่ส่งไปแล้วต้องไม่เปลี่ยนตาม
+      (ใบที่ยังเป็นร่างอัปเดตตามกฎได้ เพราะยังไม่ได้เป็นหลักฐานของอะไร)
+   🔴 สร้างใบใหม่เฉพาะตอนคน "เปิดใบ" ของวันทำงานปัจจุบัน/อนาคตเท่านั้น
+      ย้อนหลัง = อ่านของที่มีอยู่จริง ไม่สร้างใบเปล่า (บทเรียนใบเช็ก AM ข้อเดิม)
+   🔴 กฎไม่เข้าเลย = ไม่มีใบ ไม่สร้างแถว — เงียบดีกว่าใบเปล่า
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+const runCheckStatusOf = (rows) => {
+  const done = rows.filter((r) => r.result === 'ok' || r.result === 'ng').length;
+  return { total: rows.length, ok: rows.filter((r) => r.result === 'ok').length,
+    ng: rows.filter((r) => r.result === 'ng').length, left: rows.length - done };
+};
+
+// รูปเก็บได้ 2 แบบ: URL (อัป Supabase แล้ว) กับ data: (เครื่องที่ไม่มี Supabase)
+// ส่งกลับเฉพาะที่เป็น URL — ยัด data: ลง payload ทำให้ใบเดียวหนักหลาย MB บนเน็ตมือถือ
+const shapeCheckItem = (r) => ({
+  itemKey: r.item_key, ruleId: r.rule_id || 0,
+  title: r.title || '', detail: r.detail || '',
+  needPhoto: !!r.need_photo, needQc: !!r.need_qc,
+  result: r.result === 'ok' || r.result === 'ng' ? r.result : null,
+  cause: r.cause || '',
+  hasPhoto: !!r.photo,
+  photoUrl: r.photo && String(r.photo).startsWith('http') ? r.photo : null,
+  checkedBy: r.checked_by || '', qcBy: r.qc_by || '', updatedAt: r.updated_at || '',
+});
+
+/* ประกอบใบของ (รอบ × จังหวะ) — create=false คือโหมดอ่านอย่างเดียว (ย้อนหลัง/ไม่มีสิทธิ์)
+   ซิงก์ข้อจากกฎทุกครั้งที่เปิด แต่ 🔴 ไม่แตะ result/cause/photo/checked_by/qc_by เด็ดขาด
+   — ช่างติ๊กไปครึ่งใบแล้วหัวหน้าแก้กฎ ผลที่ติ๊กไว้ต้องอยู่ครบเหมือนเดิม                  */
+async function buildRunCheck(run, timing, { create = true, by = '' } = {}) {
+  const rules = matchRules(await activeRules(), run).filter((r) => (r.timing || 'start') === timing);
+  const wanted = mergeRuleItems(rules);
+  let check = await dbGet('SELECT * FROM run_checks WHERE run_id = ? AND timing = ?', [run.id, timing]);
+
+  if (!check && (!create || !wanted.length)) {
+    return { check: null, items: [], summary: runCheckStatusOf([]), rules: rules.length };
+  }
+  if (!check) {
+    await db.exec(
+      `INSERT INTO run_checks (run_id, work_day, shift, machine_name, timing, status, opened_by, opened_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?)
+       ON CONFLICT (run_id, timing) DO NOTHING`,
+      [run.id, run.work_day, run.shift || '', run.packer_name || '', timing, by || null, nowBKK(), nowBKK()]);
+    check = await dbGet('SELECT * FROM run_checks WHERE run_id = ? AND timing = ?', [run.id, timing]);
+  }
+
+  const locked = (check.status || 'draft') === 'submitted';
+  if (!locked) {
+    for (let i = 0; i < wanted.length; i += 1) {
+      const it = wanted[i];
+      await db.exec(
+        `INSERT INTO run_check_items (check_id, item_key, rule_id, title, detail, need_photo, need_qc, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (check_id, item_key) DO UPDATE SET
+            rule_id = excluded.rule_id, title = excluded.title, detail = excluded.detail,
+            need_photo = excluded.need_photo, need_qc = excluded.need_qc`,
+        [check.id, it.key, it.ruleId || null, it.title, it.detail || '',
+          it.needPhoto ? 1 : 0, it.needQc ? 1 : 0, nowBKK()]);
+    }
+    /* ข้อที่กฎไม่ผลิตแล้ว (กฎถูกแก้ / ปิดใช้ / ลบ) — ลบเฉพาะข้อที่ "ยังไม่มีใครแตะ"
+       ข้อที่ติ๊กไปแล้วเก็บไว้ เพราะมันคือบันทึกว่าวันนั้นตรวจอะไรไปจริง ๆ
+       ⚠️ ต้องกวาดตอน wanted ว่างด้วย (ปิดกฎทั้งตัว) ไม่งั้นเหลือข้อค้างที่ไม่มีกฎไหนสั่งแล้ว */
+    const keys = wanted.map((x) => x.key);
+    await db.exec(
+      keys.length
+        ? `DELETE FROM run_check_items WHERE check_id = ? AND result IS NULL
+             AND item_key NOT IN (${keys.map(() => '?').join(',')})`
+        : 'DELETE FROM run_check_items WHERE check_id = ? AND result IS NULL',
+      keys.length ? [check.id, ...keys] : [check.id]);
+  }
+
+  const rows = await dbAll(
+    'SELECT * FROM run_check_items WHERE check_id = ? ORDER BY id', [check.id]);
+  return { check, items: rows.map(shapeCheckItem), summary: runCheckStatusOf(rows), rules: rules.length };
+}
+
+// จังหวะที่รอบนี้ "มีของให้ทำ" — ปุ่มสลับบนหัวหน้ามือถือใช้ตัวนี้ ไม่ใช่โชว์ทั้ง 3 จังหวะเสมอ
+async function runCheckTimings(run) {
+  const rules = matchRules(await activeRules(), run);
+  const checks = await dbAll('SELECT timing, status FROM run_checks WHERE run_id = ?', [run.id]);
+  const out = [];
+  for (const t of RULE_TIMING) {
+    const sub = rules.filter((r) => (r.timing || 'start') === t);
+    const ex = checks.find((c) => c.timing === t);
+    if (!sub.length && !ex) continue;
+    out.push({
+      key: t, label: RULE_TIMING_LABEL[t],
+      nItems: mergeRuleItems(sub).length,
+      status: ex ? (ex.status || 'draft') : 'none',
+    });
+  }
+  return out;
+}
+
+const shapeRunForCheck = (run, labelOf) => ({
+  id: run.id, workDay: run.work_day, shift: run.shift || '',
+  packerName: run.packer_name || '', packerKey: run.packer_key || '',
+  packerLabel: run.packer_name ? (labelOf.get(run.packer_name) || run.packer_name) : '',
+  lineName: run.line_name || '', lineLabel: run.line_name ? (labelOf.get(run.line_name) || run.line_name) : '',
+  flavor: run.flavor || '', targetBoxes: run.target_boxes == null ? null : Number(run.target_boxes),
+  status: run.status || 'draft',
+});
+
+const labelMap = async () => new Map(
+  (await dbAll('SELECT name, label FROM machines WHERE active = 1', [])).map((m) => [m.name, m.label || m.name]));
+
+// ใบของรอบที่ระบุ — ใช้จากหน้า Admin (มีสิทธิ์อยู่แล้ว) และเป็นฐานของเส้น token ข้างล่าง
+async function runCheckPayload(run, timing, by) {
+  const canCreate = run.work_day >= workDayBKK();     // ย้อนหลัง = อ่านอย่างเดียว ไม่เปิดใบใหม่
+  const built = await buildRunCheck(run, timing, { create: canCreate, by });
+  const labelOf = await labelMap();
+  return {
+    run: shapeRunForCheck(run, labelOf),
+    timing,
+    timings: await runCheckTimings(run),
+    check: built.check ? {
+      id: built.check.id, status: built.check.status || 'draft',
+      submittedBy: built.check.submitted_by || '', submittedAt: built.check.submitted_at || '',
+    } : null,
+    items: built.items,
+    summary: built.summary,
+    readonly: !canCreate,
+    ruleCount: built.rules,
+  };
+}
+
+app.get('/api/run-check', async (req, res) => {
+  try {
+    const runId = Number(req.query.runId || 0);
+    if (!runId) return res.status(400).json({ error: 'runId จำเป็น' });
+    const run = await dbGet('SELECT * FROM machine_runs WHERE id = ?', [runId]);
+    if (!run) return res.status(404).json({ error: 'ไม่พบรอบเดินเครื่องนี้' });
+    const timings = await runCheckTimings(run);
+    const timing = RULE_TIMING.includes(String(req.query.timing || ''))
+      ? String(req.query.timing) : (timings[0] || {}).key || 'start';
+    res.json(await runCheckPayload(run, timing, req.query.by));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* เปิดจากลิงก์ในกลุ่ม — token ผูกกับ "เครื่อง" ไม่ใช่รอบ
+   เซิร์ฟเวอร์หาให้เองว่าวันนี้เครื่องนี้เดินรอบไหน (ลิงก์เดียวใช้ได้ทุกวันทุกกะ เหมือนใบเช็ก AM)
+   หลายรอบในวันเดียว = ให้เลือก แต่เลือกรอบของกะปัจจุบันไว้ก่อน                            */
+app.get('/api/run-check/open/:token', async (req, res) => {
+  try {
+    const link = await dbGet('SELECT * FROM run_check_links WHERE token = ? AND active = 1', [req.params.token]);
+    if (!link) return res.status(404).json({ error: 'ลิงก์นี้ใช้ไม่ได้แล้ว — ขอลิงก์ใหม่จากหัวหน้า' });
+    await db.exec('UPDATE run_check_links SET last_used_at = ? WHERE token = ?', [nowBKK(), req.params.token]);
+
+    const workDay = workDayBKK();
+    const runs = await dbAll(
+      `SELECT * FROM machine_runs
+        WHERE packer_name = ? AND work_day = ? AND COALESCE(status, 'draft') <> 'cancelled'
+        ORDER BY shift, id`, [link.machine_name, workDay]);
+    const labelOf = await labelMap();
+    if (!runs.length) {
+      return res.json({
+        token: req.params.token, machineName: link.machine_name,
+        machineLabel: labelOf.get(link.machine_name) || link.machine_name,
+        workDay, runs: [], run: null, items: [], summary: runCheckStatusOf([]), timings: [],
+        empty: 'วันนี้ยังไม่มีรอบเดินเครื่องของเครื่องนี้ — ให้หัวหน้าดึงแผนบรรจุที่หน้า “ทะเบียนเครื่องจักร → วันนี้” ก่อน',
+      });
+    }
+    const cur = normalizeShift(currentShiftCode());
+    const wantRun = Number(req.query.runId || 0);
+    const run = runs.find((r) => r.id === wantRun) || runs.find((r) => (r.shift || '') === cur) || runs[0];
+    const timings = await runCheckTimings(run);
+    const timing = RULE_TIMING.includes(String(req.query.timing || ''))
+      ? String(req.query.timing) : (timings[0] || {}).key || 'start';
+    const payload = await runCheckPayload(run, timing, req.query.by);
+    res.json({
+      ...payload,
+      token: req.params.token,
+      machineName: link.machine_name,
+      machineLabel: labelOf.get(link.machine_name) || link.machine_name,
+      workDay,
+      runs: runs.map((r) => shapeRunForCheck(r, labelOf)),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* บันทึกผล 1 ข้อ — หน้ามือถือยิงทุกครั้งที่แตะ (ไม่มีปุ่ม "บันทึก")
+   result: 'ok' | 'ng' | null (ล้างกลับเป็นยังไม่ตรวจ)
+   🔴 'ng' ต้องมีสาเหตุ · ข้อที่กฎสั่ง "ต้องมี QC ร่วม" ต้องมีชื่อ QC ก่อนถึงจะติ๊กได้
+   🔴 เปลี่ยนจาก ng → ok ต้องล้างสาเหตุ/รูปทิ้ง ไม่งั้นเหลือสาเหตุค้างบนข้อที่บอกว่าปกติ   */
+app.post('/api/run-check/item', async (req, res) => {
+  if (rateLimited(req.ip, 300, 60000, 'runcheck-item')) return res.status(429).json({ error: 'เรียกถี่เกินไป รอสักครู่' });
+  const b = req.body || {};
+  try {
+    const checkId = Number(b.checkId || 0);
+    const itemKey = String(b.itemKey || '').trim();
+    if (!checkId || !itemKey) return res.status(400).json({ error: 'checkId และ itemKey จำเป็น' });
+    const check = await dbGet('SELECT * FROM run_checks WHERE id = ?', [checkId]);
+    if (!check) return res.status(404).json({ error: 'ไม่พบใบเช็กนี้' });
+    if ((check.status || 'draft') === 'submitted') return res.status(409).json({ error: 'ใบนี้ส่งไปแล้ว แก้ไม่ได้' });
+    const item = await dbGet('SELECT * FROM run_check_items WHERE check_id = ? AND item_key = ?', [checkId, itemKey]);
+    if (!item) return res.status(404).json({ error: 'ไม่พบข้อนี้ในใบ' });
+
+    const result = b.result === 'ok' || b.result === 'ng' ? b.result : null;
+    const cause = result === 'ng' ? String(b.cause || '').trim() : '';
+    if (result === 'ng' && !cause) return res.status(400).json({ error: 'ข้อที่ไม่ปกติต้องระบุสาเหตุด้วย' });
+    const qcBy = result ? String(b.qcBy || '').trim() : '';
+    if (result && item.need_qc && !qcBy) {
+      return res.status(400).json({ error: 'ข้อนี้ต้องตรวจร่วมกับ QC — ใส่ชื่อ QC ที่ตรวจด้วยกันก่อน' });
+    }
+    let photo = result ? (typeof b.photo === 'string' ? b.photo : '') : '';
+    if (photo && !(photo.startsWith('http') || photo.startsWith('data:'))) {
+      return res.status(400).json({ error: 'รูปไม่ถูกต้อง — ลองแนบใหม่อีกครั้ง' });
+    }
+    if (!photo && item.photo && result) photo = item.photo;     // ติ๊กซ้ำโดยไม่ได้ส่งรูปมา = เก็บรูปเดิมไว้
+
+    await db.exec(
+      `UPDATE run_check_items SET result = ?, cause = ?, photo = ?, photo_at = ?, checked_by = ?, qc_by = ?, updated_at = ?
+        WHERE id = ?`,
+      [result, cause || null, photo || null, photo ? nowBKK() : null,
+        String(b.by || '').trim() || item.checked_by || null, qcBy || null, nowBKK(), item.id]);
+    await db.exec('UPDATE run_checks SET updated_at = ? WHERE id = ?', [nowBKK(), checkId]);
+
+    // คืนแค่ยอดสรุป ไม่คืนทั้งใบ — คนแตะหลายครั้งต่อกะบนเน็ตมือถือ (ลด egress เหมือนใบเช็ก AM)
+    const rows = await dbAll('SELECT result FROM run_check_items WHERE check_id = ?', [checkId]);
+    res.json({ success: true, summary: runCheckStatusOf(rows) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ══ ข้อ "ไม่ปกติ" → ใบแจ้งซ่อม ════════════════════════════════════════════
+   กติกาเดียวกับใบเช็ก AM ทุกข้อ (amOpenRepairs) ต่างแค่ที่มาของใบ — ทำตอนกดส่งเท่านั้น
+   ไม่ใช่ตอนติ๊ก (ให้กรอกสาเหตุ + แนบรูปให้ครบก่อน ใบซ่อมที่เปิดไปแล้วแก้อาการทีหลังยาก)
+
+   🔑 กันเปิดใบซ้ำด้วย ref_key = 'run:<ชื่อเครื่อง>:<ชื่อข้อ>' — ห้ามใส่วันที่/กะ/เลขรอบลงใน key
+      ข้อเดิมของเครื่องเดิมที่ใบยังไม่ปิด = ใบเดียวกันเสมอ (เจอซ้ำ = ต่อบันทึกในใบเดิม)
+   🔑 ใช้ "ชื่อข้อ" ที่ normAlias แล้ว ไม่ใช่ item_key — ข้อชื่อเดียวกันมาจากคนละกฎในแต่ละวันได้
+      (mergeRuleItems ตัดข้อซ้ำด้วย normAlias ของชื่อ แล้วเก็บ key ของกฎที่จำเพาะกว่าไว้
+       ถ้าผูกกับ item_key วันที่กฎเจาะจงไม่เข้า จะได้ใบใหม่ทั้งที่เป็นอาการเดิม)
+      ⚠️ normAlias ตัดสระ/วรรณยุกต์ไทยทิ้ง ("ล้างหัวพิมพ์" → "ลางหวพมพ") — key อ่านไม่รู้เรื่อง
+         ตั้งใจให้เป็นแบบนั้น: ต้องตัดซ้ำด้วยสูตรเดียวกับที่ใบเช็กใช้ตัดข้อซ้ำ ไม่งั้นเพี้ยนกัน
+         และ ref_key ไม่เคยขึ้นหน้าจอ (หน้าเหตุการณ์โชว์ "ชิปที่มา" ไม่ใช่ key)                */
+const runCheckRefKey = (machineName, title) =>
+  `run:${machineName || ''}:${normAlias(title).slice(0, 60)}`;
+
+async function runCheckOpenRepairs(check, rows, run, by) {
+  const opened = [], repeated = [];
+  const when = `${check.work_day} ${check.shift || ''}`.trim();
+  const timingLabel = RULE_TIMING_LABEL[check.timing] || check.timing || '';
+  for (const r of rows.filter((x) => x.result === 'ng')) {
+    const refKey = runCheckRefKey(check.machine_name, r.title || '');
+    const cur = (await dbAll(
+      "SELECT id, symptom FROM incidents WHERE ref_key = ? AND COALESCE(status, 'open') <> 'closed' ORDER BY id DESC",
+      [refKey]))[0];
+    const cause = String(r.cause || '').trim();
+    if (cur) {
+      // ไม่เปิดใบใหม่ — ต่อบันทึกลงใบเดิม แล้วเด้งการ์ดในกลุ่มให้เห็นว่าเจอซ้ำ
+      const add = `\n— เจอซ้ำ ${when} (${timingLabel}) โดย ${by || 'ไม่ระบุ'}: ${cause}`;
+      await db.exec('UPDATE incidents SET symptom = ?, updated_at = ? WHERE id = ?',
+        [String(cur.symptom || '') + add, nowBKK(), cur.id]);
+      await bumpRepairCard(cur.id);
+      repeated.push({ id: cur.id, title: r.title || '' });
+      continue;
+    }
+    // รูปต้องเป็น URL เท่านั้น (photoJson ทิ้ง data: ทิ้ง) — อัปโหลดไม่ผ่านก็เปิดใบโดยไม่มีรูป
+    const imgs = r.photo && String(r.photo).startsWith('http') ? [r.photo] : [];
+    const inc = await createIncidentRow({
+      title: String(r.title || '').trim() || 'พบสิ่งผิดปกติระหว่างเดินเครื่อง',
+      machine: check.machine_name || null,
+      lineName: (run && run.line_name) || null,
+      operator: by || null,
+      occurredAt: check.work_day,
+      symptom: `[เช็กลิสต์เดินเครื่อง ${when} · ${timingLabel}`
+        + (run && run.flavor ? ` · ${run.flavor}` : '') + `] ${cause}`,
+      images: imgs, priority: 'warn', source: 'runcheck', refKey,
+    });
+    opened.push({ id: inc.id, title: r.title || '' });
+  }
+  return { opened, repeated };
+}
+
+/* การ์ดสรุปตอนส่งใบ — ใช้เครื่องเรนเดอร์ตัวเดียวกับใบเช็ก AM (หน้าตาเหมือนกันทุกอย่าง
+   ต่างแค่ข้อความหัวการ์ด) · โชว์ข้อไม่ปกติได้ 4 ข้อ ที่เหลือสรุปเป็นตัวเลข
+   ⚠️ เลขใบแจ้งซ่อมต้องอยู่ใน caption (ข้อความในรูปค้นหาย้อนหลังไม่ได้) */
+async function sendRunCheckCard(check, rows, by, repairs = { opened: [], repeated: [] }) {
+  const run = await dbGet('SELECT * FROM machine_runs WHERE id = ?', [check.run_id]);
+  const labelOf = await labelMap();
+  const machine = labelOf.get(check.machine_name) || check.machine_name || '—';
+  const timingLabel = RULE_TIMING_LABEL[check.timing] || check.timing || '';
+  const ngRows = rows.filter((r) => r.result === 'ng');
+  const sum = runCheckStatusOf(rows);
+
+  const caption = [
+    `📋 <b>เช็กลิสต์เดินเครื่อง — ${escapeHtml(machine)}</b>`,
+    `${escapeHtml(timingLabel)} · ${escapeHtml(check.work_day)} · ${escapeHtml(check.shift || '')}`
+      + (run && run.flavor ? ` · ${escapeHtml(run.flavor)}` : ''),
+    `✅ ปกติ ${sum.ok}　⚠️ ไม่ปกติ ${sum.ng}　รวม ${sum.total} ข้อ · โดย ${escapeHtml(by || '-')}`,
+    repairs.opened.length
+      ? `🆘 เปิดใบแจ้งซ่อมใหม่ ${repairs.opened.length} ใบ: ${repairs.opened.map((x) => '#' + x.id).join(' ')}` : '',
+    repairs.repeated.length
+      ? `🔁 เจอซ้ำ ต่อในใบเดิม ${repairs.repeated.length} ใบ: ${repairs.repeated.map((x) => '#' + x.id).join(' ')}` : '',
+  ].filter(Boolean).join('\n');
+
+  // ข้อความสำรอง — sendMessage จำกัด 4096 ตัวอักษร ไล่ข้อไม่ปกติได้สูงสุด 10 ข้อ
+  const L = [caption];
+  if (ngRows.length) {
+    L.push('', '<b>ข้อที่ไม่ปกติ</b>');
+    for (const it of ngRows.slice(0, 10)) {
+      L.push(`• ${escapeHtml(it.title)}`);
+      L.push(`　${escapeHtml(String(it.cause || '').slice(0, 160))}`);
+    }
+    if (ngRows.length > 10) L.push(`… และอีก ${ngRows.length - 10} ข้อ (ดูในแอป)`);
+  }
+
+  await inTopic('runcheck', async () => {
+    let png = null;
+    if (canRenderCard()) {
+      const shown = ngRows.slice(0, 4);
+      const uris = (await Promise.allSettled(shown.map((x) => fetchAsDataUri(x.photo))))
+        .map((r) => (r.status === 'fulfilled' ? r.value : null));
+      try {
+        png = renderAmSheetCardPNG({
+          eyebrow: 'เช็กลิสต์เดินเครื่อง',
+          line: machine,
+          dateLabel: thaiDate(check.work_day),
+          shiftLabel: `${check.shift || ''} · ${timingLabel}`,
+          lineStatus: '',
+          total: sum.total, ok: sum.ok, ng: sum.ng,
+          ngItems: shown.map((x, i) => ({ seq: i + 1, title: x.title, cause: x.cause || '', uri: uris[i] })),
+          openedCount: repairs.opened.length, repeatedCount: repairs.repeated.length, by,
+        });
+      } catch (e) { console.error('[run-check] เรนเดอร์การ์ดไม่สำเร็จ', e.message); png = null; }
+    }
+    if (png) return sendPhotoBufferToTelegram(png, 'image/png', caption);
+    return sendToTelegram(L.join('\n'));
+  });
+}
+
+/* ส่งใบ — ปิดใบแล้วล็อก
+   ต้องตอบครบทุกข้อก่อน · ข้อที่ "ไม่ปกติ" ต้องมีสาเหตุครบ
+   กดส่งครั้งเดียวเกิด 3 อย่าง: ล็อกใบ · เปิด/ต่อใบแจ้งซ่อมของข้อที่ไม่ปกติ · การ์ดสรุปเข้ากลุ่มช่าง */
+app.post('/api/run-check/submit', async (req, res) => {
+  if (rateLimited(req.ip, 30, 60000, 'runcheck-submit')) return res.status(429).json({ error: 'เรียกถี่เกินไป รอสักครู่' });
+  const b = req.body || {};
+  try {
+    const checkId = Number(b.checkId || 0);
+    if (!checkId) return res.status(400).json({ error: 'checkId จำเป็น' });
+    const check = await dbGet('SELECT * FROM run_checks WHERE id = ?', [checkId]);
+    if (!check) return res.status(404).json({ error: 'ไม่พบใบเช็กนี้' });
+    if ((check.status || 'draft') === 'submitted') return res.status(409).json({ error: 'ใบนี้ส่งไปแล้ว' });
+    const rows = await dbAll('SELECT * FROM run_check_items WHERE check_id = ? ORDER BY id', [checkId]);
+    if (!rows.length) return res.status(400).json({ error: 'ใบนี้ไม่มีข้อให้ตรวจ' });
+    const left = rows.filter((r) => r.result !== 'ok' && r.result !== 'ng');
+    if (left.length) return res.status(400).json({ error: `ยังตรวจไม่ครบ เหลืออีก ${left.length} ข้อ` });
+    const noCause = rows.filter((r) => r.result === 'ng' && !String(r.cause || '').trim());
+    if (noCause.length) return res.status(400).json({ error: `ข้อที่ไม่ปกติต้องกรอกสาเหตุให้ครบก่อน (เหลือ ${noCause.length} ข้อ)` });
+
+    await db.exec(
+      "UPDATE run_checks SET status = 'submitted', submitted_by = ?, submitted_at = ?, updated_at = ? WHERE id = ?",
+      [String(b.by || '').trim() || null, nowBKK(), nowBKK(), checkId]);
+    const sum = runCheckStatusOf(rows);
+
+    /* การ์ดสรุปเข้ากลุ่มช่าง — รูปของข้อที่ไม่ปกติต้องอยู่ในการ์ดด้วย
+       ตัวเลขอย่างเดียวบอกไม่ได้ว่า "ไม่ปกติ" ที่เจอหน้าตาเป็นยังไง
+       ⚠️ ข้อความในรูปค้นหาไม่ได้ → เลขที่ต้องใช้ค้นย้อนหลังต้องอยู่ใน caption ด้วย
+       เรนเดอร์รูปไม่ได้ → ถอยไปข้อความธรรมดา บอทต้องไม่เงียบเพราะเรื่องหน้าตา */
+    /* ข้อที่ "ไม่ปกติ" เปิดใบแจ้งซ่อมให้เอง · เจอซ้ำ = ต่อในใบเดิม ไม่เปิดใบใหม่
+       ⚠️ ล้มเหลวต้องไม่ทำให้ "ส่งใบ" พัง — ใบถูกล็อกไปแล้วตั้งแต่บรรทัดบน ตอบ error กลับไป
+          คนจะกดส่งซ้ำไม่ได้ (เจอ 409) แล้วใบค้างแบบไม่มีใครรู้ว่ามีอะไรต้องซ่อม */
+    const run = await dbGet('SELECT * FROM machine_runs WHERE id = ?', [check.run_id]);
+    let repairs = { opened: [], repeated: [] };
+    try { repairs = await runCheckOpenRepairs(check, rows, run, String(b.by || '').trim()); }
+    catch (e) { console.error('[run-check] เปิดใบแจ้งซ่อมไม่สำเร็จ', e.message); }
+
+    try { await sendRunCheckCard(check, rows, String(b.by || '').trim(), repairs); }
+    catch (e) { console.error('[run-check] แจ้งกลุ่มไม่สำเร็จ', e.message); }
+
+    res.json({
+      success: true, summary: sum,
+      ng: rows.filter((r) => r.result === 'ng').map((r) => ({ itemKey: r.item_key, title: r.title, cause: r.cause || '' })),
+      opened: repairs.opened, repeated: repairs.repeated,
+      check: { id: checkId, status: 'submitted', submittedBy: String(b.by || '').trim(), submittedAt: nowBKK() },
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ลิงก์ปักหมุดในกลุ่ม — 1 เครื่อง 1 token ใช้ซ้ำได้ตลอด (แพทเทิร์นเดียวกับ am_sheet_links)
+   เรียกซ้ำได้คืน token เดิม — ไม่งั้นลิงก์ที่ปักหมุดไว้ในกลุ่มจะตายทุกครั้งที่มีคนกดปุ่ม */
+app.post('/api/run-check/link', requireRole('supervisor'), async (req, res) => {
+  const machineName = String((req.body || {}).machineName || '').trim();
+  if (!machineName) return res.status(400).json({ error: 'machineName จำเป็น' });
+  try {
+    const m = await dbGet("SELECT name FROM machines WHERE name = ? AND active = 1 AND grp = 'packer'", [machineName]);
+    if (!m) return res.status(400).json({ error: `"${machineName}" ไม่ใช่เครื่องบรรจุในทะเบียน` });
+    const { token, url } = await runCheckLinkFor(machineName, (req.who && req.who.name) || '');
+    res.json({ success: true, token, url: url || `/?runcheck=${token}` });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ══ การ์ดเตือนเช็กลิสต์เดินเครื่อง → กลุ่มช่าง ══════════════════════════════════
+   ยิง 1 การ์ดต่อ (รอบ × จังหวะ) พร้อมปุ่มเปิดเช็กลิสต์บนมือถือ
+
+   จังหวะที่ยิง (นับเป็นนาทีจากเที่ยงคืนของ "วันทำงาน" — กะดึกจึงเลย 24:00 ไปได้)
+     ⏱ ก่อนเริ่มบรรจุ   = เริ่มกะ + 15 นาที
+     ⚙️ ระหว่างเดินเครื่อง = กลางกะ
+     🏁 หลังบรรจุจบ      = ก่อนจบกะ 60 นาที **หรือ** มีคนกดปุ่ม 🏁 ปิดงานบรรจุ — อันไหนถึงก่อน
+        (เคาะกับ user 14 ก.ย. · ปุ่มคือตัวหลัก นาฬิกาคือตาข่ายกันลืม)
+
+   🔴 จองคีย์ `run:{id}:{timing}` ใน run_notify_log ก่อนส่งเสมอ — กดปุ่มแล้วนาฬิกามาถึงทีหลัง
+      ต้องไม่ยิงซ้ำ (แพทเทิร์นเดียวกับ pm_notify_log)
+   🔴 เกาะ tick เดิมที่มีอยู่ ห้ามเพิ่ม setInterval ใหม่ — เคยชนโควตา Render มาแล้ว
+   🔴 ไม่มีกฎเข้า = ไม่ยิงอะไรเลย · รอบที่ยังไม่ยืนยัน = ไม่ยิง (เงียบดีกว่าส่งการ์ดเปล่า)
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+const RUN_NOTIFY_LATE_MIN = 90;   // เลยเวลาที่ควรยิงเกินเท่านี้ = สายเกินจะมีประโยชน์ เงียบไว้ดีกว่า
+
+// ช่วงเวลาของกะนั้นในหน่วย "นาทีจากเที่ยงคืนของวันทำงาน" (กะดึก 22–06 → 1320–1800)
+function runShiftWindow(workDay, shiftName) {
+  const key = String(shiftName || '').replace(/^กะ/, '');
+  const s = amShift.shiftsForWeekday(amShift.weekdayOf(workDay)).find((x) => x.key === key);
+  if (!s) return null;
+  return { startMin: s.start * 60, endMin: (s.end > s.start ? s.end : s.end + 24) * 60 };
+}
+
+// เวลาปัจจุบันในหน่วยเดียวกัน — ก่อน 06:00 ยังเป็นวันทำงานเมื่อวาน จึงบวก 24 ชม.
+function runNowMin(bkk) {
+  const h = Number(bkk.slice(11, 13)), m = Number(bkk.slice(14, 16));
+  return (h < 6 ? h + 24 : h) * 60 + m;
+}
+
+// นาทีที่ควรยิงของแต่ละจังหวะ · null = จังหวะนี้ไม่มีเวลาตายตัว (ไม่มีในตารางกะ)
+function runNotifyAt(win, timing) {
+  if (!win) return null;
+  if (timing === 'start') return win.startMin + 15;
+  if (timing === 'during') return Math.round((win.startMin + win.endMin) / 2);
+  if (timing === 'end') return win.endMin - 60;
+  return null;
+}
+
+/* ลิงก์เช็กลิสต์ของเครื่อง — ใช้ร่วมกันระหว่างปุ่มในหน้า Admin กับการ์ดที่บอทยิง
+   เรียกซ้ำได้ token เดิมเสมอ (ลิงก์ที่ปักหมุดในกลุ่มต้องไม่ตาย) */
+async function runCheckLinkFor(machineName, by = '') {
+  let row = await dbGet('SELECT token FROM run_check_links WHERE machine_name = ? AND active = 1', [machineName]);
+  if (!row) {
+    const token = newToken();
+    await db.exec(
+      'INSERT INTO run_check_links (token, machine_name, created_by, created_at, active) VALUES (?, ?, ?, ?, 1)',
+      [token, machineName, by || null, nowBKK()]);
+    row = { token };
+  }
+  /* 🪤 ต้องเป็น PUBLIC_APP_URL เท่านั้น (ตัวเดียวกับลิงก์ใบเช็ก AM) — ห้ามใช้ PUBLIC_WEB_URL
+     ตัวนั้นตั้งเป็นโดเมน Render ที่ใช้เป็น HTTP-Referer ของ AI ลิงก์จะพาไปเจอ "Cannot GET /" */
+  const base = String(process.env.PUBLIC_APP_URL || APP_PUBLIC_URL || '').replace(/\/+$/, '');
+  return { token: row.token, url: base ? `${base}/?runcheck=${row.token}` : '' };
+}
+
+/* ข้อความการ์ด + ปุ่ม — คืน null เมื่อ "ไม่มีอะไรต้องบอก"
+   ⚠️ ข้อความในรูปค้นหาไม่ได้ การ์ดนี้จึงเป็นข้อความล้วน + ปุ่มลิงก์ (ไม่ใช่ PNG)
+      PNG ใช้กับ "การ์ดสรุปตอนส่งใบ" ที่คนอ่านทีเดียวจบเท่านั้น                        */
+async function buildRunNotify(run, timing) {
+  const rules = matchRules(await activeRules(), run).filter((r) => (r.timing || 'start') === timing);
+  const items = mergeRuleItems(rules);
+  if (!items.length) return null;
+
+  const labelOf = await labelMap();
+  const machine = labelOf.get(run.packer_name) || run.packer_name || '—';
+  const line = run.line_name ? (labelOf.get(run.line_name) || run.line_name) : '';
+  const roles = [...new Set(rules.map((r) => ROLE_LABEL[r.owner_role] || '').filter(Boolean))].join(' + ');
+
+  const L = [
+    `🔔 <b>${escapeHtml(RULE_TIMING_LABEL[timing])} — ${escapeHtml(machine)}</b>`,
+    `${escapeHtml(thaiDate(run.work_day))} · ${escapeHtml(run.shift || '')} · <b>${escapeHtml(run.flavor || '')}</b>`
+      + (line ? ` · ป้อนจาก ${escapeHtml(line)}` : ''),
+    roles ? `👤 ${escapeHtml(roles)}` : '',
+    '',
+  ].filter((x) => x !== '');
+  for (const it of items.slice(0, 8)) {
+    L.push(`• ${escapeHtml(it.title)}`
+      + (it.needPhoto ? ' 📷' : '') + (it.needQc ? ' 🧪' : ''));
+  }
+  if (items.length > 8) L.push(`… และอีก ${items.length - 8} ข้อ`);
+
+  const { url } = await runCheckLinkFor(run.packer_name);
+  return {
+    text: L.join('\n'),
+    nItems: items.length,
+    keyboard: url ? [[{ text: '📋 เปิดเช็กลิสต์', url: `${url}&runId=${run.id}&timing=${timing}` }]] : null,
+  };
+}
+
+/* ยิงจริง — จองคีย์ก่อนเสมอ ชนแล้วออกเงียบ ๆ (แปลว่ารอบนี้ส่งไปแล้ว)
+   force = ปุ่มลองส่งจากหน้า Admin — ไม่แตะคีย์ของรอบจริง                                */
+async function fireRunNotify(run, timing, { force = false } = {}) {
+  const key = `run:${run.id}:${timing}`;
+  if (!force) {
+    try { await db.exec('INSERT INTO run_notify_log (key, sent_at) VALUES (?, ?)', [key, nowBKK()]); }
+    catch { return { skipped: 'sent' }; }
+  }
+  const card = await buildRunNotify(run, timing);
+  if (!card) {
+    /* ไม่มีกฎเข้า = ไม่มีอะไรต้องบอก — 🔴 ต้องคืนคีย์ที่จองไว้ด้วย
+       ไม่งั้นกฎที่เพิ่มทีหลังในช่วงเวลาเดิมจะไม่มีวันยิง เพราะคีย์ถูกเผาไปแล้วแบบเงียบ ๆ */
+    if (!force) await db.exec('DELETE FROM run_notify_log WHERE key = ?', [key]).catch(() => {});
+    return { skipped: 'norules' };
+  }
+  try {
+    await inTopic('runcheck', async () => {
+      const chatId = tgChatId();
+      if (!chatId) return;
+      await tgApi('sendMessage', {
+        chat_id: chatId, text: card.text, parse_mode: 'HTML',
+        ...(card.keyboard ? { reply_markup: { inline_keyboard: card.keyboard } } : {}),
+      });
+    });
+  } catch (e) { console.error('[run-notify] ส่งไม่สำเร็จ', e.message); return { skipped: 'senderr' }; }
+  console.log(`[run-notify] ${key} ส่งเข้ากลุ่มช่างแล้ว (${card.nItems} ข้อ)`);
+  return { sent: true, nItems: card.nItems };
+}
+
+/* เกาะ tick เดิม (ทุก 1 นาที) — ห้ามเพิ่ม loop ใหม่
+   เดินเฉพาะรอบของ "วันทำงานปัจจุบัน" ที่ยืนยันแล้ว — รอบที่ยังเป็นร่างแปลว่าคนยังไม่รับรอง
+   ว่าวันนี้เดินตามนี้จริง ยิงไปก็เป็นการรบกวน                                              */
+async function runNotifyTick(atStr) {
+  try {
+    const cfg = await getReportConfig();
+    if (!cfg.runNotifyEnabled) return;
+    const bkk = atStr || new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' });
+    const workDay = Number(bkk.slice(11, 13)) < 6 ? addDaysStr(bkk.slice(0, 10), -1) : bkk.slice(0, 10);
+    const nowMin = runNowMin(bkk);
+
+    const runs = await dbAll(
+      `SELECT * FROM machine_runs
+        WHERE work_day = ? AND packer_name <> '' AND COALESCE(status, 'draft') IN ('confirmed', 'done')`,
+      [workDay]).catch(() => []);
+    if (!runs.length) return;
+
+    // อ่านกฎครั้งเดียวต่อ tick แล้วจับคู่ในหน่วยความจำ — tick เดินทุกนาที
+    // ถ้าเรียก buildRunNotify (3-4 คิวรี่) ทุก รอบ×จังหวะ จะกลายเป็นร้อยคิวรี่ต่อนาที
+    const rules = await activeRules();
+
+    for (const run of runs) {
+      const win = runShiftWindow(run.work_day, run.shift);
+      if (!win) continue;                       // กะที่ไม่มีในตารางกะ (เช่น OT) — ไม่มีเวลาตายตัวให้ยิง
+      const hits = matchRules(rules, run);
+      for (const timing of RULE_TIMING) {
+        // รอบที่ปิดงานแล้วยิง "หลังบรรจุจบ" ไปตอนกดปุ่มแล้ว — ตรงนี้ข้ามให้คีย์กันซ้ำจัดการ
+        const at = runNotifyAt(win, timing);
+        if (at == null) continue;
+        if (nowMin < at || nowMin > at + RUN_NOTIFY_LATE_MIN) continue;
+        if (!mergeRuleItems(hits.filter((r) => (r.timing || 'start') === timing)).length) continue;
+        await fireRunNotify(run, timing);
+      }
+    }
+  } catch (e) { console.error('[run-notify] tick error', e.message); }
+}
+
+/* สวิตช์เปิด/ปิดการ์ดอัตโนมัติ — แยกเส้นเฉพาะ ไม่ยิงผ่าน /api/report/config
+   🪤 เส้นนั้นเขียนทับ auto_enabled/times/weekdays จาก body ตรง ๆ ไม่มี fallback
+      ส่งไปแค่ฟิลด์เดียวจะล้างตารางส่งรายงานประจำวันทิ้งแบบเงียบ ๆ */
+app.get('/api/machine-runs/notify-switch', async (req, res) => {
+  try { res.json({ enabled: (await getReportConfig()).runNotifyEnabled }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/machine-runs/notify-switch', requireRole('supervisor'), async (req, res) => {
+  try {
+    const cfg = await getReportConfig();
+    const on = (req.body || {}).enabled ? 1 : 0;
+    await db.exec('UPDATE report_config SET run_notify_enabled = ?, updated_at = ? WHERE id = ?', [on, nowBKK(), cfg.id]);
+    invalidateReportConfig();
+    res.json({ success: true, enabled: !!on });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ลองส่ง / ดูตัวอย่าง — ไม่แตะคีย์กันยิงซ้ำของรอบจริง
+   preview: true = คืนข้อความเฉย ๆ ไม่ส่งเข้ากลุ่ม                                         */
+app.post('/api/machine-runs/notify-test', requireRole('supervisor'), async (req, res) => {
+  const b = req.body || {};
+  try {
+    const runId = Number(b.runId || 0);
+    if (!runId) return res.status(400).json({ error: 'runId จำเป็น' });
+    const run = await dbGet('SELECT * FROM machine_runs WHERE id = ?', [runId]);
+    if (!run) return res.status(404).json({ error: 'ไม่พบรอบเดินเครื่องนี้' });
+    const timing = RULE_TIMING.includes(String(b.timing || '')) ? String(b.timing) : 'start';
+    const card = await buildRunNotify(run, timing);
+    if (!card) {
+      return res.json({ success: true, skipped: true, timing,
+        message: 'ไม่มีกฎเข้ากับรอบนี้ในจังหวะนั้น — ถึงเวลาจริงระบบจะเงียบ ไม่ส่งการ์ดเปล่า' });
+    }
+    if (b.preview) return res.json({ success: true, timing, preview: card.text, nItems: card.nItems });
+    const r = await fireRunNotify(run, timing, { force: true });
+    res.json({ success: true, timing, sent: !!r.sent, preview: card.text, nItems: card.nItems });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── โน้ตเครื่องจักรใน vault (แผน KM ข้อ 4.1: 1 โน้ตต่อ 1 เครื่อง) ──────────────
@@ -6530,7 +8329,7 @@ app.post('/api/machines/delete', async (req, res) => {
 const MACHINE_MARK = 'ข้อมูลเครื่องจักร';
 const ROLE_LABEL = { mt: 'Maintenance', op: 'Operate', qc: 'QC', pd: 'พนักงานผลิต' };
 
-function machineBlock(m, pmRows, incidents) {
+function machineBlock(m, pmRows, incidents, links = [], rules = []) {
   const L = [];
   L.push('> [!info] ส่วนนี้ระบบเขียนให้อัตโนมัติจากหน้า “ทะเบียนเครื่องจักร” — แก้ในแอปแล้วตรงนี้อัปเดตตาม');
   L.push('');
@@ -6545,6 +8344,39 @@ function machineBlock(m, pmRows, incidents) {
   if (!pmRows.length) L.push('_ยังไม่มีงาน PM ที่ผูกกับเครื่องนี้_');
   else for (const r of pmRows) {
     L.push(`- **${r.title}** — 🎯 ${r.goal || '—'} · ผู้รับผิดชอบหลัก: ${ROLE_LABEL[r.owner_role] || '—'}`);
+  }
+  L.push('');
+  /* คู่ไลน์ ↔ เครื่องบรรจุ — โน้ตของเครื่องต้องตอบได้ว่า "ตัวนี้ทำงานคู่กับอะไร ผลิตอะไร"
+     ชี้ฝั่งตรงข้ามด้วย [[wikilink]] เพื่อให้กราฟใน Obsidian เห็นเส้นเชื่อมจริง ๆ ไม่ใช่ข้อความลอย */
+  L.push(`### คู่ไลน์ ↔ เครื่องบรรจุ (${links.length})`, '');
+  if (!links.length) L.push('_ยังไม่ได้ผูกคู่ไว้ในผังเชื่อมโยง_');
+  else for (const k of links) {
+    const other = k.lineName === m.name ? k.packerName : k.lineName;
+    const side = k.lineName === m.name ? 'ป้อนเข้า' : 'รับจาก';
+    const prods = (k.products || []).map(p => p.flavor).filter(Boolean);
+    L.push(`- ${side} ${vault.machineLink(other)}`
+      + (prods.length ? ` — 🧃 ${prods.join(' · ')}` : ' — _ยังไม่ได้ผูกสินค้าประจำคู่_')
+      + (k.note ? ` · ${k.note}` : ''));
+  }
+  L.push('');
+  /* กฎเตือน — ช่างที่เปิดโน้ตเครื่องต้องเห็นว่า "เครื่องนี้ถึงเวลาแล้วระบบจะสั่งอะไร"
+     ไล่ข้อในกฎออกมาด้วย เพราะข้อพวกนี้คือเนื้องานจริงที่ไปโผล่ในเช็กลิสต์มือถือ */
+  L.push(`### กฎเตือนที่ผูกกับเครื่องนี้ (${rules.length})`, '');
+  if (!rules.length) L.push('_ยังไม่มีกฎเตือนที่เข้าเงื่อนไขเครื่องนี้_');
+  else for (const r of rules) {
+    let items = [];
+    try { items = JSON.parse(r.items || '[]'); } catch { items = []; }
+    const cond = [
+      r.product_pattern ? `เฉพาะสินค้า ${r.product_pattern}` : '',
+      r.line_name && r.line_name !== m.name ? `คู่กับ ${r.line_name}` : '',
+      r.packer_name && r.packer_name !== m.name ? `คู่กับ ${r.packer_name}` : '',
+      r.shift || '',
+    ].filter(Boolean).join(' · ');
+    L.push(`- **${r.title}** — ⏱ ${RULE_TIMING_LABEL[r.timing] || r.timing || ''} · ${items.length} ข้อ`
+      + (cond ? ` · ${cond}` : ''));
+    for (const it of Array.isArray(items) ? items : []) {
+      L.push(`    - ${it.title}${it.needQc ? ' · ร่วม QC' : ''}${it.needPhoto ? ' · ต้องแนบรูป' : ''}`);
+    }
   }
   L.push('');
   const open = incidents.filter(i => (i.status || 'open') !== 'closed').length;
@@ -6587,7 +8419,12 @@ async function syncMachineNote(m) {
     const incidents = await dbAll(
       `SELECT title, occurred_at, status, vault_path, down_from, down_to
          FROM incidents WHERE machine = ? ORDER BY occurred_at DESC, id DESC`, [m.name]);
-    const body = machineBlock(m, pmRows, incidents);
+    // คู่ + กฎ ใช้คิวรี่ตัวเดียวกับหน้ารายละเอียดเครื่อง — โน้ตกับหน้าเว็บจะได้ไม่เล่าคนละเรื่อง
+    const links = await linksOf(m);
+    const rules = await dbAll(
+      `SELECT * FROM machine_rules WHERE active = 1 AND deleted = 0 AND (packer_name = ? OR line_name = ?)
+        ORDER BY specificity DESC, id`, [m.name, m.name]);
+    const body = machineBlock(m, pmRows, incidents, links, rules);
     let existing = null;
     try { const r = await vault.vaultRead(path); existing = r && r.content ? r.content : null; } catch { existing = null; }
     const content = existing && vault.hasMarker(existing, MACHINE_MARK)
@@ -6607,6 +8444,12 @@ async function syncMachineNote(m) {
     return { error: e.message };
   }
 }
+/* แตะโน้ตของหลายเครื่องพร้อมกัน — ใช้ตอนแก้ "คู่" หรือ "กฎ" ซึ่งกระทบเครื่อง 2 ตัวเสมอ
+   (แก้คู่แล้วโน้ตของอีกฝั่งต้องอัปเดตด้วย ไม่งั้นโน้ตฝั่งหนึ่งบอกว่าคู่กันอยู่ อีกฝั่งไม่รู้เรื่อง)
+   ชื่อซ้ำ/ว่างถูกตัดทิ้งเอง — เขียนโน้ตเครื่องเดิม 2 รอบในคำขอเดียวเปลืองเปล่า ๆ */
+const touchMachineNotes = (...names) => {
+  for (const n of [...new Set(names.filter(Boolean))]) touchMachineNote(n);
+};
 // อัปเดตโน้ตของเครื่องหนึ่งแบบไม่ให้ผู้ใช้รอ (ใช้ตอนบันทึก/ลบเหตุการณ์ — รายการเหตุการณ์ในโน้ตจะได้ตรง)
 function touchMachineNote(name) {
   if (!name || !vault.vaultEnabled()) return;
@@ -6620,7 +8463,7 @@ const jsonList = (v) => { try { const a = JSON.parse(v || '[]'); return Array.is
 const photoJson = (v) => JSON.stringify((Array.isArray(v) ? v : []).filter(u => typeof u === 'string' && u.startsWith('http')).slice(0, 8));
 
 // ที่มาของใบแจ้งซ่อม — ต้องตรงกับ migration ด้านบนและชิปที่มาในหน้าเหตุการณ์
-const INC_SOURCES = new Set(['web', 'bot', 'ai', 'amsheet']);
+const INC_SOURCES = new Set(['web', 'bot', 'ai', 'amsheet', 'runcheck']);
 const incSource = (v, dflt) => (INC_SOURCES.has(v) ? v : dflt);
 
 // ── เหตุการณ์ ────────────────────────────────────────────────────────────────
@@ -7452,6 +9295,141 @@ async function seedPmMachines() {
     }
     if (added) console.log(`[pm] เพิ่มเครื่องจักรจากแผน PM เข้าทะเบียน ${added} รายการ`);
   } catch (e) { console.error('[pm] seedPmMachines failed', e.message); }
+}
+
+/* ══ Machine Hub: จัดหมวดให้เครื่องในทะเบียน ═══════════════════════════════════
+   [ชื่อในทะเบียน, หมวด, คีย์สั้น, ชื่อที่โชว์, ลำดับ, net_id ของแผน PM]
+
+   🔴 ชื่อในทะเบียน (คอลัมน์ name) ห้ามเปลี่ยนเด็ดขาด — มันคือ join key ของ
+      duty_routines.machine · incidents.machine · daily_tasks.machine ·
+      ชื่อไฟล์โน้ตใน vault และ [[wikilink]] · เปลี่ยนแล้วของเก่ากำพร้าทันที
+      ชื่อที่หน้าเว็บ/การ์ดโชว์ให้ใส่ที่ label แทน ("ไลน์ L2" → "เครื่องบรรจุ L2")
+
+   🔑 คีย์สั้น (mkey) ของเครื่องบรรจุต้องตรงกับผลของ normMachine() เป๊ะ ๆ
+      เพราะเป็นตัวจับ "[L2]" ในแผนบรรจุเข้ากับเครื่องตัวจริง
+      เครื่องที่ normMachine() อ่านไม่ออก (300 ml / Manual / ปี๊บ / Robot) ตั้งคีย์เองได้
+      แต่มันจะไม่ถูกจับจากแผนอัตโนมัติ — ต้องเพิ่มรอบเอง
+
+   หมวดที่ไม่ได้อยู่ในลิสต์นี้จะถูกกวาดเป็น 'tool' (เครื่องประจำไลน์จากทะเบียนงานรูทีน)
+   ══════════════════════════════════════════════════════════════════════════════ */
+const MACHINE_GROUP_SEED = [
+  // ── ไลน์ผลิต 6 ──────────────────────────────────────────────────────────
+  ['Line ต้ม 1', 'line', 'boil1', 'Line ต้ม 1', 11, 'w03'],
+  ['Line ต้ม 2', 'line', 'boil2', 'Line ต้ม 2', 12, 'w04'],
+  ['Line ต้ม 3', 'line', 'boil3', 'Line ต้ม 3', 13, 'w05'],
+  ['Line ต้ม 4', 'line', 'boil4', 'Line ต้ม 4', 14, 'w06'],
+  ['ไลน์ไอซิ่ง', 'line', 'icing', 'Line ผลิตน้ำตาล Icing', 15, 'w01'],
+  // ⏳ รอเคาะ: ในโจทย์แยก "ต้มหัวเชื้อ" กับ "น้ำตาล Coconut" เป็น 2 ไลน์
+  //    แต่แผน PM ของแอปทีมช่างรวมเป็นรายการเดียว — ตอนนี้ใช้ตามแผน PM (6 ไลน์)
+  //    ถ้าแยกจริงให้ INSERT เพิ่ม 1 แถว grp='line' (ไลน์ใหม่จะไม่มีแผน PM ให้ดู)
+  ['ไลน์น้ำตาลปั้นและห้องต้มหัวเชื้อ', 'line', 'sugar', 'Line ต้มหัวเชื้อ / น้ำตาลปั้น', 16, 'w02'],
+
+  // ── เครื่องบรรจุ 11 ─────────────────────────────────────────────────────
+  ['ไลน์ L1', 'packer', 'l1', 'เครื่องบรรจุ L1', 21, 'w07'],
+  ['ไลน์ L2', 'packer', 'l2', 'เครื่องบรรจุ L2', 22, 'w08'],
+  ['ไลน์ L3', 'packer', 'l3', 'เครื่องบรรจุ L3', 23, 'w09'],
+  ['ไลน์ L4', 'packer', 'l4', 'เครื่องบรรจุ L4', 24, 'w10'],
+  ['ไลน์ A1', 'packer', 'a1', 'เครื่องบรรจุ A1', 25, 'w14'],
+  ['ไลน์ A2', 'packer', 'a2', 'เครื่องบรรจุ A2', 26, 'w15'],
+  ['ไลน์ A3', 'packer', 'a3', 'เครื่องบรรจุ A3', 27, 'w16'],
+  ['ไลน์ 300 ml', 'packer', 'ml300', 'ไลน์ 300 ml', 28, 'w12'],
+  ['ไลน์ Manual', 'packer', 'manual', 'ไลน์ Manual', 29, 'w13'],
+  ['ไลน์ปี๊บ', 'packer', 'pail', 'ไลน์ปี๊บ', 30, 'w30'],
+  ['Robot Clear Packer', 'packer', 'robot', 'Robot Clear Packer', 31, 'w11'],
+
+  // ── อุปกรณ์ส่วนกลาง 13 (มีแผน PM แต่ไม่ผูกกับสินค้า/รอบผลิต) ────────────
+  ['AHU & Chiller', 'central', null, 'AHU & Chiller', 41, 'w17'],
+  ['Cold Room', 'central', null, 'Cold Room', 42, 'w18'],
+  ['หลอดไฟและกริ้วแอร์', 'central', null, 'หลอดไฟและกริ้วแอร์', 43, 'w19'],
+  ['ถุง AHU', 'central', null, 'ถุง AHU', 44, 'w20'],
+  ['RO 10,000', 'central', null, 'RO 10,000', 45, 'w21'],
+  ['RO 5,000', 'central', null, 'RO 5,000', 46, 'w22'],
+  ['Lift (Otis - Supplier)', 'central', null, 'Lift (Otis)', 47, 'w23'],
+  ['แอร์ Split Type (A&K - Supplier)', 'central', null, 'แอร์ Split Type (A&K)', 48, 'w24'],
+  ['Air Shower', 'central', null, 'Air Shower', 49, 'w25'],
+  ['ห้องเปลี่ยนชุด', 'central', null, 'ห้องเปลี่ยนชุด', 50, 'w26'],
+  ['ห้องโหลดน้ำเชื่อมและกลุ่มถังโหลดน้ำเชื่อม', 'central', null, 'ห้องโหลดน้ำเชื่อมและกลุ่มถังโหลด', 51, 'w27'],
+  ['บ่อซีเมนต์', 'central', null, 'บ่อซีเมนต์', 52, 'w28'],
+  ['สายพานท้ายไลน์ชิ้น 1, 2, 3 และ Check weight', 'central', null, 'สายพานท้ายไลน์ 1,2,3 + Check weight', 53, 'w29'],
+];
+
+/* seed หมวด + ชื่อพ้องฝั่งเครื่องบรรจุ (idempotent)
+   🔑 เติมเฉพาะช่องที่ยังว่าง (COALESCE) — ที่คนแก้เองในหน้าเว็บแล้วต้องไม่โดนทับ
+      ยกเว้น sort_order ที่ระบบเป็นเจ้าของ (ยังไม่มี UI ให้จัดลำดับเอง) */
+async function seedMachineGroups() {
+  try {
+    // ชื่อพ้องฝั่งเครื่องบรรจุ — โจทย์เรียก "เครื่องบรรจุ L2" คนพิมพ์สั้น ๆ ว่า "L2"
+    // ทะเบียนเก็บชื่อจริงว่า "ไลน์ L2" (ชื่อที่มาจากแอปทีมช่าง)
+    const aliasSeed = [];
+    for (const c of ['L1', 'L2', 'L3', 'L4', 'A1', 'A2', 'A3']) {
+      aliasSeed.push([`เครื่องบรรจุ ${c}`, `ไลน์ ${c}`], [c, `ไลน์ ${c}`]);
+    }
+    aliasSeed.push(
+      ['Line ผลิตน้ำตาล Icing', 'ไลน์ไอซิ่ง'],
+      ['Line ต้มหัวเชื้อ', 'ไลน์น้ำตาลปั้นและห้องต้มหัวเชื้อ'],
+      ['ไลน์ต้มหัวเชื้อ', 'ไลน์น้ำตาลปั้นและห้องต้มหัวเชื้อ'],
+    );
+    for (const [alias, name] of aliasSeed) {
+      const has = await dbGet('SELECT alias FROM machine_alias WHERE alias = ?', [alias]);
+      if (!has) {
+        await db.exec('INSERT INTO machine_alias (alias, machine_name, created_at) VALUES (?, ?, ?)',
+          [alias, name, nowBKK()]);
+      }
+    }
+
+    for (const [name, grp, mkey, label, sort, netId] of MACHINE_GROUP_SEED) {
+      await db.exec(
+        `UPDATE machines SET grp = COALESCE(grp, ?), mkey = COALESCE(mkey, ?),
+            label = COALESCE(label, ?), pm_net_id = COALESCE(pm_net_id, ?), sort_order = ?
+         WHERE name = ?`,
+        [grp, mkey, label, netId, sort, name]);
+    }
+    // กวาดที่เหลือเป็น 'tool' — เครื่องประจำไลน์ที่มาจากทะเบียนงานรูทีน (เครื่องชั่ง/เครื่องยิงวันที่/เครน)
+    await db.exec("UPDATE machines SET grp = 'tool' WHERE grp IS NULL");
+    // ไม่มีชื่อโชว์ = ใช้ชื่อจริงไปก่อน หน้าเว็บจะได้ไม่ต้องเช็ก null ทุกที่
+    await db.exec("UPDATE machines SET label = name WHERE label IS NULL OR label = ''");
+
+    const rows = await dbAll(
+      "SELECT grp, COUNT(*) AS n FROM machines WHERE active = 1 GROUP BY grp ORDER BY grp", []);
+    console.log('[machine-hub] หมวดเครื่องจักร:',
+      rows.map((r) => `${r.grp}=${r.n}`).join(' · ') || '(ไม่มีข้อมูล)');
+  } catch (e) { console.error('[machine-hub] seedMachineGroups failed', e.message); }
+}
+
+/* 2 กฎตั้งต้นจากโจทย์ที่ user เขียนไว้ — มีไว้ให้เห็นรูปร่างของกฎทันทีที่เปิดแท็บ ไม่ใช่หน้าเปล่า
+   idempotent ด้วย `code` (mr01/mr02) — ลบทิ้งเองแล้วต้องไม่โผล่กลับมา จึงเช็กรวม deleted ด้วย
+   ⚠️ ชื่อเครื่องต้องมีจริงในทะเบียนก่อน ไม่งั้นข้ามไป (กฎที่ชี้ไปยังเครื่องที่ไม่มี = ไม่มีวันเข้าเงื่อนไข) */
+const MACHINE_RULE_SEED = [
+  {
+    code: 'mr01', title: 'ล้างหัวพิมพ์ Lot.no', timing: 'start',
+    packer: 'ไลน์ L2', product: 'Amazon', owner: 'pd',
+    items: [{ key: 'mr01a', title: 'ล้างหัวพิมพ์ Lot.no ก่อนเริ่มบรรจุ',
+      detail: 'ถอดหัวพิมพ์ แช่น้ำยา 5 นาที เช็ดด้วยผ้าไมโครไฟเบอร์', needPhoto: true, needQc: false }],
+  },
+  {
+    code: 'mr02', title: 'ถอดลูกสูบตรวจ o-ring ร่วม QC', timing: 'end',
+    packer: 'ไลน์ A1', product: '', owner: 'mt',
+    items: [{ key: 'mr02a', title: 'ถอดลูกสูบเพื่อตรวจ o-ring ร่วม QC',
+      detail: 'ดูรอยฉีก/รอยบวม เปลี่ยนทันทีถ้าผิดปกติ', needPhoto: true, needQc: true }],
+  },
+];
+async function seedMachineRules() {
+  try {
+    for (const r of MACHINE_RULE_SEED) {
+      const has = await dbGet('SELECT id FROM machine_rules WHERE code = ?', [r.code]);
+      if (has) continue;                         // มีแล้ว หรือ user ลบไปเอง — ไม่ยัดซ้ำ
+      const m = await dbGet("SELECT name, mkey FROM machines WHERE name = ? AND grp = 'packer'", [r.packer]);
+      if (!m) continue;
+      const row = { product_pattern: r.product, packer_name: r.packer, line_name: '', shift: '' };
+      await db.exec(
+        `INSERT INTO machine_rules (code, title, timing, line_name, packer_name, packer_key, product_pattern,
+            shift, items, owner_role, note, specificity, notify, active, deleted, created_at, updated_at)
+         VALUES (?, ?, ?, '', ?, ?, ?, '', ?, ?, NULL, ?, 1, 1, 0, ?, ?)`,
+        [r.code, r.title, r.timing, r.packer, String(m.mkey || '').toLowerCase(), r.product,
+          JSON.stringify(r.items), r.owner, ruleSpecificity(row), nowBKK(), nowBKK()]);
+      console.log(`[machine-hub] seed กฎเตือน "${r.title}"`);
+    }
+  } catch (e) { console.error('[machine-hub] seedMachineRules failed', e.message); }
 }
 
 /* อ่านทุกอย่างของปีนั้นมาประกอบเป็นโครงเดียว — ใช้ร่วมกันทั้ง 3 เส้น GET
@@ -9742,6 +11720,9 @@ async function getReportConfig() {
     kpiAlertCipStaleHours: r.kpi_alert_cip_stale_hours == null ? 30 : Number(r.kpi_alert_cip_stale_hours),
     qualityWatchEnabled: !!r.quality_watch_enabled,
     pmNotifyEnabled: r.pm_notify_enabled == null ? true : !!r.pm_notify_enabled,
+    // เช็กลิสต์เดินเครื่อง — ค่าเริ่มต้น "ปิด" ต่างจากตัวอื่น เพราะยิงรายกะ ถี่กว่าทุกตัวในระบบ
+    // ต้องให้ตั้งกฎเสร็จก่อนแล้วค่อยเปิดเอง ไม่ใช่เปิดมาแล้วยิงทันทีที่ deploy
+    runNotifyEnabled: !!r.run_notify_enabled,
   };
   return _reportConfigCache;
 }
@@ -9753,7 +11734,7 @@ app.get('/api/report/config', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.post('/api/report/config', async (req, res) => {
-  const { autoEnabled, times, weekdays, onlyIfPending, autoAtShiftEnd, shiftAnalysisEnabled, kpiWeeklyEnabled, kpiMonthlyEnabled, kpiAlertEnabled, kpiAlertStreakDays, kpiAlertCipStaleHours, qualityWatchEnabled, pmNotifyEnabled } = req.body;
+  const { autoEnabled, times, weekdays, onlyIfPending, autoAtShiftEnd, shiftAnalysisEnabled, kpiWeeklyEnabled, kpiMonthlyEnabled, kpiAlertEnabled, kpiAlertStreakDays, kpiAlertCipStaleHours, qualityWatchEnabled, pmNotifyEnabled, runNotifyEnabled } = req.body;
   try {
     const cfg = await getReportConfig();
     const sae = shiftAnalysisEnabled == null ? cfg.shiftAnalysisEnabled : shiftAnalysisEnabled;
@@ -9764,8 +11745,9 @@ app.post('/api/report/config', async (req, res) => {
     const kch = kpiAlertCipStaleHours == null ? cfg.kpiAlertCipStaleHours : Math.max(1, Number(kpiAlertCipStaleHours) || 30);
     const qw = qualityWatchEnabled == null ? cfg.qualityWatchEnabled : qualityWatchEnabled;
     const pmn = pmNotifyEnabled == null ? cfg.pmNotifyEnabled : pmNotifyEnabled;
-    await db.exec('UPDATE report_config SET auto_enabled = ?, times = ?, weekdays = ?, only_if_pending = ?, auto_at_shift_end = ?, shift_analysis_enabled = ?, kpi_weekly_enabled = ?, kpi_monthly_enabled = ?, kpi_alert_enabled = ?, kpi_alert_streak_days = ?, kpi_alert_cip_stale_hours = ?, quality_watch_enabled = ?, pm_notify_enabled = ?, updated_at = ? WHERE id = ?',
-      [autoEnabled ? 1 : 0, JSON.stringify(times || []), JSON.stringify(weekdays || []), onlyIfPending ? 1 : 0, autoAtShiftEnd ? 1 : 0, sae ? 1 : 0, kw ? 1 : 0, km ? 1 : 0, ka ? 1 : 0, ksd, kch, qw ? 1 : 0, pmn ? 1 : 0, nowBKK(), cfg.id]);
+    const rnn = runNotifyEnabled == null ? cfg.runNotifyEnabled : runNotifyEnabled;
+    await db.exec('UPDATE report_config SET auto_enabled = ?, times = ?, weekdays = ?, only_if_pending = ?, auto_at_shift_end = ?, shift_analysis_enabled = ?, kpi_weekly_enabled = ?, kpi_monthly_enabled = ?, kpi_alert_enabled = ?, kpi_alert_streak_days = ?, kpi_alert_cip_stale_hours = ?, quality_watch_enabled = ?, pm_notify_enabled = ?, run_notify_enabled = ?, updated_at = ? WHERE id = ?',
+      [autoEnabled ? 1 : 0, JSON.stringify(times || []), JSON.stringify(weekdays || []), onlyIfPending ? 1 : 0, autoAtShiftEnd ? 1 : 0, sae ? 1 : 0, kw ? 1 : 0, km ? 1 : 0, ka ? 1 : 0, ksd, kch, qw ? 1 : 0, pmn ? 1 : 0, rnn ? 1 : 0, nowBKK(), cfg.id]);
     invalidateReportConfig(); // ให้ tick อ่านค่าใหม่
     _sentAutoKeys.clear();     // เปลี่ยนเวลาส่ง → ยอมส่งซ้ำในเวลาใหม่ได้
     res.json({ success: true });
@@ -9889,6 +11871,7 @@ app.post('/api/report/tick', async (req, res) => {
   await vaultTick();     // ตาข่ายกันพลาดของ Obsidian — ทำงานจริงชั่วโมงละครั้ง
   await pm.pmSyncTick();  // ดึงแผน PM จากแอปทีมช่าง — ชั่วโมงละครั้งเหมือนกัน
   await pmNotifyTick();   // แจ้งงาน PM เข้ากลุ่มช่าง — จันทร์เช้า / ศุกร์บ่าย
+  await runNotifyTick();  // การ์ดเช็กลิสต์เดินเครื่อง — ก่อนเริ่ม / กลางกะ / ก่อนจบกะ 1 ชม.
   res.json({ ok: true, at: new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }) });
 });
 
@@ -12164,7 +14147,8 @@ async function repairCardPhoto(row, kicker) {
   // จำนวนรูปขึ้น footer เฉพาะตอนที่โชว์รูปจริงไม่ได้ — โชว์ได้แล้วเขียนซ้ำก็ไม่ได้อะไรเพิ่ม
   const footL = [imgs.length ? (photoUris.length ? '' : `แนบรูป ${imgs.length} รูป`) : 'ยังไม่แนบรูป',
     after.length && !afterUris.length ? `หลังซ่อม ${after.length} รูป` : ''].filter(Boolean).join(' · ');
-  const SRC_LABEL = { amsheet: 'จากใบเช็ก AM', bot: 'แจ้งจากบอท', web: 'แจ้งจากเว็บ', ai: 'ระบบเฝ้าคุณภาพ' };
+  const SRC_LABEL = { amsheet: 'จากใบเช็ก AM', bot: 'แจ้งจากบอท', web: 'แจ้งจากเว็บ', ai: 'ระบบเฝ้าคุณภาพ',
+    runcheck: 'จากเช็กลิสต์เดินเครื่อง' };
 
   let png = null;
   try {
@@ -15444,7 +17428,9 @@ module.exports = { app, initDb, shiftJustEnded, shiftsForWeekday, factoryShiftsF
   __test_parsePlanItems: parsePlanItems,
   __test_resolveSku: resolveSku, __test_normAlias: normAlias, __test_normMachine: normMachine,
   buildShiftCardData, runShiftAnalysis, getQualitySpecs, setQualitySpec, formatThaiDate,
-  __test_pmNotifyTick: pmNotifyTick, __test_buildPmNotify: buildPmNotify };
+  __test_pmNotifyTick: pmNotifyTick, __test_buildPmNotify: buildPmNotify,
+  __test_runNotifyTick: runNotifyTick, __test_buildRunNotify: buildRunNotify, __test_initDb: initDb,
+  __test_machineBlock: machineBlock, __test_cascadeMachineRename: cascadeMachineRename };
 
 if (require.main === module) {
   initDb()
@@ -15461,7 +17447,7 @@ if (require.main === module) {
         // บอทซ่อมบำรุง — คนละบอทอีกตัว แอปเป็นเจ้าของ webhook เอง (ไม่ต้องผ่าน Duty Gate ใน n8n)
         registerMaintWebhook();
         // ตัวจับเวลาส่งรายงานอัตโนมัติ + วิเคราะห์สิ้นกะ (เฟส 1) — เช็กทุกนาที (ต้องให้เซิร์ฟเวอร์ตื่นอยู่; มี Keep-Warm ping ช่วย)
-        setInterval(() => { reportTick(); reminderTick(); shiftAnalysisTick(); kpiReportTick(); kpiAlertTick(); qualityWatchTick(); sheetSyncTick(); sppShiftNudgeTick(); vaultTick(); pm.pmSyncTick(); pmNotifyTick(); }, 60 * 1000);
+        setInterval(() => { reportTick(); reminderTick(); shiftAnalysisTick(); kpiReportTick(); kpiAlertTick(); qualityWatchTick(); sheetSyncTick(); sppShiftNudgeTick(); vaultTick(); pm.pmSyncTick(); pmNotifyTick(); runNotifyTick(); }, 60 * 1000);
         console.log('[report] scheduler started (every 60s) + shift-analysis');
       });
     })

@@ -6,6 +6,7 @@ import App from './App.tsx'
 import ErrorBoundary from './components/ErrorBoundary.tsx'
 import WarehouseVerifyPage from './components/WarehouseVerifyPage.tsx'
 import AmSheetPage from './components/AmSheetPage.tsx'
+import RunCheckPage from './components/RunCheckPage.tsx'
 import { normalizeLegacyLinks } from './hooks/useAppRoute.ts'
 
 // ลิงก์คู่มือ Line 4 รุ่นเก่า (#block-<id> เฉย ๆ) ให้พาไปหน้าคู่มือแทนหน้าหลัก
@@ -17,6 +18,9 @@ const verifyToken = new URLSearchParams(window.location.search).get('verify')
 // ใบเช็ก AM รายกะเปิดจากลิงก์ ?amsheet=<token> — เหตุผลเดียวกับ ?verify= ข้างบน
 // (ช่างกดจาก Telegram บนมือถือ ต้องไม่ติด Login/PIN และรูปถ่ายต้องไม่โดน filter:invert)
 const amSheetToken = new URLSearchParams(window.location.search).get('amsheet')
+// เช็กลิสต์เดินเครื่องเปิดจากลิงก์ ?runcheck=<token> — เหตุผลเดียวกับ ?amsheet= ข้างบน
+// (พนักงานกดจากลิงก์ที่ปักหมุดในกลุ่ม ต้องไม่ติด Login/PIN และรูปต้องไม่โดน filter:invert)
+const runCheckToken = new URLSearchParams(window.location.search).get('runcheck')
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -27,6 +31,10 @@ createRoot(document.getElementById('root')!).render(
     ) : amSheetToken ? (
       <ErrorBoundary label="am-sheet">
         <AmSheetPage token={amSheetToken} />
+      </ErrorBoundary>
+    ) : runCheckToken ? (
+      <ErrorBoundary label="run-check">
+        <RunCheckPage token={runCheckToken} />
       </ErrorBoundary>
     ) : (
       <ErrorBoundary label="root">

@@ -1,0 +1,1745 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockup — ทะเบียนเครื่องจักร (แบบเชื่อมโยง)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+
+/* โทเคนชุดเดียวกับแอปจริง (client/src/redesign.css) — ห้ามคิดสีใหม่ให้ชนของเดิม */
+:root{
+  --brand:#ff6b00; --brand-deep:#c24f00; --brand-soft:#fff3ea;
+  --ink:#2b2119; --ink-soft:#6d6259; --paper:#faf7f4; --card:#ffffff; --line:#eee3d9;
+  --ok:#1c8a4c; --warn:#c77700; --danger:#c62828;
+  --cip1:#1565c0; --cip2:#01579b; --cip3:#006064; --cipx:#6a1b9a; --chat:#0f7a6c;
+  --radius:16px;
+  --shadow-card:0 1px 2px rgba(63,37,10,.06),0 6px 18px -6px rgba(63,37,10,.12);
+  --shadow-float:0 2px 4px rgba(63,37,10,.08),0 16px 40px -12px rgba(63,37,10,.22);
+  --font-head:'Kanit',sans-serif; --font-body:'Sarabun',sans-serif;
+  --surface-2:#fbf7f3; --surface-3:#fdfbf9; --row-line:#f5efe9; --muted:#a49a90; --sep:#d8cabb;
+  --danger-soft-bg:#fdecea; --danger-soft-line:#f7d9d5; --warn-soft-bg:#fff6e6;
+  --p-stop:#c62828; --p-stop-w:#fdecea; --p-warn:#c77700; --p-warn-w:#fff6e6;
+  --p-low:#1c8a4c; --p-low-w:#e6f4ec;
+  --s-open:#c62828; --s-wip:#0277bd; --s-wip-w:#e1f2fb; --s-closed:#1c8a4c;
+}
+*,*::before,*::after{box-sizing:border-box}
+body{
+  margin:0;font-family:var(--font-body);color:var(--ink);line-height:1.7;
+  background:var(--paper);
+  background-image:
+    radial-gradient(1200px 500px at 85% -10%, rgba(255,107,0,.07), transparent 60%),
+    radial-gradient(900px 420px at -10% 20%, rgba(21,101,192,.05), transparent 55%);
+}
+h1,h2,h3,h4,p,ul,ol,li{margin:0;padding:0}
+h1,h2,h3,h4{font-family:var(--font-head);letter-spacing:-.02em;line-height:1.3;color:var(--ink);font-weight:600}
+a{color:var(--brand-deep);text-decoration:none} a:hover{color:var(--brand)}
+.wrap{padding:26px 30px 30px;max-width:1440px}
+.eyebrow{font-family:var(--font-head);font-size:11.5px;font-weight:600;color:var(--chat);
+  background:#e8f6f3;display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;margin-bottom:10px}
+.phead{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+.phead h1{font-size:25px;letter-spacing:-.03em}
+.phead .sub{font-size:13px;color:var(--ink-soft)}
+.sp{flex:1}
+.itabs{display:inline-flex;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:4px;gap:4px;margin:14px 0 4px;flex-wrap:wrap}
+.itab{border:none;background:transparent;color:var(--ink-soft);font-family:var(--font-head);font-size:13.5px;font-weight:600;
+  padding:8px 18px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+.itab.on{background:var(--card);color:var(--ink);box-shadow:var(--shadow-card)}
+.itab .n{font-family:var(--font-body);font-size:11.5px;font-weight:700;border-radius:999px;padding:1px 8px;background:var(--surface-3);color:var(--ink-soft)}
+.itab.on .n{background:var(--brand-soft);color:var(--brand-deep)}
+.ifilters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0 14px}
+.ipill{border:1px solid var(--line);background:var(--card);color:var(--ink-soft);padding:6px 14px;border-radius:999px;
+  font-size:12.8px;font-weight:600;font-family:var(--font-head);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.ipill.on{color:#fff;border-color:transparent;background:var(--ink)}
+.ipill.on.brand{background:var(--brand-deep)}
+.isel,.iinp{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:6px 12px;
+  font-size:12.8px;font-weight:600;font-family:var(--font-head)}
+.iinp{font-family:var(--font-body);font-weight:400;min-width:180px}
+.divider{width:1px;height:22px;background:var(--line)}
+.ibtn{border:1px solid var(--line);background:var(--card);color:var(--ink-soft);padding:7px 15px;border-radius:999px;
+  font-size:12.8px;font-weight:600;font-family:var(--font-head);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.ibtn.pri{background:var(--brand);border-color:var(--brand);color:#fff}
+.ibtn.sm{padding:4px 12px;font-size:12px}
+.ibtn.xs{padding:3px 9px;font-size:11.5px}
+.ibtn.ok{color:var(--ok);background:var(--p-low-w);border-color:transparent}
+.ibtn.dgr{color:var(--danger);background:var(--danger-soft-bg);border-color:var(--danger-soft-line)}
+.ibtn.ext{color:var(--cip1);background:#e8f1fb;border-color:transparent}
+.istats{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:14px 0}
+.istat{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-card);padding:11px 14px}
+.istat .l{font-size:11.5px;font-weight:600;color:var(--ink-soft);display:flex;align-items:center;gap:5px}
+.istat .v{font-family:var(--font-head);font-size:26px;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums}
+.istat .u{font-size:12px;font-weight:500;color:var(--ink-soft);margin-left:3px;font-family:var(--font-body)}
+.istat.hot{border-color:var(--p-stop);background:linear-gradient(180deg,var(--p-stop-w),var(--card) 70%)}
+.istat.hot .v{color:var(--p-stop)}
+.istat.good .v{color:var(--ok)}
+.istat.gap .v{color:var(--warn)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-card)}
+.chip{font-size:11px;font-weight:700;border-radius:999px;padding:2px 10px;white-space:nowrap;font-family:var(--font-body)}
+.chip.stop{color:var(--p-stop);background:var(--p-stop-w)}
+.chip.warn{color:var(--p-warn);background:var(--p-warn-w)}
+.chip.low{color:var(--p-low);background:var(--p-low-w)}
+.chip.due{color:var(--brand-deep);background:var(--brand-soft)}
+.chip.freq{color:var(--cip1);background:#e8f1fb}
+.chip.km{color:var(--chat);background:#e8f6f3}
+.chip.mute{color:var(--muted);background:var(--surface-3);border:1px solid var(--line)}
+.src{font-size:10.5px;font-weight:700;border-radius:6px;padding:2px 8px;white-space:nowrap;border:1px solid var(--line);background:var(--surface-2);color:var(--ink-soft)}
+.src.plan{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-deep)}
+.src.manual{border-color:var(--cip1);background:#e8f1fb;color:var(--cip1)}
+.src.prod{border-color:var(--chat);background:#e8f6f3;color:var(--chat)}
+.meta{font-size:12px;color:var(--ink-soft);margin-top:5px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 9px}
+.meta .dot{color:var(--sep)}
+.fld{margin-bottom:11px}
+.fld > label{display:block;font-size:11.5px;font-weight:700;color:var(--ink-soft);margin-bottom:4px}
+.fld input,.fld select,.fld textarea{width:100%;border:1px solid var(--line);background:var(--surface-3);color:var(--ink);
+  border-radius:10px;padding:8px 11px;font-size:13px;line-height:1.6;font-family:inherit}
+.grid2{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.warnbox{background:var(--warn-soft-bg);border-radius:10px;padding:9px 12px;font-size:12.3px;color:var(--ink-soft);
+  border-left:3px solid var(--warn);margin-bottom:12px;line-height:1.65}
+.okbox{background:var(--p-low-w);border-radius:10px;padding:9px 12px;font-size:12.3px;color:var(--ink-soft);
+  border-left:3px solid var(--ok);margin-bottom:12px;line-height:1.65}
+.infobox{background:var(--surface-2);border-radius:10px;padding:9px 12px;font-size:12.3px;color:var(--ink-soft);
+  border-left:3px solid var(--sep);line-height:1.65}
+table.tb{width:100%;border-collapse:collapse;font-size:12.8px}
+table.tb th{font-family:var(--font-head);font-size:11.5px;font-weight:600;color:var(--ink-soft);text-align:left;
+  padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.tb td{padding:10px 12px;border-bottom:1px solid var(--row-line);vertical-align:middle}
+table.tb tr:last-child td{border-bottom:none}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.sheet{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow-float);padding:20px 22px}
+.sheet h3{font-size:17px;margin:0 0 3px}
+.sheet .hint{font-size:12.4px;color:var(--ink-soft);margin-bottom:13px}
+.hd{font-family:var(--font-head);font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;margin:0 0 9px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11.5px;color:var(--ink-soft);margin-top:10px}
+.legend i{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:-1px}
+.empty{text-align:center;color:var(--muted);font-size:12.8px;padding:22px}
+
+/* ── เปลือกของ mockup (ไม่ใช่ส่วนหนึ่งของหน้าจริง) ─────────── */
+.ribbon{position:sticky;top:0;z-index:90;background:#1c1917;color:#f3ede6;padding:9px 16px;
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;font-weight:600;
+  font-family:var(--font-head);box-shadow:0 8px 24px -12px rgba(0,0,0,.6)}
+.ribbon b{color:var(--brand)}
+.ribbon .tag{margin-left:auto;background:#312b23;color:#a89e92;border-radius:999px;padding:3px 10px;font-size:11px}
+.atop{display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:8px;
+  background:rgba(248,245,240,.92);border-bottom:1px solid var(--line);padding:10px 18px}
+.atop .logo{margin-right:auto;display:flex;align-items:center;gap:8px}
+.lg-mark{width:26px;height:26px;border-radius:8px;background:linear-gradient(145deg,var(--brand),var(--brand-deep));
+  display:grid;place-items:center;color:#fff;font-family:var(--font-head);font-weight:700;font-size:13px;
+  box-shadow:0 2px 6px -1px rgba(194,79,0,.5)}
+.lg-word{font-family:var(--font-head);font-weight:700;font-size:17px;letter-spacing:-.02em;color:var(--brand)}
+.atop .search{flex:1;min-width:150px;max-width:340px;background:var(--card);border:1px solid var(--line);
+  border-radius:10px;padding:7px 12px;font-size:13px;color:var(--muted)}
+.achip{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;background:var(--card);
+  border:1px solid var(--line);padding:4px 12px 4px 4px;border-radius:999px;white-space:nowrap}
+.achip .av{width:24px;height:24px;border-radius:50%;background:var(--brand);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:700}
+.amain{display:flex;align-items:stretch}
+.aside{width:230px;flex:none;border-right:1px solid var(--line);padding:16px 12px 40px;
+  display:flex;flex-direction:column;gap:1px;background:var(--card)}
+.ahead{font-family:var(--font-head);font-size:11.5px;font-weight:700;color:var(--muted);
+  padding:14px 10px 5px;display:flex;align-items:center;gap:7px}
+.rsbtn{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:none;background:transparent;
+  color:var(--ink);font-size:13.5px;font-weight:600;padding:7px 10px;border-radius:10px;font-family:var(--font-head)}
+.rsbtn.sub{font-size:13px;padding-left:16px;color:var(--ink-soft)}
+.rsbtn.on{background:#e8f6f3;color:var(--chat)}
+.acontent{flex:1;min-width:0}
+.view{display:none}
+.view.on{display:block}
+.view > .wrap{padding-top:2px}
+.pagehead{padding:22px 30px 0}
+.tabjs{cursor:pointer}
+.chunk{border-top:1px dashed var(--sep);margin-top:22px;padding:22px 30px 8px;max-width:1440px}
+.chead{margin-bottom:14px}
+.chead h2{font-family:var(--font-head);font-size:18px;font-weight:600;letter-spacing:-.02em}
+.chead p{font-size:12.8px;color:var(--ink-soft);margin-top:2px}
+.phones{display:flex;gap:26px;flex-wrap:wrap;padding:4px 0 10px}
+.phonewrap{margin:0}
+.phonewrap figcaption{font-family:var(--font-head);font-size:12.5px;font-weight:600;color:var(--ink-soft);
+  text-align:center;margin-top:9px}
+.phone{position:relative;width:390px;height:812px;overflow:hidden;border:9px solid #1c1917;border-radius:34px;
+  background:var(--paper);box-shadow:var(--shadow-float)}
+.phone > .mw{height:100%;overflow-y:auto}
+.foot{padding:22px 30px 40px;font-size:12.5px;color:var(--ink-soft);line-height:1.8;max-width:900px}
+
+/* ── สไตล์เฉพาะของแต่ละส่วน (ตีกรอบด้วย id กันชนกัน) ─────── */
+
+/* ทะเบียน */
+#v-reg .gsec{margin-bottom:22px}
+#v-reg .ghead{display:flex;align-items:center;gap:9px;margin:0 0 11px;flex-wrap:wrap}
+#v-reg .ghead h2{font-size:16px}
+#v-reg .ghead .gc{font-size:11.5px;font-weight:700;color:var(--ink-soft);background:var(--surface-2);
+  border:1px solid var(--line);border-radius:999px;padding:1px 10px}
+#v-reg .ghead .gd{font-size:12.3px;color:var(--muted)}
+#v-reg .mgrid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(272px,1fr));align-items:start}
+.mc{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-card);
+  padding:13px 15px 12px;border-left:4px solid var(--sep);cursor:pointer;text-align:left;width:100%;font-family:inherit;color:inherit}
+.mc.line{border-left-color:var(--cip1)}
+.mc.packer{border-left-color:var(--brand)}
+.mc.central{border-left-color:var(--cip3)}
+.mc.tool{border-left-color:var(--muted)}
+.mc h3{font-size:15.5px;letter-spacing:-.01em;line-height:1.35}
+.mc .key{font-size:11px;color:var(--muted);font-family:var(--font-body);margin-top:1px}
+.mc .r1{display:flex;align-items:flex-start;gap:8px}
+.mc .badges{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+.mc .lnk{font-size:11.5px;color:var(--ink-soft);margin-top:8px;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+#v-reg .foldwrap{display:none}
+#v-reg .foldwrap.open{display:block}
+
+/* หน้ารายละเอียด */
+#v-detail .dgrid{display:grid;gap:14px;grid-template-columns:1fr 330px;align-items:start}
+#v-detail .blk{margin-bottom:14px;padding:15px 17px}
+#v-detail .wk{display:grid;grid-template-columns:repeat(26,1fr);gap:3px;margin-top:9px}
+#v-detail .wk i{height:16px;border-radius:3px;background:var(--surface-2);border:1px solid var(--line);display:block}
+#v-detail .wk i.plan{background:var(--brand-soft);border-color:var(--brand)}
+#v-detail .wk i.done{background:var(--p-low-w);border-color:var(--ok)}
+#v-detail .wk i.now{outline:2px solid var(--ink);outline-offset:1px}
+#v-detail .kv{display:grid;grid-template-columns:110px 1fr;gap:6px 12px;font-size:12.8px}
+#v-detail .kv dt{color:var(--ink-soft);font-weight:600;font-size:12px}
+#v-detail .kv dd{margin:0}
+#v-detail .li{display:flex;gap:9px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--row-line);font-size:12.8px}
+#v-detail .li:last-child{border-bottom:none}
+#v-detail .li .ic{flex:none;width:22px;text-align:center}
+
+/* ผังเชื่อมโยง */
+#v-map .mapcard{padding:16px 18px;overflow-x:auto}
+#v-map svg{display:block;min-width:900px}
+#v-map .nodebox{fill:var(--card);stroke:var(--line)}
+#v-map .nodebox.line{stroke:var(--cip1);fill:#f4f8fd}
+#v-map .nodebox.packer{stroke:var(--brand);fill:var(--brand-soft)}
+#v-map .nodebox.off{stroke:var(--sep);fill:var(--surface-2);stroke-dasharray:4 3}
+#v-map text{font-family:var(--font-head);font-size:12.5px;fill:var(--ink)}
+#v-map text.sm{font-family:var(--font-body);font-size:10.5px;fill:var(--muted)}
+#v-map text.colhead{font-size:11.5px;fill:var(--ink-soft);font-weight:600}
+#v-map path.edge{fill:none;stroke:var(--sep);stroke-width:1.6}
+#v-map path.edge.hot{stroke:var(--brand);stroke-width:2.2}
+#v-map .pchips{display:flex;flex-wrap:wrap;gap:4px}
+#v-map .pchip{font-size:11px;font-weight:600;border-radius:999px;padding:1px 9px;background:var(--surface-2);
+  border:1px solid var(--line);color:var(--ink-soft)}
+#v-map .pchip.on{background:#e8f6f3;border-color:transparent;color:var(--chat)}
+#v-map .rowacts{display:flex;gap:5px;justify-content:flex-end}
+#v-map .editrow td{background:var(--surface-3)}
+#v-map select.lsel{border:1px solid var(--line);background:var(--surface-3);border-radius:8px;padding:5px 8px;
+  font-size:12.5px;font-family:inherit;color:var(--ink);max-width:100%}
+#v-map select.lsel.empty{border-color:var(--warn);background:var(--warn-soft-bg);color:var(--p-warn);font-weight:600}
+#v-map .prodbox{border:1px solid var(--line);border-radius:10px;background:var(--surface-3);padding:8px 10px;
+  display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+#v-map .prodbox input{border:none;background:transparent;flex:1;min-width:130px;font-family:inherit;font-size:13px;outline:none;color:var(--ink)}
+#v-map .pchip.x{cursor:pointer}
+#v-map .pchip.x:hover{background:var(--danger-soft-bg);border-color:var(--danger-soft-line);color:var(--danger)}
+.modal{position:fixed;inset:0;background:rgba(43,33,25,.45);display:grid;place-items:center;z-index:120;padding:18px}
+.modal[hidden]{display:none!important}
+.modal .box{background:var(--card);border-radius:18px;box-shadow:var(--shadow-float);padding:20px 22px;max-width:430px;width:100%}
+.modal .box h3{font-size:17px;margin-bottom:3px}
+.modal .box .hint{font-size:12.4px;color:var(--ink-soft);margin-bottom:14px}
+
+/* วันนี้ */
+#v-today .tgrid{display:grid;gap:14px;grid-template-columns:1fr 330px;align-items:start}
+#v-today .rule{padding:11px 13px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line);margin-bottom:9px}
+#v-today .rule .t{font-family:var(--font-head);font-size:13px;font-weight:600}
+#v-today .rule .c{font-size:11.8px;color:var(--ink-soft);margin-top:2px}
+#v-today select.lsel{border:1px solid var(--line);background:var(--surface-3);border-radius:8px;padding:5px 8px;
+  font-size:12.5px;font-family:inherit;color:var(--ink);max-width:100%}
+#v-today select.lsel.empty{border-color:var(--warn);background:var(--warn-soft-bg);color:var(--p-warn);font-weight:600}
+#v-today td:first-child,#v-today td:last-child{white-space:nowrap}
+#v-today td:last-child .rowacts{display:flex;gap:5px;justify-content:flex-end}
+
+/* กฎเตือน */
+#v-rules .rgrid{display:grid;gap:14px;grid-template-columns:1fr 420px;align-items:start}
+#v-rules .rl{padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);
+  box-shadow:var(--shadow-card);margin-bottom:10px;border-left:4px solid var(--sep)}
+#v-rules .rl.on{border-left-color:var(--brand);background:linear-gradient(180deg,var(--brand-soft),var(--card) 60%)}
+#v-rules .rl .t{font-family:var(--font-head);font-size:14px;font-weight:600;display:flex;gap:8px;align-items:flex-start}
+#v-rules .cond{font-size:12px;color:var(--ink-soft);margin-top:4px;display:flex;flex-wrap:wrap;gap:4px 7px;align-items:center}
+#v-rules .items{margin-top:8px;font-size:12.5px;display:flex;flex-direction:column;gap:4px}
+#v-rules .items div{display:flex;gap:7px}
+#v-rules .itemrow{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;
+  border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:var(--surface-3);margin-bottom:8px}
+#v-rules .cbs{display:flex;gap:12px;flex-wrap:wrap;font-size:11.8px;color:var(--ink-soft);margin-top:6px}
+
+/* เช็กลิสต์ */
+.prog{height:7px;border-radius:999px;background:var(--surface-2);overflow:hidden;border:1px solid var(--line)}
+.prog .bar{height:100%;background:var(--ok);width:50%}
+.it{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px;background:var(--card)}
+.it.ok{border-color:var(--ok);background:linear-gradient(180deg,var(--p-low-w),var(--card) 60%)}
+.it.ng{border-color:var(--danger);background:linear-gradient(180deg,var(--danger-soft-bg),var(--card) 60%)}
+.it .t{font-family:var(--font-head);font-size:14px;font-weight:600}
+.it .d{font-size:12.3px;color:var(--ink-soft);margin-top:2px}
+.it .sb{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.sbtn{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:7px 16px;font-family:var(--font-head);
+  font-size:13px;font-weight:600;color:var(--ink-soft);cursor:pointer}
+.sbtn.y.on{background:var(--p-low-w);border-color:var(--ok);color:var(--ok)}
+.sbtn.n.on{background:var(--danger-soft-bg);border-color:var(--danger);color:var(--danger)}
+.ph{width:62px;height:62px;border-radius:10px;border:1px dashed var(--sep);background:var(--surface-2);
+  display:grid;place-items:center;font-size:10.5px;color:var(--muted);text-align:center;line-height:1.3}
+
+/* Telegram mock */
+#s-tg .tgwrap{background:#e7ebef;border-radius:16px;padding:16px;max-width:430px;
+  background-image:radial-gradient(circle at 20% 20%, rgba(255,255,255,.7), transparent 50%)}
+#s-tg .bub{background:#fff;border-radius:14px;padding:12px 14px;font-size:13px;line-height:1.65;
+  box-shadow:0 1px 2px rgba(0,0,0,.12);margin-bottom:10px}
+#s-tg .bub .h{font-family:var(--font-head);font-weight:600;font-size:14px}
+#s-tg .bub .sub2{color:#6d6259;font-size:12px}
+#s-tg .tgbtn{display:block;text-align:center;margin-top:10px;border-top:1px solid #e7ebef;padding-top:9px;
+  color:#2a7ab0;font-weight:600;font-size:13px}
+#s-tg .pngcard{border-radius:12px;overflow:hidden;border:1px solid var(--line);background:var(--card)}
+#s-tg .pngcard .top{background:linear-gradient(135deg,#1c8a4c,#0f6b3a);color:#fff;padding:11px 14px}
+#s-tg .pngcard .body{padding:11px 14px;font-size:12.5px}
+#s-tg .tglayout{display:grid;gap:22px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+
+/* ข้อมูลมาจากไหน */
+#s-flow .flow{display:grid;grid-template-columns:1fr 24px 1fr 24px 1fr 24px 1fr;align-items:center;gap:6px}
+#s-flow .step{padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);
+  box-shadow:var(--shadow-card);font-size:12.5px}
+#s-flow .step b{font-family:var(--font-head);font-size:13px;display:block;margin-bottom:2px}
+#s-flow .arrow{text-align:center;color:var(--sep);font-size:19px}
+
+@media(max-width:900px){
+  .aside{display:none}
+  .wrap,.pagehead,.chunk,.foot{padding-left:14px;padding-right:14px}
+  .card:has(table.tb){overflow-x:auto}
+  table.tb{min-width:640px}
+  #v-detail .dgrid,#v-today .tgrid,#v-rules .rgrid{grid-template-columns:1fr!important}
+  #s-flow .flow{grid-template-columns:1fr!important}
+  #s-flow .arrow{display:none}
+  #s-flow .step{margin-bottom:10px}
+  .phones{gap:16px;overflow-x:auto;padding-bottom:14px}
+}
+</style>
+</head>
+<body>
+
+<div class="ribbon">
+  🎨 <b>MOCKUP</b> — “ทะเบียนเครื่องจักร” แบบเชื่อมโยง · ไลน์ผลิต ↔ เครื่องบรรจุ ↔ สินค้า ↔ กฎเตือน
+  <span class="tag">ยังไม่ต่อฐานข้อมูลจริง — ชื่อคู่/สินค้า/ตัวเลขในหน้าเป็นตัวอย่าง</span>
+</div>
+
+<div class="atop">
+  <div class="logo"><div class="lg-mark">S</div><div class="lg-word">SPP-MP</div></div>
+  <div class="search">🔎 ค้นหา…</div>
+  <div class="achip"><div class="av">J</div>จักรกฤษ</div>
+</div>
+
+<div class="amain">
+  <aside class="aside">
+    <button class="rsbtn">📊 ภาพรวม</button>
+    <button class="rsbtn">🕒 Timeline รับ-ส่งกะ</button>
+    <button class="rsbtn">🏭 ลงยอดผลิต</button>
+    <button class="rsbtn">✅ งานวันนี้</button>
+    <button class="rsbtn">🧭 พื้นที่รับผิดชอบ</button>
+    <button class="rsbtn">📅 ปฏิทิน</button>
+    <button class="rsbtn">📈 รายงาน</button>
+    <div class="ahead">🔧 งานซ่อมบำรุง</div>
+    <button class="rsbtn sub">👷 กระดานทีมซ่อมบำรุง</button>
+    <button class="rsbtn sub">🗓 งาน PM</button>
+    <button class="rsbtn sub">🔁 ทะเบียนงานรูทีน</button>
+    <button class="rsbtn sub">⏱ เวลาเครื่องหยุด</button>
+    <div class="ahead">📚 Knowledge management</div>
+    <button class="rsbtn sub">📝 บทความเทคนิค</button>
+    <button class="rsbtn sub on">⚙️ ทะเบียนเครื่องจักร</button>
+    <button class="rsbtn sub">⚡ เหตุการณ์</button>
+  </aside>
+
+  <div class="acontent">
+
+    <div class="pagehead">
+      <div class="eyebrow">📚 Knowledge management</div>
+      <div class="phead">
+        <h1>ทะเบียนเครื่องจักร</h1>
+        <div class="sub"><span id="subTotal">38</span> เครื่อง · ผูกคู่ไลน์แล้ว <span id="subPairs">12</span> คู่ · กฎเตือนใช้งาน 2 ข้อ</div>
+        <div class="sp"></div>
+        <button class="ibtn">🔄 ซิงก์โน้ตเข้า Obsidian</button>
+        <button class="ibtn pri">＋ เพิ่มเครื่องจักร</button>
+      </div>
+      <div class="itabs">
+        <button class="itab on tabjs" data-view="v-reg">🗂 ทะเบียน<span class="n">38</span></button>
+        <button class="itab tabjs" data-view="v-map">🔗 ผังเชื่อมโยง<span class="n">12</span></button>
+        <button class="itab tabjs" data-view="v-today">📅 วันนี้<span class="n">3</span></button>
+        <button class="itab tabjs" data-view="v-rules">⚙️ กฎเตือน<span class="n">2</span></button>
+        <button class="itab tabjs" data-view="v-check">✅ เช็กลิสต์</button>
+      </div>
+    </div>
+
+<!-- ══════════════════ 1. ทะเบียน ══════════════════ -->
+<section class="view on" id="v-reg">
+<div class="wrap">
+
+  <div class="ifilters">
+    <input class="iinp" placeholder="🔎 ค้นหาชื่อเครื่อง / รหัส">
+    <div class="divider"></div>
+    <button class="ipill on brand">ทั้งหมด 38</button>
+    <button class="ipill">🏭 ไลน์ผลิต 6</button>
+    <button class="ipill">📦 เครื่องบรรจุ 11</button>
+    <button class="ipill">🏢 ส่วนกลาง 13</button>
+    <button class="ipill">🔩 อื่น ๆ 8</button>
+    <div class="divider"></div>
+    <button class="ipill">⚠️ มีเหตุการณ์ค้าง 5</button>
+    <button class="ipill">🔗 ยังไม่ผูกคู่ 4</button>
+  </div>
+
+  <div class="istats">
+    <div class="istat"><div class="l">🏭 ไลน์ผลิต</div><div class="v">6<span class="u">ไลน์</span></div></div>
+    <div class="istat"><div class="l">📦 เครื่องบรรจุ</div><div class="v">11<span class="u">เครื่อง</span></div></div>
+    <div class="istat gap"><div class="l">🔗 ยังไม่ผูกคู่ไลน์</div><div class="v">4<span class="u">เครื่อง</span></div></div>
+    <div class="istat hot"><div class="l">⚡ เหตุการณ์ค้าง</div><div class="v">5<span class="u">ใบ</span></div></div>
+    <div class="istat"><div class="l">🗓 PM ครบกำหนดสัปดาห์นี้</div><div class="v">3<span class="u">เครื่อง</span></div></div>
+  </div>
+
+  <!-- ── หมวด 1: ไลน์ผลิต ── -->
+  <div class="gsec">
+    <div class="ghead">
+      <h2>🏭 ไลน์ผลิต</h2><span class="gc" id="cnt-line">6</span>
+      <span class="gd">ไลน์ต้ม/ไลน์ผลิตน้ำตาล — ต้นทางที่ป้อนเข้าเครื่องบรรจุ</span>
+    </div>
+    <div class="mgrid" id="grid-line">
+
+      <button class="mc line tabjs" data-view="v-detail">
+        <div class="r1"><div style="flex:1;min-width:0">
+          <h3>Line ต้ม 1</h3><div class="key">ชื่อในระบบ · Line ต้ม 1 · MC-001</div>
+        </div><span class="chip low">ปกติ</span></div>
+        <div class="badges">
+          <span class="chip freq">PM ทุก 1 เดือน · รอบหน้า W40</span>
+          <span class="chip km">งานรูทีน 15</span>
+          <span class="chip mute">คู่เครื่องบรรจุ 2</span>
+        </div>
+        <div class="lnk">📄 เครื่องจักร/Line ต้ม 1.md <span class="dot">·</span> 🔗 L1, L2</div>
+      </button>
+
+      <button class="mc line tabjs" data-view="v-detail">
+        <div class="r1"><div style="flex:1;min-width:0">
+          <h3>Line ต้ม 2</h3><div class="key">ชื่อในระบบ · Line ต้ม 2 · MC-002</div>
+        </div><span class="chip warn">ค้าง 1</span></div>
+        <div class="badges">
+          <span class="chip freq">PM ทุก 1 เดือน · รอบหน้า W38</span>
+          <span class="chip km">งานรูทีน 15</span>
+          <span class="chip mute">คู่เครื่องบรรจุ 2</span>
+        </div>
+        <div class="lnk">📄 เครื่องจักร/Line ต้ม 2.md <span class="dot">·</span> 🔗 L2, L3</div>
+      </button>
+
+      <button class="mc line tabjs" data-view="v-detail">
+        <div class="r1"><div style="flex:1;min-width:0">
+          <h3>Line ต้ม 3</h3><div class="key">ชื่อในระบบ · Line ต้ม 3 · MC-003</div>
+        </div></div>
+        <div class="badges">
+          <span class="chip freq">PM ทุก 1 เดือน · รอบหน้า W41</span>
+          <span class="chip km">งานรูทีน 15</span>
+          <span class="chip mute">คู่เครื่องบรรจุ 2</span>
+        </div>
+        <div class="lnk">📄 เครื่องจักร/Line ต้ม 3.md <span class="dot">·</span> 🔗 L3, L4</div>
+      </button>
+
+      <button class="mc line tabjs" data-view="v-detail">
+        <div class="r1"><div style="flex:1;min-width:0">
+          <h3>Line ต้ม 4</h3><div class="key">ชื่อในระบบ · Line ต้ม 4 · MC-004</div>
+        </div></div>
+        <div class="badges">
+          <span class="chip freq">PM ทุก 1 เดือน · รอบหน้า W39</span>
+          <span class="chip mute">คู่เครื่องบรรจุ 2</span>
+        </div>
+        <div class="lnk">📄 เครื่องจักร/Line ต้ม 4.md <span class="dot">·</span> 🔗 A1, A2</div>
+      </button>
+
+      <button class="mc line tabjs" data-view="v-detail">
+        <div class="r1"><div style="flex:1;min-width:0">
+          <h3>Line ผลิตน้ำตาล Icing</h3><div class="key">ชื่อในระบบ · ไลน์ไอซิ่ง · MC-005</div>
+        </div></div>
+        <div class="badges">
+          <span class="chip freq">PM ทุก 2 สัปดาห์ · รอบหน้า W38</span>
+          <span class="chip mute">คู่เครื่องบรรจุ 2</span>
+        </div>
+        <div class="lnk">📄 เครื่องจักร/ไลน์ไอซิ่ง.md <span class="dot">·</span> 🔗 A3, 300 ml</div>
+      </button>
+
+      <button class="mc line tabjs" data-view="v-detail">
+        <div class="r1"><div style="flex:1;min-width:0">
+          <h3>Line ต้มหัวเชื้อ / น้ำตาลปั้น</h3><div class="key">ชื่อในระบบ · ไลน์น้ำตาลปั้นและห้องต้มหัวเชื้อ</div>
+        </div><span class="chip stop">ต้องเคาะ</span></div>
+        <div class="badges">
+          <span class="chip freq">PM ทุก 2 สัปดาห์ · รอบหน้า W39</span>
+          <span class="chip mute">คู่เครื่องบรรจุ 2</span>
+        </div>
+        <div class="lnk">⚠️ ในโน้ตแยกเป็น 2 ไลน์ (ต้มหัวเชื้อ / น้ำตาล Coconut) — แอปทีมช่างรวมเป็นรายการเดียว</div>
+      </button>
+
+    </div>
+  </div>
+
+  <!-- ── หมวด 2: เครื่องบรรจุ ── -->
+  <div class="gsec">
+    <div class="ghead">
+      <h2>📦 เครื่องบรรจุ</h2><span class="gc" id="cnt-packer">11</span>
+      <span class="gd">ปลายทาง — ตรงกับรหัส <b>[L1]</b>/<b>[A3]</b> ที่อยู่ในแผนบรรจุรายกะ</span>
+    </div>
+    <div class="mgrid" id="grid-packer">
+
+      <button class="mc packer tabjs" data-view="v-detail">
+        <div class="r1"><div style="flex:1;min-width:0">
+          <h3>เครื่องบรรจุ L1</h3><div class="key">ชื่อในระบบ · ไลน์ L1 · รหัสในแผน [L1]</div>
+        </div></div>
+        <div class="badges">
+          <span class="chip freq">PM ทุก 2 สัปดาห์ · รอบหน้า W38</span>
+          <span class="chip mute">คู่ไลน์ 1</span>
+        </div>
+        <div class="lnk">🔗 ป้อนจาก Line ต้ม 1 <span class="dot">·</span> 📄 โน้ต</div>
+      </button>
+
+      <button class="mc packer tabjs" data-view="v-detail">
+        <div class="r1"><div style="flex:1;min-width:0">
+          <h3>เครื่องบรรจุ L2</h3><div class="key">ชื่อในระบบ · ไลน์ L2 · รหัสในแผน [L2]</div>
+        </div><span class="chip warn">ค้าง 2</span></div>
+        <div class="badges">
+          <span class="chip freq">PM ทุก 2 สัปดาห์ · รอบหน้า W38</span>
+          <span class="chip due">กฎเตือน 1</span>
+          <span class="chip mute">คู่ไลน์ 2</span>
+        </div>
+        <div class="lnk">🔗 ป้อนจาก Line ต้ม 1, Line ต้ม 2 <span class="dot">·</span> 🏷 Amazon, Syrup 800×12</div>
+      </button>
+
+      <button class="mc packer tabjs" data-view="v-detail">
+        <div class="r1"><div style="flex:1;min-width:0">
+          <h3>เครื่องบรรจุ L3</h3><div class="key">ชื่อในระบบ · ไลน์ L3 · รหัสในแผน [L3]</div>
+        </div></div>
+        <div class="badges">
+          <span class="chip freq">PM ทุก 2 สัปดาห์ · รอบหน้า W40</span>
+          <span class="chip mute">คู่ไลน์ 2</span>
+        </div>
+        <div class="lnk">🔗 ป้อนจาก Line ต้ม 2, Line ต้ม 3</div>
+      </button>
+
+      <button class="mc packer tabjs" data-view="v-detail">
+        <div class="r1"><div style="flex:1;min-width:0">
+          <h3>เครื่องบรรจุ L4</h3><div class="key">ชื่อในระบบ · ไลน์ L4 · รหัสในแผน [L4]</div>
+        </div></div>
+        <div class="badges">
+          <span class="chip freq">PM ทุก 2 สัปดาห์ · รอบหน้า W39</span>
+          <span class="chip mute">คู่ไลน์ 1</span>
+        </div>
+        <div class="lnk">🔗 ป้อนจาก Line ต้ม 3</div>
+      </button>
+
+      <button class="mc packer tabjs" data-view="v-detail">
+        <div class="r1"><div style="flex:1;min-width:0">
+          <h3>เครื่องบรรจุ A1</h3><div class="key">ชื่อในระบบ · ไลน์ A1 · รหัสในแผน [A1]</div>
+        </div><span class="chip stop">ค้าง 1</span></div>
+        <div class="badges">
+          <span class="chip freq">PM ทุก 2 สัปดาห์ · รอบหน้า W38</span>
+          <span class="chip due">กฎเตือน 1</span>
+          <span class="chip mute">คู่ไลน์ 1</span>
+        </div>
+        <div class="lnk">🔗 ป้อนจาก Line ต้ม 4 <span class="dot">·</span> 🏷 ปี๊บ 1×20</div>
+      </button>
+
+      <button class="mc packer tabjs" data-view="v-detail">
+        <div class="r1"><div style="flex:1;min-width:0">
+          <h3>เครื่องบรรจุ A2</h3><div class="key">ชื่อในระบบ · ไลน์ A2 · รหัสในแผน [A2]</div>
+        </div></div>
+        <div class="badges"><span class="chip freq">PM ทุก 2 สัปดาห์ · รอบหน้า W41</span><span class="chip mute">คู่ไลน์ 1</span></div>
+        <div class="lnk">🔗 ป้อนจาก Line ต้ม 4</div>
+      </button>
+
+      <button class="mc packer tabjs" data-view="v-detail">
+        <div class="r1"><div style="flex:1;min-width:0">
+          <h3>เครื่องบรรจุ A3</h3><div class="key">ชื่อในระบบ · ไลน์ A3 · รหัสในแผน [A3]</div>
+        </div></div>
+        <div class="badges"><span class="chip freq">PM ทุก 2 สัปดาห์ · รอบหน้า W39</span><span class="chip mute">คู่ไลน์ 1</span></div>
+        <div class="lnk">🔗 ป้อนจาก Line ผลิตน้ำตาล Icing</div>
+      </button>
+
+      <button class="mc packer tabjs" data-view="v-detail">
+        <div class="r1"><div style="flex:1;min-width:0">
+          <h3>ไลน์ 300 ml</h3><div class="key">ชื่อในระบบ · ไลน์ 300 ml</div>
+        </div></div>
+        <div class="badges"><span class="chip freq">PM ทุก 2 สัปดาห์</span><span class="chip mute">คู่ไลน์ 1</span></div>
+        <div class="lnk">🔗 ป้อนจาก Line ผลิตน้ำตาล Icing</div>
+      </button>
+
+      <button class="mc packer tabjs" data-view="v-detail">
+        <div class="r1"><div style="flex:1;min-width:0">
+          <h3>ไลน์ Manual</h3><div class="key">ชื่อในระบบ · ไลน์ Manual</div>
+        </div></div>
+        <div class="badges"><span class="chip freq">PM ทุก 2 สัปดาห์</span><span class="chip mute">คู่ไลน์ 1</span></div>
+        <div class="lnk">🔗 ป้อนจาก Line ต้มหัวเชื้อ / น้ำตาลปั้น</div>
+      </button>
+
+      <button class="mc packer tabjs" data-view="v-detail">
+        <div class="r1"><div style="flex:1;min-width:0">
+          <h3>ไลน์ปี๊บ</h3><div class="key">ชื่อในระบบ · ไลน์ปี๊บ</div>
+        </div></div>
+        <div class="badges"><span class="chip freq">PM ทุก 2 สัปดาห์</span><span class="chip mute">คู่ไลน์ 1</span></div>
+        <div class="lnk">🔗 ป้อนจาก Line ต้มหัวเชื้อ / น้ำตาลปั้น</div>
+      </button>
+
+      <button class="mc packer tabjs" data-view="v-detail">
+        <div class="r1"><div style="flex:1;min-width:0">
+          <h3>Robot Clear Packer</h3><div class="key">ชื่อในระบบ · Robot Clear Packer</div>
+        </div></div>
+        <div class="badges"><span class="chip freq">PM ทุก 2 สัปดาห์</span><span class="chip warn">ยังไม่ผูกคู่</span></div>
+        <div class="lnk">🔗 กดเพื่อผูกไลน์ที่ป้อนเข้าเครื่องนี้</div>
+      </button>
+
+    </div>
+  </div>
+
+  <!-- ── หมวด 3: อุปกรณ์ส่วนกลาง ── -->
+  <div class="gsec">
+    <div class="ghead">
+      <h2>🏢 อุปกรณ์ส่วนกลาง</h2><span class="gc">13</span>
+      <span class="gd">มีแผน PM แต่ไม่ผูกกับสินค้า/รอบผลิต — กฎเตือนไม่ยิงหมวดนี้</span>
+    </div>
+    <div class="mgrid">
+      <button class="mc central tabjs" data-view="v-detail"><div class="r1"><div style="flex:1"><h3>AHU &amp; Chiller</h3><div class="key">PM ทุก 1 เดือน</div></div></div><div class="badges"><span class="chip mute">รอบหน้า W38</span></div></button>
+      <button class="mc central tabjs" data-view="v-detail"><div class="r1"><div style="flex:1"><h3>Cold Room</h3><div class="key">PM ทุก 1 เดือน</div></div><span class="chip warn">ค้าง 1</span></div><div class="badges"><span class="chip mute">รอบหน้า W39</span></div></button>
+      <button class="mc central tabjs" data-view="v-detail"><div class="r1"><div style="flex:1"><h3>ถุง AHU</h3><div class="key">PM ทุก 6 เดือน</div></div></div><div class="badges"><span class="chip mute">รอบหน้า W44</span></div></button>
+      <button class="mc central tabjs" data-view="v-detail"><div class="r1"><div style="flex:1"><h3>หลอดไฟและกริ้วแอร์</h3><div class="key">PM ทุก 6 เดือน</div></div></div><div class="badges"><span class="chip mute">รอบหน้า W46</span></div></button>
+      <button class="mc central tabjs" data-view="v-detail"><div class="r1"><div style="flex:1"><h3>RO 10,000</h3><div class="key">PM ทุก 1 เดือน</div></div></div><div class="badges"><span class="chip mute">รอบหน้า W40</span></div></button>
+      <button class="mc central tabjs" data-view="v-detail"><div class="r1"><div style="flex:1"><h3>RO 5,000</h3><div class="key">PM ทุก 1 เดือน</div></div></div><div class="badges"><span class="chip mute">รอบหน้า W40</span></div></button>
+      <button class="mc central tabjs" data-view="v-detail"><div class="r1"><div style="flex:1"><h3>Lift (Otis - Supplier)</h3><div class="key">PM ทุก 1 เดือน · ผู้รับเหมา</div></div></div><div class="badges"><span class="chip mute">รอบหน้า W38</span></div></button>
+      <button class="mc central tabjs" data-view="v-detail"><div class="r1"><div style="flex:1"><h3>แอร์ Split Type (A&amp;K - Supplier)</h3><div class="key">PM ทุก 1 เดือน · ผู้รับเหมา</div></div></div><div class="badges"><span class="chip mute">รอบหน้า W41</span></div></button>
+      <button class="mc central tabjs" data-view="v-detail"><div class="r1"><div style="flex:1"><h3>Air Shower</h3><div class="key">PM ทุก 1 เดือน</div></div></div><div class="badges"><span class="chip mute">รอบหน้า W39</span></div></button>
+      <button class="mc central tabjs" data-view="v-detail"><div class="r1"><div style="flex:1"><h3>ห้องเปลี่ยนชุด</h3><div class="key">PM ทุก 1 เดือน</div></div></div><div class="badges"><span class="chip mute">รอบหน้า W42</span></div></button>
+      <button class="mc central tabjs" data-view="v-detail"><div class="r1"><div style="flex:1"><h3>ห้องโหลดน้ำเชื่อมและกลุ่มถังโหลด</h3><div class="key">PM ทุก 1 เดือน</div></div></div><div class="badges"><span class="chip mute">รอบหน้า W38</span></div></button>
+      <button class="mc central tabjs" data-view="v-detail"><div class="r1"><div style="flex:1"><h3>บ่อซีเมนต์</h3><div class="key">PM ทุก 2 สัปดาห์</div></div></div><div class="badges"><span class="chip mute">รอบหน้า W38</span></div></button>
+      <button class="mc central tabjs" data-view="v-detail"><div class="r1"><div style="flex:1"><h3>สายพานท้ายไลน์ 1, 2, 3 และ Check weight</h3><div class="key">PM ทุก 1 เดือน</div></div></div><div class="badges"><span class="chip mute">รอบหน้า W39</span></div></button>
+    </div>
+  </div>
+
+  <!-- ── หมวด 4: อื่น ๆ (พับไว้) ── -->
+  <div class="gsec">
+    <div class="ghead">
+      <h2>🔩 อื่น ๆ · เครื่องประจำไลน์</h2><span class="gc">8</span>
+      <span class="gd">มาจากทะเบียนงานรูทีนเดิม — ไม่มีแผน PM รายปี</span>
+      <div class="sp"></div>
+      <button class="ibtn sm" id="foldbtn">▾ แสดง 8 รายการ</button>
+    </div>
+    <div class="foldwrap" id="foldwrap">
+      <div class="mgrid">
+        <button class="mc tool"><div class="r1"><div style="flex:1"><h3>เครื่องยิงวันที่</h3><div class="key">งานรูทีน 3</div></div></div></button>
+        <button class="mc tool"><div class="r1"><div style="flex:1"><h3>เครื่องชั่ง Mettler1</h3><div class="key">งานรูทีน 2</div></div></div></button>
+        <button class="mc tool"><div class="r1"><div style="flex:1"><h3>เครื่องชั่ง Mettler2</h3><div class="key">งานรูทีน 2</div></div></div></button>
+        <button class="mc tool"><div class="r1"><div style="flex:1"><h3>เครื่องชั่ง Ishida</h3><div class="key">งานรูทีน 2</div></div></div></button>
+        <button class="mc tool"><div class="r1"><div style="flex:1"><h3>เครื่องจับโละ 900g</h3><div class="key">งานรูทีน 3</div></div></div></button>
+        <button class="mc tool"><div class="r1"><div style="flex:1"><h3>เครื่องซีลแนวตั้ง</h3><div class="key">งานรูทีน 4</div></div></div></button>
+        <button class="mc tool"><div class="r1"><div style="flex:1"><h3>เครื่องปิดลัง</h3><div class="key">งานรูทีน 2</div></div></div></button>
+        <button class="mc tool"><div class="r1"><div style="flex:1"><h3>เครน</h3><div class="key">งานรูทีน 2</div></div></div></button>
+      </div>
+    </div>
+  </div>
+
+</div>
+</section>
+
+<!-- ══════════════════ 2. หน้ารายละเอียดเครื่อง ══════════════════ -->
+<section class="view" id="v-detail">
+<div class="wrap">
+
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+    <button class="ibtn tabjs" data-view="v-reg">‹ กลับหน้าทะเบียน</button>
+    <div class="sp"></div>
+    <button class="ibtn ext">🔗 เปิดในแอปทีมช่าง</button>
+    <button class="ibtn">📄 เปิดโน้ตใน Obsidian</button>
+    <button class="ibtn pri">✏️ แก้ไขข้อมูลเครื่อง</button>
+  </div>
+
+  <div class="phead" style="margin-bottom:14px">
+    <div>
+      <h1 style="font-size:23px">เครื่องบรรจุ L2</h1>
+      <div class="sub">ชื่อในระบบ · <b>ไลน์ L2</b> &nbsp;·&nbsp; รหัสในแผนบรรจุ <b>[L2]</b> &nbsp;·&nbsp; หมวด เครื่องบรรจุ</div>
+    </div>
+    <div class="sp"></div>
+    <span class="chip warn">เหตุการณ์ค้าง 2</span>
+    <span class="chip freq">PM รอบหน้า W38</span>
+  </div>
+
+  <div class="dgrid">
+    <div>
+
+      <div class="card blk">
+        <h3 class="hd">① ข้อมูลเครื่อง</h3>
+        <dl class="kv">
+          <dt>รหัส</dt><dd>MC-014</dd>
+          <dt>ยี่ห้อ/รุ่น</dt><dd>Lina Pack — Linear#2</dd>
+          <dt>วันที่ติดตั้ง</dt><dd>2019-04-11</dd>
+          <dt>PM ล่าสุด</dt><dd>2026-08-31 (W36)</dd>
+          <dt>ค่าเครื่องหยุด</dt><dd>1,800 บาท/ชม.</dd>
+          <dt>ชื่อที่ใช้จับ</dt><dd><span class="chip mute">ไลน์ L2</span> <span class="chip mute">L2</span> <span class="chip mute">[L2]</span> <span class="chip mute">Linear#2 (Lina Pack)</span></dd>
+        </dl>
+        <div class="infobox" style="margin-top:11px">
+          จุดที่มักมีปัญหา: หัวพิมพ์ Lot.no อุดบ่อยเมื่อสลับจากสินค้าสีเข้ม · สายพานป้อนฝาสะดุดช่วงเดินเร็วกว่า 45 ซอง/นาที
+        </div>
+      </div>
+
+      <div class="card blk">
+        <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+          <h3 class="hd" style="margin:0">② แผน PM รายปี</h3>
+          <span class="chip freq">ทุก 2 สัปดาห์</span>
+          <div class="sp"></div>
+          <button class="ibtn xs ext">🔗 แอปทีมช่าง</button>
+        </div>
+        <div class="warnbox" style="margin:10px 0 0">
+          🪞 ส่วนนี้เป็น <b>กระจกอ่านอย่างเดียว</b> จากแอปทีมช่าง (Netlify) — แก้แผน/ติ๊กปิดงานต้องทำในแอปนั้น
+        </div>
+        <div style="font-size:12px;color:var(--ink-soft);margin-top:12px">สัปดาห์ที่ 1–26 ของปี 2026</div>
+        <div class="wk">
+          <i class="done"></i><i></i><i class="plan"></i><i></i><i class="done"></i><i></i><i class="plan"></i><i></i>
+          <i class="done"></i><i></i><i class="done"></i><i></i><i class="done"></i><i></i><i class="done"></i><i></i>
+          <i class="done"></i><i></i><i class="done"></i><i></i><i class="done"></i><i></i><i class="done"></i><i></i>
+          <i class="done"></i><i></i>
+        </div>
+        <div style="font-size:12px;color:var(--ink-soft);margin-top:10px">สัปดาห์ที่ 27–52</div>
+        <div class="wk">
+          <i class="done"></i><i></i><i class="done"></i><i></i><i class="done"></i><i></i><i class="done"></i><i></i>
+          <i class="done"></i><i></i><i class="plan now"></i><i></i><i class="plan"></i><i></i><i class="plan"></i><i></i>
+          <i class="plan"></i><i></i><i class="plan"></i><i></i><i class="plan"></i><i></i><i class="plan"></i><i></i>
+          <i class="plan"></i><i></i>
+        </div>
+        <div class="legend">
+          <span><i style="background:var(--p-low-w);border:1px solid var(--ok)"></i>ทำแล้ว</span>
+          <span><i style="background:var(--brand-soft);border:1px solid var(--brand)"></i>ตามแผน</span>
+          <span><i style="background:var(--surface-2);border:1px solid var(--line)"></i>ไม่มีแผน</span>
+          <span>▪︎ กรอบดำ = สัปดาห์นี้ (W37)</span>
+        </div>
+        <div style="margin-top:12px;font-size:12.8px">
+          <div class="hd" style="font-size:13px">งานย่อยของเครื่องนี้</div>
+          <div class="li"><span class="ic">🔧</span><div><b>เปลี่ยนสายพานป้อนฝา</b><div class="meta">ทุก 4 รอบ · ครั้งล่าสุด W28</div></div></div>
+          <div class="li"><span class="ic">🔧</span><div><b>ล้างชุดหัวพิมพ์ Lot.no</b><div class="meta">ทุก 1 รอบ · ครั้งล่าสุด W36</div></div></div>
+          <div class="li"><span class="ic">🔧</span><div><b>เช็กลม/ระบบนิวเมติก</b><div class="meta">ทุก 2 รอบ · ครั้งล่าสุด W34</div></div></div>
+        </div>
+      </div>
+
+      <div class="card blk">
+        <h3 class="hd">③ งานรูทีน / ใบเช็ก AM ที่ผูกกับเครื่องนี้</h3>
+        <div class="li"><span class="ic">✅</span><div><b>เช็กแรงดันลมก่อนเริ่มกะ</b><div class="meta">Maintenance <span class="dot">·</span> ทุกกะ <span class="dot">·</span> node pm18</div></div></div>
+        <div class="li"><span class="ic">✅</span><div><b>ทำความสะอาดรางลำเลียง</b><div class="meta">พนักงานผลิต <span class="dot">·</span> ทุกวัน <span class="dot">·</span> node pm19</div></div></div>
+        <div class="li"><span class="ic">✅</span><div><b>ตรวจน็อตชุดซีล</b><div class="meta">Maintenance <span class="dot">·</span> ทุกสัปดาห์ <span class="dot">·</span> node pm20</div></div></div>
+      </div>
+
+      <div class="card blk">
+        <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+          <h3 class="hd" style="margin:0">④ เหตุการณ์ย้อนหลัง</h3>
+          <div class="sp"></div>
+          <span class="chip mute">เวลาเครื่องหยุดรวม 6 ชม. 40 น. ใน 90 วัน</span>
+        </div>
+        <div style="margin-top:9px">
+          <div class="li"><span class="ic">🔴</span><div><b>หัวพิมพ์ Lot.no ตัน พิมพ์ไม่ติด</b>
+            <div class="meta">8 ก.ย. 2026 <span class="dot">·</span> เปิดค้าง <span class="dot">·</span> ช่าง: นาย <span class="dot">·</span> หยุด 45 น. <span class="dot">·</span> <span class="src">จากเช็กลิสต์เดินเครื่อง</span></div></div></div>
+          <div class="li"><span class="ic">🔵</span><div><b>สายพานป้อนฝาสะดุด</b>
+            <div class="meta">2 ก.ย. 2026 <span class="dot">·</span> กำลังซ่อม <span class="dot">·</span> หยุด 1 ชม. 20 น. <span class="dot">·</span> <span class="src">จากใบเช็ก AM</span></div></div></div>
+          <div class="li"><span class="ic">🟢</span><div><b>ซีลไม่แน่น ถุงรั่วช่วงท้ายกะ</b>
+            <div class="meta">21 ส.ค. 2026 <span class="dot">·</span> ปิดแล้ว <span class="dot">·</span> สาเหตุ: ฮีตเตอร์เสื่อม <span class="dot">·</span> หยุด 2 ชม.</div></div></div>
+        </div>
+      </div>
+
+    </div>
+
+    <div>
+      <div class="card blk">
+        <div style="display:flex;align-items:center;gap:8px">
+          <h3 class="hd" style="margin:0">⑤ ไลน์ที่ป้อนเข้าเครื่องนี้</h3>
+          <div class="sp"></div>
+          <button class="ibtn xs">✏️ แก้</button>
+        </div>
+        <div style="margin-top:10px;display:flex;flex-direction:column;gap:9px">
+          <div style="border:1px solid var(--line);border-radius:11px;padding:9px 11px;background:var(--surface-3)">
+            <div style="font-family:var(--font-head);font-weight:600;font-size:13.5px">🏭 Line ต้ม 1</div>
+            <div style="font-size:11.5px;color:var(--ink-soft);margin-top:3px">สินค้าประจำคู่</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">
+              <span class="chip km">Amazon</span><span class="chip km">Amazon 850</span>
+            </div>
+          </div>
+          <div style="border:1px solid var(--line);border-radius:11px;padding:9px 11px;background:var(--surface-3)">
+            <div style="font-family:var(--font-head);font-weight:600;font-size:13.5px">🏭 Line ต้ม 2</div>
+            <div style="font-size:11.5px;color:var(--ink-soft);margin-top:3px">สินค้าประจำคู่</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">
+              <span class="chip km">Syrup 800×12</span>
+            </div>
+          </div>
+          <button class="ibtn sm" style="align-self:flex-start">＋ ผูกไลน์เพิ่ม</button>
+        </div>
+      </div>
+
+      <div class="card blk">
+        <div style="display:flex;align-items:center;gap:8px">
+          <h3 class="hd" style="margin:0">⑥ กฎเตือนของเครื่องนี้</h3>
+          <div class="sp"></div>
+          <button class="ibtn xs tabjs" data-view="v-rules">⚙️ จัดการ</button>
+        </div>
+        <div style="border:1px solid var(--line);border-left:4px solid var(--brand);border-radius:11px;padding:10px 12px;margin-top:10px;background:var(--brand-soft)">
+          <div style="font-family:var(--font-head);font-weight:600;font-size:13.5px">ล้างหัวพิมพ์ Lot.no</div>
+          <div style="font-size:11.8px;color:var(--ink-soft);margin-top:3px">
+            เมื่อ <b>ก่อนเริ่มบรรจุ</b> · เครื่อง <b>L2</b> · สินค้ามีคำว่า <b>Amazon</b>
+          </div>
+          <div style="font-size:12.3px;margin-top:6px">• ล้างหัวพิมพ์ Lot.no ก่อนเริ่มบรรจุ 📷</div>
+        </div>
+        <div class="empty" style="padding:14px">มีกฎเดียว — กด “จัดการ” เพื่อเพิ่ม</div>
+      </div>
+
+      <div class="card blk">
+        <h3 class="hd">📄 โน้ตใน Obsidian</h3>
+        <div style="font-size:12.3px;color:var(--ink-soft);word-break:break-all">เครื่องจักร/ไลน์ L2.md</div>
+        <div class="infobox" style="margin-top:9px">
+          ระบบเขียนทับเฉพาะในเขต <b>“ข้อมูลเครื่องจักร”</b> — ส่วนที่ช่างเขียนเองนอกเขตนั้นไม่โดนแตะ
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</section>
+
+<!-- ══════════════════ 3. ผังเชื่อมโยง ══════════════════ -->
+<section class="view" id="v-map">
+<div class="wrap">
+
+  <div class="ifilters">
+    <button class="ibtn pri" data-addpair>＋ ผูกคู่ใหม่</button>
+    <button class="ibtn" id="btnAddMc">＋ เพิ่มไลน์/เครื่องเข้าทะเบียน</button>
+    <div class="divider"></div>
+    <button class="ibtn ext" id="btnSuggest">🔍 หาสินค้าจากประวัติการผลิต</button>
+  </div>
+
+  <div class="okbox">
+    🔗 <b>คู่ที่ผูกไว้ = “เป็นไปได้”</b> ไม่ใช่ของตายตัว — วันจริงระบบจะเลือกให้จากแผนบรรจุ แล้วคนยืนยัน/แก้ได้ที่แท็บ <b>📅 วันนี้</b>
+    <br>ถ้าใส่ <b>สินค้าประจำคู่</b> ไว้ ระบบจะเดาไลน์ถูกทันทีแม้เครื่องบรรจุตัวนั้นรับได้หลายไลน์ — คู่ที่มีสินค้าแล้วจะเป็น<b>เส้นสีส้ม</b>ในผัง
+  </div>
+
+  <div class="card mapcard" style="margin-bottom:14px" id="mapCard"></div>
+
+  <div class="card">
+    <div style="display:flex;align-items:center;gap:9px;padding:13px 16px 0;flex-wrap:wrap">
+      <h3 class="hd" style="margin:0">รายการคู่ที่ผูกไว้</h3>
+      <span class="chip mute" id="pairCount">0 คู่</span>
+      <div class="sp"></div>
+      <button class="ibtn sm pri" data-addpair>＋ ผูกคู่ใหม่</button>
+    </div>
+    <div style="padding:10px 4px 6px;overflow-x:auto">
+      <table class="tb">
+        <thead><tr>
+          <th>ไลน์ผลิต</th><th>เครื่องบรรจุ</th><th>สินค้าประจำคู่</th><th>หมายเหตุ</th><th style="text-align:right">จัดการ</th>
+        </tr></thead>
+        <tbody id="pairBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" id="suggestCard" style="margin-top:14px;padding:15px 17px" hidden>
+    <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+      <h3 class="hd" style="margin:0">🔍 สินค้าที่เคยวิ่งบนเครื่องจริง — กดรับทีละรายการ</h3>
+      <div class="sp"></div>
+      <button class="ibtn xs" id="btnSuggestClose">ปิด</button>
+    </div>
+    <div class="warnbox" style="margin:11px 0">
+      อ่านจากใบลงยอดผลิตย้อนหลัง 90 วัน — มี <b>ชื่อเครื่อง + สินค้า</b> แต่ <b>ไม่มีไลน์ต้ม</b>
+      (ไม่มีตารางไหนในระบบบันทึกว่าไลน์ไหนป้อนเข้าเครื่องไหน) → ระบบเสนอได้แค่ “เครื่อง × สินค้า”
+      <b>คนเป็นคนเลือกไลน์เอง</b> · ระบบไม่บันทึกอะไรจนกว่าจะกดรับ
+    </div>
+    <table class="tb">
+      <thead><tr><th>เครื่องบรรจุ</th><th>สินค้าที่เคยวิ่ง</th><th class="num">เจอกี่ครั้ง</th><th>ป้อนจากไลน์</th><th style="text-align:right"></th></tr></thead>
+      <tbody id="suggestBody"></tbody>
+    </table>
+  </div>
+
+</div>
+</section>
+
+<!-- ══════════════════ 4. วันนี้ ══════════════════ -->
+<section class="view" id="v-today">
+<div class="wrap">
+
+  <div class="ifilters">
+    <input class="isel" type="date" value="2026-09-12">
+    <select class="isel"><option>กะเช้า (06:00–14:00)</option><option>กะบ่าย (14:00–22:00)</option><option>กะดึก (22:00–06:00)</option></select>
+    <div class="divider"></div>
+    <button class="ibtn">➕ เพิ่มรอบเอง</button>
+    <button class="ibtn pri">✅ ยืนยันทั้งวัน</button>
+  </div>
+
+  <div class="warnbox">
+    📋 รอบเดินเครื่องด้านล่าง <b>ดึงมาจากแผนบรรจุรายกะ</b> ที่ลงไว้แล้ว — ช่อง “ไลน์ต้มที่ป้อน” ที่เป็นสีส้ม คือระบบยังเดาไม่ได้ ต้องเลือกเอง
+    <br>แก้ช่องไหนก็ได้ · ค่าที่แก้เองจะ<b>ไม่ถูกแผนทับ</b>เมื่อดึงแผนใหม่
+  </div>
+
+  <div class="tgrid">
+    <div class="card" style="overflow-x:auto">
+      <table class="tb">
+        <thead><tr>
+          <th>เครื่องบรรจุ</th><th>สินค้า (จากแผน)</th><th>ไลน์ต้มที่ป้อน</th>
+          <th class="num">เป้า</th><th>ที่มา</th><th>สถานะ</th><th style="text-align:right"></th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <td><b>L2</b><div style="font-size:11px;color:var(--muted)">ไลน์ L2</div></td>
+            <td>Amazon 850×12<div style="font-size:11px;color:var(--muted)">SKU A85S9Z000M</div></td>
+            <td><select class="lsel"><option>Line ต้ม 1</option><option>Line ต้ม 2</option><option>— ยังไม่เลือก —</option></select>
+                <div style="margin-top:3px"><span class="src prod">เดาจากสินค้าประจำคู่</span></div></td>
+            <td class="num">3,000</td>
+            <td><span class="src plan">จากแผน</span></td>
+            <td><span class="chip low">ยืนยันแล้ว</span></td>
+            <td><div class="rowacts"><button class="ibtn xs">✏️</button><button class="ibtn xs dgr">🚫</button></div></td>
+          </tr>
+          <tr>
+            <td><b>A1</b><div style="font-size:11px;color:var(--muted)">ไลน์ A1</div></td>
+            <td>ปี๊บ 1×20<div style="font-size:11px;color:var(--muted)">SKU P20S9Z000T</div></td>
+            <td><select class="lsel"><option>Line ต้ม 4</option><option>— ยังไม่เลือก —</option></select>
+                <div style="margin-top:3px"><span class="src">มีคู่เดียว</span></div></td>
+            <td class="num">400</td>
+            <td><span class="src plan">จากแผน</span></td>
+            <td><span class="chip low">ยืนยันแล้ว</span></td>
+            <td><div class="rowacts"><button class="ibtn xs">✏️</button><button class="ibtn xs dgr">🚫</button></div></td>
+          </tr>
+          <tr>
+            <td><b>L3</b><div style="font-size:11px;color:var(--muted)">ไลน์ L3</div></td>
+            <td>Flavour 1.8×8<div style="font-size:11px;color:var(--muted)">ยังจับคู่ SKU ไม่ได้</div></td>
+            <td><select class="lsel empty"><option>— ต้องเลือกไลน์ —</option><option>Line ต้ม 2</option><option>Line ต้ม 3</option></select>
+                <div style="margin-top:3px"><span class="src">เครื่องนี้มี 2 คู่ ระบบไม่เดา</span></div></td>
+            <td class="num">1,200</td>
+            <td><span class="src plan">จากแผน</span></td>
+            <td><span class="chip mute">รอยืนยัน</span></td>
+            <td><div class="rowacts"><button class="ibtn xs">✏️</button><button class="ibtn xs dgr">🚫</button></div></td>
+          </tr>
+          <tr>
+            <td><b>Manual</b><div style="font-size:11px;color:var(--muted)">ไลน์ Manual</div></td>
+            <td>น้ำตาล Coconut 1 kg</td>
+            <td><select class="lsel"><option>Line ต้มหัวเชื้อ / น้ำตาลปั้น</option></select>
+                <div style="margin-top:3px"><span class="src manual">คนแก้เอง</span></div></td>
+            <td class="num">250</td>
+            <td><span class="src manual">เพิ่มเอง</span></td>
+            <td><span class="chip low">ยืนยันแล้ว</span></td>
+            <td><div class="rowacts"><button class="ibtn xs">✏️</button><button class="ibtn xs dgr">🚫</button></div></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div>
+      <div class="card" style="padding:15px 17px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <h3 class="hd" style="margin:0">🔔 กฎที่จะยิงวันนี้</h3>
+          <span class="chip due">2</span>
+        </div>
+        <div style="margin-top:11px">
+          <div class="rule">
+            <div class="t">ล้างหัวพิมพ์ Lot.no</div>
+            <div class="c">⏱ ก่อนเริ่มบรรจุ · เครื่อง <b>L2</b> · สินค้า <b>Amazon</b></div>
+            <div class="c" style="margin-top:4px">👤 พนักงานผลิต · 📷 ต้องแนบรูป</div>
+            <div style="margin-top:8px;display:flex;gap:6px">
+              <span class="chip mute">ยิง 06:15</span><span class="chip mute">1 ข้อ</span>
+            </div>
+          </div>
+          <div class="rule">
+            <div class="t">ถอดลูกสูบตรวจ o-ring ร่วม QC</div>
+            <div class="c">⏱ หลังบรรจุจบ · เครื่อง <b>A1</b> · สินค้าอะไรก็ได้</div>
+            <div class="c" style="margin-top:4px">👤 Maintenance + QC · 📷 ต้องแนบรูป</div>
+            <div style="margin-top:8px;display:flex;gap:6px">
+              <span class="chip mute">ยิง 13:00</span><span class="chip mute">1 ข้อ</span>
+            </div>
+          </div>
+          <div class="infobox">ไม่มีกฎเข้า = ไม่ยิงอะไรเลย (เงียบดีกว่าส่งการ์ดเปล่า)</div>
+          <div style="display:flex;gap:7px;margin-top:11px;flex-wrap:wrap">
+            <button class="ibtn pri sm">📮 ส่งการ์ดเข้ากลุ่มเลย</button>
+            <button class="ibtn sm">👁 ดูตัวอย่าง</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="padding:15px 17px">
+        <h3 class="hd">🏁 ปิดงานบรรจุ</h3>
+        <div style="font-size:12.3px;color:var(--ink-soft)">
+          กฎ “หลังบรรจุจบ” จะยิงเมื่อ <b>ก่อนกะจบ 1 ชม.</b> หรือกดปุ่มนี้ — อันไหนถึงก่อน
+        </div>
+        <div style="display:flex;flex-direction:column;gap:7px;margin-top:11px">
+          <button class="ibtn sm" style="justify-content:space-between">L2 · Amazon <span>🏁 ปิดงาน</span></button>
+          <button class="ibtn sm" style="justify-content:space-between">A1 · ปี๊บ 1×20 <span>🏁 ปิดงาน</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</section>
+
+<!-- ══════════════════ 5. กฎเตือน ══════════════════ -->
+<section class="view" id="v-rules">
+<div class="wrap">
+
+  <div class="ifilters">
+    <button class="ipill on brand">ทั้งหมด 2</button>
+    <button class="ipill">⏱ ก่อนเริ่ม 1</button>
+    <button class="ipill">⚙️ ระหว่างเดิน 0</button>
+    <button class="ipill">🏁 หลังจบ 1</button>
+    <div class="sp"></div>
+    <button class="ibtn pri">＋ เพิ่มกฎ</button>
+  </div>
+
+  <div class="rgrid">
+    <div>
+      <div class="rl on">
+        <div class="t"><span>⏱</span><div style="flex:1">ล้างหัวพิมพ์ Lot.no</div>
+          <span class="chip due">กำลังแก้</span></div>
+        <div class="cond">
+          <span class="chip mute">ก่อนเริ่มบรรจุ</span>
+          <span class="chip mute">เครื่อง L2</span>
+          <span class="chip mute">สินค้ามีคำว่า “Amazon”</span>
+          <span class="chip mute">ทุกไลน์</span>
+          <span class="chip mute">ทุกกะ</span>
+          <span class="chip freq">ความจำเพาะ 12</span>
+        </div>
+        <div class="items">
+          <div><span>•</span><span>ล้างหัวพิมพ์ Lot.no ก่อนเริ่มบรรจุ &nbsp;<span class="chip mute">📷 ต้องแนบรูป</span></span></div>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:10px">
+          <button class="ibtn xs">✏️ แก้</button><button class="ibtn xs">⏸ ปิดใช้</button><button class="ibtn xs dgr">🗑</button>
+        </div>
+      </div>
+
+      <div class="rl">
+        <div class="t"><span>🏁</span><div style="flex:1">ถอดลูกสูบตรวจ o-ring ร่วม QC</div></div>
+        <div class="cond">
+          <span class="chip mute">หลังบรรจุจบ</span>
+          <span class="chip mute">เครื่อง A1</span>
+          <span class="chip mute">สินค้าอะไรก็ได้</span>
+          <span class="chip mute">ทุกไลน์</span>
+          <span class="chip mute">ทุกกะ</span>
+          <span class="chip freq">ความจำเพาะ 4</span>
+        </div>
+        <div class="items">
+          <div><span>•</span><span>ถอดลูกสูบเพื่อตรวจ o-ring ร่วม QC &nbsp;<span class="chip mute">📷 ต้องแนบรูป</span> <span class="chip mute">🧪 ต้องมี QC ร่วม</span></span></div>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:10px">
+          <button class="ibtn xs">✏️ แก้</button><button class="ibtn xs">⏸ ปิดใช้</button><button class="ibtn xs dgr">🗑</button>
+        </div>
+      </div>
+
+      <div class="infobox" style="margin-top:12px">
+        กฎที่<b>จำเพาะกว่า</b>จะขึ้นก่อนในเช็กลิสต์ · ถ้าหลายกฎเข้าพร้อมกัน ข้อของทุกกฎจะถูกรวมเป็นใบเดียว (ข้อซ้ำตัดทิ้ง)
+      </div>
+    </div>
+
+    <div class="card" style="padding:17px 19px">
+      <h3 class="hd">✏️ แก้กฎ — “ล้างหัวพิมพ์ Lot.no”</h3>
+
+      <div class="fld"><label>ชื่อกฎ</label><input value="ล้างหัวพิมพ์ Lot.no"></div>
+
+      <div class="fld"><label>จังหวะที่เตือน</label>
+        <select><option>⏱ ก่อนเริ่มบรรจุ (หลังเริ่มกะ 15 นาที)</option><option>⚙️ ระหว่างเดินเครื่อง</option><option>🏁 หลังบรรจุจบ (ก่อนกะจบ 1 ชม. / กดปิดงาน)</option></select>
+      </div>
+
+      <div style="font-size:11.5px;font-weight:700;color:var(--ink-soft);margin:14px 0 7px">เงื่อนไข — เว้นว่าง = อะไรก็ได้</div>
+      <div class="grid2">
+        <div class="fld"><label>ไลน์ผลิต</label>
+          <select><option>— ทุกไลน์ —</option><option>Line ต้ม 1</option><option>Line ต้ม 2</option><option>Line ต้ม 3</option><option>Line ต้ม 4</option><option>Line ผลิตน้ำตาล Icing</option><option>Line ต้มหัวเชื้อ / น้ำตาลปั้น</option></select>
+        </div>
+        <div class="fld"><label>เครื่องบรรจุ</label>
+          <select><option>เครื่องบรรจุ L2</option><option>— ทุกเครื่อง —</option><option>เครื่องบรรจุ L1</option><option>เครื่องบรรจุ A1</option></select>
+        </div>
+        <div class="fld"><label>สินค้ามีคำว่า</label><input value="Amazon" placeholder="เว้นว่าง = ทุกสินค้า"></div>
+        <div class="fld"><label>กะ</label><select><option>— ทุกกะ —</option><option>กะเช้า</option><option>กะบ่าย</option><option>กะดึก</option></select></div>
+      </div>
+      <div class="fld"><label>ทีมที่รับผิดชอบ (ป้ายบนการ์ด)</label>
+        <select><option>พนักงานผลิต</option><option>Maintenance</option><option>QC</option><option>Operate</option></select>
+      </div>
+
+      <div style="font-size:11.5px;font-weight:700;color:var(--ink-soft);margin:14px 0 7px">รายการที่ต้องทำ</div>
+      <div class="itemrow">
+        <div>
+          <input value="ล้างหัวพิมพ์ Lot.no ก่อนเริ่มบรรจุ" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-family:inherit;font-size:13px;background:var(--card)">
+          <input value="ถอดหัวพิมพ์ แช่น้ำยา 5 นาที เช็ดด้วยผ้าไมโครไฟเบอร์" placeholder="รายละเอียด (ไม่บังคับ)" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-family:inherit;font-size:12.5px;margin-top:6px;background:var(--card);color:var(--ink-soft)">
+          <div class="cbs">
+            <label><input type="checkbox" checked> 📷 ต้องแนบรูป</label>
+            <label><input type="checkbox"> 🧪 ต้องมี QC ร่วม</label>
+          </div>
+        </div>
+        <button class="ibtn xs dgr">🗑</button>
+      </div>
+      <button class="ibtn sm">＋ เพิ่มรายการ</button>
+
+      <div class="okbox" style="margin-top:16px">
+        <b>กฎนี้จะยิงเมื่อ:</b> ไลน์ไหนก็ได้ · เครื่อง <b>L2</b> · สินค้ามีคำว่า <b>Amazon</b> · ทุกกะ → <b>1 ข้อ</b> ก่อนเริ่มบรรจุ
+      </div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap">
+        <button class="ibtn">🧪 ลองกับแผนวันนี้</button>
+        <span style="font-size:12.3px;color:var(--ink-soft);align-self:center">→ เข้า <b>1 รอบ</b>: L2 · Amazon 850×12 · กะเช้า</span>
+      </div>
+      <div style="display:flex;gap:7px;margin-top:14px">
+        <button class="ibtn pri">บันทึกกฎ</button><button class="ibtn">ยกเลิก</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+</section>
+
+<!-- ══════════════════ 6. เช็กลิสต์ ══════════════════ -->
+<section class="view" id="v-check">
+<div class="wrap">
+
+  <div class="ifilters">
+    <button class="ipill on brand">⏱ ก่อนเริ่มบรรจุ</button>
+    <button class="ipill">🏁 หลังบรรจุจบ</button>
+    <div class="divider"></div>
+    <button class="ibtn">🔗 สร้างลิงก์สำหรับปักหมุดในกลุ่ม</button>
+  </div>
+
+  <div class="sheet" style="max-width:760px">
+    <div style="display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap">
+      <div style="flex:1;min-width:220px">
+        <h3>⏱ ก่อนเริ่มบรรจุ — เครื่องบรรจุ L2</h3>
+        <div class="hint">12 ก.ย. 2026 · กะเช้า · <b>Amazon 850×12</b> · ป้อนจาก <b>Line ต้ม 1</b></div>
+      </div>
+      <span class="chip warn">ยังไม่ส่ง</span>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <div class="prog" style="flex:1"><div class="bar" style="width:50%"></div></div>
+      <div style="font-size:12.5px;color:var(--ink-soft);white-space:nowrap">1 / 2 ข้อ</div>
+    </div>
+
+    <div class="it ok">
+      <div class="t">✅ ล้างหัวพิมพ์ Lot.no ก่อนเริ่มบรรจุ</div>
+      <div class="d">ถอดหัวพิมพ์ แช่น้ำยา 5 นาที เช็ดด้วยผ้าไมโครไฟเบอร์</div>
+      <div class="sb"><button class="sbtn y on">ปกติ</button><button class="sbtn n">ไม่ปกติ</button></div>
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+        <div class="ph">รูป 1</div>
+        <div class="ph">＋</div>
+        <div style="font-size:11.5px;color:var(--ink-soft)">ติ๊กโดย สมชาย · 06:22</div>
+      </div>
+    </div>
+
+    <div class="it ng">
+      <div class="t">⚠️ เช็กแรงดันลมก่อนเดินเครื่อง</div>
+      <div class="d">ต้องอยู่ในช่วง 5.5–6.5 บาร์</div>
+      <div class="sb"><button class="sbtn y">ปกติ</button><button class="sbtn n on">ไม่ปกติ</button></div>
+      <div class="fld" style="margin-top:11px;margin-bottom:0">
+        <label>สาเหตุ / อาการ (บังคับเมื่อเลือกไม่ปกติ)</label>
+        <textarea rows="2">ลมตก เหลือ 4.2 บาร์ ตอนเดินเครื่องพร้อม L3</textarea>
+      </div>
+      <div class="warnbox" style="margin:10px 0 0">
+        เมื่อกดส่ง ระบบจะ<b>เปิดใบแจ้งซ่อมให้อัตโนมัติ</b> และยิงการ์ดเข้ากลุ่มช่าง — ถ้าอาการนี้เคยเจอ จะไปต่อท้ายใบเดิมว่า “เจอซ้ำ” ไม่เปิดใบใหม่
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:16px;border-top:1px solid var(--line);padding-top:14px">
+      <div class="fld" style="margin:0;flex:1;min-width:180px"><label>ผู้ส่ง</label><input value="สมชาย ใจดี"></div>
+      <button class="ibtn pri" style="padding:10px 22px">📤 ส่งใบเช็ก</button>
+    </div>
+  </div>
+
+  <div class="chead" style="margin:26px 0 12px">
+    <h2>📱 หน้าจอมือถือ (ช่าง/พนักงานเปิดจากลิงก์ในกลุ่ม)</h2>
+    <p>เปิดผ่าน <code>/?runcheck=&lt;token&gt;</code> — ไม่ต้องล็อกอิน ไม่มีเมนู เหมือนใบเช็ก AM ที่ใช้อยู่</p>
+  </div>
+
+  <div class="phones">
+
+    <figure class="phonewrap">
+      <div class="phone"><div class="mw">
+        <div style="background:var(--brand);color:#fff;padding:14px 16px 16px">
+          <div style="font-size:11.5px;opacity:.9">SPP · เช็กลิสต์เดินเครื่อง</div>
+          <div style="font-family:var(--font-head);font-size:19px;font-weight:600;margin-top:2px">เครื่องบรรจุ L2</div>
+          <div style="font-size:12.5px;opacity:.92;margin-top:2px">12 ก.ย. · กะเช้า · Amazon 850×12</div>
+          <div style="font-size:12.5px;opacity:.92">ป้อนจาก Line ต้ม 1</div>
+        </div>
+        <div style="padding:14px">
+          <div style="display:flex;gap:7px;margin-bottom:14px">
+            <button class="ibtn sm pri" style="flex:1;justify-content:center">⏱ ก่อนเริ่ม</button>
+            <button class="ibtn sm" style="flex:1;justify-content:center">🏁 หลังจบ</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:9px;margin-bottom:14px">
+            <div class="prog" style="flex:1"><div class="bar" style="width:50%"></div></div>
+            <div style="font-size:12px;color:var(--ink-soft)">1/2</div>
+          </div>
+
+          <div class="it ok">
+            <div class="t" style="font-size:13.5px">ล้างหัวพิมพ์ Lot.no</div>
+            <div class="d" style="font-size:11.8px">ถอดหัวพิมพ์ แช่น้ำยา 5 นาที</div>
+            <div class="sb"><button class="sbtn y on" style="flex:1">ปกติ</button><button class="sbtn n" style="flex:1">ไม่ปกติ</button></div>
+            <div style="display:flex;gap:7px;margin-top:9px"><div class="ph" style="width:52px;height:52px">รูป 1</div><div class="ph" style="width:52px;height:52px">＋</div></div>
+          </div>
+
+          <div class="it">
+            <div class="t" style="font-size:13.5px">เช็กแรงดันลม</div>
+            <div class="d" style="font-size:11.8px">ต้องอยู่ 5.5–6.5 บาร์</div>
+            <div class="sb"><button class="sbtn y" style="flex:1">ปกติ</button><button class="sbtn n" style="flex:1">ไม่ปกติ</button></div>
+          </div>
+
+          <div class="infobox" style="margin-top:12px;font-size:11.8px">
+            เลือก “ไม่ปกติ” ต้องกรอกสาเหตุ แล้วระบบจะเปิดใบแจ้งซ่อมให้เอง
+          </div>
+
+          <button class="ibtn pri" style="width:100%;justify-content:center;padding:12px;margin-top:16px">📤 ส่งใบเช็ก</button>
+        </div>
+      </div></div>
+      <figcaption>① ก่อนเริ่มบรรจุ</figcaption>
+    </figure>
+
+    <figure class="phonewrap">
+      <div class="phone"><div class="mw">
+        <div style="background:#1c8a4c;color:#fff;padding:14px 16px 16px">
+          <div style="font-size:11.5px;opacity:.9">SPP · เช็กลิสต์เดินเครื่อง</div>
+          <div style="font-family:var(--font-head);font-size:19px;font-weight:600;margin-top:2px">เครื่องบรรจุ A1</div>
+          <div style="font-size:12.5px;opacity:.92;margin-top:2px">12 ก.ย. · กะเช้า · ปี๊บ 1×20</div>
+          <div style="font-size:12.5px;opacity:.92">🏁 หลังบรรจุจบ</div>
+        </div>
+        <div style="padding:14px">
+          <div style="display:flex;gap:7px;margin-bottom:14px">
+            <button class="ibtn sm" style="flex:1;justify-content:center">⏱ ก่อนเริ่ม</button>
+            <button class="ibtn sm pri" style="flex:1;justify-content:center">🏁 หลังจบ</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:9px;margin-bottom:14px">
+            <div class="prog" style="flex:1"><div class="bar" style="width:100%"></div></div>
+            <div style="font-size:12px;color:var(--ink-soft)">1/1</div>
+          </div>
+
+          <div class="it ok">
+            <div class="t" style="font-size:13.5px">ถอดลูกสูบตรวจ o-ring</div>
+            <div class="d" style="font-size:11.8px">ตรวจร่วมกับ QC · ดูรอยแตก/บวม/คราบ</div>
+            <div class="sb"><button class="sbtn y on" style="flex:1">ปกติ</button><button class="sbtn n" style="flex:1">ไม่ปกติ</button></div>
+            <div style="display:flex;gap:7px;margin-top:9px"><div class="ph" style="width:52px;height:52px">รูป 1</div><div class="ph" style="width:52px;height:52px">รูป 2</div></div>
+            <div class="fld" style="margin-top:11px;margin-bottom:0">
+              <label>🧪 QC ที่ตรวจร่วม (บังคับ)</label>
+              <input value="ปนัดดา (QC กะเช้า)">
+            </div>
+          </div>
+
+          <div class="okbox" style="margin-top:12px;font-size:11.8px">
+            ครบทุกข้อแล้ว — กดส่งได้เลย การ์ดสรุปจะเข้ากลุ่มช่างทันที
+          </div>
+
+          <div class="fld" style="margin-top:12px"><label>ผู้ส่ง</label><input value="นาย"></div>
+          <button class="ibtn pri" style="width:100%;justify-content:center;padding:12px">📤 ส่งใบเช็ก</button>
+        </div>
+      </div></div>
+      <figcaption>② หลังบรรจุจบ (มี QC ร่วม)</figcaption>
+    </figure>
+
+  </div>
+
+</div>
+</section>
+
+  </div>
+</div>
+
+<!-- ══════════════════ chunk: การ์ดใน Telegram ══════════════════ -->
+<section class="chunk" id="s-tg">
+  <div class="chead">
+    <h2>📮 การ์ดใน Telegram</h2>
+    <p>เข้ากลุ่มทีมซ่อมบำรุง ผ่านบอทตัวเดียวกับใบแจ้งซ่อม · ถ้าไม่มีข้อเข้าเลย <b>จะไม่ส่งอะไรทั้งสิ้น</b></p>
+  </div>
+  <div class="cbody"><div class="wrap" style="padding:0">
+    <div class="tglayout">
+
+      <div>
+        <div class="hd">① การ์ดเตือน (ข้อความ + ปุ่ม)</div>
+        <div class="tgwrap">
+          <div class="bub">
+            <div class="h">🔔 ก่อนเริ่มบรรจุ — เครื่องบรรจุ L2</div>
+            <div class="sub2">12 ก.ย. · กะเช้า · Amazon 850×12 · ป้อนจาก Line ต้ม 1</div>
+            <div style="margin-top:8px">• ล้างหัวพิมพ์ Lot.no ก่อนเริ่มบรรจุ 📷<br>• เช็กแรงดันลมก่อนเดินเครื่อง</div>
+            <div class="sub2" style="margin-top:7px">👤 พนักงานผลิต</div>
+            <div class="tgbtn">📋 เปิดเช็กลิสต์</div>
+          </div>
+          <div class="bub">
+            <div class="h">🔔 หลังบรรจุจบ — เครื่องบรรจุ A1</div>
+            <div class="sub2">12 ก.ย. · กะเช้า · ปี๊บ 1×20 · ป้อนจาก Line ต้ม 4</div>
+            <div style="margin-top:8px">• ถอดลูกสูบเพื่อตรวจ o-ring ร่วม QC 📷 🧪</div>
+            <div class="sub2" style="margin-top:7px">👤 Maintenance + QC</div>
+            <div class="tgbtn">📋 เปิดเช็กลิสต์</div>
+          </div>
+        </div>
+        <div class="infobox" style="margin-top:11px">
+          การ์ดนี้เป็น<b>ข้อความ</b> เพราะต้องมีปุ่มกดเปิดลิงก์ — Telegram แปลงข้อความเป็นรูปทีหลังไม่ได้ ระบบจึงจำชนิดการ์ดไว้
+        </div>
+      </div>
+
+      <div>
+        <div class="hd">② การ์ดสรุปตอนส่งใบ (รูป PNG)</div>
+        <div class="tgwrap">
+          <div class="pngcard">
+            <div class="top">
+              <div style="font-family:var(--font-head);font-weight:600;font-size:15px">✅ ส่งใบเช็กแล้ว — เครื่องบรรจุ A1</div>
+              <div style="font-size:12px;opacity:.9;margin-top:2px">12 ก.ย. 2026 · กะเช้า · ปี๊บ 1×20 · หลังบรรจุจบ</div>
+            </div>
+            <div class="body">
+              <div style="display:flex;gap:16px;margin-bottom:9px">
+                <div><div style="font-size:11px;color:var(--ink-soft)">ปกติ</div><div style="font-family:var(--font-head);font-size:20px;font-weight:600;color:var(--ok)">1</div></div>
+                <div><div style="font-size:11px;color:var(--ink-soft)">ไม่ปกติ</div><div style="font-family:var(--font-head);font-size:20px;font-weight:600;color:var(--muted)">0</div></div>
+                <div><div style="font-size:11px;color:var(--ink-soft)">ผู้ส่ง</div><div style="font-family:var(--font-head);font-size:15px;font-weight:600;padding-top:4px">นาย</div></div>
+              </div>
+              <div style="border-top:1px solid var(--row-line);padding-top:8px">
+                ✅ ถอดลูกสูบเพื่อตรวจ o-ring ร่วม QC<br>
+                <span style="color:var(--ink-soft);font-size:11.8px">🧪 QC ร่วม: ปนัดดา · 📷 2 รูป</span>
+              </div>
+            </div>
+          </div>
+          <div class="bub" style="margin-top:10px">
+            <div class="h">🔴 เปิดใบแจ้งซ่อมใหม่ #412</div>
+            <div class="sub2">เครื่องบรรจุ L2 · ลมตก เหลือ 4.2 บาร์</div>
+            <div style="margin-top:6px;font-size:12.3px">จากเช็กลิสต์เดินเครื่อง · กะเช้า 12 ก.ย.</div>
+          </div>
+        </div>
+        <div class="infobox" style="margin-top:11px">
+          ข้อ “ไม่ปกติ” เปิดใบแจ้งซ่อมให้เอง · อาการเดิมซ้ำจะไปต่อท้ายใบเดิม ไม่เปิดใบใหม่
+        </div>
+      </div>
+
+    </div>
+  </div></div>
+</section>
+
+<!-- ══════════════════ chunk: ข้อมูลมาจากไหน ══════════════════ -->
+<section class="chunk" id="s-flow">
+  <div class="chead">
+    <h2>🔌 ข้อมูลมาจากไหน</h2>
+    <p>ทะเบียนไม่ได้สร้างข้อมูลใหม่ — มันเอาของที่มีอยู่แล้วมาต่อกัน</p>
+  </div>
+  <div class="cbody"><div class="wrap" style="padding:0">
+    <div class="flow">
+      <div class="step"><b>📋 แผนบรรจุรายกะ</b>ที่ลงไว้อยู่แล้ว มีสินค้า + รหัสเครื่อง <b>[L2]</b> แต่ไม่มีไลน์</div>
+      <div class="arrow">→</div>
+      <div class="step"><b>📅 รอบเดินเครื่องวันนี้</b>ระบบเติมไลน์ให้จาก “คู่ที่ผูกไว้” + “สินค้าประจำคู่” · คนแก้ทับได้</div>
+      <div class="arrow">→</div>
+      <div class="step"><b>⚙️ กฎเตือน</b>จับว่ารอบนี้เข้ากฎไหนบ้าง แล้วรวมเป็นรายการที่ต้องทำ</div>
+      <div class="arrow">→</div>
+      <div class="step"><b>✅ เช็กลิสต์ + 📮 การ์ด</b>ยิงเข้ากลุ่มตามจังหวะ · ติ๊กจบแล้วมีการ์ดสรุป · ไม่ปกติ → ใบแจ้งซ่อม</div>
+    </div>
+
+    <div class="grid2" style="margin-top:18px">
+      <div class="card" style="padding:14px 16px">
+        <div class="hd">🪞 อ่านอย่างเดียวจากแอปทีมช่าง</div>
+        <div style="font-size:12.5px;color:var(--ink-soft)">
+          แผน PM 52 สัปดาห์ + ผลปิดงาน เป็นกระจกจากแอป Netlify — หน้านี้แก้ไม่ได้ ต้องไปแก้ที่แอปนั้น
+        </div>
+      </div>
+      <div class="card" style="padding:14px 16px">
+        <div class="hd">✍️ ทะเบียนนี้เป็นเจ้าของ</div>
+        <div style="font-size:12.5px;color:var(--ink-soft)">
+          หมวด/ชื่อที่โชว์/สเปค · คู่ไลน์↔เครื่อง + สินค้าประจำคู่ · กฎเตือน · เช็กลิสต์และผลติ๊ก
+        </div>
+      </div>
+      <div class="card" style="padding:14px 16px">
+        <div class="hd">🔗 ใช้ชื่อร่วมกับของเดิม</div>
+        <div style="font-size:12.5px;color:var(--ink-soft)">
+          ชื่อในระบบ (เช่น <b>ไลน์ L2</b>) คือชื่อเดียวกับที่ทะเบียนงานรูทีน · เหตุการณ์ · โน้ต Obsidian ใช้อยู่ —
+          หน้านี้โชว์ชื่อสวย ๆ ทับ แต่<b>ไม่เปลี่ยนชื่อจริง</b>
+        </div>
+      </div>
+      <div class="card" style="padding:14px 16px">
+        <div class="hd">📄 โน้ตใน Obsidian</div>
+        <div style="font-size:12.5px;color:var(--ink-soft)">
+          1 เครื่อง = 1 โน้ต · ระบบเขียนเฉพาะในเขต “ข้อมูลเครื่องจักร” · จะเพิ่มหัวข้อคู่ไลน์กับกฎเตือนเข้าไปด้วย
+        </div>
+      </div>
+    </div>
+  </div></div>
+</section>
+
+<!-- ══════════════════ chunk: ข้อตกลงที่ยังไม่เคาะ ══════════════════ -->
+<section class="chunk" id="s-open">
+  <div class="chead">
+    <h2>⚠️ ข้อตกลงที่ยังไม่เคาะ — ขอความเห็นก่อนลงโค้ด</h2>
+  </div>
+  <div class="cbody"><div class="wrap" style="padding:0">
+    <div style="display:flex;flex-direction:column;gap:11px;max-width:940px">
+
+      <div class="card" style="padding:14px 16px;border-left:4px solid var(--p-stop)">
+        <div class="hd">① “ต้มหัวเชื้อ” กับ “น้ำตาล Coconut” เป็นคนละไลน์ไหม</div>
+        <div style="font-size:12.8px;color:var(--ink-soft)">
+          ในโน้ตเขียนแยกเป็น 2 ไลน์ → รวมเป็น <b>7 ไลน์ผลิต</b> · แต่แผน PM ของแอปทีมช่างรวมเป็นรายการเดียว
+          (<i>ไลน์น้ำตาลปั้นและห้องต้มหัวเชื้อ</i>) → <b>6 ไลน์</b>
+          <br>ถ้าแยกจริง เพิ่มอีก 1 แถวในทะเบียนได้เลย แต่ไลน์ที่เพิ่มจะ<b>ไม่มีแผน PM</b> ให้ดู (เพราะแอปนั้นไม่มี)
+        </div>
+      </div>
+
+      <div class="card" style="padding:14px 16px;border-left:4px solid var(--warn)">
+        <div class="hd">② “หลังบรรจุจบ” นับจากอะไร</div>
+        <div style="font-size:12.8px;color:var(--ink-soft)">
+          ระบบไม่มีสัญญาณว่าบรรจุจบเมื่อไหร่ · เสนอให้ยิงเมื่อ <b>ก่อนกะจบ 1 ชม.</b> หรือ <b>คนกดปุ่ม “ปิดงานบรรจุ”</b> อันไหนถึงก่อน
+          <br>ถ้าหน้างานจบไม่ตรงกะบ่อย ๆ อาจต้องให้กดปุ่มอย่างเดียว
+        </div>
+      </div>
+
+      <div class="card" style="padding:14px 16px;border-left:4px solid var(--cip1)">
+        <div class="hd">③ ชื่อที่โชว์ vs ชื่อจริง</div>
+        <div style="font-size:12.8px;color:var(--ink-soft)">
+          ในโน้ตเรียก <b>เครื่องบรรจุ L2</b> · ในระบบชื่อจริงคือ <b>ไลน์ L2</b> (มาจากแอปทีมช่าง) และมีของเก่าอ้างชื่อนี้อยู่เยอะ
+          <br>แผนคือ <b>โชว์ชื่อใหม่ เก็บชื่อเก่าไว้เป็นคีย์</b> — การ์ดกับหน้าเว็บจะเห็น “เครื่องบรรจุ L2” ทั้งหมด
+        </div>
+      </div>
+
+      <div class="card" style="padding:14px 16px;border-left:4px solid var(--ok)">
+        <div class="hd">④ ใครแก้ทะเบียนได้</div>
+        <div style="font-size:12.8px;color:var(--ink-soft)">
+          ตอนนี้หน้าทะเบียน<b>ใครก็แก้ได้</b> (ไม่มีการตรวจสิทธิ์) · เสนอให้ล็อกการแก้ทะเบียน/คู่/กฎไว้ที่ <b>หัวหน้าขึ้นไป</b>
+          ส่วนการติ๊กเช็กลิสต์เปิดให้ทุกคนเหมือนใบเช็ก AM
+        </div>
+      </div>
+
+    </div>
+  </div></div>
+</section>
+
+<div class="foot">
+  <b>Mockup นี้กดได้จริง</b> — แท็บด้านบน · การ์ดเครื่องจักรกดเข้าหน้ารายละเอียด · ปุ่ม “แสดง 8 รายการ” ในหมวดอื่น ๆ
+  <br>ส่วนที่เป็นเปลือก (แถบดำด้านบน · เมนูซ้าย · แถบค้นหา) ไม่ใช่ของหน้านี้ ใส่ไว้ให้เห็นว่าหน้าจริงจะอยู่ตรงไหน
+</div>
+
+<div class="modal" id="mcModal" hidden>
+  <div class="box">
+    <h3>＋ เพิ่มเข้าทะเบียนเครื่องจักร</h3>
+    <div class="hint">เพิ่มแล้วจะโผล่ในผัง ในตัวเลือกของฟอร์มผูกคู่ และในแท็บทะเบียนทันที</div>
+    <div class="fld"><label>หมวด</label>
+      <select id="mcGrp"><option value="line">🏭 ไลน์ผลิต</option><option value="packer">📦 เครื่องบรรจุ</option></select>
+    </div>
+    <div class="fld"><label>ชื่อที่โชว์</label><input id="mcLabel" placeholder="เช่น Line ผลิตน้ำตาล Coconut"></div>
+    <div class="fld"><label>ชื่อในระบบ (คีย์ที่ของเดิมอ้างถึง — เว้นว่างได้ จะใช้ชื่อที่โชว์)</label>
+      <input id="mcName" placeholder="เช่น ไลน์น้ำตาล Coconut"></div>
+    <div class="fld" id="mcCodeFld"><label>รหัสในแผนบรรจุ</label><input id="mcCode" placeholder="เช่น [A4]"></div>
+    <div style="display:flex;gap:7px;margin-top:4px">
+      <button class="ibtn pri" id="mcSave">เพิ่มเข้าทะเบียน</button>
+      <button class="ibtn" id="mcCancel">ยกเลิก</button>
+    </div>
+  </div>
+</div>
+
+<script>
+document.querySelectorAll('.tabjs').forEach(t => t.addEventListener('click', () => {
+  const id = t.dataset.view;
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('on', v.id === id));
+  document.querySelectorAll('.itab').forEach(x => x.classList.toggle('on', x.dataset.view === id));
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}));
+const fb = document.getElementById('foldbtn'), fw = document.getElementById('foldwrap');
+fb.addEventListener('click', () => {
+  const open = fw.classList.toggle('open');
+  fb.textContent = open ? '▴ ซ่อน' : '▾ แสดง 8 รายการ';
+});
+document.querySelectorAll('.sbtn').forEach(b => b.addEventListener('click', () => {
+  const row = b.closest('.it');
+  row.querySelectorAll('.sbtn').forEach(x => x.classList.toggle('on', x === b));
+  row.classList.toggle('ok', b.classList.contains('y'));
+  row.classList.toggle('ng', b.classList.contains('n'));
+}));
+
+/* ══ ผังเชื่อมโยง — ทำงานจริงในหน้า (ข้อมูลอยู่ในหน่วยความจำ รีเฟรชแล้วกลับค่าตั้งต้น) ══ */
+const LINES = [
+  { name: 'Line ต้ม 1', label: 'Line ต้ม 1' },
+  { name: 'Line ต้ม 2', label: 'Line ต้ม 2' },
+  { name: 'Line ต้ม 3', label: 'Line ต้ม 3' },
+  { name: 'Line ต้ม 4', label: 'Line ต้ม 4' },
+  { name: 'ไลน์ไอซิ่ง', label: 'Line ผลิตน้ำตาล Icing' },
+  { name: 'ไลน์น้ำตาลปั้นและห้องต้มหัวเชื้อ', label: 'Line ต้มหัวเชื้อ / น้ำตาลปั้น' },
+];
+const PACKERS = [
+  { name: 'ไลน์ L1', label: 'เครื่องบรรจุ L1', code: '[L1]' },
+  { name: 'ไลน์ L2', label: 'เครื่องบรรจุ L2', code: '[L2]' },
+  { name: 'ไลน์ L3', label: 'เครื่องบรรจุ L3', code: '[L3]' },
+  { name: 'ไลน์ L4', label: 'เครื่องบรรจุ L4', code: '[L4]' },
+  { name: 'ไลน์ A1', label: 'เครื่องบรรจุ A1', code: '[A1]' },
+  { name: 'ไลน์ A2', label: 'เครื่องบรรจุ A2', code: '[A2]' },
+  { name: 'ไลน์ A3', label: 'เครื่องบรรจุ A3', code: '[A3]' },
+  { name: 'ไลน์ 300 ml', label: 'ไลน์ 300 ml', code: '' },
+  { name: 'ไลน์ Manual', label: 'ไลน์ Manual', code: '' },
+  { name: 'ไลน์ปี๊บ', label: 'ไลน์ปี๊บ', code: '' },
+  { name: 'Robot Clear Packer', label: 'Robot Clear Packer', code: '' },
+];
+let seq = 100;
+let pairs = [
+  { id: ++seq, line: 'Line ต้ม 1', packer: 'ไลน์ L1', products: ['Amazon 850'], note: '' },
+  { id: ++seq, line: 'Line ต้ม 1', packer: 'ไลน์ L2', products: ['Amazon', 'Amazon 850'], note: 'ต้องสลับวาล์วที่หัวถัง 2 ก่อนเดินเครื่อง' },
+  { id: ++seq, line: 'Line ต้ม 2', packer: 'ไลน์ L2', products: ['Syrup 800×12'], note: '' },
+  { id: ++seq, line: 'Line ต้ม 2', packer: 'ไลน์ L3', products: [], note: '' },
+  { id: ++seq, line: 'Line ต้ม 3', packer: 'ไลน์ L3', products: ['Flavour 1.8×8'], note: '' },
+  { id: ++seq, line: 'Line ต้ม 3', packer: 'ไลน์ L4', products: [], note: '' },
+  { id: ++seq, line: 'Line ต้ม 4', packer: 'ไลน์ A1', products: ['ปี๊บ 1×20'], note: 'ล้างชุดลูกสูบทุกครั้งหลังจบ' },
+  { id: ++seq, line: 'Line ต้ม 4', packer: 'ไลน์ A2', products: [], note: '' },
+  { id: ++seq, line: 'ไลน์ไอซิ่ง', packer: 'ไลน์ A3', products: ['Icing 10–25 kg'], note: '' },
+  { id: ++seq, line: 'ไลน์ไอซิ่ง', packer: 'ไลน์ 300 ml', products: [], note: '' },
+  { id: ++seq, line: 'ไลน์น้ำตาลปั้นและห้องต้มหัวเชื้อ', packer: 'ไลน์ Manual', products: ['น้ำตาล Coconut'], note: '' },
+  { id: ++seq, line: 'ไลน์น้ำตาลปั้นและห้องต้มหัวเชื้อ', packer: 'ไลน์ปี๊บ', products: [], note: '' },
+];
+// มาจากใบลงยอดผลิตจริง — มีแค่ "เครื่อง × สินค้า" ไม่มีไลน์ (คนเลือกไลน์เอง)
+let suggests = [
+  { packer: 'Robot Clear Packer', product: 'Flavour 1.8×8', n: 17 },
+  { packer: 'ไลน์ A2', product: 'Paste 454 g', n: 9 },
+  { packer: 'ไลน์ L4', product: 'Low Cal 105 g', n: 6 },
+];
+
+let editing = null;   // id ของคู่ที่กำลังแก้ | 'new'
+let draft = null;     // ร่างที่อยู่ในฟอร์ม
+let focusProd = false;
+
+const esc = (v) => String(v == null ? '' : v)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const lineLabel = (n) => (LINES.find(x => x.name === n) || {}).label || n;
+const packLabel = (n) => (PACKERS.find(x => x.name === n) || {}).label || n;
+
+/* ── ผัง SVG — วาดใหม่จากข้อมูลทุกครั้ง เส้นส้ม = คู่ที่ระบุสินค้าแล้ว ── */
+function renderSvg() {
+  const LH = 46, LG = 24, PH = 32, PG = 6, TOP = 32, X1 = 20, W1 = 210, X2 = 560, W2 = 320;
+  const totalL = LINES.length * LH + (LINES.length - 1) * LG;
+  const totalP = PACKERS.length * PH + (PACKERS.length - 1) * PG;
+  const maxT = Math.max(totalL, totalP);
+  const H = TOP + maxT + 18;
+  const ly = (i) => TOP + (maxT - totalL) / 2 + i * (LH + LG);
+  const py = (j) => TOP + (maxT - totalP) / 2 + j * (PH + PG);
+
+  let edges = '';
+  pairs.forEach(p => {
+    const i = LINES.findIndex(x => x.name === p.line);
+    const j = PACKERS.findIndex(x => x.name === p.packer);
+    if (i < 0 || j < 0) return;
+    const y1 = ly(i) + LH / 2, y2 = py(j) + PH / 2;
+    const hot = p.products.length ? ' hot' : '';
+    edges += `<path class="edge${hot}" d="M${X1 + W1},${y1} C${X1 + W1 + 150},${y1} ${X2 - 150},${y2} ${X2},${y2}"/>`;
+  });
+
+  let left = '';
+  LINES.forEach((l, i) => {
+    const prods = [...new Set(pairs.filter(p => p.line === l.name).flatMap(p => p.products))];
+    const sub = prods.length ? prods.slice(0, 2).join(' · ') + (prods.length > 2 ? ' …' : '') : 'ยังไม่ระบุสินค้า';
+    const y = ly(i);
+    left += `<g><rect class="nodebox line" x="${X1}" y="${y}" width="${W1}" height="${LH}" rx="11"/>`
+      + `<text x="${X1 + 16}" y="${y + 20}">${esc(l.label)}</text>`
+      + `<text class="sm" x="${X1 + 16}" y="${y + 36}">${esc(sub)}</text></g>`;
+  });
+
+  let right = '';
+  PACKERS.forEach((m, j) => {
+    const on = pairs.some(p => p.packer === m.name);
+    const y = py(j);
+    const txt = on ? esc(m.label) + (m.code ? ' · ' + esc(m.code) : '')
+      : esc(m.label) + ' — ยังไม่ผูกคู่';
+    right += `<g><rect class="nodebox ${on ? 'packer' : 'off'}" x="${X2}" y="${y}" width="${W2}" height="${PH}" rx="9"/>`
+      + `<text x="${X2 + 16}" y="${y + 21}"${on ? '' : ' style="fill:var(--muted)"'}>${txt}</text></g>`;
+  });
+
+  document.getElementById('mapCard').innerHTML =
+    `<svg viewBox="0 0 900 ${H}" width="100%" height="${H}" role="img" aria-label="ผังไลน์ผลิตเชื่อมกับเครื่องบรรจุ">`
+    + `<text class="colhead" x="20" y="16">🏭 ไลน์ผลิต (${LINES.length})</text>`
+    + `<text class="colhead" x="560" y="16">📦 เครื่องบรรจุ (${PACKERS.length})</text>`
+    + edges + left + right + '</svg>';
+}
+
+/* ── ตารางคู่ ── */
+function chipHtml(p) {
+  if (!p.products.length) return '<span class="pchip">ยังไม่ระบุ</span>';
+  return p.products.map(x => `<span class="pchip on">${esc(x)}</span>`).join('');
+}
+function optionsHtml(arr, sel, labelFn) {
+  return arr.map(x => `<option value="${esc(x.name)}"${x.name === sel ? ' selected' : ''}>${esc(labelFn(x.name))}</option>`).join('');
+}
+function formRowHtml() {
+  const isNew = editing === 'new';
+  return `<tr class="editrow"><td colspan="5" style="padding:14px 16px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <b style="font-family:var(--font-head);font-size:13.5px">${isNew ? '＋ ผูกคู่ใหม่' : '✏️ แก้ไขคู่'}</b>
+      <span class="chip mute">${esc(lineLabel(draft.line))} ↔ ${esc(packLabel(draft.packer))}</span>
+    </div>
+    <div class="grid2">
+      <div class="fld"><label>ไลน์ผลิต</label>
+        <select id="fLine">${optionsHtml(LINES, draft.line, lineLabel)}</select></div>
+      <div class="fld"><label>เครื่องบรรจุ</label>
+        <select id="fPacker">${optionsHtml(PACKERS, draft.packer, packLabel)}</select></div>
+    </div>
+    <div class="fld"><label>สินค้าประจำคู่ — พิมพ์แล้วกด Enter · กดที่ชิปเพื่อลบ</label>
+      <div class="prodbox">
+        ${draft.products.map((x, i) => `<span class="pchip on x" data-rmprod="${i}">${esc(x)} ✕</span>`).join('')}
+        <input id="fProd" placeholder="เพิ่มสินค้า…">
+      </div>
+      <div style="font-size:11.5px;color:var(--muted);margin-top:5px">
+        ใช้ตัดสินว่า “วันนี้เครื่องนี้ผลิตสินค้าตัวนี้ → ป้อนจากไลน์ไหน” โดยไม่ต้องถามคน
+      </div>
+    </div>
+    <div class="fld"><label>หมายเหตุ</label><input id="fNote" value="${esc(draft.note)}"></div>
+    <div id="fErr" class="warnbox" hidden style="margin-bottom:10px"></div>
+    <div style="display:flex;gap:7px"><button class="ibtn pri sm" id="fSave">บันทึก</button>
+      <button class="ibtn sm" id="fCancel">ยกเลิก</button></div>
+  </td></tr>`;
+}
+function renderPairs() {
+  const body = document.getElementById('pairBody');
+  let html = editing === 'new' ? formRowHtml() : '';
+  pairs.forEach(p => {
+    if (editing === p.id) { html += formRowHtml(); return; }
+    html += `<tr>
+      <td><b>${esc(lineLabel(p.line))}</b></td>
+      <td>${esc(packLabel(p.packer))}</td>
+      <td><div class="pchips">${chipHtml(p)}</div></td>
+      <td style="color:var(--ink-soft)">${p.note ? esc(p.note) : '—'}</td>
+      <td><div class="rowacts">
+        <button class="ibtn xs" data-edit="${p.id}">✏️ แก้</button>
+        <button class="ibtn xs dgr" data-del="${p.id}">🗑</button>
+      </div></td></tr>`;
+  });
+  if (!pairs.length && editing !== 'new') {
+    html = '<tr><td colspan="5"><div class="empty">ยังไม่ได้ผูกคู่เลย — กด “＋ ผูกคู่ใหม่”</div></td></tr>';
+  }
+  body.innerHTML = html;
+  document.getElementById('pairCount').textContent = pairs.length + ' คู่';
+  document.getElementById('subPairs').textContent = String(pairs.length);
+  document.querySelector('.itab[data-view="v-map"] .n').textContent = String(pairs.length);
+  if (focusProd) { const el = document.getElementById('fProd'); if (el) el.focus(); focusProd = false; }
+}
+function renderSuggests() {
+  const card = document.getElementById('suggestCard');
+  const body = document.getElementById('suggestBody');
+  body.innerHTML = suggests.length
+    ? suggests.map((s, i) => `<tr>
+        <td><b>${esc(packLabel(s.packer))}</b></td>
+        <td><span class="pchip">${esc(s.product)}</span></td>
+        <td class="num">${s.n}</td>
+        <td><select class="lsel" data-sline="${i}">
+              <option value="">— เลือกไลน์ —</option>
+              ${LINES.map(l => `<option value="${esc(l.name)}">${esc(l.label)}</option>`).join('')}
+            </select></td>
+        <td style="text-align:right"><div class="rowacts">
+          <button class="ibtn xs ok" data-take="${i}">✓ รับ</button>
+          <button class="ibtn xs" data-skip="${i}">ข้าม</button></div></td></tr>`).join('')
+    : '<tr><td colspan="5"><div class="empty">ดูครบแล้ว — ไม่มีสินค้าใหม่ให้เสนอ</div></td></tr>';
+  if (!card.hidden) card.hidden = false;
+}
+function renderMap() { renderSvg(); renderPairs(); renderSuggests(); }
+
+function openForm(id) {
+  editing = id;
+  if (id === 'new') {
+    draft = { line: LINES[0].name, packer: PACKERS[0].name, products: [], note: '' };
+  } else {
+    const p = pairs.find(x => x.id === id);
+    draft = { line: p.line, packer: p.packer, products: [...p.products], note: p.note };
+  }
+  renderPairs();
+  const el = document.querySelector('#pairBody .editrow');
+  if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+function closeForm() { editing = null; draft = null; renderPairs(); }
+function saveForm() {
+  draft.note = (document.getElementById('fNote') || {}).value || '';
+  const dup = pairs.find(p => p.line === draft.line && p.packer === draft.packer && p.id !== editing);
+  if (dup) {
+    const err = document.getElementById('fErr');
+    err.hidden = false;
+    err.innerHTML = '⚠️ คู่นี้ผูกไว้แล้ว — ไปแก้ที่แถวเดิมแทน (ระบบจริงกันซ้ำด้วย UNIQUE ที่ฐานข้อมูล)';
+    return;
+  }
+  if (editing === 'new') {
+    pairs.push({ id: ++seq, line: draft.line, packer: draft.packer, products: draft.products, note: draft.note });
+  } else {
+    const p = pairs.find(x => x.id === editing);
+    Object.assign(p, { line: draft.line, packer: draft.packer, products: draft.products, note: draft.note });
+  }
+  closeForm();
+  renderSvg();
+}
+
+/* คลิก/พิมพ์ทุกอย่างในตาราง — ผูกที่ตัวแม่ครั้งเดียว เพราะแถวถูกวาดใหม่ตลอด */
+document.getElementById('pairBody').addEventListener('click', (e) => {
+  const t = e.target.closest('[data-edit],[data-del],[data-rmprod],#fSave,#fCancel');
+  if (!t) return;
+  if (t.dataset.edit) return openForm(Number(t.dataset.edit));
+  if (t.dataset.del) {
+    const p = pairs.find(x => x.id === Number(t.dataset.del));
+    if (!window.confirm(`เอาคู่ "${lineLabel(p.line)} ↔ ${packLabel(p.packer)}" ออก?`)) return;
+    pairs = pairs.filter(x => x.id !== p.id);
+    if (editing === p.id) { editing = null; draft = null; }
+    renderPairs(); renderSvg(); return;
+  }
+  if (t.dataset.rmprod) { draft.products.splice(Number(t.dataset.rmprod), 1); renderPairs(); return; }
+  if (t.id === 'fSave') return saveForm();
+  if (t.id === 'fCancel') return closeForm();
+});
+document.getElementById('pairBody').addEventListener('keydown', (e) => {
+  if (e.target.id !== 'fProd' || e.key !== 'Enter') return;
+  e.preventDefault();
+  const v = e.target.value.trim();
+  if (!v || draft.products.includes(v)) { e.target.value = ''; return; }
+  draft.products.push(v);
+  draft.note = (document.getElementById('fNote') || {}).value || '';
+  focusProd = true;
+  renderPairs();
+});
+document.getElementById('pairBody').addEventListener('change', (e) => {
+  if (!draft) return;
+  if (e.target.id === 'fLine') draft.line = e.target.value;
+  if (e.target.id === 'fPacker') draft.packer = e.target.value;
+  if (e.target.id === 'fLine' || e.target.id === 'fPacker') {
+    draft.note = (document.getElementById('fNote') || {}).value || '';
+    renderPairs();
+  }
+});
+document.querySelectorAll('[data-addpair]').forEach(b => b.addEventListener('click', () => openForm('new')));
+
+/* ข้อเสนอจากประวัติ */
+document.getElementById('btnSuggest').addEventListener('click', () => {
+  const card = document.getElementById('suggestCard');
+  card.hidden = false;
+  card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+});
+document.getElementById('btnSuggestClose').addEventListener('click', () => {
+  document.getElementById('suggestCard').hidden = true;
+});
+document.getElementById('suggestBody').addEventListener('click', (e) => {
+  const t = e.target.closest('[data-take],[data-skip]');
+  if (!t) return;
+  const i = Number(t.dataset.take != null ? t.dataset.take : t.dataset.skip);
+  if (t.dataset.take != null) {
+    const s = suggests[i];
+    const sel = document.querySelector(`#suggestBody [data-sline="${i}"]`);
+    const line = sel ? sel.value : '';
+    if (!line) { sel.classList.add('empty'); sel.focus(); return; }   // ไลน์มาจากคน ไม่ใช่จากข้อมูล
+    const p = pairs.find(x => x.line === line && x.packer === s.packer);
+    if (p) { if (!p.products.includes(s.product)) p.products.push(s.product); }
+    else pairs.push({ id: ++seq, line, packer: s.packer, products: [s.product], note: '' });
+  }
+  suggests.splice(i, 1);
+  renderMap();
+});
+
+/* เพิ่มไลน์/เครื่องเข้าทะเบียน */
+const mcModal = document.getElementById('mcModal');
+const mcGrp = document.getElementById('mcGrp');
+const syncCodeFld = () => { document.getElementById('mcCodeFld').hidden = mcGrp.value !== 'packer'; };
+document.getElementById('btnAddMc').addEventListener('click', () => {
+  document.getElementById('mcLabel').value = '';
+  document.getElementById('mcName').value = '';
+  document.getElementById('mcCode').value = '';
+  syncCodeFld();
+  mcModal.hidden = false;
+  document.getElementById('mcLabel').focus();
+});
+mcGrp.addEventListener('change', syncCodeFld);
+document.getElementById('mcCancel').addEventListener('click', () => { mcModal.hidden = true; });
+mcModal.addEventListener('click', (e) => { if (e.target === mcModal) mcModal.hidden = true; });
+document.getElementById('mcSave').addEventListener('click', () => {
+  const label = document.getElementById('mcLabel').value.trim();
+  if (!label) { document.getElementById('mcLabel').focus(); return; }
+  const name = document.getElementById('mcName').value.trim() || label;
+  const grp = mcGrp.value;
+  const code = grp === 'packer' ? document.getElementById('mcCode').value.trim() : '';
+  const arr = grp === 'line' ? LINES : PACKERS;
+  if (arr.some(x => x.name === name)) { mcModal.hidden = true; return; }
+  arr.push({ name, label, code });
+
+  // ลงการ์ดในแท็บทะเบียนให้เห็นทันที + ขยับตัวเลขนับ
+  const grid = document.getElementById(grp === 'line' ? 'grid-line' : 'grid-packer');
+  const card = document.createElement('button');
+  card.className = 'mc ' + grp;
+  card.innerHTML = `<div class="r1"><div style="flex:1;min-width:0">
+      <h3>${esc(label)}</h3><div class="key">ชื่อในระบบ · ${esc(name)}${code ? ' · รหัสในแผน ' + esc(code) : ''}</div>
+    </div><span class="chip low">เพิ่มใหม่</span></div>
+    <div class="badges"><span class="chip mute">ยังไม่มีแผน PM</span><span class="chip warn">ยังไม่ผูกคู่</span></div>`;
+  grid.appendChild(card);
+  const cnt = document.getElementById(grp === 'line' ? 'cnt-line' : 'cnt-packer');
+  cnt.textContent = String(arr.length);
+  const total = LINES.length + PACKERS.length + 13 + 8;
+  document.getElementById('subTotal').textContent = String(total);
+  document.querySelector('.itab[data-view="v-reg"] .n').textContent = String(total);
+
+  mcModal.hidden = true;
+  renderMap();
+});
+
+renderMap();
+</script>
+</body>
+</html>

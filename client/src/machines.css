@@ -1,0 +1,282 @@
+/* ============================================================
+   หน้า "ทะเบียนเครื่องจักร" (Machine Hub) — ไลน์ผลิต ↔ เครื่องบรรจุ ↔ สินค้า
+   ยกดีไซน์จาก mockup/machine-registry.html
+
+   🔴 ทุกกฎต้องขึ้นต้นด้วย .mcx เสมอ
+   redesign.css ประกาศ .pill / .btn / .card / .abody ไว้แบบ global — เขียนชื่อคลาสเปล่า ๆ
+   ที่นี่จะไปทับทั้งเว็บ และจะเห็นก็ต่อเมื่อเปิดหน้าอื่น (วิธีเดียวกับ .pmx / .incx / .amx)
+
+   โทเคนสีทั้งหมดมาจาก redesign.css ที่ :root — ห้ามคิดสีใหม่ให้ชนของเดิม
+   ============================================================ */
+.mcx { font-family: var(--font-body); color: var(--ink); }
+.mcx *, .mcx *::before, .mcx *::after { box-sizing: border-box; }
+.mcx h1, .mcx h2, .mcx h3, .mcx h4 {
+  font-family: var(--font-head); letter-spacing: -.02em; line-height: 1.3;
+  color: var(--ink); font-weight: 600; margin: 0;
+}
+.mcx p, .mcx ul, .mcx ol, .mcx li { margin: 0; padding: 0; }
+.mcx button { font-family: inherit; cursor: pointer; }
+.mcx button:focus-visible, .mcx a:focus-visible,
+.mcx input:focus-visible, .mcx select:focus-visible, .mcx textarea:focus-visible {
+  outline: 3px solid rgba(255, 107, 0, .5); outline-offset: 2px;
+}
+
+/* ── หัวหน้า ─────────────────────────────────────────────── */
+.mcx .eyebrow {
+  font-family: var(--font-head); font-size: 11.5px; font-weight: 600; color: var(--chat);
+  background: #e8f6f3; display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 12px; border-radius: 999px; margin-bottom: 10px;
+}
+.mcx .phead { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.mcx .phead h1 { font-size: clamp(20px, 2.6vw, 25px); letter-spacing: -.03em; }
+.mcx .phead .sub { font-size: 13px; color: var(--ink-soft); }
+.mcx .sp { flex: 1; }
+
+/* ── แท็บ / ฟิลเตอร์ / ปุ่ม ───────────────────────────────── */
+.mcx .itabs {
+  display: inline-flex; background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 999px; padding: 4px; gap: 4px; margin: 14px 0 4px; flex-wrap: wrap;
+}
+.mcx .itab {
+  border: none; background: transparent; color: var(--ink-soft); font-family: var(--font-head);
+  font-size: 13.5px; font-weight: 600; padding: 8px 18px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.mcx .itab.on { background: var(--card); color: var(--ink); box-shadow: var(--shadow-card); }
+.mcx .itab .n {
+  font-family: var(--font-body); font-size: 11.5px; font-weight: 700; border-radius: 999px;
+  padding: 1px 8px; background: var(--surface-3); color: var(--ink-soft);
+}
+.mcx .itab.on .n { background: var(--brand-soft); color: var(--brand-deep); }
+.mcx .ifilters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 12px 0 14px; }
+.mcx .ipill {
+  border: 1px solid var(--line); background: var(--card); color: var(--ink-soft);
+  padding: 6px 14px; border-radius: 999px; font-size: 12.8px; font-weight: 600;
+  font-family: var(--font-head); display: inline-flex; align-items: center; gap: 6px;
+}
+.mcx .ipill.on { color: #fff; border-color: transparent; background: var(--ink); }
+.mcx .ipill.on.brand { background: var(--brand-deep); }
+.mcx .isel, .mcx .iinp {
+  border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  border-radius: 999px; padding: 6px 12px; font-size: 12.8px; font-weight: 600; font-family: var(--font-head);
+}
+.mcx .iinp { font-family: var(--font-body); font-weight: 400; min-width: 190px; }
+.mcx .divider { width: 1px; height: 22px; background: var(--line); }
+.mcx .ibtn {
+  border: 1px solid var(--line); background: var(--card); color: var(--ink-soft);
+  padding: 7px 15px; border-radius: 999px; font-size: 12.8px; font-weight: 600;
+  font-family: var(--font-head); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+}
+.mcx .ibtn.pri { background: var(--brand); border-color: var(--brand); color: #fff; }
+.mcx .ibtn.sm { padding: 4px 12px; font-size: 12px; }
+.mcx .ibtn.xs { padding: 3px 9px; font-size: 11.5px; }
+.mcx .ibtn.ok { color: var(--ok); background: var(--p-low-w); border-color: transparent; }
+.mcx .ibtn.dgr { color: var(--danger); background: var(--danger-soft-bg); border-color: var(--danger-soft-line); }
+.mcx .ibtn.ext { color: var(--cip1); background: #e8f1fb; border-color: transparent; }
+.mcx .ibtn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── สถิติ / การ์ด / ชิป ──────────────────────────────────── */
+.mcx .istats { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 14px 0; }
+.mcx .istat {
+  background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+  box-shadow: var(--shadow-card); padding: 11px 14px;
+}
+.mcx .istat .l { font-size: 11.5px; font-weight: 600; color: var(--ink-soft); display: flex; align-items: center; gap: 5px; }
+.mcx .istat .v { font-family: var(--font-head); font-size: 26px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.mcx .istat .u { font-size: 12px; font-weight: 500; color: var(--ink-soft); margin-left: 3px; font-family: var(--font-body); }
+.mcx .istat.hot { border-color: var(--p-stop); background: linear-gradient(180deg, var(--p-stop-w), var(--card) 70%); }
+.mcx .istat.hot .v { color: var(--p-stop); }
+.mcx .istat.gap .v { color: var(--warn); }
+.mcx .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-card); }
+.mcx .chip { font-size: 11px; font-weight: 700; border-radius: 999px; padding: 2px 10px; white-space: nowrap; font-family: var(--font-body); }
+.mcx .chip.stop { color: var(--p-stop); background: var(--p-stop-w); }
+.mcx .chip.warn { color: var(--p-warn); background: var(--p-warn-w); }
+.mcx .chip.low { color: var(--p-low); background: var(--p-low-w); }
+.mcx .chip.due { color: var(--brand-deep); background: var(--brand-soft); }
+.mcx .chip.freq { color: var(--cip1); background: #e8f1fb; }
+.mcx .chip.km { color: var(--chat); background: #e8f6f3; }
+.mcx .chip.mute { color: var(--muted); background: var(--surface-3); border: 1px solid var(--line); }
+.mcx .src {
+  font-size: 10.5px; font-weight: 700; border-radius: 6px; padding: 2px 8px; white-space: nowrap;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-soft);
+}
+.mcx .meta { font-size: 12px; color: var(--ink-soft); margin-top: 5px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 9px; }
+.mcx .meta .dot { color: var(--sep); }
+.mcx .hd { font-family: var(--font-head); font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; margin: 0 0 9px; }
+.mcx .empty { text-align: center; color: var(--muted); font-size: 12.8px; padding: 22px; }
+.mcx .legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 11.5px; color: var(--ink-soft); margin-top: 10px; }
+.mcx .legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 5px; vertical-align: -1px; }
+
+/* ── ฟอร์ม / กล่องข้อความ / ตาราง ────────────────────────── */
+.mcx .fld { margin-bottom: 11px; }
+.mcx .fld > label { display: block; font-size: 11.5px; font-weight: 700; color: var(--ink-soft); margin-bottom: 4px; }
+.mcx .fld input, .mcx .fld select, .mcx .fld textarea {
+  width: 100%; border: 1px solid var(--line); background: var(--surface-3); color: var(--ink);
+  border-radius: 10px; padding: 8px 11px; font-size: 13px; line-height: 1.6; font-family: inherit;
+}
+.mcx .grid2 { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.mcx .warnbox { background: var(--warn-soft-bg); border-left: 3px solid var(--warn); }
+.mcx .okbox { background: var(--p-low-w); border-left: 3px solid var(--ok); }
+.mcx .errbox { background: var(--danger-soft-bg); border-left: 3px solid var(--danger); }
+.mcx .infobox { background: var(--surface-2); border-left: 3px solid var(--sep); }
+.mcx .warnbox, .mcx .okbox, .mcx .errbox, .mcx .infobox {
+  border-radius: 10px; padding: 9px 12px; font-size: 12.3px; color: var(--ink-soft); line-height: 1.65; margin-bottom: 12px;
+}
+.mcx table.tb { width: 100%; border-collapse: collapse; font-size: 12.8px; }
+.mcx table.tb th {
+  font-family: var(--font-head); font-size: 11.5px; font-weight: 600; color: var(--ink-soft);
+  text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+.mcx table.tb td { padding: 10px 12px; border-bottom: 1px solid var(--row-line); vertical-align: middle; }
+.mcx table.tb tr:last-child td { border-bottom: none; }
+.mcx .num { text-align: right; font-variant-numeric: tabular-nums; }
+.mcx .scrollx { overflow-x: auto; }
+
+/* ── แท็บทะเบียน: หมวด + การ์ดเครื่อง ─────────────────────── */
+.mcx .gsec { margin-bottom: 22px; }
+.mcx .ghead { display: flex; align-items: center; gap: 9px; margin: 0 0 11px; flex-wrap: wrap; }
+.mcx .ghead h2 { font-size: 16px; }
+.mcx .ghead .gc {
+  font-size: 11.5px; font-weight: 700; color: var(--ink-soft); background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 999px; padding: 1px 10px;
+}
+.mcx .ghead .gd { font-size: 12.3px; color: var(--muted); }
+.mcx .mgrid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(272px, 1fr)); align-items: start; }
+.mcx .mc {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow-card); padding: 13px 15px 12px; border-left: 4px solid var(--sep);
+  text-align: left; width: 100%; font-family: inherit; color: inherit;
+  transition: transform .12s cubic-bezier(.34, 1.3, .64, 1), box-shadow .12s ease;
+}
+.mcx .mc:hover { transform: translateY(-2px); box-shadow: var(--shadow-float); }
+.mcx .mc:active { transform: translateY(0); }
+.mcx .mc.line { border-left-color: var(--cip1); }
+.mcx .mc.packer { border-left-color: var(--brand); }
+.mcx .mc.central { border-left-color: var(--cip3); }
+.mcx .mc.tool { border-left-color: var(--muted); }
+.mcx .mc h3 { font-size: 15.5px; letter-spacing: -.01em; line-height: 1.35; }
+.mcx .mc .key { font-size: 11px; color: var(--muted); font-family: var(--font-body); margin-top: 1px; }
+.mcx .mc .r1 { display: flex; align-items: flex-start; gap: 8px; }
+.mcx .mc .badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.mcx .mc .lnk { font-size: 11.5px; color: var(--ink-soft); margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+
+/* ── หน้ารายละเอียด ──────────────────────────────────────── */
+.mcx .dgrid { display: grid; gap: 14px; grid-template-columns: 1fr 330px; align-items: start; }
+.mcx .blk { margin-bottom: 14px; padding: 15px 17px; }
+.mcx .wk { display: grid; grid-template-columns: repeat(26, 1fr); gap: 3px; margin-top: 9px; }
+.mcx .wk i { height: 16px; border-radius: 3px; background: var(--surface-2); border: 1px solid var(--line); display: block; }
+.mcx .wk i.plan { background: var(--brand-soft); border-color: var(--brand); }
+.mcx .wk i.done { background: var(--p-low-w); border-color: var(--ok); }
+.mcx .wk i.over { background: var(--p-stop-w); border-color: var(--p-stop); }
+.mcx .wk i.skip { background: var(--surface-3); border-color: var(--sep); opacity: .6; }
+.mcx .wk i.now { outline: 2px solid var(--ink); outline-offset: 1px; }
+.mcx .kv { display: grid; grid-template-columns: 118px 1fr; gap: 6px 12px; font-size: 12.8px; }
+.mcx .kv dt { color: var(--ink-soft); font-weight: 600; font-size: 12px; }
+.mcx .kv dd { margin: 0; }
+.mcx .li { display: flex; gap: 9px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--row-line); font-size: 12.8px; }
+.mcx .li:last-child { border-bottom: none; }
+.mcx .li .ic { flex: none; width: 22px; text-align: center; }
+.mcx .pairbox { border: 1px solid var(--line); border-radius: 11px; padding: 9px 11px; background: var(--surface-3); }
+
+/* ── ผังเชื่อมโยง ────────────────────────────────────────── */
+.mcx .mapcard { padding: 16px 18px; overflow-x: auto; }
+.mcx .mapcard svg { display: block; min-width: 860px; }
+.mcx .nodebox { fill: var(--card); stroke: var(--line); }
+.mcx .nodebox.line { stroke: var(--cip1); fill: #f4f8fd; }
+.mcx .nodebox.packer { stroke: var(--brand); fill: var(--brand-soft); }
+.mcx .nodebox.off { stroke: var(--sep); fill: var(--surface-2); stroke-dasharray: 4 3; }
+.mcx .mapcard text { font-family: var(--font-head); font-size: 12.5px; fill: var(--ink); }
+.mcx .mapcard text.sm { font-family: var(--font-body); font-size: 10.5px; fill: var(--muted); }
+.mcx .mapcard text.colhead { font-size: 11.5px; fill: var(--ink-soft); font-weight: 600; }
+.mcx .mapcard text.off { fill: var(--muted); }
+.mcx .mapcard path.edge { fill: none; stroke: var(--sep); stroke-width: 1.6; }
+.mcx .mapcard path.edge.hot { stroke: var(--brand); stroke-width: 2.2; }
+.mcx .pchips { display: flex; flex-wrap: wrap; gap: 4px; }
+.mcx .pchip {
+  font-size: 11px; font-weight: 600; border-radius: 999px; padding: 1px 9px;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--ink-soft);
+}
+.mcx .pchip.on { background: #e8f6f3; border-color: transparent; color: var(--chat); }
+.mcx button.pchip:hover { background: var(--danger-soft-bg); border-color: var(--danger-soft-line); color: var(--danger); }
+.mcx .rowacts { display: flex; gap: 5px; justify-content: flex-end; }
+.mcx .editrow td { background: var(--surface-3); }
+.mcx .prodbox {
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface-3);
+  padding: 8px 10px; display: flex; flex-wrap: wrap; gap: 5px; align-items: center;
+}
+.mcx .prodbox input {
+  border: none; background: transparent; flex: 1; min-width: 130px;
+  font-family: inherit; font-size: 13px; outline: none; color: var(--ink); padding: 0;
+}
+.mcx select.lsel {
+  border: 1px solid var(--line); background: var(--surface-3); border-radius: 8px; padding: 5px 8px;
+  font-size: 12.5px; font-family: inherit; color: var(--ink); max-width: 100%;
+}
+.mcx select.lsel.needpick { border-color: var(--warn); background: var(--warn-soft-bg); color: var(--p-warn); font-weight: 600; }
+
+/* ── แท็บวันนี้: รอบเดินเครื่อง ────────────────────────────── */
+.mcx .tgrid { display: grid; gap: 14px; grid-template-columns: 1fr 330px; align-items: start; }
+.mcx .rsub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+/* ตารางรอบเดินเครื่องต้องคุมความกว้างเอง — select ของไลน์กว้างตาม "ตัวเลือกที่ยาวที่สุด"
+   ("Line ต้มหัวเชื้อ / น้ำตาลปั้น (นอกคู่ที่ผูกไว้)") ปล่อยไว้จะดันคอลัมน์สถานะ+ปุ่มหลุดขอบการ์ด */
+.mcx table.tb.runs select.lsel { width: 100%; min-width: 138px; max-width: 168px; }
+.mcx table.tb.runs th, .mcx table.tb.runs td { padding-left: 9px; padding-right: 9px; }
+.mcx table.tb.runs td:nth-child(2) { min-width: 124px; }
+/* 7 คอลัมน์บนจอโน้ตบุ๊ก = ปุ่มท้ายแถวโดนเบียดตกขอบ — ให้พับเป็น 2 แถวแทนที่จะดันตารางให้ล้น */
+.mcx table.tb.runs td:last-child { width: 1%; }
+/* grid 2 ช่องแทน flex-wrap — min-content ของ grid = 2 ปุ่มเสมอ คอลัมน์เลยยุบให้เหลือปุ่มเดียวต่อบรรทัดไม่ได้
+   (flex-wrap ยุบได้ ตารางจึงบีบจนปุ่มเรียงลงมา 3 ชั้น แถวสูงเกินจำเป็น) */
+.mcx table.tb.runs .rowacts { display: grid; grid-template-columns: repeat(2, 34px); gap: 5px; justify-content: end; }
+/* ที่มาของแถว/ของช่องไลน์ — สีบอกว่า "ใครเป็นคนตัดสิน" ส้ม=แผน · ฟ้า=คน · เขียว=สินค้าประจำคู่ */
+.mcx .src.plan { border-color: var(--brand); background: var(--brand-soft); color: var(--brand-deep); }
+.mcx .src.manual { border-color: var(--cip1); background: #e8f1fb; color: var(--cip1); }
+.mcx .src.prod { border-color: var(--chat); background: #e8f6f3; color: var(--chat); }
+
+/* การ์ด "กฎที่จะยิงวันนี้" ในแท็บวันนี้ */
+.mcx .rule { padding: 11px 13px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); margin-bottom: 9px; }
+.mcx .rule .t { font-family: var(--font-head); font-size: 13px; font-weight: 600; }
+.mcx .rule .c { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+
+/* ── แท็บกฎเตือน ──────────────────────────────────────────── */
+.mcx .rgrid { display: grid; gap: 14px; grid-template-columns: 1fr 420px; align-items: start; }
+.mcx .rl {
+  padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--card);
+  box-shadow: var(--shadow-card); margin-bottom: 10px; border-left: 4px solid var(--sep);
+}
+.mcx .rl.on { border-left-color: var(--brand); background: linear-gradient(180deg, var(--brand-soft), var(--card) 60%); }
+.mcx .rl.off { opacity: .62; }
+.mcx .rl .t { font-family: var(--font-head); font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: flex-start; }
+.mcx .rl .cond { font-size: 12px; color: var(--ink-soft); margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px 7px; align-items: center; }
+.mcx .rl .items { margin-top: 8px; font-size: 12.5px; display: flex; flex-direction: column; gap: 4px; }
+.mcx .rl .items > div { display: flex; gap: 7px; }
+.mcx .rform { padding: 17px 19px; }
+.mcx .grouplabel { font-size: 11.5px; font-weight: 700; color: var(--ink-soft); margin: 14px 0 7px; }
+.mcx .itemrow {
+  display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start;
+  border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px;
+  background: var(--surface-3); margin-bottom: 8px;
+}
+.mcx .itemrow input.ti, .mcx .itemrow input.de {
+  width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px;
+  font-family: inherit; font-size: 13px; background: var(--card); color: var(--ink);
+}
+.mcx .itemrow input.de { font-size: 12.5px; margin-top: 6px; color: var(--ink-soft); }
+.mcx .cbs { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11.8px; color: var(--ink-soft); margin-top: 6px; }
+.mcx .cbs label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+
+/* ── modal ───────────────────────────────────────────────── */
+.mcx-modal {
+  position: fixed; inset: 0; background: rgba(43, 33, 25, .45); z-index: 120;
+  display: grid; place-items: center; padding: 18px; font-family: var(--font-body); color: var(--ink);
+}
+.mcx-modal .box {
+  background: var(--card); border-radius: 18px; box-shadow: var(--shadow-float);
+  padding: 20px 22px; max-width: 440px; width: 100%; max-height: 88vh; overflow-y: auto;
+}
+.mcx-modal .box h3 { font-family: var(--font-head); font-size: 17px; font-weight: 600; margin: 0 0 3px; }
+.mcx-modal .box .hint { font-size: 12.4px; color: var(--ink-soft); margin-bottom: 14px; }
+
+@media (max-width: 900px) {
+  .mcx .dgrid, .mcx .tgrid, .mcx .rgrid { grid-template-columns: 1fr; }
+  .mcx table.tb { min-width: 620px; }
+}

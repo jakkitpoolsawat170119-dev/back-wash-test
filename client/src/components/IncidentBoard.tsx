@@ -23,7 +23,7 @@ const minsBetween = (a: string, b: string) => {
 
 type Prio = '' | 'stop' | 'warn' | 'low';
 type Status = 'open' | 'wip' | 'closed';
-type Source = '' | 'web' | 'bot' | 'ai' | 'amsheet';
+type Source = '' | 'web' | 'bot' | 'ai' | 'amsheet' | 'runcheck';
 
 type Incident = {
   id: number; title: string; machine: string; line: string; batchId: string; operator: string;
@@ -62,6 +62,7 @@ const SRC: Record<Exclude<Source, ''>, { cls: string; label: string }> = {
   bot: { cls: 'bot', label: '💬 บอทแจ้งซ่อม' },
   ai: { cls: 'ai', label: '🤖 AI ผู้ช่วย' },
   amsheet: { cls: 'am', label: '📋 ใบเช็ก AM' },
+  runcheck: { cls: 'run', label: '🏭 เช็กลิสต์เดินเครื่อง' },
 };
 
 // ไอคอนเครื่องจักร — แฝดกับ MACHINE_IC ใน MaintenanceBoard.tsx/PmRegistry.tsx แก้ต้องแก้พร้อมกัน

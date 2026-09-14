@@ -810,14 +810,15 @@ function buildAmSheetCardSVG(d) {
   push(`<rect x="0" y="0" width="${W}" height="${headH}" fill="${C.accent}" opacity="0.07"/>`);
   push(`<rect x="0" y="0" width="4" height="${headH}" fill="${C.accent}"/>`);
   push(icon('clip', PX, 14, 15, C.accent));
-  push(text(PX + 22, 26, 12.5, 700, C.dim, 'ใบเช็ก AM LIST'));
+  // eyebrow ตั้งเองได้ — การ์ดนี้ใช้ซ้ำกับ "เช็กลิสต์เดินเครื่อง" (Machine Hub) ที่หน้าตาเหมือนกันทุกอย่าง
+  push(text(PX + 22, 26, 12.5, 700, C.dim, d.eyebrow || 'ใบเช็ก AM LIST'));
   if (stt) {
     const pw = measure(stt.label, 11.5) + 22;
     push(`<rect x="${W - PX - pw}" y="13" width="${pw}" height="20" rx="10" fill="${stt.color}" opacity="0.16"/>`);
     push(`<circle cx="${W - PX - pw + 11}" cy="23" r="3.2" fill="${stt.color}"/>`);
     push(text(W - PX - pw + 18, 27, 11.5, 700, stt.color, stt.label));
   }
-  push(text(PX, 56, 20, 700, C.ink, d.line || 'ใบเช็ก AM'));
+  push(text(PX, 56, 20, 700, C.ink, d.line || d.eyebrow || 'ใบเช็ก AM'));
   push(text(PX, 76, 12.5, 500, C.dim, [d.dateLabel, d.shiftLabel].filter(Boolean).join(' · ')));
   y = headH;
   push(`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
@@ -908,7 +909,7 @@ function buildAmSheetCardSVG(d) {
   push(`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
   push(`<rect x="0" y="${y}" width="${W}" height="${footH}" fill="${C.surf}"/>`);
   if (d.by) push(text(PX, y + 24, 11.5, 500, C.dim, `ผู้รายงาน ${d.by}`));
-  push(text(W - PX, y + 24, 11.5, 500, C.dim, 'ใบเช็ก AM List', 'end'));
+  push(text(W - PX, y + 24, 11.5, 500, C.dim, d.footer || d.eyebrow || 'ใบเช็ก AM List', 'end'));
   y += footH;
 
   const H = y;
