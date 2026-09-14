@@ -1,0 +1,360 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&display=swap">
+  <style>
+:root{
+  --brand:#ff6b00; --brand-deep:#c24f00; --brand-soft:#fff3ea;
+  --ink:#2b2119; --ink-soft:#6d6259; --paper:#faf7f4; --card:#ffffff; --line:#eee3d9;
+  --ok:#1c8a4c; --warn:#c77700; --danger:#c62828;
+  --cip1:#1565c0; --cip2:#01579b; --cipx:#6a1b9a;
+  --radius:16px;
+  --shadow-card:0 1px 2px rgba(63,37,10,.06),0 6px 18px -6px rgba(63,37,10,.12);
+  --shadow-float:0 2px 4px rgba(63,37,10,.08),0 16px 40px -12px rgba(63,37,10,.22);
+  --font-head:'Kanit',sans-serif; --font-body:'Sarabun',sans-serif;
+  --surface-2:#fbf7f3; --surface-3:#fdfbf9; --row-line:#f5efe9; --muted:#a49a90; --sep:#d8cabb;
+  --danger-soft-bg:#fdecea; --danger-soft-line:#f7d9d5; --warn-soft-bg:#fff6e6;
+  --p-stop:#c62828; --p-stop-w:#fdecea; --p-warn:#c77700; --p-warn-w:#fff6e6;
+  --p-low:#1c8a4c; --p-low-w:#e6f4ec;
+  --s-wip:#0277bd; --s-wip-w:#e1f2fb;
+}
+*,*::before,*::after{box-sizing:border-box}
+body{
+  margin:0;font-family:var(--font-body);color:var(--ink);line-height:1.7;
+  background:var(--paper);
+  background-image:
+    radial-gradient(1200px 500px at 85% -10%, rgba(255,107,0,.07), transparent 60%),
+    radial-gradient(900px 420px at -10% 20%, rgba(21,101,192,.05), transparent 55%);
+}
+h1,h2,h3,h4,p,ul,ol,li{margin:0;padding:0}
+h1,h2,h3,h4{font-family:var(--font-head);letter-spacing:-.02em;line-height:1.3;color:var(--ink);font-weight:600}
+a{color:var(--brand-deep);text-decoration:none} a:hover{color:var(--brand)}
+.wrap{padding:26px 30px 30px}
+.eyebrow{font-family:var(--font-head);font-size:11.5px;font-weight:600;color:var(--brand-deep);
+  background:var(--brand-soft);display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;margin-bottom:10px}
+.phead{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+.phead h1{font-size:25px;letter-spacing:-.03em}
+.phead .sub{font-size:13px;color:var(--ink-soft)}
+.sp{flex:1}
+.itabs{display:inline-flex;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:4px;gap:4px;margin:14px 0 4px}
+.itab{border:none;background:transparent;color:var(--ink-soft);font-family:var(--font-head);font-size:13.5px;font-weight:600;
+  padding:8px 20px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+.itab.on{background:var(--card);color:var(--ink);box-shadow:var(--shadow-card)}
+.itab .n{font-family:var(--font-body);font-size:11.5px;font-weight:700;border-radius:999px;padding:1px 8px;background:var(--surface-3);color:var(--ink-soft)}
+.itab.on .n{background:var(--brand-soft);color:var(--brand-deep)}
+.ifilters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0 14px}
+.ipill{border:1px solid var(--line);background:var(--card);color:var(--ink-soft);padding:6px 14px;border-radius:999px;
+  font-size:12.8px;font-weight:600;font-family:var(--font-head);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.ipill.on{color:#fff;border-color:transparent;background:var(--ink)}
+.ipill.on.brand{background:var(--brand-deep)}
+.isel{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:6px 12px;font-size:12.8px;font-weight:600;font-family:var(--font-head)}
+.divider{width:1px;height:22px;background:var(--line)}
+.ibtn{border:1px solid var(--line);background:var(--card);color:var(--ink-soft);padding:7px 15px;border-radius:999px;
+  font-size:12.8px;font-weight:600;font-family:var(--font-head);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.ibtn.pri{background:var(--brand);border-color:var(--brand);color:#fff}
+.ibtn.sm{padding:4px 12px;font-size:12px}
+.ibtn.ok{color:var(--ok);background:var(--p-low-w);border-color:transparent}
+.ibtn.dgr{color:var(--danger);background:var(--danger-soft-bg);border-color:var(--danger-soft-line)}
+.ibtn.lock{color:var(--muted);background:var(--surface-2);border-color:var(--line);cursor:not-allowed}
+.istats{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:14px 0}
+.istat{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-card);padding:11px 14px}
+.istat .l{font-size:11.5px;font-weight:600;color:var(--ink-soft);display:flex;align-items:center;gap:5px}
+.istat .v{font-family:var(--font-head);font-size:26px;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums}
+.istat .u{font-size:12px;font-weight:500;color:var(--ink-soft);margin-left:3px;font-family:var(--font-body)}
+.istat.hot{border-color:var(--p-stop);background:linear-gradient(180deg,var(--p-stop-w),var(--card) 70%)}
+.istat.hot .v{color:var(--p-stop)}
+.istat.good .v{color:var(--ok)}
+.istat.gap .v{color:var(--warn)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-card)}
+.ilist{display:flex;flex-direction:column;gap:11px}
+.tk{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-card);
+  padding:14px 16px 13px;border-left:4px solid var(--sep)}
+.tk.late{border-left-color:var(--p-stop)}
+.tk.due{border-left-color:var(--brand)}
+.tk.done{border-left-color:var(--ok);background:linear-gradient(180deg,#fbfdfb,var(--card) 60%)}
+.tk.skip{border-left-color:var(--muted);background:var(--surface-2)}
+.tk .r1{display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap}
+.tk h3{font-size:15.5px;flex:1;min-width:200px;letter-spacing:-.01em;line-height:1.35}
+.chip{font-size:11px;font-weight:700;border-radius:999px;padding:2px 10px;white-space:nowrap;font-family:var(--font-body)}
+.chip.stop{color:var(--p-stop);background:var(--p-stop-w)}
+.chip.warn{color:var(--p-warn);background:var(--p-warn-w)}
+.chip.low{color:var(--p-low);background:var(--p-low-w)}
+.chip.due{color:var(--brand-deep);background:var(--brand-soft)}
+.chip.freq{color:var(--cip1);background:#e8f1fb}
+.chip.mute{color:var(--muted);background:var(--surface-3);border:1px solid var(--line)}
+.chip.kind-pm{color:#0d47a1;background:#e8f1fb}
+.chip.kind-up{color:#14653a;background:#e6f4ec}
+.chip.kind-fix{color:#c24f00;background:#fff3ea}
+.src{font-size:10.5px;font-weight:700;border-radius:6px;padding:2px 8px;white-space:nowrap;border:1px solid var(--line);background:var(--surface-2);color:var(--ink-soft)}
+.src.plan{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-deep)}
+.src.adhoc{border-color:var(--cip1);background:#e8f1fb;color:var(--cip1)}
+.src.am{border-color:var(--cip2);background:#e3f0f8;color:var(--cip2)}
+.meta{font-size:12px;color:var(--ink-soft);margin-top:5px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 9px}
+.meta .dot{color:var(--sep)}
+.thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center}
+.th{width:54px;height:54px;border-radius:9px;border:1px solid var(--line);background:var(--surface-2);
+  display:grid;place-items:center;font-size:10px;color:var(--muted);text-align:center;line-height:1.3}
+.th.b{background:#efe6dc}
+.acts{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:11px}
+.lock-note{font-size:11.5px;color:var(--muted);display:inline-flex;align-items:center;gap:4px}
+.fld{margin-bottom:11px}
+.fld > label{display:block;font-size:11.5px;font-weight:700;color:var(--ink-soft);margin-bottom:4px}
+.fld input,.fld select,.fld textarea{width:100%;border:1px solid var(--line);background:var(--surface-3);color:var(--ink);
+  border-radius:10px;padding:8px 11px;font-size:13px;line-height:1.6;font-family:inherit}
+.grid2{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.warnbox{background:var(--warn-soft-bg);border-radius:10px;padding:9px 12px;font-size:12.3px;color:var(--ink-soft);
+  border-left:3px solid var(--warn);margin-bottom:12px;line-height:1.65}
+.okbox{background:var(--p-low-w);border-radius:10px;padding:9px 12px;font-size:12.3px;color:var(--ink-soft);
+  border-left:3px solid var(--ok);margin-bottom:12px;line-height:1.65}
+.infobox{background:var(--surface-2);border-radius:10px;padding:9px 12px;font-size:12.3px;color:var(--ink-soft);
+  border-left:3px solid var(--sep);line-height:1.65}
+table.tb{width:100%;border-collapse:collapse;font-size:12.8px}
+table.tb th{font-family:var(--font-head);font-size:11.5px;font-weight:600;color:var(--ink-soft);text-align:left;
+  padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.tb td{padding:10px 12px;border-bottom:1px solid var(--row-line);vertical-align:middle}
+table.tb tr:last-child td{border-bottom:none}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.sheet{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow-float);padding:20px 22px}
+.sheet h3{font-size:17px;margin:0 0 3px}
+.sheet .hint{font-size:12.4px;color:var(--ink-soft);margin-bottom:13px}
+.hd{font-family:var(--font-head);font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;margin:0 0 9px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11.5px;color:var(--ink-soft);margin-top:10px}
+.legend i{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:-1px}
+
+.hintline{font-size:11.5px;color:var(--muted);max-width:620px;line-height:1.55}
+.hintline b{color:var(--ink-soft)}
+.sgroups{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start;margin:14px 0}
+.sgrp h4{font-family:var(--font-head);font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:6px;
+  text-transform:none;letter-spacing:0}
+.srow{display:flex;gap:10px;flex-wrap:wrap}
+.srow .istat{min-width:132px;flex:1}
+.istat.big{min-width:186px;background:linear-gradient(180deg,#eef5fb,var(--card) 72%);border-color:#cfe3f3}
+.istat .den{font-size:11px;color:var(--ink-soft);margin-top:1px;font-variant-numeric:tabular-nums}
+.tw2{overflow-x:auto}
+.bar{height:7px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line);overflow:hidden}
+.bar span{display:block;height:100%;border-radius:999px}
+.bcap{font-size:10.5px;color:var(--muted);margin-top:3px;font-variant-numeric:tabular-nums}
+table.tb{min-width:760px}
+table.tb th.num,table.tb td.num{text-align:right;font-variant-numeric:tabular-nums}
+table.tb tr.bad td{background:var(--danger-soft-bg)}
+table.tb tr.bad td:first-child{box-shadow:inset 3px 0 0 var(--danger)}
+@media(max-width:1000px){.sgroups{grid-template-columns:1fr}}
+</style>
+</helmet>
+<div class="wrap">
+<div class="eyebrow">🔧 งานซ่อมบำรุง</div>
+<div class="phead">
+  <h1>งาน PM</h1>
+  <div class="sub">แผนบำรุงรักษาเชิงป้องกัน · ปีแผน 2026</div>
+  <div class="sp"></div>
+  <button class="ibtn">🔄 รีเฟรช</button>
+</div>
+<div class="itabs">
+  <button class="itab">📅 แผนประจำปี<span class="n">5</span></button>
+  <button class="itab">📋 งานเพิ่มเอง<span class="n">3</span></button>
+  <button class="itab on">📈 สรุปผล</button>
+</div>
+
+<!--HEAD-END-->
+
+<div style="display:flex;align-items:center;gap:10px;margin:16px 0 0;flex-wrap:wrap">
+  <select class="isel"><option>ปี 2026</option></select>
+  <span class="hintline">แผนงาน PM ปี 2026 · นับผลถึงสัปดาห์ที่ 37 (ก.ย.)</span>
+  <div class="sp"></div>
+  <button class="ibtn">📊 Export Excel</button>
+  <button class="ibtn">📸 Export Dashboard 16:9</button>
+</div>
+
+<div class="sgroups">
+  <section class="sgrp">
+    <h4>แผนทั้งปี</h4>
+    <div class="srow">
+      <div class="istat"><div class="l">🗓️ รอบที่วางแผนไว้</div>
+        <div class="v">234<span class="u">รอบ</span></div></div>
+      <div class="istat"><div class="l">🚫 ปิดใช้งาน (ไม่นับทั้งแผนและผล)</div>
+        <div class="v" style="color:var(--muted)">2<span class="u">รอบ</span></div></div>
+    </div>
+  </section>
+  <section class="sgrp">
+    <h4>ถึงวันนี้ (สัปดาห์ที่ 37)</h4>
+    <div class="srow">
+      <div class="istat"><div class="l">📆 ถึงกำหนดแล้ว</div>
+        <div class="v">164<span class="u">รอบ</span></div></div>
+      <div class="istat good"><div class="l">✅ ทำเสร็จแล้ว</div>
+        <div class="v">153<span class="u">รอบ</span></div></div>
+      <div class="istat hot"><div class="l">⚠️ เลยกำหนด ยังไม่ทำ</div>
+        <div class="v">11<span class="u">รอบ</span></div></div>
+      <div class="istat big"><div class="l">📈 ทำได้ตามแผนที่ถึงกำหนด</div>
+        <div class="v" style="color:var(--cip1)">93<span class="u">%</span></div>
+        <div class="den">153 จาก 164 รอบ</div></div>
+    </div>
+  </section>
+</div>
+
+<div class="card" style="padding:15px 18px 12px">
+  <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:6px">
+    <div>
+      <h3 style="font-size:15px">S-Curve — % แผน PM สะสม เทียบผลจริงสะสม</h3>
+      <div class="hintline">คนละตัวหารกับช่อง “ทำได้ตามแผนที่ถึงกำหนด 93%” ข้างบน —
+        กราฟนี้คิดจาก <b>รอบทั้งปี 234 รอบ</b> ส่วนช่องนั้นคิดจาก <b>รอบที่ถึงกำหนดแล้ว 164 รอบ</b></div>
+    </div>
+    <div class="sp"></div>
+    <div class="legend" style="margin:0">
+      <span><i style="background:#c24f00"></i>แผน (สะสม)</span>
+      <span><i style="background:#1565c0"></i>ผลจริง (สะสม)</span>
+      <span><i style="background:rgba(255,107,0,.32)"></i>ช่องว่าง</span>
+    </div>
+  </div>
+  <svg viewBox="0 0 1060 288" width="100%" height="288" role="img"
+  aria-label="กราฟ S-Curve เทียบ % แผน PM สะสมกับผลจริงสะสมรายเดือน ปี 2026 ทั้งสองเส้นคิดจากรอบทั้งปี 234 รอบ">
+  <line x1="46" y1="254" x2="932" y2="254" stroke="#eee3d9" stroke-width="1"/>
+   <text x="37" y="258" text-anchor="end" font-size="10.5" fill="#a49a90">0%</text><line x1="46" y1="197" x2="932" y2="197" stroke="#eee3d9" stroke-width="1"/>
+   <text x="37" y="201" text-anchor="end" font-size="10.5" fill="#a49a90">25%</text><line x1="46" y1="140" x2="932" y2="140" stroke="#eee3d9" stroke-width="1"/>
+   <text x="37" y="144" text-anchor="end" font-size="10.5" fill="#a49a90">50%</text><line x1="46" y1="83" x2="932" y2="83" stroke="#eee3d9" stroke-width="1"/>
+   <text x="37" y="87" text-anchor="end" font-size="10.5" fill="#a49a90">75%</text><line x1="46" y1="26" x2="932" y2="26" stroke="#eee3d9" stroke-width="1"/>
+   <text x="37" y="30" text-anchor="end" font-size="10.5" fill="#a49a90">100%</text><text x="46" y="276" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">ม.ค.</text><text x="126.54545454545455" y="276" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">ก.พ.</text><text x="207.0909090909091" y="276" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">มี.ค.</text><text x="287.6363636363636" y="276" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">เม.ย.</text><text x="368.1818181818182" y="276" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">พ.ค.</text><text x="448.72727272727275" y="276" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">มิ.ย.</text><text x="529.2727272727273" y="276" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">ก.ค.</text><text x="609.8181818181819" y="276" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">ส.ค.</text><text x="690.3636363636364" y="276" text-anchor="middle" font-size="10.5" fill="#c24f00"
+    font-weight="700">ก.ย.</text><text x="770.9090909090909" y="276" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">ต.ค.</text><text x="851.4545454545455" y="276" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">พ.ย.</text><text x="932" y="276" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">ธ.ค.</text><polygon fill="rgba(255,107,0,.13)" points="46.0,235.8 126.5,219.8 207.1,199.3 287.6,181.0 368.2,162.8 448.7,140.0 529.3,121.8 609.8,99.0 690.4,83.0 690.4,108.1 609.8,110.4 529.3,130.9 448.7,146.8 368.2,169.6 287.6,187.9 207.1,201.6 126.5,222.1 46.0,238.0"/>
+  <line x1="690.3636363636364" y1="26" x2="690.3636363636364" y2="254" stroke="#c24f00" stroke-width="1" stroke-dasharray="3 4" opacity=".45"/>
+  <polyline points="46.0,235.8 126.5,219.8 207.1,199.3 287.6,181.0 368.2,162.8 448.7,140.0 529.3,121.8 609.8,99.0 690.4,83.0 770.9,64.8 851.5,42.0 932.0,26.0" fill="none" stroke="#c24f00" stroke-width="2" stroke-dasharray="7 5"/>
+  <polyline points="46.0,238.0 126.5,222.1 207.1,201.6 287.6,187.9 368.2,169.6 448.7,146.8 529.3,130.9 609.8,110.4 690.4,108.1" fill="none" stroke="#1565c0" stroke-width="2"/>
+  <circle cx="46" cy="235.76" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="126.54545454545455" cy="219.8" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="207.0909090909091" cy="199.28" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="287.6363636363636" cy="181.04" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="368.1818181818182" cy="162.8" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="448.72727272727275" cy="140" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="529.2727272727273" cy="121.76" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="609.8181818181819" cy="98.96" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="690.3636363636364" cy="83" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="770.9090909090909" cy="64.75999999999999" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="851.4545454545455" cy="41.96" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="932" cy="26" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="46" cy="238.04" r="4" fill="#fff" stroke="#1565c0" stroke-width="2"/><circle cx="126.54545454545455" cy="222.08" r="4" fill="#fff" stroke="#1565c0" stroke-width="2"/><circle cx="207.0909090909091" cy="201.56" r="4" fill="#fff" stroke="#1565c0" stroke-width="2"/><circle cx="287.6363636363636" cy="187.88" r="4" fill="#fff" stroke="#1565c0" stroke-width="2"/><circle cx="368.1818181818182" cy="169.64" r="4" fill="#fff" stroke="#1565c0" stroke-width="2"/><circle cx="448.72727272727275" cy="146.84" r="4" fill="#fff" stroke="#1565c0" stroke-width="2"/><circle cx="529.2727272727273" cy="130.88" r="4" fill="#fff" stroke="#1565c0" stroke-width="2"/><circle cx="609.8181818181819" cy="110.36" r="4" fill="#fff" stroke="#1565c0" stroke-width="2"/><circle cx="690.3636363636364" cy="108.08" r="4" fill="#fff" stroke="#1565c0" stroke-width="2"/>
+  <text x="941" y="30" font-size="11.5" font-weight="700" fill="#c24f00">แผน 100%</text>
+  <g paint-order="stroke" stroke="#faf7f4" stroke-width="3.5" stroke-linejoin="round">
+    <text x="681.3636363636364" y="73" text-anchor="end" font-size="11.5" font-weight="700" fill="#c24f00">แผนถึงสิ้น ก.ย. 75%</text>
+    <text x="681.3636363636364" y="125.08" text-anchor="end" font-size="11.5" font-weight="700" fill="#1565c0">ทำจริง 64%</text>
+    <text x="699.3636363636364" y="99.53999999999999" font-size="11" font-weight="700" fill="#c24f00">ตามหลัง 11 จุด</text>
+  </g>
+  <text x="690.3636363636364" y="18" text-anchor="middle" font-size="10" fill="#c24f00">วันนี้</text>
+  <text x="46" y="18" font-size="10.5" fill="#a49a90">ทั้งสองเส้นคิดจากรอบทั้งปี 234 รอบ</text>
+</svg>
+  <div class="infobox" style="margin-top:4px">
+    สิ้นเดือน ก.ย. ผลจริงตามหลังแผนอยู่ <b>11 จุด</b> —
+    ส่วนใหญ่มาจาก RO 5,000 (6/9 รอบ = 67%) และ ไลน์ L2 (14/18 รอบ = 78%)
+  </div>
+</div>
+
+<div class="card" style="padding:4px 4px 8px;margin-top:14px">
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 14px 4px;flex-wrap:wrap">
+    <h3 style="font-size:15px">สรุปผล PM รายเครื่อง (ปี 2026)</h3>
+    <span class="chip mute">เรียงตัวที่ตกแผนมากสุดขึ้นก่อน</span>
+  </div>
+  <div class="tw2">
+    <table class="tb">
+      <thead><tr><th>เครื่อง / พื้นที่</th><th class="num">แผนทั้งปี</th><th class="num">ถึงกำหนดแล้ว</th>
+        <th class="num">เสร็จ</th><th class="num">ค้าง</th><th>ความคืบหน้าถึงวันนี้</th><th class="num">%</th></tr></thead>
+      <tbody><tr class="bad"><td style="font-weight:600">RO 5,000</td>
+  <td class="num">13</td>
+  <td class="num">9</td>
+  <td class="num" style="color:var(--ok);font-weight:600">6</td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">3</span></td>
+  <td style="width:170px"><div class="bar"><span style="width:67%;background:var(--danger)"></span></div>
+    <div class="bcap">6 จาก 9 รอบที่ถึงกำหนด</div></td>
+  <td class="num" style="color:var(--danger);font-weight:700">67%</td></tr><tr class="bad"><td style="font-weight:600">ไลน์ L2</td>
+  <td class="num">25</td>
+  <td class="num">18</td>
+  <td class="num" style="color:var(--ok);font-weight:600">14</td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">4</span></td>
+  <td style="width:170px"><div class="bar"><span style="width:78%;background:var(--danger)"></span></div>
+    <div class="bcap">14 จาก 18 รอบที่ถึงกำหนด</div></td>
+  <td class="num" style="color:var(--danger);font-weight:700">78%</td></tr><tr><td style="font-weight:600">ไลน์ L1</td>
+  <td class="num">26</td>
+  <td class="num">18</td>
+  <td class="num" style="color:var(--ok);font-weight:600">17</td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">1</span></td>
+  <td style="width:170px"><div class="bar"><span style="width:94%;background:var(--warn)"></span></div>
+    <div class="bcap">17 จาก 18 รอบที่ถึงกำหนด</div></td>
+  <td class="num" style="color:var(--warn);font-weight:700">94%</td></tr><tr><td style="font-weight:600">บ่อซีเมนต์</td>
+  <td class="num">26</td>
+  <td class="num">18</td>
+  <td class="num" style="color:var(--ok);font-weight:600">17</td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">1</span></td>
+  <td style="width:170px"><div class="bar"><span style="width:94%;background:var(--warn)"></span></div>
+    <div class="bcap">17 จาก 18 รอบที่ถึงกำหนด</div></td>
+  <td class="num" style="color:var(--warn);font-weight:700">94%</td></tr><tr><td style="font-weight:600">ไลน์ปี๊บ</td>
+  <td class="num">26</td>
+  <td class="num">18</td>
+  <td class="num" style="color:var(--ok);font-weight:600">17</td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">1</span></td>
+  <td style="width:170px"><div class="bar"><span style="width:94%;background:var(--warn)"></span></div>
+    <div class="bcap">17 จาก 18 รอบที่ถึงกำหนด</div></td>
+  <td class="num" style="color:var(--warn);font-weight:700">94%</td></tr><tr><td style="font-weight:600">ไลน์ไอซิ่ง</td>
+  <td class="num">26</td>
+  <td class="num">19</td>
+  <td class="num" style="color:var(--ok);font-weight:600">18</td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">1</span></td>
+  <td style="width:170px"><div class="bar"><span style="width:95%;background:var(--ok)"></span></div>
+    <div class="bcap">18 จาก 19 รอบที่ถึงกำหนด</div></td>
+  <td class="num" style="color:var(--ok);font-weight:700">95%</td></tr><tr><td style="font-weight:600">ไลน์ต้ม 1</td>
+  <td class="num">13</td>
+  <td class="num">9</td>
+  <td class="num" style="color:var(--ok);font-weight:600">9</td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:170px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div>
+    <div class="bcap">9 จาก 9 รอบที่ถึงกำหนด</div></td>
+  <td class="num" style="color:var(--ok);font-weight:700">100%</td></tr><tr><td style="font-weight:600">ไลน์ต้ม 2</td>
+  <td class="num">13</td>
+  <td class="num">9</td>
+  <td class="num" style="color:var(--ok);font-weight:600">9</td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:170px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div>
+    <div class="bcap">9 จาก 9 รอบที่ถึงกำหนด</div></td>
+  <td class="num" style="color:var(--ok);font-weight:700">100%</td></tr><tr><td style="font-weight:600">Robot Clear Packer</td>
+  <td class="num">26</td>
+  <td class="num">18</td>
+  <td class="num" style="color:var(--ok);font-weight:600">18</td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:170px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div>
+    <div class="bcap">18 จาก 18 รอบที่ถึงกำหนด</div></td>
+  <td class="num" style="color:var(--ok);font-weight:700">100%</td></tr><tr><td style="font-weight:600">AHU & Chiller</td>
+  <td class="num">13</td>
+  <td class="num">9</td>
+  <td class="num" style="color:var(--ok);font-weight:600">9</td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:170px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div>
+    <div class="bcap">9 จาก 9 รอบที่ถึงกำหนด</div></td>
+  <td class="num" style="color:var(--ok);font-weight:700">100%</td></tr><tr><td style="font-weight:600">Cold Room</td>
+  <td class="num">13</td>
+  <td class="num">9</td>
+  <td class="num" style="color:var(--ok);font-weight:600">9</td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:170px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div>
+    <div class="bcap">9 จาก 9 รอบที่ถึงกำหนด</div></td>
+  <td class="num" style="color:var(--ok);font-weight:700">100%</td></tr><tr><td style="font-weight:600">RO 10,000</td>
+  <td class="num">13</td>
+  <td class="num">9</td>
+  <td class="num" style="color:var(--ok);font-weight:600">9</td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:170px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div>
+    <div class="bcap">9 จาก 9 รอบที่ถึงกำหนด</div></td>
+  <td class="num" style="color:var(--ok);font-weight:700">100%</td></tr><tr><td style="font-weight:600">ถุง AHU</td>
+  <td class="num">1</td>
+  <td class="num">1</td>
+  <td class="num" style="color:var(--ok);font-weight:600">1</td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:170px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div>
+    <div class="bcap">1 จาก 1 รอบที่ถึงกำหนด</div></td>
+  <td class="num" style="color:var(--ok);font-weight:700">100%</td></tr></tbody>
+    </table>
+  </div>
+</div>
+</div>
+</x-dc>
+</body>
+</html>

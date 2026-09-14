@@ -1,0 +1,1360 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&display=swap">
+  <style>
+:root{
+  --brand:#ff6b00; --brand-deep:#c24f00; --brand-soft:#fff3ea;
+  --ink:#2b2119; --ink-soft:#6d6259; --paper:#faf7f4; --card:#ffffff; --line:#eee3d9;
+  --ok:#1c8a4c; --warn:#c77700; --danger:#c62828;
+  --cip1:#1565c0; --cip2:#01579b; --cipx:#6a1b9a;
+  --radius:16px;
+  --shadow-card:0 1px 2px rgba(63,37,10,.06),0 6px 18px -6px rgba(63,37,10,.12);
+  --shadow-float:0 2px 4px rgba(63,37,10,.08),0 16px 40px -12px rgba(63,37,10,.22);
+  --font-head:'Kanit',sans-serif; --font-body:'Sarabun',sans-serif;
+  --surface-2:#fbf7f3; --surface-3:#fdfbf9; --row-line:#f5efe9; --muted:#a49a90; --sep:#d8cabb;
+  --danger-soft-bg:#fdecea; --danger-soft-line:#f7d9d5; --warn-soft-bg:#fff6e6;
+  --p-stop:#c62828; --p-stop-w:#fdecea; --p-warn:#c77700; --p-warn-w:#fff6e6;
+  --p-low:#1c8a4c; --p-low-w:#e6f4ec;
+  --s-wip:#0277bd; --s-wip-w:#e1f2fb;
+}
+*,*::before,*::after{box-sizing:border-box}
+body{
+  margin:0;font-family:var(--font-body);color:var(--ink);line-height:1.7;
+  background:var(--paper);
+  background-image:
+    radial-gradient(1200px 500px at 85% -10%, rgba(255,107,0,.07), transparent 60%),
+    radial-gradient(900px 420px at -10% 20%, rgba(21,101,192,.05), transparent 55%);
+}
+h1,h2,h3,h4,p,ul,ol,li{margin:0;padding:0}
+h1,h2,h3,h4{font-family:var(--font-head);letter-spacing:-.02em;line-height:1.3;color:var(--ink);font-weight:600}
+a{color:var(--brand-deep);text-decoration:none} a:hover{color:var(--brand)}
+.wrap{padding:26px 30px 30px}
+.eyebrow{font-family:var(--font-head);font-size:11.5px;font-weight:600;color:var(--brand-deep);
+  background:var(--brand-soft);display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;margin-bottom:10px}
+.phead{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+.phead h1{font-size:25px;letter-spacing:-.03em}
+.phead .sub{font-size:13px;color:var(--ink-soft)}
+.sp{flex:1}
+.itabs{display:inline-flex;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:4px;gap:4px;margin:14px 0 4px}
+.itab{border:none;background:transparent;color:var(--ink-soft);font-family:var(--font-head);font-size:13.5px;font-weight:600;
+  padding:8px 20px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+.itab.on{background:var(--card);color:var(--ink);box-shadow:var(--shadow-card)}
+.itab .n{font-family:var(--font-body);font-size:11.5px;font-weight:700;border-radius:999px;padding:1px 8px;background:var(--surface-3);color:var(--ink-soft)}
+.itab.on .n{background:var(--brand-soft);color:var(--brand-deep)}
+.ifilters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0 14px}
+.ipill{border:1px solid var(--line);background:var(--card);color:var(--ink-soft);padding:6px 14px;border-radius:999px;
+  font-size:12.8px;font-weight:600;font-family:var(--font-head);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.ipill.on{color:#fff;border-color:transparent;background:var(--ink)}
+.ipill.on.brand{background:var(--brand-deep)}
+.isel{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:6px 12px;font-size:12.8px;font-weight:600;font-family:var(--font-head)}
+.divider{width:1px;height:22px;background:var(--line)}
+.ibtn{border:1px solid var(--line);background:var(--card);color:var(--ink-soft);padding:7px 15px;border-radius:999px;
+  font-size:12.8px;font-weight:600;font-family:var(--font-head);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.ibtn.pri{background:var(--brand);border-color:var(--brand);color:#fff}
+.ibtn.sm{padding:4px 12px;font-size:12px}
+.ibtn.ok{color:var(--ok);background:var(--p-low-w);border-color:transparent}
+.ibtn.dgr{color:var(--danger);background:var(--danger-soft-bg);border-color:var(--danger-soft-line)}
+.ibtn.lock{color:var(--muted);background:var(--surface-2);border-color:var(--line);cursor:not-allowed}
+.istats{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:14px 0}
+.istat{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-card);padding:11px 14px}
+.istat .l{font-size:11.5px;font-weight:600;color:var(--ink-soft);display:flex;align-items:center;gap:5px}
+.istat .v{font-family:var(--font-head);font-size:26px;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums}
+.istat .u{font-size:12px;font-weight:500;color:var(--ink-soft);margin-left:3px;font-family:var(--font-body)}
+.istat.hot{border-color:var(--p-stop);background:linear-gradient(180deg,var(--p-stop-w),var(--card) 70%)}
+.istat.hot .v{color:var(--p-stop)}
+.istat.good .v{color:var(--ok)}
+.istat.gap .v{color:var(--warn)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-card)}
+.ilist{display:flex;flex-direction:column;gap:11px}
+.tk{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-card);
+  padding:14px 16px 13px;border-left:4px solid var(--sep)}
+.tk.late{border-left-color:var(--p-stop)}
+.tk.due{border-left-color:var(--brand)}
+.tk.done{border-left-color:var(--ok);background:linear-gradient(180deg,#fbfdfb,var(--card) 60%)}
+.tk.skip{border-left-color:var(--muted);background:var(--surface-2)}
+.tk .r1{display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap}
+.tk h3{font-size:15.5px;flex:1;min-width:200px;letter-spacing:-.01em;line-height:1.35}
+.chip{font-size:11px;font-weight:700;border-radius:999px;padding:2px 10px;white-space:nowrap;font-family:var(--font-body)}
+.chip.stop{color:var(--p-stop);background:var(--p-stop-w)}
+.chip.warn{color:var(--p-warn);background:var(--p-warn-w)}
+.chip.low{color:var(--p-low);background:var(--p-low-w)}
+.chip.due{color:var(--brand-deep);background:var(--brand-soft)}
+.chip.freq{color:var(--cip1);background:#e8f1fb}
+.chip.mute{color:var(--muted);background:var(--surface-3);border:1px solid var(--line)}
+.chip.kind-pm{color:#0d47a1;background:#e8f1fb}
+.chip.kind-up{color:#14653a;background:#e6f4ec}
+.chip.kind-fix{color:#c24f00;background:#fff3ea}
+.src{font-size:10.5px;font-weight:700;border-radius:6px;padding:2px 8px;white-space:nowrap;border:1px solid var(--line);background:var(--surface-2);color:var(--ink-soft)}
+.src.plan{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-deep)}
+.src.adhoc{border-color:var(--cip1);background:#e8f1fb;color:var(--cip1)}
+.src.am{border-color:var(--cip2);background:#e3f0f8;color:var(--cip2)}
+.meta{font-size:12px;color:var(--ink-soft);margin-top:5px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 9px}
+.meta .dot{color:var(--sep)}
+.thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center}
+.th{width:54px;height:54px;border-radius:9px;border:1px solid var(--line);background:var(--surface-2);
+  display:grid;place-items:center;font-size:10px;color:var(--muted);text-align:center;line-height:1.3}
+.th.b{background:#efe6dc}
+.acts{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:11px}
+.lock-note{font-size:11.5px;color:var(--muted);display:inline-flex;align-items:center;gap:4px}
+.fld{margin-bottom:11px}
+.fld > label{display:block;font-size:11.5px;font-weight:700;color:var(--ink-soft);margin-bottom:4px}
+.fld input,.fld select,.fld textarea{width:100%;border:1px solid var(--line);background:var(--surface-3);color:var(--ink);
+  border-radius:10px;padding:8px 11px;font-size:13px;line-height:1.6;font-family:inherit}
+.grid2{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.warnbox{background:var(--warn-soft-bg);border-radius:10px;padding:9px 12px;font-size:12.3px;color:var(--ink-soft);
+  border-left:3px solid var(--warn);margin-bottom:12px;line-height:1.65}
+.okbox{background:var(--p-low-w);border-radius:10px;padding:9px 12px;font-size:12.3px;color:var(--ink-soft);
+  border-left:3px solid var(--ok);margin-bottom:12px;line-height:1.65}
+.infobox{background:var(--surface-2);border-radius:10px;padding:9px 12px;font-size:12.3px;color:var(--ink-soft);
+  border-left:3px solid var(--sep);line-height:1.65}
+table.tb{width:100%;border-collapse:collapse;font-size:12.8px}
+table.tb th{font-family:var(--font-head);font-size:11.5px;font-weight:600;color:var(--ink-soft);text-align:left;
+  padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.tb td{padding:10px 12px;border-bottom:1px solid var(--row-line);vertical-align:middle}
+table.tb tr:last-child td{border-bottom:none}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.sheet{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow-float);padding:20px 22px}
+.sheet h3{font-size:17px;margin:0 0 3px}
+.sheet .hint{font-size:12.4px;color:var(--ink-soft);margin-bottom:13px}
+.hd{font-family:var(--font-head);font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;margin:0 0 9px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11.5px;color:var(--ink-soft);margin-top:10px}
+.legend i{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:-1px}
+
+.ybar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.rngs{display:inline-flex;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:3px;gap:3px}
+.rng{border:none;background:transparent;color:var(--ink-soft);font-family:var(--font-head);font-size:12.5px;
+  font-weight:600;padding:5px 14px;border-radius:999px;cursor:pointer;
+  transition:transform .18s cubic-bezier(.34,1.56,.64,1),opacity .18s}
+.rng:hover{color:var(--ink)}
+.rng:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(255,107,0,.28)}
+.rng.on{background:var(--card);color:var(--brand-deep);box-shadow:var(--shadow-card)}
+.sortb{white-space:nowrap}
+
+.mx{overflow:auto;border:1px solid var(--line);border-radius:12px;max-height:640px;width:max-content;max-width:100%}
+table.grid{border-collapse:separate;border-spacing:0;font-size:11.5px;font-family:var(--font-body)}
+table.grid th{font-weight:600;color:var(--ink-soft);padding:0;background:var(--surface-2)}
+
+/* หัวตาราง — แถบเดือน + เลขสัปดาห์ ติดบนตอนเลื่อนแนวตั้ง */
+table.grid thead th{position:sticky;z-index:3;border-bottom:1px solid var(--line)}
+table.grid .mrow th{top:0;height:24px}
+table.grid .wrow th{top:24px}
+th.mh{font-family:var(--font-head);font-size:10.5px;color:var(--ink-soft);text-align:center;
+  border-left:1px solid var(--sep);background:var(--surface-2)}
+th.mh.alt{background:#f4ece4}
+th.mh.cur{color:var(--brand-deep);background:var(--brand-soft)}
+
+/* คอลัมน์ชื่อติดหนึบ — เลื่อนไปท้ายปีแล้วยังรู้ว่าแถวไหน */
+table.grid th.nm{position:sticky;left:0;z-index:2;width:196px;min-width:196px;text-align:left;
+  padding:6px 11px;font-family:var(--font-head);font-size:12.3px;color:var(--ink);background:var(--card);
+  display:flex;align-items:center;gap:6px}
+table.grid thead th.nm,table.grid thead th.fq,table.grid thead th.pc{z-index:4}
+table.grid th.nm.mt,table.grid th.fq.mt,table.grid th.pc.mt{background:var(--surface-2)}
+th.nm > span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tw{flex:none;width:19px;height:19px;border-radius:6px;border:1px solid var(--line);background:var(--surface-3);
+  color:var(--ink-soft);font-size:9px;cursor:pointer;line-height:1;
+  transition:transform .2s cubic-bezier(.34,1.56,.64,1)}
+.tw:hover{border-color:var(--brand);color:var(--brand-deep)}
+.tw:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(255,107,0,.28)}
+.mach.open .tw{transform:rotate(90deg)}
+.jn{flex:none;font-family:var(--font-body);font-size:10px;font-weight:700;color:var(--ink-soft);
+  background:var(--surface-2);border-radius:999px;padding:0 6px}
+table.grid th.fq{position:sticky;left:196px;z-index:2;width:92px;min-width:92px;text-align:left;
+  padding:6px 9px;background:var(--card);color:var(--ink-soft);font-size:11.3px}
+table.grid th.pc{position:sticky;left:288px;z-index:2;width:68px;min-width:68px;text-align:right;
+  padding:5px 11px;background:var(--card);border-right:1px solid var(--line);
+  box-shadow:1px 0 0 var(--line);font-variant-numeric:tabular-nums;font-size:11.5px}
+.pcv{font-weight:700;line-height:1.3}
+.pcv span{color:var(--muted);font-weight:500}
+th.pc .bar{height:4px;border-radius:999px;background:var(--surface-2);overflow:hidden;margin-top:2px}
+th.pc .bar span{display:block;height:100%;border-radius:999px}
+table.grid th.wkh{font-size:9.5px;color:var(--muted);text-align:center;padding:5px 0;font-weight:500;
+  border-left:1px solid #f6f1ec}
+table.grid th.wkh.cur{color:var(--brand-deep);font-weight:700;background:var(--brand-soft)}
+
+/* แถวเครื่อง / แถวงานย่อย */
+tbody tr.alt th.nm,tbody tr.alt th.fq,tbody tr.alt th.pc{background:var(--surface-3)}
+tbody tr.alt td.wk{background:rgba(251,247,243,.6)}
+tbody tr:hover th.nm,tbody tr:hover th.fq,tbody tr:hover th.pc{background:var(--brand-soft)}
+tbody tr:hover td.wk{background:#fdf4ec}
+.jr{display:none}
+.jr.on{display:table-row}
+.jr th.nm{padding-left:26px;font-family:var(--font-body);font-size:11.8px;font-weight:500;color:var(--ink-soft)}
+.jr th.fq,.jr th.pc{font-size:10.8px;color:var(--muted)}
+.jr th.pc span{color:var(--muted)}
+.tick{flex:none;color:var(--sep)}
+.jr td.wk{background:rgba(251,247,243,.75)}
+
+td.wk{height:32px;text-align:center;border-left:1px solid #f6f1ec;padding:0}
+td.wk.cur{background:var(--brand-soft)}
+.jr td.wk.cur{background:#ffeadb}
+.d{width:100%;height:30px;border:none;background:transparent;padding:0;cursor:pointer;border-radius:6px;
+  display:grid;place-items:center;transition:transform .18s cubic-bezier(.34,1.56,.64,1)}
+.d i{width:11px;height:11px;border-radius:50%;display:block}
+.d.sm i{width:7px;height:7px}
+.d:hover{transform:scale(1.18)}
+.d:focus-visible{outline:none;box-shadow:0 0 0 2px var(--card),0 0 0 4px var(--brand)}
+
+/* ความกว้างช่องตามช่วงที่เลือก — ครึ่งปีหลังลงจอ 1440 ได้โดยไม่ต้องเลื่อน */
+.rng-year .g{width:21px;min-width:21px}
+.rng-half .g:not(.h),.rng-qtr .g:not(.q){display:none}
+.rng-half .g{width:28px;min-width:28px}
+.rng-qtr .g{width:50px;min-width:50px}
+.rng-year .r-half,.rng-year .r-qtr,.rng-half .r-year,.rng-half .r-qtr,.rng-qtr .r-year,.rng-qtr .r-half{display:none}
+</style>
+</helmet>
+<div class="wrap">
+<div class="eyebrow">🔧 งานซ่อมบำรุง</div>
+<div class="phead">
+  <h1>งาน PM</h1>
+  <div class="sub">แผนบำรุงรักษาเชิงป้องกัน · ปีแผน 2026</div>
+  <div class="sp"></div>
+  <button class="ibtn">🔄 รีเฟรช</button>
+</div>
+<div class="itabs">
+  <button class="itab on">📅 แผนประจำปี<span class="n">5</span></button>
+  <button class="itab">📋 งานเพิ่มเอง<span class="n">3</span></button>
+  <button class="itab">📈 สรุปผล</button>
+</div>
+<div class="ifilters">
+  <button class="ipill">🗓️ สัปดาห์นี้</button><button class="ipill on brand">📊 ตารางทั้งปี</button><button class="ipill">🔩 ตามเครื่องจักร</button><button class="ipill">📆 ปฏิทินเดือน</button>
+  <div class="divider"></div>
+  <button class="ibtn">⚙️ จัดการแผน PM</button>
+</div>
+<!--HEAD-END-->
+<div id="yg2"><div class="card" style="padding:14px 16px">
+  <div class="ybar">
+    <h3 style="font-size:15px">ตารางแผน PM ทั้งปี</h3>
+    <select class="isel"><option>ปี 2026 (ISO Week)</option></select>
+    <div class="rngs">
+      <button class="rng" data-r="year">ทั้งปี</button>
+      <button class="rng on" data-r="half">ครึ่งปีหลัง</button>
+      <button class="rng" data-r="qtr">ไตรมาสนี้ (Q3)</button>
+    </div>
+    <button class="ibtn sortb">↕ เรียงงานค้างขึ้นก่อน</button>
+    <div class="sp"></div>
+    <button class="ibtn">⛔ เปิด/ปิดรายการ</button>
+    <button class="ibtn">📊 Export Excel</button>
+  </div>
+
+  <div class="mx rng-half" id="mx">
+    <table class="grid">
+      <thead>
+        <tr class="mrow r-year">
+    <th class="nm mt"></th><th class="fq"></th><th class="pc"></th>
+    <th class="mh" colspan="5">ม.ค.</th><th class="mh alt" colspan="4">ก.พ.</th><th class="mh" colspan="4">มี.ค.</th><th class="mh alt" colspan="5">เม.ย.</th><th class="mh" colspan="4">พ.ค.</th><th class="mh alt" colspan="4">มิ.ย.</th><th class="mh" colspan="5">ก.ค.</th><th class="mh alt" colspan="4">ส.ค.</th><th class="mh cur" colspan="4">ก.ย.</th><th class="mh alt" colspan="5">ต.ค.</th><th class="mh" colspan="4">พ.ย.</th><th class="mh alt" colspan="4">ธ.ค.</th>
+  </tr>
+        <tr class="mrow r-half">
+    <th class="nm mt"></th><th class="fq"></th><th class="pc"></th>
+    <th class="mh" colspan="5">ก.ค.</th><th class="mh alt" colspan="4">ส.ค.</th><th class="mh cur" colspan="4">ก.ย.</th><th class="mh alt" colspan="5">ต.ค.</th><th class="mh" colspan="4">พ.ย.</th><th class="mh alt" colspan="4">ธ.ค.</th>
+  </tr>
+        <tr class="mrow r-qtr">
+    <th class="nm mt"></th><th class="fq"></th><th class="pc"></th>
+    <th class="mh" colspan="5">ก.ค.</th><th class="mh alt" colspan="4">ส.ค.</th><th class="mh cur" colspan="4">ก.ย.</th>
+  </tr>
+        <tr class="wrow"><th class="nm">รายการ PM</th><th class="fq">ความถี่</th><th class="pc">ทำแล้ว</th><th class="wkh g">1</th><th class="wkh g">2</th><th class="wkh g">3</th><th class="wkh g">4</th><th class="wkh g">5</th><th class="wkh g">6</th><th class="wkh g">7</th><th class="wkh g">8</th><th class="wkh g">9</th><th class="wkh g">10</th><th class="wkh g">11</th><th class="wkh g">12</th><th class="wkh g">13</th><th class="wkh g">14</th><th class="wkh g">15</th><th class="wkh g">16</th><th class="wkh g">17</th><th class="wkh g">18</th><th class="wkh g">19</th><th class="wkh g">20</th><th class="wkh g">21</th><th class="wkh g">22</th><th class="wkh g">23</th><th class="wkh g">24</th><th class="wkh g">25</th><th class="wkh g">26</th><th class="wkh g h q">27</th><th class="wkh g h q">28</th><th class="wkh g h q">29</th><th class="wkh g h q">30</th><th class="wkh g h q">31</th><th class="wkh g h q">32</th><th class="wkh g h q">33</th><th class="wkh g h q">34</th><th class="wkh g h q">35</th><th class="wkh g h q">36</th><th class="wkh g h q cur">37</th><th class="wkh g h q">38</th><th class="wkh g h q">39</th><th class="wkh g h">40</th><th class="wkh g h">41</th><th class="wkh g h">42</th><th class="wkh g h">43</th><th class="wkh g h">44</th><th class="wkh g h">45</th><th class="wkh g h">46</th><th class="wkh g h">47</th><th class="wkh g h">48</th><th class="wkh g h">49</th><th class="wkh g h">50</th><th class="wkh g h">51</th><th class="wkh g h">52</th></tr>
+      </thead>
+      <tbody><tr class="mach" data-i="0" data-over="1">
+    <th class="nm"><button class="tw" aria-expanded="false">▸</button><span title="ไลน์ไอซิ่ง">ไลน์ไอซิ่ง</span>
+      <span class="jn">3</span></th>
+    <th class="fq">ทุก 2 สัปดาห์</th>
+    <th class="pc"><div class="pcv" style="color:var(--ok)">18<span>/19</span></div>
+      <div class="bar"><span style="width:95%;background:var(--ok)"></span></div></th>
+    <td class="wk g">
+    <button class="d" title="W1 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W5 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W7 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W9 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W11 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W13 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W17 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W19 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W21 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W23 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W25 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W29 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W31 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W33 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur">
+    <button class="d" title="W37 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W41 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W43 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W45 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W47 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W49 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+  </tr>
+<tr class="jr p0">
+      <th class="nm sub"><span class="tick">└</span><span title="ตรวจระดับน้ำยาและทำความสะอาดคอยล์">ตรวจระดับน้ำยาและทำความสะอาดคอยล์</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">26<span> ครั้ง</span></th>
+      <td class="wk g">
+    <button class="d sm" title="W1 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W5 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W7 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W9 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W11 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W13 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W17 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W19 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W21 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W23 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W25 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W29 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W31 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W33 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur">
+    <button class="d sm" title="W37 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W41 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W43 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W45 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W47 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W49 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p0">
+      <th class="nm sub"><span class="tick">└</span><span title="อัดจาระบีมอเตอร์พัดลม">อัดจาระบีมอเตอร์พัดลม</span></th>
+      <th class="fq sub">ทุก 3 เดือน</th>
+      <th class="pc sub">5<span> ครั้ง</span></th>
+      <td class="wk g">
+    <button class="d sm" title="W1 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W13 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W25 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur">
+    <button class="d sm" title="W37 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W49 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p0">
+      <th class="nm sub"><span class="tick">└</span><span title="เปลี่ยนไส้กรองน้ำยา">เปลี่ยนไส้กรองน้ำยา</span></th>
+      <th class="fq sub">ทุก 6 เดือน</th>
+      <th class="pc sub">2<span> ครั้ง</span></th>
+      <td class="wk g">
+    <button class="d sm" title="W1 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td>
+    </tr>
+<tr class="mach alt open" data-i="1" data-over="0">
+    <th class="nm"><button class="tw" aria-expanded="true">▸</button><span title="ไลน์ต้ม 1">ไลน์ต้ม 1</span>
+      <span class="jn">4</span></th>
+    <th class="fq">ทุกเดือน</th>
+    <th class="pc"><div class="pcv" style="color:var(--ok)">9<span>/9</span></div>
+      <div class="bar"><span style="width:100%;background:var(--ok)"></span></div></th>
+    <td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W7 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W11 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W19 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W23 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W31 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W43 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W47 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+  </tr>
+<tr class="jr p1 alt on">
+      <th class="nm sub"><span class="tick">└</span><span title="เปลี่ยนถ่ายน้ำมันเกียร์มอเตอร์หลัก">เปลี่ยนถ่ายน้ำมันเกียร์มอเตอร์หลัก</span></th>
+      <th class="fq sub">ทุก 6 เดือน</th>
+      <th class="pc sub">3<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p1 alt on">
+      <th class="nm sub"><span class="tick">└</span><span title="ตรวจวาล์วไอน้ำและชุดกวน">ตรวจวาล์วไอน้ำและชุดกวน</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">13<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W7 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W11 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W19 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W23 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W31 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W43 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W47 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p1 alt on">
+      <th class="nm sub"><span class="tick">└</span><span title="อัดจาระบีชุดกวน">อัดจาระบีชุดกวน</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">13<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W7 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W11 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W19 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W23 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W31 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W43 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W47 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p1 alt on">
+      <th class="nm sub"><span class="tick">└</span><span title="เช็คสภาพซีลกันรั่ว">เช็คสภาพซีลกันรั่ว</span></th>
+      <th class="fq sub">ทุก 3 เดือน</th>
+      <th class="pc sub">5<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+    </tr>
+<tr class="mach" data-i="2" data-over="0">
+    <th class="nm"><button class="tw" aria-expanded="false">▸</button><span title="ไลน์ต้ม 2">ไลน์ต้ม 2</span>
+      <span class="jn">3</span></th>
+    <th class="fq">ทุกเดือน</th>
+    <th class="pc"><div class="pcv" style="color:var(--ok)">9<span>/9</span></div>
+      <div class="bar"><span style="width:100%;background:var(--ok)"></span></div></th>
+    <td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W4 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W8 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W12 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W16 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W20 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W24 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W28 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W32 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W36 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h">
+    <button class="d" title="W40 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W44 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W48 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W52 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td>
+  </tr>
+<tr class="jr p2">
+      <th class="nm sub"><span class="tick">└</span><span title="ตรวจวาล์วไอน้ำและชุดกวน">ตรวจวาล์วไอน้ำและชุดกวน</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">13<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W4 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W8 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W12 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W16 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W20 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W24 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W28 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W32 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W36 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h">
+    <button class="d sm" title="W40 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W44 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W48 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W52 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td>
+    </tr>
+<tr class="jr p2">
+      <th class="nm sub"><span class="tick">└</span><span title="เปลี่ยนถ่ายน้ำมันเกียร์มอเตอร์หลัก">เปลี่ยนถ่ายน้ำมันเกียร์มอเตอร์หลัก</span></th>
+      <th class="fq sub">ทุก 6 เดือน</th>
+      <th class="pc sub">3<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W4 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W28 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W52 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td>
+    </tr>
+<tr class="jr p2">
+      <th class="nm sub"><span class="tick">└</span><span title="ตรวจชุดควบคุมอุณหภูมิ">ตรวจชุดควบคุมอุณหภูมิ</span></th>
+      <th class="fq sub">ทุก 3 เดือน</th>
+      <th class="pc sub">5<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W4 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W16 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W28 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h">
+    <button class="d sm" title="W40 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W52 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td>
+    </tr>
+<tr class="mach alt" data-i="3" data-over="1">
+    <th class="nm"><button class="tw" aria-expanded="false">▸</button><span title="ไลน์ L1">ไลน์ L1</span>
+      <span class="jn">4</span></th>
+    <th class="fq">ทุก 2 สัปดาห์</th>
+    <th class="pc"><div class="pcv" style="color:var(--warn)">17<span>/18</span></div>
+      <div class="bar"><span style="width:94%;background:var(--warn)"></span></div></th>
+    <td class="wk g"></td><td class="wk g">
+    <button class="d" title="W2 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W4 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W6 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W8 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W10 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W12 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W14 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W16 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W18 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W20 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W22 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W24 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W26 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W28 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W30 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W32 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W34 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W36 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q cur"></td><td class="wk g h q">
+    <button class="d" title="W38 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h q"></td><td class="wk g h">
+    <button class="d" title="W40 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W42 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W44 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W46 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W48 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W50 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W52 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td>
+  </tr>
+<tr class="jr p3 alt">
+      <th class="nm sub"><span class="tick">└</span><span title="อัดจาระบีชุดสายพานลำเลียง">อัดจาระบีชุดสายพานลำเลียง</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">26<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W2 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W4 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W6 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W8 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W10 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W12 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W14 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W16 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W18 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W20 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W22 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W24 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W26 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W28 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W30 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W32 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W34 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W36 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q cur"></td><td class="wk g h q">
+    <button class="d sm" title="W38 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h q"></td><td class="wk g h">
+    <button class="d sm" title="W40 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W42 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W44 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W46 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W48 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W50 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W52 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td>
+    </tr>
+<tr class="jr p3 alt">
+      <th class="nm sub"><span class="tick">└</span><span title="ตรวจความตึงสายพาน">ตรวจความตึงสายพาน</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">26<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W2 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W4 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W6 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W8 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W10 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W12 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W14 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W16 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W18 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W20 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W22 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W24 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W26 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W28 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W30 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W32 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W34 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W36 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q cur"></td><td class="wk g h q">
+    <button class="d sm" title="W38 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h q"></td><td class="wk g h">
+    <button class="d sm" title="W40 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W42 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W44 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W46 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W48 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W50 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W52 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td>
+    </tr>
+<tr class="jr p3 alt">
+      <th class="nm sub"><span class="tick">└</span><span title="เปลี่ยนลูกยางหัวซีล">เปลี่ยนลูกยางหัวซีล</span></th>
+      <th class="fq sub">ทุก 3 เดือน</th>
+      <th class="pc sub">5<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W2 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W14 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W26 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q">
+    <button class="d sm" title="W38 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W50 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p3 alt">
+      <th class="nm sub"><span class="tick">└</span><span title="ตรวจชุดเซนเซอร์นับชิ้น">ตรวจชุดเซนเซอร์นับชิ้น</span></th>
+      <th class="fq sub">ทุก 6 เดือน</th>
+      <th class="pc sub">2<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W2 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W28 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td>
+    </tr>
+<tr class="mach" data-i="4" data-over="4">
+    <th class="nm"><button class="tw" aria-expanded="false">▸</button><span title="ไลน์ L2">ไลน์ L2</span>
+      <span class="jn">3</span></th>
+    <th class="fq">ทุก 2 สัปดาห์</th>
+    <th class="pc"><div class="pcv" style="color:var(--danger)">14<span>/18</span></div>
+      <div class="bar"><span style="width:78%;background:var(--danger)"></span></div></th>
+    <td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W5 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W7 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W9 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W11 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W13 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W17 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W19 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W21 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W23 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W25 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W29 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W31 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W33 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur">
+    <button class="d" title="W37 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W41 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W43 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W45 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W47 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W49 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+  </tr>
+<tr class="jr p4">
+      <th class="nm sub"><span class="tick">└</span><span title="เปลี่ยนลูกยางหัวซีล">เปลี่ยนลูกยางหัวซีล</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">25<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W5 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W7 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W9 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W11 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W13 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W17 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W19 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W21 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W23 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W25 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W29 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W31 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W33 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur">
+    <button class="d sm" title="W37 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W41 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W43 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W45 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W47 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W49 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p4">
+      <th class="nm sub"><span class="tick">└</span><span title="อัดจาระบีชุดสายพานลำเลียง">อัดจาระบีชุดสายพานลำเลียง</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">25<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W5 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W7 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W9 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W11 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W13 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W17 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W19 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W21 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W23 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W25 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W29 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W31 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W33 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur">
+    <button class="d sm" title="W37 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W41 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W43 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W45 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W47 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W49 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p4">
+      <th class="nm sub"><span class="tick">└</span><span title="ตรวจฮีตเตอร์ชุดซีล">ตรวจฮีตเตอร์ชุดซีล</span></th>
+      <th class="fq sub">ทุก 3 เดือน</th>
+      <th class="pc sub">5<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+    </tr>
+<tr class="mach alt" data-i="5" data-over="0">
+    <th class="nm"><button class="tw" aria-expanded="false">▸</button><span title="Robot Clear Packer">Robot Clear Packer</span>
+      <span class="jn">4</span></th>
+    <th class="fq">ทุก 2 สัปดาห์</th>
+    <th class="pc"><div class="pcv" style="color:var(--ok)">18<span>/18</span></div>
+      <div class="bar"><span style="width:100%;background:var(--ok)"></span></div></th>
+    <td class="wk g"></td><td class="wk g">
+    <button class="d" title="W2 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W4 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W6 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W8 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W10 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W12 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W14 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W16 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W18 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W20 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W22 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W24 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W26 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W28 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W30 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W32 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W34 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W36 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q cur"></td><td class="wk g h q">
+    <button class="d" title="W38 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h q"></td><td class="wk g h">
+    <button class="d" title="W40 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W42 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W44 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W46 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W48 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W50 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W52 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td>
+  </tr>
+<tr class="jr p5 alt">
+      <th class="nm sub"><span class="tick">└</span><span title="อัดจาระบีแกนหมุนและตรวจหัวจับ">อัดจาระบีแกนหมุนและตรวจหัวจับ</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">26<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W2 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W4 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W6 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W8 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W10 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W12 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W14 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W16 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W18 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W20 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W22 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W24 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W26 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W28 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W30 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W32 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W34 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W36 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q cur"></td><td class="wk g h q">
+    <button class="d sm" title="W38 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h q"></td><td class="wk g h">
+    <button class="d sm" title="W40 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W42 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W44 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W46 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W48 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W50 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W52 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td>
+    </tr>
+<tr class="jr p5 alt">
+      <th class="nm sub"><span class="tick">└</span><span title="เช็คลมและชุดวาล์วนิวเมติก">เช็คลมและชุดวาล์วนิวเมติก</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">26<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W2 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W4 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W6 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W8 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W10 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W12 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W14 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W16 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W18 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W20 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W22 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W24 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W26 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W28 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W30 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W32 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W34 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W36 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q cur"></td><td class="wk g h q">
+    <button class="d sm" title="W38 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h q"></td><td class="wk g h">
+    <button class="d sm" title="W40 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W42 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W44 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W46 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W48 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W50 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W52 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td>
+    </tr>
+<tr class="jr p5 alt">
+      <th class="nm sub"><span class="tick">└</span><span title="สอบเทียบตำแหน่งหยิบวาง">สอบเทียบตำแหน่งหยิบวาง</span></th>
+      <th class="fq sub">ทุก 3 เดือน</th>
+      <th class="pc sub">5<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W2 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W14 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W26 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q">
+    <button class="d sm" title="W38 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W50 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p5 alt">
+      <th class="nm sub"><span class="tick">└</span><span title="เปลี่ยนสายลมและข้อต่อ">เปลี่ยนสายลมและข้อต่อ</span></th>
+      <th class="fq sub">ทุก 6 เดือน</th>
+      <th class="pc sub">2<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W2 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W28 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td>
+    </tr>
+<tr class="mach" data-i="6" data-over="0">
+    <th class="nm"><button class="tw" aria-expanded="false">▸</button><span title="AHU & Chiller">AHU & Chiller</span>
+      <span class="jn">4</span></th>
+    <th class="fq">ทุกเดือน</th>
+    <th class="pc"><div class="pcv" style="color:var(--ok)">9<span>/9</span></div>
+      <div class="bar"><span style="width:100%;background:var(--ok)"></span></div></th>
+    <td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W7 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W11 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W19 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W23 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W31 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W43 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W47 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+  </tr>
+<tr class="jr p6">
+      <th class="nm sub"><span class="tick">└</span><span title="เช็คแรงดันน้ำยาและล้างฟิลเตอร์">เช็คแรงดันน้ำยาและล้างฟิลเตอร์</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">13<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W7 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W11 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W19 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W23 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W31 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W43 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W47 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p6">
+      <th class="nm sub"><span class="tick">└</span><span title="ล้างคอยล์เย็นและถาดน้ำทิ้ง">ล้างคอยล์เย็นและถาดน้ำทิ้ง</span></th>
+      <th class="fq sub">ทุก 3 เดือน</th>
+      <th class="pc sub">5<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p6">
+      <th class="nm sub"><span class="tick">└</span><span title="ตรวจมอเตอร์พัดลมและสายพาน">ตรวจมอเตอร์พัดลมและสายพาน</span></th>
+      <th class="fq sub">ทุก 3 เดือน</th>
+      <th class="pc sub">5<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p6">
+      <th class="nm sub"><span class="tick">└</span><span title="เปลี่ยนถุงกรองอากาศ">เปลี่ยนถุงกรองอากาศ</span></th>
+      <th class="fq sub">ทุก 6 เดือน</th>
+      <th class="pc sub">3<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+    </tr>
+<tr class="mach alt" data-i="7" data-over="0">
+    <th class="nm"><button class="tw" aria-expanded="false">▸</button><span title="Cold Room">Cold Room</span>
+      <span class="jn">3</span></th>
+    <th class="fq">ทุกเดือน</th>
+    <th class="pc"><div class="pcv" style="color:var(--ok)">9<span>/9</span></div>
+      <div class="bar"><span style="width:100%;background:var(--ok)"></span></div></th>
+    <td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W7 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W11 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W19 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W23 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W31 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W43 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W47 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+  </tr>
+<tr class="jr p7 alt">
+      <th class="nm sub"><span class="tick">└</span><span title="ละลายน้ำแข็งคอยล์เย็นและตรวจซีลประตู">ละลายน้ำแข็งคอยล์เย็นและตรวจซีลประตู</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">13<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W7 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W11 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W19 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W23 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W31 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W43 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W47 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p7 alt">
+      <th class="nm sub"><span class="tick">└</span><span title="ตรวจชุดควบคุมอุณหภูมิและเทอร์โมสตัท">ตรวจชุดควบคุมอุณหภูมิและเทอร์โมสตัท</span></th>
+      <th class="fq sub">ทุก 3 เดือน</th>
+      <th class="pc sub">5<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p7 alt">
+      <th class="nm sub"><span class="tick">└</span><span title="เช็ครอยรั่วน้ำยาและแรงดัน">เช็ครอยรั่วน้ำยาและแรงดัน</span></th>
+      <th class="fq sub">ทุก 6 เดือน</th>
+      <th class="pc sub">3<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+    </tr>
+<tr class="mach" data-i="8" data-over="0">
+    <th class="nm"><button class="tw" aria-expanded="false">▸</button><span title="RO 10,000">RO 10,000</span>
+      <span class="jn">4</span></th>
+    <th class="fq">ทุกเดือน</th>
+    <th class="pc"><div class="pcv" style="color:var(--warn)">9<span>/10</span></div>
+      <div class="bar"><span style="width:90%;background:var(--warn)"></span></div></th>
+    <td class="wk g">
+    <button class="d" title="W1 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W5 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W9 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W13 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W17 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W21 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W25 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W29 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W33 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur">
+    <button class="d" title="W37 · ครบกำหนดสัปดาห์นี้"><i style="background:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W41 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W45 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W49 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td>
+  </tr>
+<tr class="jr p8">
+      <th class="nm sub"><span class="tick">└</span><span title="ล้างเมมเบรนและตรวจค่าความนำไฟฟ้า">ล้างเมมเบรนและตรวจค่าความนำไฟฟ้า</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">13<span> ครั้ง</span></th>
+      <td class="wk g">
+    <button class="d sm" title="W1 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W5 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W9 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W13 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W17 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W21 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W25 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W29 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W33 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur">
+    <button class="d sm" title="W37 · ครบกำหนดสัปดาห์นี้"><i style="background:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W41 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W45 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W49 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p8">
+      <th class="nm sub"><span class="tick">└</span><span title="ล้างไส้กรอง Pre-filter">ล้างไส้กรอง Pre-filter</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">13<span> ครั้ง</span></th>
+      <td class="wk g">
+    <button class="d sm" title="W1 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W5 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W9 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W13 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W17 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W21 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W25 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W29 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W33 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur">
+    <button class="d sm" title="W37 · ครบกำหนดสัปดาห์นี้"><i style="background:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W41 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W45 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W49 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p8">
+      <th class="nm sub"><span class="tick">└</span><span title="เปลี่ยนไส้กรองคาร์บอน">เปลี่ยนไส้กรองคาร์บอน</span></th>
+      <th class="fq sub">ทุก 3 เดือน</th>
+      <th class="pc sub">5<span> ครั้ง</span></th>
+      <td class="wk g">
+    <button class="d sm" title="W1 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W13 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W25 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur">
+    <button class="d sm" title="W37 · ครบกำหนดสัปดาห์นี้"><i style="background:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W49 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p8">
+      <th class="nm sub"><span class="tick">└</span><span title="สอบเทียบเครื่องวัดค่า EC">สอบเทียบเครื่องวัดค่า EC</span></th>
+      <th class="fq sub">ทุก 6 เดือน</th>
+      <th class="pc sub">3<span> ครั้ง</span></th>
+      <td class="wk g">
+    <button class="d sm" title="W1 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W25 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W49 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td>
+    </tr>
+<tr class="mach alt" data-i="9" data-over="3">
+    <th class="nm"><button class="tw" aria-expanded="false">▸</button><span title="RO 5,000">RO 5,000</span>
+      <span class="jn">3</span></th>
+    <th class="fq">ทุกเดือน</th>
+    <th class="pc"><div class="pcv" style="color:var(--danger)">6<span>/9</span></div>
+      <div class="bar"><span style="width:67%;background:var(--danger)"></span></div></th>
+    <td class="wk g"></td><td class="wk g">
+    <button class="d" title="W2 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W6 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W10 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W14 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W18 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W22 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W26 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W30 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W34 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q">
+    <button class="d" title="W38 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W42 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W46 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W50 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td>
+  </tr>
+<tr class="jr p9 alt">
+      <th class="nm sub"><span class="tick">└</span><span title="ล้างไส้กรอง Pre-filter">ล้างไส้กรอง Pre-filter</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">13<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W2 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W6 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W10 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W14 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W18 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W22 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W26 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W30 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W34 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q">
+    <button class="d sm" title="W38 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W42 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W46 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W50 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p9 alt">
+      <th class="nm sub"><span class="tick">└</span><span title="ตรวจปั๊มแรงดันสูง">ตรวจปั๊มแรงดันสูง</span></th>
+      <th class="fq sub">ทุก 3 เดือน</th>
+      <th class="pc sub">5<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W2 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W14 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W26 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q">
+    <button class="d sm" title="W38 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W50 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p9 alt">
+      <th class="nm sub"><span class="tick">└</span><span title="เปลี่ยนเมมเบรน">เปลี่ยนเมมเบรน</span></th>
+      <th class="fq sub">ปีละครั้ง</th>
+      <th class="pc sub">2<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W2 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W50 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td>
+    </tr>
+<tr class="mach" data-i="10" data-over="1">
+    <th class="nm"><button class="tw" aria-expanded="false">▸</button><span title="บ่อซีเมนต์">บ่อซีเมนต์</span>
+      <span class="jn">2</span></th>
+    <th class="fq">ทุก 2 สัปดาห์</th>
+    <th class="pc"><div class="pcv" style="color:var(--warn)">17<span>/19</span></div>
+      <div class="bar"><span style="width:89%;background:var(--warn)"></span></div></th>
+    <td class="wk g">
+    <button class="d" title="W1 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W5 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W7 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W9 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W11 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W13 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W17 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W19 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W21 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W23 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W25 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W29 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W31 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W33 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur">
+    <button class="d" title="W37 · ครบกำหนดสัปดาห์นี้"><i style="background:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W41 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W43 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W45 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W47 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W49 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+  </tr>
+<tr class="jr p10">
+      <th class="nm sub"><span class="tick">└</span><span title="ตรวจปั๊มสูบและวาล์วกันกลับ">ตรวจปั๊มสูบและวาล์วกันกลับ</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">26<span> ครั้ง</span></th>
+      <td class="wk g">
+    <button class="d sm" title="W1 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W3 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W5 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W7 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W9 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W11 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W13 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W17 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W19 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W21 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W23 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W25 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W29 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W31 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W33 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur">
+    <button class="d sm" title="W37 · ครบกำหนดสัปดาห์นี้"><i style="background:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W41 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W43 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W45 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W47 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W49 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p10">
+      <th class="nm sub"><span class="tick">└</span><span title="ลอกตะกอนและล้างบ่อ">ลอกตะกอนและล้างบ่อ</span></th>
+      <th class="fq sub">ทุก 3 เดือน</th>
+      <th class="pc sub">5<span> ครั้ง</span></th>
+      <td class="wk g">
+    <button class="d sm" title="W1 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W13 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W25 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur">
+    <button class="d sm" title="W37 · ครบกำหนดสัปดาห์นี้"><i style="background:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W49 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td>
+    </tr>
+<tr class="mach alt" data-i="11" data-over="0">
+    <th class="nm"><button class="tw" aria-expanded="false">▸</button><span title="ถุง AHU">ถุง AHU</span>
+      <span class="jn">2</span></th>
+    <th class="fq">ทุก 6 เดือน</th>
+    <th class="pc"><div class="pcv" style="color:var(--ok)">1<span>/1</span></div>
+      <div class="bar"><span style="width:100%;background:var(--ok)"></span></div></th>
+    <td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W11 · ปิดใช้งาน"><i style="background:transparent;border:1.5px dashed var(--muted)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td>
+  </tr>
+<tr class="jr p11 alt">
+      <th class="nm sub"><span class="tick">└</span><span title="เปลี่ยนถุงกรองอากาศ">เปลี่ยนถุงกรองอากาศ</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">2<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W11 · ปิดใช้งาน"><i style="background:transparent;border:1.5px dashed var(--muted)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p11 alt">
+      <th class="nm sub"><span class="tick">└</span><span title="ตรวจกรอบยึดและซีลขอบถุง">ตรวจกรอบยึดและซีลขอบถุง</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">2<span> ครั้ง</span></th>
+      <td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W11 · ปิดใช้งาน"><i style="background:transparent;border:1.5px dashed var(--muted)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td>
+    </tr>
+<tr class="mach" data-i="12" data-over="1">
+    <th class="nm"><button class="tw" aria-expanded="false">▸</button><span title="ไลน์ปี๊บ">ไลน์ปี๊บ</span>
+      <span class="jn">4</span></th>
+    <th class="fq">ทุก 2 สัปดาห์</th>
+    <th class="pc"><div class="pcv" style="color:var(--warn)">17<span>/19</span></div>
+      <div class="bar"><span style="width:89%;background:var(--warn)"></span></div></th>
+    <td class="wk g">
+    <button class="d" title="W1 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W3 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W5 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W7 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W9 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W11 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W13 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W17 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W19 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W21 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W23 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d" title="W25 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W29 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W31 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W33 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur">
+    <button class="d" title="W37 · ครบกำหนดสัปดาห์นี้"><i style="background:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W41 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W43 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W45 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W47 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W49 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+  </tr>
+<tr class="jr p12">
+      <th class="nm sub"><span class="tick">└</span><span title="ตรวจชุดปิดฝาและโซ่ลำเลียง">ตรวจชุดปิดฝาและโซ่ลำเลียง</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">26<span> ครั้ง</span></th>
+      <td class="wk g">
+    <button class="d sm" title="W1 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W3 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W5 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W7 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W9 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W11 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W13 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W17 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W19 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W21 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W23 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W25 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W29 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W31 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W33 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur">
+    <button class="d sm" title="W37 · ครบกำหนดสัปดาห์นี้"><i style="background:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W41 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W43 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W45 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W47 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W49 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p12">
+      <th class="nm sub"><span class="tick">└</span><span title="หยอดน้ำมันโซ่ลำเลียง">หยอดน้ำมันโซ่ลำเลียง</span></th>
+      <th class="fq sub">ทุกครั้ง</th>
+      <th class="pc sub">26<span> ครั้ง</span></th>
+      <td class="wk g">
+    <button class="d sm" title="W1 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W3 · เลยกำหนด ยังไม่ทำ"><i style="background:var(--danger)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W5 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W7 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W9 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W11 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W13 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W15 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W17 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W19 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W21 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W23 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W25 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W29 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W31 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W33 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W35 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q cur">
+    <button class="d sm" title="W37 · ครบกำหนดสัปดาห์นี้"><i style="background:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)"></i></button></td><td class="wk g h q"></td><td class="wk g h q">
+    <button class="d sm" title="W39 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W41 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W43 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W45 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W47 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W49 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W51 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p12">
+      <th class="nm sub"><span class="tick">└</span><span title="ตรวจชุดตะเข็บและแม่พิมพ์">ตรวจชุดตะเข็บและแม่พิมพ์</span></th>
+      <th class="fq sub">ทุก 3 เดือน</th>
+      <th class="pc sub">5<span> ครั้ง</span></th>
+      <td class="wk g">
+    <button class="d sm" title="W1 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W13 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g">
+    <button class="d sm" title="W25 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur">
+    <button class="d sm" title="W37 · ครบกำหนดสัปดาห์นี้"><i style="background:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h">
+    <button class="d sm" title="W49 · ยังไม่ถึงกำหนด"><i style="background:transparent;border:1.5px solid var(--sep)"></i></button></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td>
+    </tr>
+<tr class="jr p12">
+      <th class="nm sub"><span class="tick">└</span><span title="เปลี่ยนลูกกลิ้งนำปี๊บ">เปลี่ยนลูกกลิ้งนำปี๊บ</span></th>
+      <th class="fq sub">ทุก 6 เดือน</th>
+      <th class="pc sub">2<span> ครั้ง</span></th>
+      <td class="wk g">
+    <button class="d sm" title="W1 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g"></td><td class="wk g h q">
+    <button class="d sm" title="W27 · ทำแล้ว"><i style="background:var(--ok)"></i></button></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h q cur"></td><td class="wk g h q"></td><td class="wk g h q"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td><td class="wk g h"></td>
+    </tr></tbody>
+    </table>
+  </div>
+
+  <div class="legend">
+    <span><i style="background:var(--ok)"></i>ทำแล้ว 153</span>
+    <span><i style="background:var(--danger)"></i>เลยกำหนด ยังไม่ทำ 11</span>
+    <span><i style="background:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)"></i>ครบกำหนดสัปดาห์นี้ 3</span>
+    <span><i style="background:transparent;border:1.5px solid var(--sep)"></i>ยังไม่ถึงกำหนด 67</span>
+    <span><i style="background:transparent;border:1.5px dashed var(--muted)"></i>ปิดใช้งาน 1 (ไม่นับในแผน)</span>
+    <span class="dot" style="color:var(--muted)">·</span>
+    <span>คลิกที่จุดเพื่อบันทึกว่าทำแล้ว · กด ▸ เพื่อกางดูงานย่อยของเครื่องนั้น</span>
+  </div>
+</div>
+
+<script>
+(function () {
+  const root = document.getElementById('yg2');
+  const mx = root.querySelector('#mx');
+  root.querySelectorAll('.rng').forEach(b => b.addEventListener('click', () => {
+    root.querySelectorAll('.rng').forEach(x => x.classList.toggle('on', x === b));
+    mx.className = 'mx rng-' + b.dataset.r;
+  }));
+  root.querySelectorAll('.tw').forEach(b => b.addEventListener('click', () => {
+    const tr = b.closest('tr'), open = !tr.classList.contains('open');
+    tr.classList.toggle('open', open); b.setAttribute('aria-expanded', open);
+    root.querySelectorAll('.jr.p' + tr.dataset.i).forEach(j => j.classList.toggle('on', open));
+  }));
+  // เรียงตามงานค้าง — ต้องยกแถวงานย่อยตามแถวแม่ไปด้วย
+  root.querySelector('.sortb').addEventListener('click', function () {
+    const tb = root.querySelector('tbody'), on = this.classList.toggle('pri');
+    const groups = [];
+    tb.querySelectorAll('tr.mach').forEach(m => {
+      const g = [m]; let n = m.nextElementSibling;
+      while (n && n.classList.contains('jr')) { g.push(n); n = n.nextElementSibling; }
+      groups.push(g);
+    });
+    groups.sort((a, b) => on ? b[0].dataset.over - a[0].dataset.over : a[0].dataset.i - b[0].dataset.i);
+    groups.forEach(g => g.forEach(r => tb.appendChild(r)));
+  });
+})();
+</script>
+</div></div>
+</x-dc>
+</body>
+</html>

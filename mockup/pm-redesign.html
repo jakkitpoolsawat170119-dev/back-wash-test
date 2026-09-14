@@ -1,0 +1,2132 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockup — หน้า “งาน PM” ออกแบบใหม่ (แผนประจำปี 52 สัปดาห์)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+
+:root{
+  --brand:#ff6b00; --brand-deep:#c24f00; --brand-soft:#fff3ea;
+  --ink:#2b2119; --ink-soft:#6d6259; --paper:#faf7f4; --card:#ffffff; --line:#eee3d9;
+  --ok:#1c8a4c; --warn:#c77700; --danger:#c62828;
+  --cip1:#1565c0; --cip2:#01579b; --cipx:#6a1b9a;
+  --radius:16px;
+  --shadow-card:0 1px 2px rgba(63,37,10,.06),0 6px 18px -6px rgba(63,37,10,.12);
+  --shadow-float:0 2px 4px rgba(63,37,10,.08),0 16px 40px -12px rgba(63,37,10,.22);
+  --font-head:'Kanit',sans-serif; --font-body:'Sarabun',sans-serif;
+  --surface-2:#fbf7f3; --surface-3:#fdfbf9; --row-line:#f5efe9; --muted:#a49a90; --sep:#d8cabb;
+  --danger-soft-bg:#fdecea; --danger-soft-line:#f7d9d5; --warn-soft-bg:#fff6e6;
+  --p-stop:#c62828; --p-stop-w:#fdecea; --p-warn:#c77700; --p-warn-w:#fff6e6;
+  --p-low:#1c8a4c; --p-low-w:#e6f4ec;
+  --s-wip:#0277bd; --s-wip-w:#e1f2fb;
+}
+*,*::before,*::after{box-sizing:border-box}
+body{
+  margin:0;font-family:var(--font-body);color:var(--ink);line-height:1.7;
+  background:var(--paper);
+  background-image:
+    radial-gradient(1200px 500px at 85% -10%, rgba(255,107,0,.07), transparent 60%),
+    radial-gradient(900px 420px at -10% 20%, rgba(21,101,192,.05), transparent 55%);
+}
+h1,h2,h3,h4,p,ul,ol,li{margin:0;padding:0}
+h1,h2,h3,h4{font-family:var(--font-head);letter-spacing:-.02em;line-height:1.3;color:var(--ink);font-weight:600}
+a{color:var(--brand-deep);text-decoration:none} a:hover{color:var(--brand)}
+.wrap{padding:26px 30px 30px}
+.eyebrow{font-family:var(--font-head);font-size:11.5px;font-weight:600;color:var(--brand-deep);
+  background:var(--brand-soft);display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;margin-bottom:10px}
+.phead{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+.phead h1{font-size:25px;letter-spacing:-.03em}
+.phead .sub{font-size:13px;color:var(--ink-soft)}
+.sp{flex:1}
+.itabs{display:inline-flex;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:4px;gap:4px;margin:14px 0 4px}
+.itab{border:none;background:transparent;color:var(--ink-soft);font-family:var(--font-head);font-size:13.5px;font-weight:600;
+  padding:8px 20px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+.itab.on{background:var(--card);color:var(--ink);box-shadow:var(--shadow-card)}
+.itab .n{font-family:var(--font-body);font-size:11.5px;font-weight:700;border-radius:999px;padding:1px 8px;background:var(--surface-3);color:var(--ink-soft)}
+.itab.on .n{background:var(--brand-soft);color:var(--brand-deep)}
+.ifilters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0 14px}
+.ipill{border:1px solid var(--line);background:var(--card);color:var(--ink-soft);padding:6px 14px;border-radius:999px;
+  font-size:12.8px;font-weight:600;font-family:var(--font-head);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.ipill.on{color:#fff;border-color:transparent;background:var(--ink)}
+.ipill.on.brand{background:var(--brand-deep)}
+.isel{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:6px 12px;font-size:12.8px;font-weight:600;font-family:var(--font-head)}
+.divider{width:1px;height:22px;background:var(--line)}
+.ibtn{border:1px solid var(--line);background:var(--card);color:var(--ink-soft);padding:7px 15px;border-radius:999px;
+  font-size:12.8px;font-weight:600;font-family:var(--font-head);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.ibtn.pri{background:var(--brand);border-color:var(--brand);color:#fff}
+.ibtn.sm{padding:4px 12px;font-size:12px}
+.ibtn.ok{color:var(--ok);background:var(--p-low-w);border-color:transparent}
+.ibtn.dgr{color:var(--danger);background:var(--danger-soft-bg);border-color:var(--danger-soft-line)}
+.ibtn.lock{color:var(--muted);background:var(--surface-2);border-color:var(--line);cursor:not-allowed}
+.istats{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:14px 0}
+.istat{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-card);padding:11px 14px}
+.istat .l{font-size:11.5px;font-weight:600;color:var(--ink-soft);display:flex;align-items:center;gap:5px}
+.istat .v{font-family:var(--font-head);font-size:26px;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums}
+.istat .u{font-size:12px;font-weight:500;color:var(--ink-soft);margin-left:3px;font-family:var(--font-body)}
+.istat.hot{border-color:var(--p-stop);background:linear-gradient(180deg,var(--p-stop-w),var(--card) 70%)}
+.istat.hot .v{color:var(--p-stop)}
+.istat.good .v{color:var(--ok)}
+.istat.gap .v{color:var(--warn)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-card)}
+.ilist{display:flex;flex-direction:column;gap:11px}
+.tk{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-card);
+  padding:14px 16px 13px;border-left:4px solid var(--sep)}
+.tk.late{border-left-color:var(--p-stop)}
+.tk.due{border-left-color:var(--brand)}
+.tk.done{border-left-color:var(--ok);background:linear-gradient(180deg,#fbfdfb,var(--card) 60%)}
+.tk.skip{border-left-color:var(--muted);background:var(--surface-2)}
+.tk .r1{display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap}
+.tk h3{font-size:15.5px;flex:1;min-width:200px;letter-spacing:-.01em;line-height:1.35}
+.chip{font-size:11px;font-weight:700;border-radius:999px;padding:2px 10px;white-space:nowrap;font-family:var(--font-body)}
+.chip.stop{color:var(--p-stop);background:var(--p-stop-w)}
+.chip.warn{color:var(--p-warn);background:var(--p-warn-w)}
+.chip.low{color:var(--p-low);background:var(--p-low-w)}
+.chip.due{color:var(--brand-deep);background:var(--brand-soft)}
+.chip.freq{color:var(--cip1);background:#e8f1fb}
+.chip.mute{color:var(--muted);background:var(--surface-3);border:1px solid var(--line)}
+.chip.kind-pm{color:#0d47a1;background:#e8f1fb}
+.chip.kind-up{color:#14653a;background:#e6f4ec}
+.chip.kind-fix{color:#c24f00;background:#fff3ea}
+.src{font-size:10.5px;font-weight:700;border-radius:6px;padding:2px 8px;white-space:nowrap;border:1px solid var(--line);background:var(--surface-2);color:var(--ink-soft)}
+.src.plan{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-deep)}
+.src.adhoc{border-color:var(--cip1);background:#e8f1fb;color:var(--cip1)}
+.src.am{border-color:var(--cip2);background:#e3f0f8;color:var(--cip2)}
+.meta{font-size:12px;color:var(--ink-soft);margin-top:5px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 9px}
+.meta .dot{color:var(--sep)}
+.thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center}
+.th{width:54px;height:54px;border-radius:9px;border:1px solid var(--line);background:var(--surface-2);
+  display:grid;place-items:center;font-size:10px;color:var(--muted);text-align:center;line-height:1.3}
+.th.b{background:#efe6dc}
+.acts{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:11px}
+.lock-note{font-size:11.5px;color:var(--muted);display:inline-flex;align-items:center;gap:4px}
+.fld{margin-bottom:11px}
+.fld > label{display:block;font-size:11.5px;font-weight:700;color:var(--ink-soft);margin-bottom:4px}
+.fld input,.fld select,.fld textarea{width:100%;border:1px solid var(--line);background:var(--surface-3);color:var(--ink);
+  border-radius:10px;padding:8px 11px;font-size:13px;line-height:1.6;font-family:inherit}
+.grid2{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.warnbox{background:var(--warn-soft-bg);border-radius:10px;padding:9px 12px;font-size:12.3px;color:var(--ink-soft);
+  border-left:3px solid var(--warn);margin-bottom:12px;line-height:1.65}
+.okbox{background:var(--p-low-w);border-radius:10px;padding:9px 12px;font-size:12.3px;color:var(--ink-soft);
+  border-left:3px solid var(--ok);margin-bottom:12px;line-height:1.65}
+.infobox{background:var(--surface-2);border-radius:10px;padding:9px 12px;font-size:12.3px;color:var(--ink-soft);
+  border-left:3px solid var(--sep);line-height:1.65}
+table.tb{width:100%;border-collapse:collapse;font-size:12.8px}
+table.tb th{font-family:var(--font-head);font-size:11.5px;font-weight:600;color:var(--ink-soft);text-align:left;
+  padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.tb td{padding:10px 12px;border-bottom:1px solid var(--row-line);vertical-align:middle}
+table.tb tr:last-child td{border-bottom:none}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.sheet{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow-float);padding:20px 22px}
+.sheet h3{font-size:17px;margin:0 0 3px}
+.sheet .hint{font-size:12.4px;color:var(--ink-soft);margin-bottom:13px}
+.hd{font-family:var(--font-head);font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;margin:0 0 9px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11.5px;color:var(--ink-soft);margin-top:10px}
+.legend i{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:-1px}
+
+
+/* ── เปลือกของ mockup (ไม่ใช่ส่วนหนึ่งของหน้าจริง) ─────────── */
+.ribbon{position:sticky;top:0;z-index:90;background:#1c1917;color:#f3ede6;padding:9px 16px;
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;font-weight:600;
+  font-family:var(--font-head);box-shadow:0 8px 24px -12px rgba(0,0,0,.6)}
+.ribbon b{color:var(--brand)}
+.ribbon .tag{margin-left:auto;background:#312b23;color:#a89e92;border-radius:999px;padding:3px 10px;font-size:11px}
+.atop{display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:8px;
+  background:rgba(248,245,240,.92);border-bottom:1px solid var(--line);padding:10px 18px}
+.atop .logo{margin-right:auto;display:flex;align-items:center;gap:8px}
+.lg-mark{width:26px;height:26px;border-radius:8px;background:linear-gradient(145deg,var(--brand),var(--brand-deep));
+  display:grid;place-items:center;color:#fff;font-family:var(--font-head);font-weight:700;font-size:13px;
+  box-shadow:0 2px 6px -1px rgba(194,79,0,.5)}
+.lg-word{font-family:var(--font-head);font-weight:700;font-size:17px;letter-spacing:-.02em;color:var(--brand)}
+.atop .search{flex:1;min-width:150px;max-width:340px;background:var(--card);border:1px solid var(--line);
+  border-radius:10px;padding:7px 12px;font-size:13px;color:var(--muted)}
+.achip{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;background:var(--card);
+  border:1px solid var(--line);padding:4px 12px 4px 4px;border-radius:999px;white-space:nowrap}
+.achip .av{width:24px;height:24px;border-radius:50%;background:var(--brand);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:700}
+.amain{display:flex;align-items:stretch}
+.aside{width:230px;flex:none;border-right:1px solid var(--line);padding:16px 12px 40px;
+  display:flex;flex-direction:column;gap:1px;background:var(--card)}
+.ahead{font-family:var(--font-head);font-size:11.5px;font-weight:700;color:var(--muted);
+  padding:14px 10px 5px;display:flex;align-items:center;gap:7px}
+.rsbtn{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:none;background:transparent;
+  color:var(--ink);font-size:13.5px;font-weight:600;padding:7px 10px;border-radius:10px;font-family:var(--font-head)}
+.rsbtn.sub{font-size:13px;padding-left:16px;color:var(--ink-soft)}
+.rsbtn.on{background:var(--brand-soft);color:var(--brand-deep)}
+.acontent{flex:1;min-width:0}
+.view{display:none}
+.view.on{display:block}
+.view > .wrap{padding-top:2px}
+.pagehead{padding:22px 30px 0}
+.tabjs{cursor:pointer}
+.chunk{border-top:1px dashed var(--sep);margin-top:22px;padding:22px 30px 8px;max-width:1440px}
+.chead{margin-bottom:14px}
+.chead h2{font-family:var(--font-head);font-size:18px;font-weight:600;letter-spacing:-.02em}
+.chead p{font-size:12.8px;color:var(--ink-soft);margin-top:2px}
+.cbody > .wrap{padding:0}
+#s-tg .side{max-width:320px}
+.phones{display:flex;gap:26px;flex-wrap:wrap;padding:4px 0 10px}
+.phonewrap{margin:0}
+.phonewrap figcaption{font-family:var(--font-head);font-size:12.5px;font-weight:600;color:var(--ink-soft);
+  text-align:center;margin-top:9px}
+.phone{position:relative;width:390px;height:812px;overflow:hidden;border:9px solid #1c1917;border-radius:34px;
+  background:var(--paper);box-shadow:var(--shadow-float)}
+.phone .tabbar,.phone .bottombar{position:absolute}
+.phone > .mw{height:100%;overflow-y:auto}
+.foot{padding:22px 30px 40px;font-size:12.5px;color:var(--ink-soft);line-height:1.8;max-width:900px}
+.foot h3{font-family:var(--font-head);font-size:15px;margin-bottom:6px}
+.foot ol{padding-left:20px;display:flex;flex-direction:column;gap:5px}
+@media(max-width:900px){
+  .aside{display:none}
+  .wrap,.pagehead,.chunk{padding-left:14px;padding-right:14px}
+  .card:has(table.tb){overflow-x:auto}
+  table.tb{min-width:600px}
+  .ifilters .isel,.ifilters input,.ifilters select{min-width:0;max-width:100%}
+  .phones{gap:16px;overflow-x:auto;padding-bottom:14px}
+  #s-planedit .wgrid{grid-template-columns:repeat(7,1fr)!important}
+  #s-perm div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important}
+  #v-month div[style*="grid-template-columns:1fr 330px"],
+  #v-adhoc div[style*="grid-template-columns:1fr 330px"]{grid-template-columns:1fr!important}
+  #s-tg .tglayout{grid-template-columns:1fr!important}
+  #s-am .flow{grid-template-columns:1fr!important}
+  #s-am .arrow{display:none}
+  #s-am .step{margin-bottom:16px}
+}
+
+/* ── สไตล์เฉพาะของแต่ละส่วน (ตีกรอบด้วย id กันชนกัน) ─────── */
+
+#v-week .tk.late .meta{color:var(--ink-soft)}
+
+#v-year .mx{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+#v-year table.grid{border-collapse:collapse;font-size:11.5px;font-family:var(--font-body)}
+#v-year table.grid th{font-weight:600;color:var(--ink-soft);padding:0;background:var(--surface-2)}
+#v-year table.grid thead th{position:sticky;top:0;border-bottom:1px solid var(--line)}
+#v-year table.grid th.nm{width:190px;min-width:190px;text-align:left;padding:7px 11px;font-family:var(--font-head);
+  font-size:12.3px;color:var(--ink);background:var(--card);border-right:1px solid var(--line)}
+#v-year table.grid th.fq{width:112px;min-width:112px;text-align:left;padding:7px 9px;background:var(--card);color:var(--ink-soft);font-size:11.3px}
+#v-year table.grid th.pc{width:62px;min-width:62px;text-align:right;padding:7px 11px;background:var(--card);
+  border-right:1px solid var(--line);font-variant-numeric:tabular-nums;font-size:11.5px}
+#v-year table.grid th.wkh{width:21px;min-width:21px;font-size:9.5px;color:var(--muted);text-align:center;padding:6px 0;font-weight:500}
+#v-year table.grid th.wkh.cur{color:var(--brand-deep);font-weight:700;background:var(--brand-soft)}
+#v-year table.grid tbody tr:nth-child(even) th.nm,#v-year table.grid tbody tr:nth-child(even) th.fq,#v-year table.grid tbody tr:nth-child(even) th.pc{background:var(--surface-3)}
+#v-year table.grid tbody tr:nth-child(even) td{background:rgba(251,247,243,.6)}
+#v-year table.grid td.wk{width:21px;min-width:21px;height:26px;text-align:center;border-left:1px solid #f6f1ec}
+#v-year table.grid td.wk.cur{background:var(--brand-soft)}
+#v-year table.grid tbody tr:nth-child(even) td.wk.cur{background:#ffeadb}
+#v-year table.grid .d{width:9px;height:9px;border-radius:50%;display:inline-block;vertical-align:middle}
+
+#v-machine .mn{display:flex;align-items:center;gap:10px}
+#v-machine .mic{width:30px;height:30px;border-radius:9px;background:var(--surface-2);border:1px solid var(--line);
+  display:grid;place-items:center;font-size:15px}
+#v-machine .mn .t{font-family:var(--font-head);font-size:13.5px;font-weight:600;line-height:1.35}
+#v-machine .mn .s{font-size:11.3px;color:var(--muted);line-height:1.4}
+#v-machine .bar{height:7px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line);overflow:hidden}
+#v-machine .bar span{display:block;height:100%;border-radius:999px}
+#v-machine .bl{font-size:11px;color:var(--ink-soft);margin-top:3px;font-variant-numeric:tabular-nums}
+
+#v-month .cal{display:grid;grid-template-columns:44px repeat(7,1fr);gap:6px}
+#v-month .dh{font-family:var(--font-head);font-size:11.5px;font-weight:600;color:var(--ink-soft);text-align:center;padding:2px 0 4px}
+#v-month .wkn{font-size:10.5px;font-weight:700;color:var(--muted);display:grid;place-items:center;
+  background:var(--surface-2);border:1px solid var(--line);border-radius:9px}
+#v-month .dc{min-height:96px;border:1px solid var(--line);border-radius:11px;background:var(--card);padding:6px 7px}
+#v-month .dc.off{background:transparent;border:none}
+#v-month .dc.today{border-color:var(--brand);background:var(--brand-soft);box-shadow:var(--shadow-card)}
+#v-month .dn{font-family:var(--font-head);font-size:12.5px;font-weight:600;color:var(--ink-soft);display:flex;align-items:center;gap:5px;margin-bottom:3px}
+#v-month .tdy{font-size:9.5px;font-weight:700;color:#fff;background:var(--brand);border-radius:999px;padding:1px 7px;font-family:var(--font-body)}
+#v-month .ev{font-size:10.5px;line-height:1.45;color:var(--ink);display:flex;align-items:flex-start;gap:4px;margin-bottom:2px}
+#v-month .ev i{width:7px;height:7px;border-radius:50%;flex:0 0 7px;margin-top:4px}
+#v-month .more{font-size:10px;color:var(--muted);font-weight:600}
+#v-month .mini{display:flex;gap:9px;align-items:flex-start;font-size:12.5px}
+#v-month .mini .s{font-size:11.3px;color:var(--ink-soft)}
+
+#v-adhoc .tagnew{font-size:10.5px;font-weight:700;color:var(--brand-deep);background:var(--brand-soft);
+  border-radius:999px;padding:1px 8px;margin-left:6px;font-family:var(--font-body)}
+#v-adhoc .combo{position:relative}
+#v-adhoc .cin{border:1px solid var(--brand);background:var(--card);border-radius:10px;padding:8px 40px 8px 11px;
+  font-size:13px;box-shadow:0 0 0 3px rgba(255,107,0,.14)}
+#v-adhoc .typed{color:var(--ink)}
+#v-adhoc .caret{color:var(--brand);font-weight:300}
+#v-adhoc .cbtn{position:absolute;right:5px;top:5px;width:28px;height:28px;border-radius:8px;border:1px solid var(--line);
+  background:var(--surface-2);color:var(--ink-soft);font-size:12px;cursor:pointer}
+#v-adhoc .menu{position:absolute;left:0;right:0;top:44px;background:var(--card);border:1px solid var(--line);
+  border-radius:13px;box-shadow:var(--shadow-float);padding:6px;z-index:5}
+#v-adhoc .mhead{font-size:10.5px;font-weight:700;color:var(--muted);padding:5px 9px 6px;display:flex;justify-content:space-between}
+#v-adhoc .opt{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 9px;border-radius:9px;cursor:pointer}
+#v-adhoc .opt.hi{background:var(--brand-soft)}
+#v-adhoc .opt.new{background:var(--surface-2);border:1px dashed var(--sep);margin-top:5px}
+#v-adhoc .ot{font-size:12.8px;font-weight:600;line-height:1.4}
+#v-adhoc .os{font-size:11px;color:var(--muted);line-height:1.4}
+#v-adhoc .hintline{font-size:11.3px;color:var(--muted)}
+#v-adhoc .reg{display:flex;flex-direction:column}
+#v-adhoc .rg{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 2px;border-bottom:1px solid var(--row-line)}
+#v-adhoc .rg:last-child{border-bottom:none}
+#v-adhoc .rg.dup{background:var(--warn-soft-bg);border-radius:10px;padding:9px 10px;margin-top:6px;border-bottom:none}
+
+#v-sum .hintline{font-size:11.5px;color:var(--muted)}
+#v-sum .bar{height:7px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line);overflow:hidden}
+#v-sum .bar span{display:block;height:100%;border-radius:999px}
+#v-sum table.tb th.num{text-align:right}
+
+#s-planmanage .tb .t{font-family:var(--font-head);font-size:13.5px;font-weight:600}
+#s-planmanage .tb .s{font-size:11.2px;color:var(--muted)}
+#s-planmanage .strip{display:flex;gap:1px;align-items:center}
+#s-planmanage .strip i{width:4px;height:14px;border-radius:1px;background:var(--surface-2);border:1px solid #f0e8e0}
+#s-planmanage .strip i.on{background:var(--brand);border-color:var(--brand)}
+#s-planmanage .srch{min-width:200px}
+
+#s-planedit .combo{position:relative}
+#s-planedit .combo input{width:100%;border:1px solid var(--line);background:var(--surface-3);border-radius:10px;
+  padding:8px 40px 8px 11px;font-size:13px;font-family:inherit;color:var(--ink)}
+#s-planedit .cbtn{position:absolute;right:5px;top:5px;width:28px;height:28px;border-radius:8px;border:1px solid var(--line);
+  background:var(--card);color:var(--ink-soft);font-size:12px;cursor:pointer}
+#s-planedit .hintline{font-size:11.3px;color:var(--muted);margin-top:4px}
+#s-planedit .pills{display:flex;gap:6px;flex-wrap:wrap}
+#s-planedit .pills .ipill{padding:5px 11px;font-size:12px}
+#s-planedit .autorow{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;background:var(--surface-2);
+  border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+#s-planedit .autorow > div{display:flex;flex-direction:column;gap:3px}
+#s-planedit .al{font-size:11px;font-weight:700;color:var(--ink-soft)}
+#s-planedit .autorow input{width:96px;border:1px solid var(--line);background:var(--card);border-radius:9px;
+  padding:6px 10px;font-size:13px;font-family:inherit;font-variant-numeric:tabular-nums}
+#s-planedit .wgrid{display:grid;grid-template-columns:repeat(13,1fr);gap:5px}
+#s-planedit .wq{height:30px;border-radius:8px;border:1px solid var(--line);background:var(--surface-3);color:var(--ink-soft);
+  font-size:11.5px;font-weight:600;font-family:var(--font-body);cursor:pointer;font-variant-numeric:tabular-nums}
+#s-planedit .wq.on{background:var(--brand);border-color:var(--brand);color:#fff}
+#s-planedit .wq.cur{box-shadow:0 0 0 2px var(--brand-soft),0 0 0 3px var(--brand-deep)}
+#s-planedit .wcount{font-size:11.8px;color:var(--ink-soft);margin-top:7px}
+
+#s-done .hintline{font-size:11.3px;color:var(--muted);margin-top:4px;display:block}
+#s-done .fld textarea{resize:vertical}
+#s-done .nextbox{background:var(--surface-2);border:1px solid var(--line);border-radius:13px;padding:12px 13px;margin-top:4px}
+#s-done .nhead{font-family:var(--font-head);font-size:13px;font-weight:600;margin-bottom:8px}
+#s-done .nrow{display:flex;gap:6px;flex-wrap:wrap}
+#s-done .ndate{display:flex;flex-direction:column;gap:3px;margin-top:10px}
+#s-done .ndate .al{font-size:11px;font-weight:700;color:var(--ink-soft)}
+#s-done .ndate input{width:170px;border:1px solid var(--line);background:var(--card);border-radius:9px;
+  padding:7px 10px;font-size:13px;font-family:inherit;font-variant-numeric:tabular-nums}
+
+#s-perm .rb{font-family:var(--font-head);font-size:12px;font-weight:600;border-radius:999px;padding:3px 12px;
+  background:var(--surface-2);border:1px solid var(--line);color:var(--ink-soft)}
+#s-perm .rb.sup{background:var(--brand-soft);border-color:var(--brand-soft);color:var(--brand-deep)}
+#s-perm .hintline{font-size:11.5px;color:var(--muted)}
+
+#s-tg .tglayout{display:grid;grid-template-columns:1fr 300px;gap:14px;align-items:start}
+#s-tg .tgwrap{border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:var(--shadow-card);background:#dfe5ea}
+#s-tg .tgbar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff;border-bottom:1px solid #d7dee4}
+#s-tg .ava{width:34px;height:34px;border-radius:50%;background:var(--brand-soft);display:grid;place-items:center;font-size:16px}
+#s-tg .gn{font-family:var(--font-head);font-size:14px;font-weight:600}
+#s-tg .gm{font-size:11px;color:var(--ink-soft)}
+#s-tg .chat{padding:14px;display:flex;flex-direction:column;gap:12px;
+  background-image:radial-gradient(circle at 20% 30%, rgba(255,255,255,.55), transparent 45%),
+    radial-gradient(circle at 75% 70%, rgba(255,255,255,.4), transparent 40%)}
+#s-tg .bub{background:#fff;border-radius:14px 14px 14px 4px;padding:11px 13px 8px;max-width:560px;
+  box-shadow:0 1px 2px rgba(20,30,40,.14);font-size:13px;line-height:1.65}
+#s-tg .bub .t{font-size:14px;margin-bottom:3px}
+#s-tg .bub .l{color:var(--ink);margin-bottom:5px}
+#s-tg .bub .ls{font-size:12.3px;color:var(--ink-soft);display:flex;flex-direction:column;gap:2px;
+  border-left:2px solid var(--line);padding-left:9px;margin:4px 0 2px}
+#s-tg .bub .warn{margin-top:7px;font-size:12.2px;color:var(--p-warn);background:var(--p-warn-w);border-radius:9px;padding:6px 9px}
+#s-tg .bub .ph{display:flex;gap:6px;margin-top:8px}
+#s-tg .bub .ph span{flex:1;height:64px;border-radius:9px;background:#eceff2;border:1px solid #dde3e8;
+  display:grid;place-items:center;font-size:10.5px;color:#8b949c}
+#s-tg .kb{margin-top:9px;display:flex;flex-direction:column;gap:5px}
+#s-tg .kr{display:flex;gap:5px}
+#s-tg .kbtn{flex:1;border:none;background:#f0f3f5;color:#2f6ea5;font-family:var(--font-head);font-size:12.5px;
+  font-weight:600;padding:8px 10px;border-radius:9px;cursor:pointer}
+#s-tg .time{text-align:right;font-size:10px;color:#93a0aa;margin-top:4px}
+#s-tg .rules{list-style:none;display:flex;flex-direction:column;gap:8px;font-size:12.3px;line-height:1.6;color:var(--ink-soft)}
+#s-tg .rules li{padding-left:16px;position:relative}
+#s-tg .rules li::before{content:'·';position:absolute;left:5px;color:var(--brand);font-weight:700;font-size:16px;top:-3px}
+
+#s-am .flow{display:grid;grid-template-columns:1fr 26px 1fr 26px 1fr;gap:10px;align-items:start;margin-top:18px}
+#s-am .step{position:relative}
+#s-am .sn{position:absolute;left:-6px;top:-12px;width:26px;height:26px;border-radius:50%;background:var(--brand);
+  color:#fff;font-family:var(--font-head);font-size:13px;font-weight:600;display:grid;place-items:center;
+  box-shadow:var(--shadow-card);z-index:2}
+#s-am .arrow{display:grid;place-items:center;color:var(--sep);font-size:20px;padding-top:60px}
+#s-am .amrow{display:flex;align-items:flex-start;gap:9px;padding:9px 2px;border-bottom:1px solid var(--row-line);font-size:12.8px}
+#s-am .amrow:last-child{border-bottom:none}
+#s-am .amrow .s{font-size:11.3px;color:var(--muted)}
+#s-am .amrow > div{flex:1}
+#s-am .ck{width:20px;height:20px;border-radius:6px;background:var(--p-low-w);color:var(--ok);display:grid;place-items:center;
+  font-size:12px;font-weight:700;flex:0 0 20px;margin-top:2px}
+#s-am .ck.bad{background:var(--p-stop-w);color:var(--danger)}
+#s-am .pick{display:flex;gap:11px;align-items:flex-start;width:100%;text-align:left;background:var(--card);
+  border:1px solid var(--line);border-radius:13px;padding:11px 12px;cursor:pointer;margin-bottom:8px;font-family:inherit}
+#s-am .pick.on{border-color:var(--brand);background:var(--brand-soft);box-shadow:0 0 0 3px rgba(255,107,0,.12)}
+#s-am .pi{width:34px;height:34px;border-radius:10px;background:var(--surface-2);display:grid;place-items:center;font-size:16px;flex:0 0 34px}
+#s-am .pi.br{background:#fff}
+#s-am .pt{font-family:var(--font-head);font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:7px}
+#s-am .ps{font-size:11.6px;color:var(--ink-soft);line-height:1.55}
+
+#p-week{background:var(--paper)}
+#p-week .mw{padding:12px 12px 78px}
+#p-week .mhead{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+#p-week .mhead h1{font-size:19px;letter-spacing:-.03em}
+#p-week .mhead .sub{font-size:11.5px;color:var(--ink-soft)}
+#p-week .off{display:flex;align-items:center;gap:9px;background:#2b2119;color:#f7f1ea;border-radius:12px;
+  padding:9px 12px;font-size:12px;line-height:1.5;margin-bottom:10px}
+#p-week .off b{color:#ffc79a}
+#p-week .off .badge{margin-left:auto;background:rgba(255,255,255,.14);border-radius:999px;padding:2px 9px;font-size:11px;font-weight:700;white-space:nowrap}
+#p-week .wknav{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);
+  border-radius:14px;padding:8px 10px;box-shadow:var(--shadow-card);margin-bottom:10px}
+#p-week .wknav .t{font-family:var(--font-head);font-size:14.5px;font-weight:600}
+#p-week .wknav .s{font-size:11px;color:var(--ink-soft)}
+#p-week .nav{width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface-3);
+  color:var(--ink-soft);font-size:14px}
+#p-week .mstats{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:11px}
+#p-week .ms{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 5px;text-align:center;box-shadow:var(--shadow-card)}
+#p-week .ms .v{font-family:var(--font-head);font-size:19px;font-weight:600;line-height:1.15;font-variant-numeric:tabular-nums}
+#p-week .ms .l{font-size:11px;color:var(--ink-soft);line-height:1.3;margin-top:1px}
+#p-week .mtk{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--sep);border-radius:14px;
+  padding:11px 12px;box-shadow:var(--shadow-card);margin-bottom:9px}
+#p-week .mtk.late{border-left-color:var(--p-stop);background:linear-gradient(180deg,#fffaf9,var(--card) 55%)}
+#p-week .mtk.due{border-left-color:var(--brand)}
+#p-week .mtk.done{border-left-color:var(--ok);opacity:.9}
+#p-week .mtk h3{font-size:14px;line-height:1.4;margin-bottom:4px}
+#p-week .mtk .meta{font-size:11.3px;color:var(--ink-soft);display:flex;flex-wrap:wrap;gap:3px 8px;margin-top:3px}
+#p-week .mtk .chips{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:5px}
+#p-week .big{display:flex;gap:7px;margin-top:10px}
+#p-week .big button{flex:1;min-height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface-3);
+  color:var(--ink-soft);font-family:var(--font-head);font-size:13px;font-weight:600;cursor:pointer}
+#p-week .big button.ok{background:var(--p-low-w);color:var(--ok);border-color:transparent;flex:2}
+#p-week .big button.q{flex:0 0 52px;font-size:15px}
+#p-week .queued{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--warn);
+  background:var(--warn-soft-bg);border-radius:999px;padding:3px 10px;font-weight:600;margin-top:8px;width:fit-content}
+#p-week .tabbar{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.96);border-top:1px solid var(--line);
+  display:grid;grid-template-columns:repeat(4,1fr);padding:6px 6px calc(6px + env(safe-area-inset-bottom));gap:4px}
+#p-week .tb{border:none;background:transparent;min-height:48px;border-radius:12px;font-family:var(--font-head);
+  font-size:11px;font-weight:600;color:var(--ink-soft);display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:2px;cursor:pointer}
+#p-week .tb .i{font-size:17px;line-height:1}
+#p-week .tb.on{background:var(--brand-soft);color:var(--brand-deep)}
+
+#p-done{background:var(--paper)}
+#p-done .mw{padding:12px 12px 78px}
+#p-done .mhead{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+#p-done .mhead h1{font-size:19px;letter-spacing:-.03em}
+#p-done .mhead .sub{font-size:11.5px;color:var(--ink-soft)}
+#p-done .off{display:flex;align-items:center;gap:9px;background:#2b2119;color:#f7f1ea;border-radius:12px;
+  padding:9px 12px;font-size:12px;line-height:1.5;margin-bottom:10px}
+#p-done .off b{color:#ffc79a}
+#p-done .off .badge{margin-left:auto;background:rgba(255,255,255,.14);border-radius:999px;padding:2px 9px;font-size:11px;font-weight:700;white-space:nowrap}
+#p-done .wknav{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);
+  border-radius:14px;padding:8px 10px;box-shadow:var(--shadow-card);margin-bottom:10px}
+#p-done .wknav .t{font-family:var(--font-head);font-size:14.5px;font-weight:600}
+#p-done .wknav .s{font-size:11px;color:var(--ink-soft)}
+#p-done .nav{width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface-3);
+  color:var(--ink-soft);font-size:14px}
+#p-done .mstats{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:11px}
+#p-done .ms{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 5px;text-align:center;box-shadow:var(--shadow-card)}
+#p-done .ms .v{font-family:var(--font-head);font-size:19px;font-weight:600;line-height:1.15;font-variant-numeric:tabular-nums}
+#p-done .ms .l{font-size:11px;color:var(--ink-soft);line-height:1.3;margin-top:1px}
+#p-done .mtk{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--sep);border-radius:14px;
+  padding:11px 12px;box-shadow:var(--shadow-card);margin-bottom:9px}
+#p-done .mtk.late{border-left-color:var(--p-stop);background:linear-gradient(180deg,#fffaf9,var(--card) 55%)}
+#p-done .mtk.due{border-left-color:var(--brand)}
+#p-done .mtk.done{border-left-color:var(--ok);opacity:.9}
+#p-done .mtk h3{font-size:14px;line-height:1.4;margin-bottom:4px}
+#p-done .mtk .meta{font-size:11.3px;color:var(--ink-soft);display:flex;flex-wrap:wrap;gap:3px 8px;margin-top:3px}
+#p-done .mtk .chips{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:5px}
+#p-done .big{display:flex;gap:7px;margin-top:10px}
+#p-done .big button{flex:1;min-height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface-3);
+  color:var(--ink-soft);font-family:var(--font-head);font-size:13px;font-weight:600;cursor:pointer}
+#p-done .big button.ok{background:var(--p-low-w);color:var(--ok);border-color:transparent;flex:2}
+#p-done .big button.q{flex:0 0 52px;font-size:15px}
+#p-done .queued{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--warn);
+  background:var(--warn-soft-bg);border-radius:999px;padding:3px 10px;font-weight:600;margin-top:8px;width:fit-content}
+#p-done .tabbar{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.96);border-top:1px solid var(--line);
+  display:grid;grid-template-columns:repeat(4,1fr);padding:6px 6px calc(6px + env(safe-area-inset-bottom));gap:4px}
+#p-done .tb{border:none;background:transparent;min-height:48px;border-radius:12px;font-family:var(--font-head);
+  font-size:11px;font-weight:600;color:var(--ink-soft);display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:2px;cursor:pointer}
+#p-done .tb .i{font-size:17px;line-height:1}
+#p-done .tb.on{background:var(--brand-soft);color:var(--brand-deep)}
+#p-done .shhead{display:flex;align-items:center;gap:11px;margin-bottom:12px}
+#p-done .shhead .t{font-family:var(--font-head);font-size:17px;font-weight:600}
+#p-done .shhead .s{font-size:11.5px;color:var(--ink-soft)}
+#p-done .hintline{font-size:11px;color:var(--muted);margin-top:3px;display:block}
+#p-done .mth{display:flex;gap:8px}
+#p-done .mth .th{width:84px;height:84px;font-size:11px}
+#p-done .mth .cam{border-style:dashed;background:var(--surface-3);color:var(--ink-soft);font-family:var(--font-head);
+  font-weight:600;line-height:1.5;cursor:pointer}
+#p-done .nextbox{background:var(--surface-2);border:1px solid var(--line);border-radius:14px;padding:12px 13px}
+#p-done .nhead{font-family:var(--font-head);font-size:13.5px;font-weight:600;margin-bottom:9px}
+#p-done .nopt{display:flex;gap:10px;align-items:flex-start;background:var(--card);border:1px solid var(--line);
+  border-radius:12px;padding:10px 11px;margin-bottom:7px;font-size:13px;min-height:48px}
+#p-done .nopt.on{border-color:var(--brand);background:var(--brand-soft)}
+#p-done .nopt .s{font-size:11.2px;color:var(--ink-soft)}
+#p-done .rd{width:17px;height:17px;border-radius:50%;border:2px solid var(--sep);flex:0 0 17px;margin-top:3px}
+#p-done .rd.on{border-color:var(--brand);background:radial-gradient(circle,var(--brand) 42%,#fff 46%)}
+#p-done .bottombar{position:fixed;left:0;right:0;bottom:0;display:flex;gap:9px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+  background:rgba(255,255,255,.97);border-top:1px solid var(--line)}
+#p-done .bottombar button{min-height:48px;border-radius:13px;font-family:var(--font-head);font-size:14px;font-weight:600;cursor:pointer}
+#p-done .cancel{flex:1;border:1px solid var(--line);background:var(--card);color:var(--ink-soft)}
+#p-done .confirm{flex:2;border:1px solid var(--brand);background:var(--brand);color:#fff}
+
+/* แถบล่างของจอมือถือต้องอยู่ในกรอบโทรศัพท์ ไม่ใช่ลอยทับทั้งหน้า */
+#p-week .tabbar,#p-done .bottombar{position:absolute}
+</style>
+</head>
+<body>
+
+<div class="ribbon">
+  🎨 <b>MOCKUP</b> — หน้า “งาน PM” ออกแบบใหม่ · แผนประจำปี 52 สัปดาห์ + งานเพิ่มเอง
+  <span class="tag">ยังไม่ต่อฐานข้อมูลจริง — ตัวเลขและชื่องานในหน้าเป็นตัวอย่าง</span>
+</div>
+
+<div class="atop">
+  <div class="logo"><div class="lg-mark">S</div><div class="lg-word">SPP-MP</div></div>
+  <div class="search">🔎 ค้นหา…</div>
+  <div class="achip"><div class="av">J</div>จักรกฤษ</div>
+</div>
+
+<div class="amain">
+  <aside class="aside">
+  <button class="rsbtn">📊 ภาพรวม</button>
+  <button class="rsbtn">🕒 Timeline รับ-ส่งกะ</button>
+  <button class="rsbtn">🏭 ลงยอดผลิต</button>
+  <button class="rsbtn">✅ งานวันนี้</button>
+  <button class="rsbtn">🧭 พื้นที่รับผิดชอบ</button>
+  <button class="rsbtn">📅 ปฏิทิน</button>
+  <button class="rsbtn">📈 รายงาน</button>
+  <div class="ahead">🔧 งานซ่อมบำรุง</div>
+  <button class="rsbtn sub">👷 กระดานทีมซ่อมบำรุง</button>
+  <button class="rsbtn sub on">🗓 งาน PM</button>
+  <button class="rsbtn sub">🔁 ทะเบียนงานรูทีน</button>
+  <button class="rsbtn sub">⏱ เวลาเครื่องหยุด</button>
+  <div class="ahead">📚 Knowledge management</div>
+  <button class="rsbtn sub">⚙️ ทะเบียนเครื่องจักร</button>
+  <button class="rsbtn sub">⚡ เหตุการณ์</button></aside>
+  <div class="acontent">
+    <div class="pagehead">
+  <div class="eyebrow">🔧 งานซ่อมบำรุง</div>
+  <div class="phead">
+    <h1>งาน PM</h1>
+    <div class="sub">แผนบำรุงรักษาเชิงป้องกัน · ปีแผน 2026</div>
+    <div class="sp"></div>
+    <button class="ibtn">🔄 รีเฟรช</button>
+  </div>
+  <div class="itabs">
+    <button class="itab on tabjs" data-tab="plan">📅 แผนประจำปี<span class="n">9</span></button>
+    <button class="itab tabjs" data-tab="adhoc">📋 งานเพิ่มเอง<span class="n">4</span></button>
+    <button class="itab tabjs" data-tab="sum">📈 สรุปผล</button>
+  </div>
+  <div class="ifilters" id="modes">
+    <button class="ipill on brand tabjs" data-view="v-week">🗓️ สัปดาห์นี้</button>
+    <button class="ipill tabjs" data-view="v-year">📊 ตารางทั้งปี</button>
+    <button class="ipill tabjs" data-view="v-machine">🔩 ตามเครื่องจักร</button>
+    <button class="ipill tabjs" data-view="v-month">📆 ปฏิทินเดือน</button>
+    <div class="divider"></div>
+    <a class="ibtn" href="#s-planmanage">⚙️ จัดการแผน PM</a>
+  </div>
+</div>
+    <section class="view on" id="v-week">
+<div class="wrap">
+<div class="card" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;margin-bottom:2px">
+  <button class="ibtn" style="padding:6px 12px">‹</button>
+  <div>
+    <div style="font-family:var(--font-head);font-size:17px;font-weight:600;letter-spacing:-.02em">สัปดาห์ที่ 37 / 2026</div>
+    <div style="font-size:12px;color:var(--ink-soft)">จ. 7 ก.ย. – อา. 13 ก.ย. 2026 · สัปดาห์ปัจจุบัน</div>
+  </div>
+  <button class="ibtn" style="padding:6px 12px">›</button>
+  <button class="ibtn">วันนี้</button>
+  <div class="sp"></div>
+  <select class="isel"><option>🔩 ทุกเครื่อง / พื้นที่</option></select>
+  <button class="ibtn pri">➕ ตั้งงาน PM</button>
+</div>
+
+<div class="istats">
+  <div class="istat"><div class="l">🗓️ ต้องทำสัปดาห์นี้</div><div class="v">6<span class="u">รายการ</span></div></div>
+  <div class="istat good"><div class="l">✅ ทำแล้ว</div><div class="v">2<span class="u">/ 6</span></div></div>
+  <div class="istat gap"><div class="l">⏳ ยังไม่ทำ</div><div class="v">4<span class="u">รายการ</span></div></div>
+  <div class="istat hot"><div class="l">⚠️ ค้างจากสัปดาห์ก่อน</div><div class="v">11<span class="u">รายการ</span></div></div>
+  <div class="istat"><div class="l">🚫 ปิดใช้งานรอบนี้</div><div class="v" style="color:var(--muted)">1</div></div>
+</div>
+
+<div class="warnbox" style="margin-bottom:14px">
+  <b>ค้างจากสัปดาห์ก่อน 11 รายการ</b> — ยกมาไว้บนสุดจนกว่าจะปิดงานหรือปิดรอบ ไม่ปล่อยให้ตกหล่นไปกับสัปดาห์เก่า
+  (แสดง 3 รอบที่ใกล้ปัจจุบันที่สุด)
+</div>
+
+<div class="ilist"><article class="tk late">
+  <div class="r1">
+    <h3>RO 5,000 — ล้างไส้กรอง Pre-filter</h3>
+    <span class="chip kind-pm">🔧 บำรุงรักษา</span><span class="chip freq">ทุกเดือน</span><span class="src plan">แผนประจำปี</span><span class="chip stop">เกินกำหนด 17 วัน</span>
+  </div>
+  <div class="meta">
+    <span>🔩 RO 5,000</span><span class="dot">·</span>
+    <span>👤 พัฒพริศ</span><span class="dot">·</span>
+    <span>📅 ครบกำหนด W34 · 17 ส.ค.</span>
+    
+    
+  </div>
+  <div class="thumbs">
+      <div class="th">รูปก่อนทำ</div>
+      <div class="th" style="border-style:dashed;background:transparent">＋ แนบรูป</div>
+    </div>
+  <div class="acts">
+    <button class="ibtn sm ok">✅ ทำเสร็จแล้ว</button><button class="ibtn sm">📅 เลื่อนวัน</button><button class="ibtn sm">👤 มอบหมาย</button><button class="ibtn sm">⛔ ปิดรอบนี้</button><button class="ibtn sm">✏️</button>
+  </div>
+</article>
+<article class="tk late">
+  <div class="r1">
+    <h3>ไลน์ L2 — เปลี่ยนลูกยางหัวซีล</h3>
+    <span class="chip kind-pm">🔧 บำรุงรักษา</span><span class="chip freq">ทุก 2 สัปดาห์</span><span class="src plan">แผนประจำปี</span><span class="chip stop">เกินกำหนด 24 วัน</span>
+  </div>
+  <div class="meta">
+    <span>🔩 ไลน์ L2</span><span class="dot">·</span>
+    <span>👤 ณรินศ์</span><span class="dot">·</span>
+    <span>📅 ครบกำหนด W33 · 10 ส.ค.</span>
+    
+    
+  </div>
+  
+  <div class="acts">
+    <button class="ibtn sm ok">✅ ทำเสร็จแล้ว</button><button class="ibtn sm">📅 เลื่อนวัน</button><button class="ibtn sm">👤 มอบหมาย</button><button class="ibtn sm">⛔ ปิดรอบนี้</button><button class="ibtn sm">✏️</button>
+  </div>
+</article>
+<article class="tk late">
+  <div class="r1">
+    <h3>ไลน์ไอซิ่ง — ตรวจระดับน้ำยาและทำความสะอาดคอยล์</h3>
+    <span class="chip kind-pm">🔧 บำรุงรักษา</span><span class="chip freq">ทุก 2 สัปดาห์</span><span class="src plan">แผนประจำปี</span><span class="chip stop">เกินกำหนด 52 วัน</span>
+  </div>
+  <div class="meta">
+    <span>🔩 ไลน์ไอซิ่ง</span><span class="dot">·</span>
+    <span>👤 จักรกฤษ</span><span class="dot">·</span>
+    <span>📅 ครบกำหนด W29 · 13 ก.ค.</span>
+    
+    
+  </div>
+  
+  <div class="acts">
+    <button class="ibtn sm ok">✅ ทำเสร็จแล้ว</button><button class="ibtn sm">📅 เลื่อนวัน</button><button class="ibtn sm">👤 มอบหมาย</button><button class="ibtn sm">⛔ ปิดรอบนี้</button><button class="ibtn sm">✏️</button>
+  </div>
+</article></div>
+<div style="margin:11px 0 16px"><button class="ibtn">📋 ดูงานค้างทั้งหมด 11 รายการ</button></div>
+<div class="ilist"><article class="tk done">
+  <div class="r1">
+    <h3 style="text-decoration:line-through;text-decoration-color:var(--sep)">ไลน์ไอซิ่ง — ตรวจระดับน้ำยาและทำความสะอาดคอยล์</h3>
+    <span class="chip kind-pm">🔧 บำรุงรักษา</span><span class="chip freq">ทุก 2 สัปดาห์</span><span class="src plan">แผนประจำปี</span>
+  </div>
+  <div class="meta">
+    <span>🔩 ไลน์ไอซิ่ง</span><span class="dot">·</span>
+    <span>👤 จักรกฤษ</span><span class="dot">·</span>
+    <span>📅 ครบกำหนด W37 · 7 ก.ย.–13 ก.ย.</span>
+    <span class="dot">·</span><span style="color:var(--ok);font-weight:600">✅ เสร็จเมื่อ 8 ก.ย. โดย จักรกฤษ</span>
+    
+  </div>
+  <div class="thumbs">
+      <div class="th b">รูปก่อนทำ</div><div class="th">รูปหลังทำ</div>
+      <div class="th" style="border-style:dashed;background:transparent">＋ แนบรูป</div>
+    </div>
+  <div class="acts">
+    <button class="ibtn sm">↩ เปิดงานใหม่</button><button class="ibtn sm">🖼 ดูรูป</button><span class="lock-note">🔒 ยกเลิกได้เฉพาะหัวหน้างาน</span>
+  </div>
+</article>
+<article class="tk done">
+  <div class="r1">
+    <h3 style="text-decoration:line-through;text-decoration-color:var(--sep)">ไลน์ L2 — เปลี่ยนลูกยางหัวซีล</h3>
+    <span class="chip kind-pm">🔧 บำรุงรักษา</span><span class="chip freq">ทุก 2 สัปดาห์</span><span class="src plan">แผนประจำปี</span>
+  </div>
+  <div class="meta">
+    <span>🔩 ไลน์ L2</span><span class="dot">·</span>
+    <span>👤 ณรินศ์</span><span class="dot">·</span>
+    <span>📅 ครบกำหนด W37 · 7 ก.ย.–13 ก.ย.</span>
+    <span class="dot">·</span><span style="color:var(--ok);font-weight:600">✅ เสร็จเมื่อ 8 ก.ย. โดย ณรินศ์</span>
+    
+  </div>
+  <div class="thumbs">
+      <div class="th b">รูปก่อนทำ</div><div class="th">รูปหลังทำ</div>
+      <div class="th" style="border-style:dashed;background:transparent">＋ แนบรูป</div>
+    </div>
+  <div class="acts">
+    <button class="ibtn sm">↩ เปิดงานใหม่</button><button class="ibtn sm">🖼 ดูรูป</button><span class="lock-note">🔒 ยกเลิกได้เฉพาะหัวหน้างาน</span>
+  </div>
+</article>
+<article class="tk due">
+  <div class="r1">
+    <h3>RO 10,000 — ล้างเมมเบรนและตรวจค่าความนำไฟฟ้า</h3>
+    <span class="chip kind-pm">🔧 บำรุงรักษา</span><span class="chip freq">ทุกเดือน</span><span class="src plan">แผนประจำปี</span>
+  </div>
+  <div class="meta">
+    <span>🔩 RO 10,000</span><span class="dot">·</span>
+    <span>👤 พัฒพริศ</span><span class="dot">·</span>
+    <span>📅 ครบกำหนด W37 · 7 ก.ย.–13 ก.ย.</span>
+    
+    
+  </div>
+  
+  <div class="acts">
+    <button class="ibtn sm ok">✅ ทำเสร็จแล้ว</button><button class="ibtn sm">📅 เลื่อนวัน</button><button class="ibtn sm">👤 มอบหมาย</button><button class="ibtn sm">⛔ ปิดรอบนี้</button><button class="ibtn sm">✏️</button>
+  </div>
+</article>
+<article class="tk due">
+  <div class="r1">
+    <h3>บ่อซีเมนต์ — ตรวจปั๊มสูบและวาล์วกันกลับ</h3>
+    <span class="chip kind-pm">🔧 บำรุงรักษา</span><span class="chip freq">ทุก 2 สัปดาห์</span><span class="src plan">แผนประจำปี</span><span class="chip warn">ยังไม่มีคนรับ</span>
+  </div>
+  <div class="meta">
+    <span>🔩 บ่อซีเมนต์</span><span class="dot">·</span>
+    <span>👤 ยังไม่มอบหมาย</span><span class="dot">·</span>
+    <span>📅 ครบกำหนด W37 · 7 ก.ย.–13 ก.ย.</span>
+    
+    
+  </div>
+  
+  <div class="acts">
+    <button class="ibtn sm ok">✅ ทำเสร็จแล้ว</button><button class="ibtn sm">📅 เลื่อนวัน</button><button class="ibtn sm">👤 มอบหมาย</button><button class="ibtn sm">⛔ ปิดรอบนี้</button><button class="ibtn sm">✏️</button>
+  </div>
+</article>
+<article class="tk due">
+  <div class="r1">
+    <h3>ไลน์ปี๊บ — ตรวจชุดปิดฝาและโซ่ลำเลียง</h3>
+    <span class="chip kind-pm">🔧 บำรุงรักษา</span><span class="chip freq">ทุก 2 สัปดาห์</span><span class="src plan">แผนประจำปี</span>
+  </div>
+  <div class="meta">
+    <span>🔩 ไลน์ปี๊บ</span><span class="dot">·</span>
+    <span>👤 จักรกฤษ</span><span class="dot">·</span>
+    <span>📅 ครบกำหนด W37 · 7 ก.ย.–13 ก.ย.</span>
+    
+    
+  </div>
+  
+  <div class="acts">
+    <button class="ibtn sm ok">✅ ทำเสร็จแล้ว</button><button class="ibtn sm">📅 เลื่อนวัน</button><button class="ibtn sm">👤 มอบหมาย</button><button class="ibtn sm">⛔ ปิดรอบนี้</button><button class="ibtn sm">✏️</button>
+  </div>
+</article>
+<article class="tk due">
+  <div class="r1">
+    <h3>ไลน์ L4 — เปลี่ยนสายพานลำเลียงเส้นที่ 2</h3>
+    <span class="chip kind-fix">🛠 แก้ไข</span><span class="src adhoc">งานเพิ่มเอง</span><span class="chip mute">🔔 เตือนล่วงหน้า 1 วัน</span>
+  </div>
+  <div class="meta">
+    <span>🔩 ไลน์ L4</span><span class="dot">·</span>
+    <span>👤 พัฒพริศ</span><span class="dot">·</span>
+    <span>📅 ครบกำหนด 11 ก.ย. 2026 · 09:00</span>
+    
+    
+  </div>
+  
+  <div class="acts">
+    <button class="ibtn sm ok">✅ ทำเสร็จแล้ว</button><button class="ibtn sm">📅 เลื่อนวัน</button><button class="ibtn sm">👤 มอบหมาย</button><button class="ibtn sm">⛔ ปิดรอบนี้</button><button class="ibtn sm">✏️</button>
+  </div>
+</article>
+<article class="tk skip">
+  <div class="r1">
+    <h3>ไลน์ A3 — ตรวจชุดเติมลมและหัวจ่าย</h3>
+    <span class="chip kind-pm">🔧 บำรุงรักษา</span><span class="chip freq">ทุก 2 สัปดาห์</span><span class="src plan">แผนประจำปี</span>
+  </div>
+  <div class="meta">
+    <span>🔩 ไลน์ A3</span><span class="dot">·</span>
+    <span>👤 —</span><span class="dot">·</span>
+    <span>📅 ครบกำหนด W37</span>
+    
+    <span class="dot">·</span><span style="color:var(--muted)">🚫 ปิดรอบนี้ — เครื่องยังไม่ติดตั้ง (โดย จักรกฤษ)</span>
+  </div>
+  
+  <div class="acts">
+    <button class="ibtn sm">▶️ เปิดใช้งานรอบนี้</button>
+  </div>
+</article></div>
+</div>
+</section>
+
+<section class="view" id="v-year">
+<div class="wrap">
+<div class="card" style="padding:14px 16px">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+    <h3 style="font-size:15px">ตารางแผน PM ทั้งปี</h3>
+    <select class="isel"><option>ปี 2026 (ISO Week)</option></select>
+    <div class="sp"></div>
+    <button class="ibtn">⛔ โหมดเปิด/ปิดรายการ</button>
+    <button class="ibtn">⚙️ จัดการแผน PM</button>
+    <button class="ibtn">📊 Export Excel</button>
+  </div>
+  <div class="mx">
+    <table class="grid">
+      <thead><tr><th class="nm">รายการ PM</th><th class="fq">ความถี่</th><th class="pc">ทำแล้ว</th><th class="wkh">1</th><th class="wkh">2</th><th class="wkh">3</th><th class="wkh">4</th><th class="wkh">5</th><th class="wkh">6</th><th class="wkh">7</th><th class="wkh">8</th><th class="wkh">9</th><th class="wkh">10</th><th class="wkh">11</th><th class="wkh">12</th><th class="wkh">13</th><th class="wkh">14</th><th class="wkh">15</th><th class="wkh">16</th><th class="wkh">17</th><th class="wkh">18</th><th class="wkh">19</th><th class="wkh">20</th><th class="wkh">21</th><th class="wkh">22</th><th class="wkh">23</th><th class="wkh">24</th><th class="wkh">25</th><th class="wkh">26</th><th class="wkh">27</th><th class="wkh">28</th><th class="wkh">29</th><th class="wkh">30</th><th class="wkh">31</th><th class="wkh">32</th><th class="wkh">33</th><th class="wkh">34</th><th class="wkh">35</th><th class="wkh">36</th><th class="wkh cur">37</th><th class="wkh">38</th><th class="wkh">39</th><th class="wkh">40</th><th class="wkh">41</th><th class="wkh">42</th><th class="wkh">43</th><th class="wkh">44</th><th class="wkh">45</th><th class="wkh">46</th><th class="wkh">47</th><th class="wkh">48</th><th class="wkh">49</th><th class="wkh">50</th><th class="wkh">51</th><th class="wkh">52</th></tr></thead>
+      <tbody><tr>
+    <th class="nm">ไลน์ไอซิ่ง</th>
+    <th class="fq">ทุก 2 สัปดาห์</th>
+    <th class="pc"><span style="color:var(--warn);font-weight:700">18</span><span style="color:var(--muted)">/19</span></th>
+    <td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--danger)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk cur"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td>
+  </tr>
+<tr>
+    <th class="nm">ไลน์ต้ม 1</th>
+    <th class="fq">ทุกเดือน</th>
+    <th class="pc"><span style="color:var(--ok);font-weight:700">9</span><span style="color:var(--muted)">/9</span></th>
+    <td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk cur"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td>
+  </tr>
+<tr>
+    <th class="nm">ไลน์ต้ม 2</th>
+    <th class="fq">ทุกเดือน</th>
+    <th class="pc"><span style="color:var(--ok);font-weight:700">9</span><span style="color:var(--muted)">/9</span></th>
+    <td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk cur"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td>
+  </tr>
+<tr>
+    <th class="nm">ไลน์ L1</th>
+    <th class="fq">ทุก 2 สัปดาห์</th>
+    <th class="pc"><span style="color:var(--warn);font-weight:700">17</span><span style="color:var(--muted)">/18</span></th>
+    <td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--danger)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk cur"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td>
+  </tr>
+<tr>
+    <th class="nm">ไลน์ L2</th>
+    <th class="fq">ทุก 2 สัปดาห์</th>
+    <th class="pc"><span style="color:var(--warn);font-weight:700">14</span><span style="color:var(--muted)">/18</span></th>
+    <td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--danger)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--danger)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--danger)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--danger)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk cur"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td>
+  </tr>
+<tr>
+    <th class="nm">Robot Clear Packer</th>
+    <th class="fq">ทุก 2 สัปดาห์</th>
+    <th class="pc"><span style="color:var(--ok);font-weight:700">18</span><span style="color:var(--muted)">/18</span></th>
+    <td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk cur"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td>
+  </tr>
+<tr>
+    <th class="nm">AHU & Chiller</th>
+    <th class="fq">ทุกเดือน</th>
+    <th class="pc"><span style="color:var(--ok);font-weight:700">9</span><span style="color:var(--muted)">/9</span></th>
+    <td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk cur"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td>
+  </tr>
+<tr>
+    <th class="nm">Cold Room</th>
+    <th class="fq">ทุกเดือน</th>
+    <th class="pc"><span style="color:var(--ok);font-weight:700">9</span><span style="color:var(--muted)">/9</span></th>
+    <td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk cur"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td>
+  </tr>
+<tr>
+    <th class="nm">RO 10,000</th>
+    <th class="fq">ทุกเดือน</th>
+    <th class="pc"><span style="color:var(--warn);font-weight:700">9</span><span style="color:var(--muted)">/10</span></th>
+    <td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk cur"><span class="d" style="background:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td>
+  </tr>
+<tr>
+    <th class="nm">RO 5,000</th>
+    <th class="fq">ทุกเดือน</th>
+    <th class="pc"><span style="color:var(--warn);font-weight:700">6</span><span style="color:var(--muted)">/9</span></th>
+    <td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--danger)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--danger)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--danger)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk cur"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"></td>
+  </tr>
+<tr>
+    <th class="nm">บ่อซีเมนต์</th>
+    <th class="fq">ทุก 2 สัปดาห์</th>
+    <th class="pc"><span style="color:var(--warn);font-weight:700">17</span><span style="color:var(--muted)">/19</span></th>
+    <td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--danger)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk cur"><span class="d" style="background:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td>
+  </tr>
+<tr>
+    <th class="nm">ถุง AHU</th>
+    <th class="fq">ทุก 6 เดือน</th>
+    <th class="pc"><span style="color:var(--ok);font-weight:700">1</span><span style="color:var(--muted)">/1</span></th>
+    <td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px dashed var(--muted)"></span></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk cur"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td><td class="wk"></td>
+  </tr>
+<tr>
+    <th class="nm">ไลน์ปี๊บ</th>
+    <th class="fq">ทุก 2 สัปดาห์</th>
+    <th class="pc"><span style="color:var(--warn);font-weight:700">17</span><span style="color:var(--muted)">/19</span></th>
+    <td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--danger)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:var(--ok)"></span></td><td class="wk"></td><td class="wk cur"><span class="d" style="background:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td><td class="wk"><span class="d" style="background:transparent;border:1.5px solid var(--sep)"></span></td><td class="wk"></td>
+  </tr></tbody>
+    </table>
+  </div>
+  <div class="legend">
+    <span><i style="background:transparent;border:1.5px solid var(--sep)"></i>ยังไม่ถึงกำหนด</span>
+    <span><i style="background:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)"></i>ครบกำหนดสัปดาห์นี้</span>
+    <span><i style="background:var(--danger)"></i>เลยกำหนด ยังไม่ทำ</span>
+    <span><i style="background:var(--ok)"></i>ทำแล้ว</span>
+    <span><i style="background:transparent;border:1.5px dashed var(--muted)"></i>ปิดใช้งาน (ไม่นับในแผน)</span>
+    <span class="dot" style="color:var(--muted)">·</span>
+    <span>คลิกที่จุดเพื่อบันทึกว่าทำแล้ว</span>
+  </div>
+</div>
+</div>
+</section>
+
+<section class="view" id="v-machine">
+<div class="wrap">
+<div class="istats" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
+  <div class="istat"><div class="l">🔩 เครื่อง / พื้นที่ในแผน</div><div class="v">14</div></div>
+  <div class="istat hot"><div class="l">⚠️ มีงานเกินกำหนด</div><div class="v">6</div></div>
+  <div class="istat"><div class="l">🗓️ ครบกำหนดสัปดาห์นี้</div><div class="v" style="color:var(--brand-deep)">3</div></div>
+  <div class="istat good"><div class="l">📈 ทำได้ตามแผน (ทั้งปี)</div><div class="v">93<span class="u">%</span></div></div>
+</div>
+<div class="card" style="padding:4px 4px 8px">
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 14px 6px;flex-wrap:wrap">
+    <h3 style="font-size:15px">แผน PM รายเครื่อง / พื้นที่</h3>
+    <span class="chip mute">เรียงตามงานที่ค้างก่อน</span>
+    <div class="sp"></div>
+    <select class="isel"><option>ทุกความถี่</option></select>
+    <button class="ibtn">📊 Export Excel</button>
+  </div>
+  <table class="tb">
+    <thead><tr>
+      <th>เครื่อง / พื้นที่</th><th>PM ล่าสุด</th><th>ครบกำหนดถัดไป</th>
+      <th style="text-align:right">ค้าง</th><th>ทำได้ตามแผน (ปี 2026)</th><th></th>
+    </tr></thead>
+    <tbody><tr>
+  <td><div class="mn"><span class="mic">📦</span><div><div class="t">ไลน์ L2</div>
+    <div class="s">ทุก 2 สัปดาห์</div></div></div></td>
+  <td style="color:var(--ink-soft)">7 ก.ย. 2026</td>
+  <td><span class="chip stop">W39 · 21 ก.ย.</span></td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">4</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:78%;background:var(--danger)"></span></div><div class="bl">14/18 รอบที่ถึงกำหนด · <b style="color:var(--danger)">78%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    <button class="ibtn sm">✏️ แก้รอบ</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">💧</span><div><div class="t">RO 5,000</div>
+    <div class="s">ทุกเดือน</div></div></div></td>
+  <td style="color:var(--ink-soft)">20 ก.ค. 2026</td>
+  <td><span class="chip stop">W38 · 14 ก.ย.</span></td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">3</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:67%;background:var(--danger)"></span></div><div class="bl">6/9 รอบที่ถึงกำหนด · <b style="color:var(--danger)">67%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    <button class="ibtn sm">✏️ แก้รอบ</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">📦</span><div><div class="t">ไลน์ L1</div>
+    <div class="s">ทุก 2 สัปดาห์</div></div></div></td>
+  <td style="color:var(--ink-soft)">31 ส.ค. 2026</td>
+  <td><span class="chip stop">W38 · 14 ก.ย.</span></td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">1</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:94%;background:var(--warn)"></span></div><div class="bl">17/18 รอบที่ถึงกำหนด · <b style="color:var(--warn)">94%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    <button class="ibtn sm">✏️ แก้รอบ</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">🕳</span><div><div class="t">บ่อซีเมนต์</div>
+    <div class="s">ทุก 2 สัปดาห์</div></div></div></td>
+  <td style="color:var(--ink-soft)">24 ส.ค. 2026</td>
+  <td><span class="chip stop">W37 · สัปดาห์นี้</span></td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">1</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:94%;background:var(--warn)"></span></div><div class="bl">17/18 รอบที่ถึงกำหนด · <b style="color:var(--warn)">94%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    <button class="ibtn sm">✏️ แก้รอบ</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">🫙</span><div><div class="t">ไลน์ปี๊บ</div>
+    <div class="s">ทุก 2 สัปดาห์</div></div></div></td>
+  <td style="color:var(--ink-soft)">24 ส.ค. 2026</td>
+  <td><span class="chip stop">W37 · สัปดาห์นี้</span></td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">1</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:94%;background:var(--warn)"></span></div><div class="bl">17/18 รอบที่ถึงกำหนด · <b style="color:var(--warn)">94%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    <button class="ibtn sm">✏️ แก้รอบ</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">🧊</span><div><div class="t">ไลน์ไอซิ่ง</div>
+    <div class="s">ทุก 2 สัปดาห์</div></div></div></td>
+  <td style="color:var(--ink-soft)">7 ก.ย. 2026</td>
+  <td><span class="chip stop">W39 · 21 ก.ย.</span></td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">1</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:95%;background:var(--ok)"></span></div><div class="bl">18/19 รอบที่ถึงกำหนด · <b style="color:var(--ok)">95%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    <button class="ibtn sm">✏️ แก้รอบ</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">🍯</span><div><div class="t">ไลน์ต้ม 1</div>
+    <div class="s">ทุกเดือน</div></div></div></td>
+  <td style="color:var(--ink-soft)">24 ส.ค. 2026</td>
+  <td><span class="chip mute">W39 · 21 ก.ย.</span></td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div><div class="bl">9/9 รอบที่ถึงกำหนด · <b style="color:var(--ok)">100%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    <button class="ibtn sm">✏️ แก้รอบ</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">🍯</span><div><div class="t">ไลน์ต้ม 2</div>
+    <div class="s">ทุกเดือน</div></div></div></td>
+  <td style="color:var(--ink-soft)">31 ส.ค. 2026</td>
+  <td><span class="chip mute">W40 · 28 ก.ย.</span></td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div><div class="bl">9/9 รอบที่ถึงกำหนด · <b style="color:var(--ok)">100%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    <button class="ibtn sm">✏️ แก้รอบ</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">🤖</span><div><div class="t">Robot Clear Packer</div>
+    <div class="s">ทุก 2 สัปดาห์</div></div></div></td>
+  <td style="color:var(--ink-soft)">31 ส.ค. 2026</td>
+  <td><span class="chip mute">W38 · 14 ก.ย.</span></td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div><div class="bl">18/18 รอบที่ถึงกำหนด · <b style="color:var(--ok)">100%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    <button class="ibtn sm">✏️ แก้รอบ</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">❄️</span><div><div class="t">AHU & Chiller</div>
+    <div class="s">ทุกเดือน</div></div></div></td>
+  <td style="color:var(--ink-soft)">24 ส.ค. 2026</td>
+  <td><span class="chip mute">W39 · 21 ก.ย.</span></td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div><div class="bl">9/9 รอบที่ถึงกำหนด · <b style="color:var(--ok)">100%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    <button class="ibtn sm">✏️ แก้รอบ</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">❄️</span><div><div class="t">Cold Room</div>
+    <div class="s">ทุกเดือน</div></div></div></td>
+  <td style="color:var(--ink-soft)">24 ส.ค. 2026</td>
+  <td><span class="chip mute">W39 · 21 ก.ย.</span></td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div><div class="bl">9/9 รอบที่ถึงกำหนด · <b style="color:var(--ok)">100%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    <button class="ibtn sm">✏️ แก้รอบ</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">💧</span><div><div class="t">RO 10,000</div>
+    <div class="s">ทุกเดือน</div></div></div></td>
+  <td style="color:var(--ink-soft)">10 ส.ค. 2026</td>
+  <td><span class="chip due">W37 · สัปดาห์นี้</span></td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div><div class="bl">9/9 รอบที่ถึงกำหนด · <b style="color:var(--ok)">100%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    <button class="ibtn sm">✏️ แก้รอบ</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">🌬</span><div><div class="t">ถุง AHU</div>
+    <div class="s">ทุก 6 เดือน</div></div></div></td>
+  <td style="color:var(--ink-soft)">24 ส.ค. 2026</td>
+  <td><span class="chip mute">ครบทุกรอบของปีแล้ว</span></td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div><div class="bl">1/1 รอบที่ถึงกำหนด · <b style="color:var(--ok)">100%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    <button class="ibtn sm">✏️ แก้รอบ</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">🌀</span><div><div class="t">ไลน์ A3</div>
+    <div class="s">ทุก 2 สัปดาห์ · 🚫 ปิดใช้งานอยู่</div></div></div></td>
+  <td style="color:var(--ink-soft)">—</td>
+  <td><span class="chip mute">W37 · ปิดใช้งาน</span></td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:190px"><div class="bl" style="color:var(--muted)">ยังไม่นับในแผน</div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    <button class="ibtn sm">✏️ แก้รอบ</button>
+  </td>
+</tr></tbody>
+  </table>
+</div>
+<div class="infobox" style="margin-top:12px">
+  <b>ช่อง “PM ล่าสุด”</b> ขยับเองทุกครั้งที่ปิดงาน PM (ที่ไหนก็ได้ — เว็บ ตารางทั้งปี หรือกลุ่ม Telegram)
+  เหมือนที่ทะเบียนเครื่องจักรทำอยู่แล้ววันนี้
+</div>
+</div>
+</section>
+
+<section class="view" id="v-month">
+<div class="wrap">
+<div style="display:grid;grid-template-columns:1fr 330px;gap:14px;align-items:start">
+  <div class="card" style="padding:14px 16px 16px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+      <button class="ibtn" style="padding:6px 12px">‹</button>
+      <h3 style="font-size:16px">กันยายน 2026</h3>
+      <button class="ibtn" style="padding:6px 12px">›</button>
+      <button class="ibtn">วันนี้</button>
+      <div class="sp"></div>
+      <span class="chip mute">W36 – W40</span>
+    </div>
+    <div class="cal">
+      <div class="wkh"></div>
+      <div class="dh">จ</div><div class="dh">อ</div><div class="dh">พ</div><div class="dh">พฤ</div><div class="dh">ศ</div><div class="dh">ส</div><div class="dh">อา</div>
+      <div class="wkn">W36</div><div class="dc off"></div><div class="dc">
+      <div class="dn">1</div>
+      <div class="ev"><i style="background:var(--ok)"></i><span style="color:var(--muted);text-decoration:line-through">ไลน์ไอซิ่ง</span></div><div class="ev"><i style="background:var(--ok)"></i><span style="color:var(--muted);text-decoration:line-through">บ่อซีเมนต์</span></div>
+      
+    </div><div class="dc">
+      <div class="dn">2</div>
+      <div class="ev"><i style="background:var(--danger)"></i><span>RO 5,000</span></div>
+      
+    </div><div class="dc">
+      <div class="dn">3</div>
+      <div class="ev"><i style="background:var(--ok)"></i><span style="color:var(--muted);text-decoration:line-through">ไลน์ต้ม 1</span></div><div class="ev"><i style="background:var(--ok)"></i><span style="color:var(--muted);text-decoration:line-through">AHU & Chiller</span></div>
+      
+    </div><div class="dc">
+      <div class="dn">4</div>
+      
+      
+    </div><div class="dc">
+      <div class="dn">5</div>
+      <div class="ev"><i style="background:var(--danger)"></i><span>ไลน์ L2</span></div>
+      
+    </div><div class="dc">
+      <div class="dn">6</div>
+      
+      
+    </div><div class="wkn">W37</div><div class="dc">
+      <div class="dn">7</div>
+      
+      
+    </div><div class="dc">
+      <div class="dn">8</div>
+      <div class="ev"><i style="background:var(--ok)"></i><span style="color:var(--muted);text-decoration:line-through">AHU & Chiller</span></div><div class="ev"><i style="background:var(--ok)"></i><span style="color:var(--muted);text-decoration:line-through">Cold Room</span></div>
+      
+    </div><div class="dc today">
+      <div class="dn">9<span class="tdy">วันนี้</span></div>
+      <div class="ev"><i style="background:var(--ok)"></i><span style="color:var(--muted);text-decoration:line-through">ไลน์ไอซิ่ง</span></div><div class="ev"><i style="background:var(--brand)"></i><span>ไลน์ต้ม 1</span></div><div class="ev"><i style="background:var(--brand)"></i><span>Robot Clear Packer</span></div>
+      <div class="more">+1 รายการ</div>
+    </div><div class="dc">
+      <div class="dn">10</div>
+      
+      
+    </div><div class="dc">
+      <div class="dn">11</div>
+      <div class="ev"><i style="background:var(--brand)"></i><span>ไลน์ L4 (งานเพิ่มเอง)</span></div>
+      
+    </div><div class="dc">
+      <div class="dn">12</div>
+      
+      
+    </div><div class="dc">
+      <div class="dn">13</div>
+      
+      
+    </div><div class="wkn">W38</div><div class="dc">
+      <div class="dn">14</div>
+      
+      
+    </div><div class="dc">
+      <div class="dn">15</div>
+      <div class="ev"><i style="background:var(--sep);border:1px solid var(--sep)"></i><span>ไลน์ L1</span></div><div class="ev"><i style="background:var(--sep);border:1px solid var(--sep)"></i><span>Robot Clear Packer</span></div>
+      
+    </div><div class="dc">
+      <div class="dn">16</div>
+      
+      
+    </div><div class="dc">
+      <div class="dn">17</div>
+      <div class="ev"><i style="background:var(--muted)"></i><span>ไลน์ A3</span></div>
+      
+    </div><div class="dc">
+      <div class="dn">18</div>
+      
+      
+    </div><div class="dc">
+      <div class="dn">19</div>
+      
+      
+    </div><div class="dc">
+      <div class="dn">20</div>
+      
+      
+    </div><div class="wkn">W39</div><div class="dc">
+      <div class="dn">21</div>
+      
+      
+    </div><div class="dc">
+      <div class="dn">22</div>
+      <div class="ev"><i style="background:var(--sep);border:1px solid var(--sep)"></i><span>ไลน์ไอซิ่ง</span></div><div class="ev"><i style="background:var(--sep);border:1px solid var(--sep)"></i><span>Cold Room</span></div><div class="ev"><i style="background:var(--sep);border:1px solid var(--sep)"></i><span>ไลน์ปี๊บ</span></div>
+      
+    </div><div class="dc">
+      <div class="dn">23</div>
+      
+      
+    </div><div class="dc">
+      <div class="dn">24</div>
+      <div class="ev"><i style="background:var(--sep);border:1px solid var(--sep)"></i><span>ไลน์ L2</span></div>
+      
+    </div><div class="dc">
+      <div class="dn">25</div>
+      
+      
+    </div><div class="dc">
+      <div class="dn">26</div>
+      
+      
+    </div><div class="dc">
+      <div class="dn">27</div>
+      
+      
+    </div><div class="wkn">W40</div><div class="dc">
+      <div class="dn">28</div>
+      
+      
+    </div><div class="dc">
+      <div class="dn">29</div>
+      <div class="ev"><i style="background:var(--sep);border:1px solid var(--sep)"></i><span>ไลน์ต้ม 2</span></div><div class="ev"><i style="background:var(--sep);border:1px solid var(--sep)"></i><span>RO 5,000</span></div>
+      
+    </div><div class="dc">
+      <div class="dn">30</div>
+      
+      
+    </div><div class="dc off"></div><div class="dc off"></div><div class="dc off"></div><div class="dc off"></div>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--ok)"></i>ทำแล้ว</span>
+      <span><i style="background:var(--brand)"></i>ครบกำหนด</span>
+      <span><i style="background:var(--danger)"></i>เลยกำหนด</span>
+      <span><i style="background:transparent;border:1px solid var(--sep)"></i>ยังไม่ถึงกำหนด</span>
+      <span><i style="background:var(--muted)"></i>ปิดใช้งาน</span>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div class="card" style="padding:14px 16px">
+      <h3 class="hd">📆 เดือนนี้</h3>
+      <div class="istats" style="grid-template-columns:1fr 1fr;margin:0">
+        <div class="istat" style="box-shadow:none"><div class="l">ทั้งเดือน</div><div class="v" style="font-size:22px">21</div></div>
+        <div class="istat good" style="box-shadow:none"><div class="l">ทำแล้ว</div><div class="v" style="font-size:22px">9</div></div>
+        <div class="istat gap" style="box-shadow:none"><div class="l">ยังไม่ทำ</div><div class="v" style="font-size:22px">10</div></div>
+        <div class="istat hot" style="box-shadow:none"><div class="l">เลยกำหนด</div><div class="v" style="font-size:22px">2</div></div>
+      </div>
+    </div>
+    <div class="card" style="padding:14px 16px">
+      <h3 class="hd">⚠️ ต้องสนใจก่อน</h3>
+      <div style="display:flex;flex-direction:column;gap:9px">
+        <div class="mini"><span class="chip stop">เกิน 6 วัน</span><div><b>RO 5,000</b><div class="s">ล้างไส้กรอง Pre-filter · W36</div></div></div>
+        <div class="mini"><span class="chip stop">เกิน 4 วัน</span><div><b>ไลน์ L2</b><div class="s">เปลี่ยนลูกยางหัวซีล · W36</div></div></div>
+        <div class="mini"><span class="chip warn">ยังไม่มีคนรับ</span><div><b>บ่อซีเมนต์</b><div class="s">ตรวจปั๊มสูบ · W37</div></div></div>
+      </div>
+    </div>
+    <div class="card" style="padding:14px 16px">
+      <h3 class="hd">🖨 ส่งออก</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="ibtn">📊 Export Excel</button>
+        <button class="ibtn">📸 ภาพ 16:9</button>
+      </div>
+      <div class="infobox" style="margin-top:10px">ปฏิทินเดือนใช้ดูภาระงานว่าวันไหนกระจุก — ตัวแผนจริงยังยึด <b>เลขสัปดาห์</b> เป็นหลัก</div>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+<section class="view" id="v-adhoc">
+<div class="wrap">
+<div style="display:grid;grid-template-columns:1fr 330px;gap:14px;align-items:start;margin-top:14px">
+
+  <div class="card" style="padding:16px 18px">
+    <h3 class="hd">➕ ตั้งงาน PM (นอกแผนประจำปี)</h3>
+    <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
+      <div class="fld"><label>เครื่อง / ไลน์</label><select><option>ไลน์ L4</option></select></div>
+      <div class="fld"><label>วันครบกำหนด <span class="req">*</span></label><input value="2026-09-11"></div>
+      <div class="fld"><label>เวลา (ถ้ามี)</label><input value="09:00"></div>
+    </div>
+
+    <div class="fld">
+      <label>รายการงาน PM <span class="req">*</span>
+        <span class="tagnew">เลือกจากลิสต์ได้ · พิมพ์ชื่อใหม่ได้</span></label>
+      <div class="combo open">
+        <div class="cin"><span class="typed">เปลี่ยนสายพานลำเลียง</span><span class="caret">|</span></div>
+        <button class="cbtn">▴</button>
+        <div class="menu">
+          <div class="mhead">รายการที่เคยใช้ <span>6</span></div>
+          <div class="opt">
+  <div><div class="ot">เปลี่ยนถ่ายน้ำมันเกียร์มอเตอร์</div><div class="os">ใช้ล่าสุด 2 ก.ย. · ใช้ไปแล้ว 14 ครั้ง</div></div>
+  
+</div><div class="opt">
+  <div><div class="ot">ล้างไส้กรอง Pre-filter</div><div class="os">ใช้ล่าสุด 30 ก.ค. · 9 ครั้ง</div></div>
+  
+</div><div class="opt">
+  <div><div class="ot">อัดจาระบีแกนหมุน</div><div class="os">ใช้ล่าสุด 1 ก.ย. · 12 ครั้ง</div></div>
+  
+</div><div class="opt">
+  <div><div class="ot">ตรวจระดับน้ำยาและทำความสะอาดคอยล์</div><div class="os">ใช้ล่าสุด 9 ก.ย. · 8 ครั้ง</div></div>
+  
+</div><div class="opt hi">
+  <div><div class="ot">เปลี่ยนสายพานลำเลียง</div><div class="os">ใช้ล่าสุด 18 ส.ค. · 5 ครั้ง</div></div>
+  <span class="chip due">↵ Enter</span>
+</div><div class="opt">
+  <div><div class="ot">เช็คแรงดันน้ำยา</div><div class="os">ใช้ล่าสุด 8 ก.ย. · 7 ครั้ง</div></div>
+  
+</div>
+          <div class="opt new">
+            <div><div class="ot">＋ ใช้ชื่อใหม่ “<b>เปลี่ยนสายพานลำเลียงเส้นที่ 2</b>”</div>
+            <div class="os">บันทึกเข้าทะเบียนรายการงาน PM ให้เลือกครั้งหน้าอัตโนมัติ</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));margin-top:392px">
+      <div class="fld"><label>ประเภทงาน</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="ipill">🔧 บำรุงรักษา</button>
+          <button class="ipill">⬆️ ปรับปรุง</button>
+          <button class="ipill on brand">🛠 แก้ไข</button>
+        </div>
+      </div>
+      <div class="fld"><label>ผู้รับผิดชอบ</label><select><option>พัฒพริศ อ่ำอยู่</option></select></div>
+      <div class="fld"><label>แจ้งเตือนเข้ากลุ่มช่าง</label><select><option>ล่วงหน้า 1 วัน (08:00)</option></select></div>
+    </div>
+
+    <div class="fld"><label>หมายเหตุ (ถ้ามี)</label><input value="สายพานเส้นที่ 2 เริ่มมีเสียงดัง — ของอะไหล่มาถึงแล้ว"></div>
+
+    <div class="fld"><label>ทำซ้ำหลังปิดงาน</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <button class="ipill on brand">ไม่ทำซ้ำ</button>
+        <button class="ipill">ทุก 1 เดือน</button>
+        <button class="ipill">ทุก 3 เดือน</button>
+        <button class="ipill">ทุก 6 เดือน</button>
+        <span class="hintline" style="margin-left:4px">ตั้งไว้แล้ว ตอนปิดงานระบบจะ<b>เสนอวันถัดไปให้ แต่เลือกวันเองได้เสมอ</b></span>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
+      <button class="ibtn">ยกเลิก</button>
+      <button class="ibtn pri">💾 บันทึกงาน PM</button>
+    </div>
+  </div>
+
+  <div class="card" style="padding:15px 16px">
+    <h3 class="hd">⚙️ ทะเบียนรายการงาน PM</h3>
+    <div class="infobox" style="margin-bottom:11px">
+      ทุกชื่อที่พิมพ์ใหม่จะเข้ามาอยู่ตรงนี้ — แก้/รวมชื่อที่สะกดต่างกันได้ เพื่อไม่ให้กลายเป็นคนละงานตอนทำรายงาน
+    </div>
+    <div class="reg">
+      <div class="rg"><div><div class="ot">เปลี่ยนถ่ายน้ำมันเกียร์มอเตอร์</div><div class="os">ใช้ไปแล้ว 14 ครั้ง</div></div>
+          <div style="display:flex;gap:5px"><button class="ibtn sm">✏️</button><button class="ibtn sm dgr">🗑</button></div></div><div class="rg"><div><div class="ot">ล้างไส้กรอง Pre-filter</div><div class="os">ใช้ไปแล้ว 9 ครั้ง</div></div>
+          <div style="display:flex;gap:5px"><button class="ibtn sm">✏️</button><button class="ibtn sm dgr">🗑</button></div></div><div class="rg"><div><div class="ot">อัดจาระบีแกนหมุน</div><div class="os">ใช้ไปแล้ว 12 ครั้ง</div></div>
+          <div style="display:flex;gap:5px"><button class="ibtn sm">✏️</button><button class="ibtn sm dgr">🗑</button></div></div><div class="rg"><div><div class="ot">ตรวจระดับน้ำยาและทำความสะอาดคอยล์</div><div class="os">ใช้ไปแล้ว 8 ครั้ง</div></div>
+          <div style="display:flex;gap:5px"><button class="ibtn sm">✏️</button><button class="ibtn sm dgr">🗑</button></div></div><div class="rg"><div><div class="ot">เปลี่ยนสายพานลำเลียง</div><div class="os">ใช้ไปแล้ว 5 ครั้ง</div></div>
+          <div style="display:flex;gap:5px"><button class="ibtn sm">✏️</button><button class="ibtn sm dgr">🗑</button></div></div><div class="rg"><div><div class="ot">เช็คแรงดันน้ำยา</div><div class="os">ใช้ไปแล้ว 7 ครั้ง</div></div>
+          <div style="display:flex;gap:5px"><button class="ibtn sm">✏️</button><button class="ibtn sm dgr">🗑</button></div></div>
+      <div class="rg dup">
+        <div><div class="ot">เช็คแรงดันน้ำยาน้ำ <span class="chip warn">คล้ายกับข้อบน</span></div>
+        <div class="os">ใช้ไปแล้ว 1 ครั้ง — รวมเข้ากับ “เช็คแรงดันน้ำยา” ไหม</div></div>
+        <button class="ibtn sm">🔗 รวม</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="ifilters" style="margin-top:16px">
+  <h3 style="font-size:15px;margin-right:6px">งาน PM ที่ตั้งไว้เอง</h3>
+  <select class="isel"><option>1 – 30 ก.ย. 2026</option></select>
+  <select class="isel"><option>🔩 ทุกเครื่อง</option></select>
+  <button class="ipill on">ทั้งหมด <span style="opacity:.7">4</span></button>
+  <button class="ipill">ยังไม่เสร็จ</button>
+  <button class="ipill">เลยกำหนด</button>
+  <button class="ipill">เสร็จแล้ว</button>
+  <div class="sp"></div>
+  <button class="ibtn">📊 Export Excel</button>
+</div>
+
+<div class="ilist">
+  <article class="tk late">
+  <div class="r1"><h3>ไลน์ A2 — เปลี่ยนชุดหัวจ่ายลม</h3><span class="chip kind-fix">🛠 แก้ไข</span><span class="src adhoc">งานเพิ่มเอง</span><span class="chip stop">เกินกำหนด 5 วัน</span></div>
+  <div class="meta"><span>🔩 ไลน์ A2</span><span class="dot">·</span><span>👤 ณรินศ์</span><span class="dot">·</span><span>📅 4 ก.ย. 2026</span></div>
+  <div class="acts">
+    <button class="ibtn sm ok">✅ ทำเสร็จแล้ว</button><button class="ibtn sm">📅 เลื่อนวัน</button><button class="ibtn sm">✏️ แก้</button><button class="ibtn sm dgr">🗑</button>
+  </div>
+</article>
+  <article class="tk due">
+  <div class="r1"><h3>ไลน์ L4 — เปลี่ยนสายพานลำเลียงเส้นที่ 2</h3><span class="chip kind-fix">🛠 แก้ไข</span><span class="src adhoc">งานเพิ่มเอง</span><span class="chip mute">🔔 เตือนล่วงหน้า 1 วัน</span></div>
+  <div class="meta"><span>🔩 ไลน์ L4</span><span class="dot">·</span><span>👤 พัฒพริศ</span><span class="dot">·</span><span>📅 11 ก.ย. 2026 · 09:00</span></div>
+  <div class="acts">
+    <button class="ibtn sm ok">✅ ทำเสร็จแล้ว</button><button class="ibtn sm">📅 เลื่อนวัน</button><button class="ibtn sm">✏️ แก้</button><button class="ibtn sm dgr">🗑</button>
+  </div>
+</article>
+  <article class="tk ">
+  <div class="r1"><h3>ห้องเปลี่ยนชุด — ติดตั้งชั้นวางเพิ่ม</h3><span class="chip kind-up">⬆️ ปรับปรุง</span><span class="src adhoc">งานเพิ่มเอง</span><span class="chip freq">ทำซ้ำทุก 6 เดือน</span></div>
+  <div class="meta"><span>🔩 ห้องเปลี่ยนชุด</span><span class="dot">·</span><span>👤 จักรกฤษ</span><span class="dot">·</span><span>📅 24 ก.ย. 2026</span></div>
+  <div class="acts">
+    <button class="ibtn sm ok">✅ ทำเสร็จแล้ว</button><button class="ibtn sm">📅 เลื่อนวัน</button><button class="ibtn sm">✏️ แก้</button><button class="ibtn sm dgr">🗑</button>
+  </div>
+</article>
+  <article class="tk done">
+  <div class="r1"><h3 style="text-decoration:line-through;text-decoration-color:var(--sep)">Air Shower — เปลี่ยนหลอด UV</h3><span class="chip kind-pm">🔧 บำรุงรักษา</span><span class="src adhoc">งานเพิ่มเอง</span></div>
+  <div class="meta"><span>🔩 Air Shower</span><span class="dot">·</span><span>👤 ณรินศ์</span><span class="dot">·</span><span>📅 1 ก.ย. 2026</span><span class="dot">·</span><span><span style="color:var(--ok);font-weight:600">✅ เสร็จ 1 ก.ย. โดย ณรินศ์ · รอบถัดไป 1 มี.ค. 2027</span></span></div>
+  <div class="acts">
+    <button class="ibtn sm">↩ เปิดงานใหม่</button><button class="ibtn sm">🖼 ดูรูป</button>
+  </div>
+</article>
+</div>
+</div>
+</section>
+
+<section class="view" id="v-sum">
+<div class="wrap">
+<div style="display:flex;align-items:center;gap:10px;margin:16px 0 0;flex-wrap:wrap">
+  <select class="isel"><option>ปี 2026</option></select>
+  <span class="hintline">แผนงาน PM ปี 2026: ทั้งหมด 234 รอบ · นับผลถึงสัปดาห์ที่ 37</span>
+  <div class="sp"></div>
+  <button class="ibtn">📊 Export Excel</button>
+  <button class="ibtn">📸 Export Dashboard 16:9</button>
+</div>
+
+<div class="istats">
+  <div class="istat"><div class="l">🗓️ แผนทั้งหมด (ปี 2026)</div><div class="v">234<span class="u">รอบ</span></div></div>
+  <div class="istat good"><div class="l">✅ ดำเนินการเสร็จแล้ว</div><div class="v">153</div></div>
+  <div class="istat hot"><div class="l">⚠️ เลยกำหนด / ยังไม่ทำ</div><div class="v">11</div></div>
+  <div class="istat"><div class="l">📈 % แผนที่ทำได้ถึงวันนี้</div><div class="v" style="color:var(--cip1)">93<span class="u">%</span></div></div>
+  <div class="istat"><div class="l">🚫 ปิดใช้งาน (ไม่นับ)</div><div class="v" style="color:var(--muted)">2</div></div>
+</div>
+
+<div class="card" style="padding:15px 18px 12px">
+  <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:6px">
+    <div>
+      <h3 style="font-size:15px">S-Curve — % แผน PM สะสม เทียบผลจริงสะสม</h3>
+      <div class="hintline">ปี 2026 · รอบที่ถูกปิดใช้งานไม่ถูกนับทั้งฝั่งแผนและฝั่งผลจริง</div>
+    </div>
+    <div class="sp"></div>
+    <div class="legend" style="margin:0">
+      <span><i style="background:#c24f00"></i>แผน (สะสม)</span>
+      <span><i style="background:#1565c0"></i>ผลจริง (สะสม)</span>
+    </div>
+  </div>
+  <svg viewBox="0 0 1060 268" width="100%" height="268" role="img"
+  aria-label="กราฟ S-Curve เปรียบเทียบเปอร์เซ็นต์แผน PM สะสมกับผลจริงสะสมรายเดือน ปี 2026">
+  <line x1="46" y1="234" x2="968" y2="234" stroke="#eee3d9" stroke-width="1"/>
+   <text x="37" y="238" text-anchor="end" font-size="10.5" fill="#a49a90">0%</text><line x1="46" y1="179" x2="968" y2="179" stroke="#eee3d9" stroke-width="1"/>
+   <text x="37" y="183" text-anchor="end" font-size="10.5" fill="#a49a90">25%</text><line x1="46" y1="124" x2="968" y2="124" stroke="#eee3d9" stroke-width="1"/>
+   <text x="37" y="128" text-anchor="end" font-size="10.5" fill="#a49a90">50%</text><line x1="46" y1="69" x2="968" y2="69" stroke="#eee3d9" stroke-width="1"/>
+   <text x="37" y="73" text-anchor="end" font-size="10.5" fill="#a49a90">75%</text><line x1="46" y1="14" x2="968" y2="14" stroke="#eee3d9" stroke-width="1"/>
+   <text x="37" y="18" text-anchor="end" font-size="10.5" fill="#a49a90">100%</text><text x="46" y="256" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">ม.ค.</text><text x="129.8181818181818" y="256" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">ก.พ.</text><text x="213.63636363636363" y="256" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">มี.ค.</text><text x="297.4545454545455" y="256" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">เม.ย.</text><text x="381.27272727272725" y="256" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">พ.ค.</text><text x="465.09090909090907" y="256" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">มิ.ย.</text><text x="548.909090909091" y="256" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">ก.ค.</text><text x="632.7272727272727" y="256" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">ส.ค.</text><text x="716.5454545454545" y="256" text-anchor="middle" font-size="10.5" fill="#c24f00"
+    font-weight="700">ก.ย.</text><text x="800.3636363636364" y="256" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">ต.ค.</text><text x="884.1818181818181" y="256" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">พ.ย.</text><text x="968" y="256" text-anchor="middle" font-size="10.5" fill="#a49a90"
+    font-weight="400">ธ.ค.</text>
+  <line x1="716.5454545454545" y1="14" x2="716.5454545454545" y2="234" stroke="#c24f00" stroke-width="1" stroke-dasharray="3 4" opacity=".45"/>
+  <polyline points="46.0,216.4 129.8,201.0 213.6,181.2 297.5,163.6 381.3,146.0 465.1,124.0 548.9,106.4 632.7,84.4 716.5,69.0 800.4,51.4 884.2,29.4 968.0,14.0" fill="none" stroke="#c24f00" stroke-width="2" stroke-dasharray="7 5"/>
+  <polyline points="46.0,218.6 129.8,203.2 213.6,183.4 297.5,170.2 381.3,152.6 465.1,130.6 548.9,115.2 632.7,95.4 716.5,93.2" fill="none" stroke="#1565c0" stroke-width="2"/>
+  <circle cx="46" cy="216.4" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="129.8181818181818" cy="201" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="213.63636363636363" cy="181.2" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="297.4545454545455" cy="163.6" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="381.27272727272725" cy="146" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="465.09090909090907" cy="124" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="548.909090909091" cy="106.4" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="632.7272727272727" cy="84.4" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="716.5454545454545" cy="69" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="800.3636363636364" cy="51.4" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="884.1818181818181" cy="29.4" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="968" cy="14" r="4" fill="#fff" stroke="#c24f00" stroke-width="2"/><circle cx="46" cy="218.6" r="4" fill="#fff" stroke="#1565c0" stroke-width="2"/><circle cx="129.8181818181818" cy="203.2" r="4" fill="#fff" stroke="#1565c0" stroke-width="2"/><circle cx="213.63636363636363" cy="183.4" r="4" fill="#fff" stroke="#1565c0" stroke-width="2"/><circle cx="297.4545454545455" cy="170.2" r="4" fill="#fff" stroke="#1565c0" stroke-width="2"/><circle cx="381.27272727272725" cy="152.6" r="4" fill="#fff" stroke="#1565c0" stroke-width="2"/><circle cx="465.09090909090907" cy="130.6" r="4" fill="#fff" stroke="#1565c0" stroke-width="2"/><circle cx="548.909090909091" cy="115.2" r="4" fill="#fff" stroke="#1565c0" stroke-width="2"/><circle cx="632.7272727272727" cy="95.4" r="4" fill="#fff" stroke="#1565c0" stroke-width="2"/><circle cx="716.5454545454545" cy="93.2" r="4" fill="#fff" stroke="#1565c0" stroke-width="2"/>
+  <text x="977" y="18" font-size="11.5" font-weight="700" fill="#c24f00">แผน 100%</text>
+  <text x="725.5454545454545" y="97.2" font-size="11.5" font-weight="700" fill="#1565c0">ผลจริง 64%</text>
+  <text x="716.5454545454545" y="25" text-anchor="middle" font-size="10" fill="#c24f00">วันนี้</text>
+</svg>
+  <div class="infobox" style="margin-top:4px">
+    สิ้นเดือน ก.ย. ผลจริงตามหลังแผนอยู่ <b>11 จุด</b> —
+    ส่วนใหญ่มาจาก RO 5,000 (67%) และ ไลน์ L2 (78%)
+  </div>
+</div>
+
+<div class="card" style="padding:4px 4px 8px;margin-top:14px">
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 14px 4px">
+    <h3 style="font-size:15px">สรุปผล PM รายรายการ (ปี 2026)</h3>
+    <span class="chip mute">% คิดจากรอบที่ถึงกำหนดแล้ว</span>
+  </div>
+  <table class="tb">
+    <thead><tr><th>รายการ PM</th><th class="num">แผนทั้งปี</th><th class="num">เสร็จแล้ว</th>
+      <th class="num">เลยกำหนด</th><th>ความคืบหน้าถึงวันนี้</th><th class="num">% เสร็จ</th></tr></thead>
+    <tbody><tr><td style="font-weight:600">ไลน์ไอซิ่ง</td><td class="num">26</td><td class="num">18</td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">1</span></td>
+  <td style="width:150px"><div class="bar"><span style="width:95%;background:var(--ok)"></span></div></td>
+  <td class="num" style="color:var(--ok);font-weight:700">95%</td></tr><tr><td style="font-weight:600">ไลน์ต้ม 1</td><td class="num">13</td><td class="num">9</td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:150px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div></td>
+  <td class="num" style="color:var(--ok);font-weight:700">100%</td></tr><tr><td style="font-weight:600">ไลน์ต้ม 2</td><td class="num">13</td><td class="num">9</td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:150px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div></td>
+  <td class="num" style="color:var(--ok);font-weight:700">100%</td></tr><tr><td style="font-weight:600">ไลน์ L1</td><td class="num">26</td><td class="num">17</td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">1</span></td>
+  <td style="width:150px"><div class="bar"><span style="width:94%;background:var(--warn)"></span></div></td>
+  <td class="num" style="color:var(--warn);font-weight:700">94%</td></tr><tr><td style="font-weight:600">ไลน์ L2</td><td class="num">25</td><td class="num">14</td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">4</span></td>
+  <td style="width:150px"><div class="bar"><span style="width:78%;background:var(--danger)"></span></div></td>
+  <td class="num" style="color:var(--danger);font-weight:700">78%</td></tr><tr><td style="font-weight:600">Robot Clear Packer</td><td class="num">26</td><td class="num">18</td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:150px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div></td>
+  <td class="num" style="color:var(--ok);font-weight:700">100%</td></tr><tr><td style="font-weight:600">AHU & Chiller</td><td class="num">13</td><td class="num">9</td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:150px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div></td>
+  <td class="num" style="color:var(--ok);font-weight:700">100%</td></tr><tr><td style="font-weight:600">Cold Room</td><td class="num">13</td><td class="num">9</td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:150px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div></td>
+  <td class="num" style="color:var(--ok);font-weight:700">100%</td></tr><tr><td style="font-weight:600">RO 10,000</td><td class="num">13</td><td class="num">9</td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:150px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div></td>
+  <td class="num" style="color:var(--ok);font-weight:700">100%</td></tr><tr><td style="font-weight:600">RO 5,000</td><td class="num">13</td><td class="num">6</td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">3</span></td>
+  <td style="width:150px"><div class="bar"><span style="width:67%;background:var(--danger)"></span></div></td>
+  <td class="num" style="color:var(--danger);font-weight:700">67%</td></tr><tr><td style="font-weight:600">บ่อซีเมนต์</td><td class="num">26</td><td class="num">17</td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">1</span></td>
+  <td style="width:150px"><div class="bar"><span style="width:94%;background:var(--warn)"></span></div></td>
+  <td class="num" style="color:var(--warn);font-weight:700">94%</td></tr><tr><td style="font-weight:600">ถุง AHU</td><td class="num">1</td><td class="num">1</td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:150px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div></td>
+  <td class="num" style="color:var(--ok);font-weight:700">100%</td></tr><tr><td style="font-weight:600">ไลน์ปี๊บ</td><td class="num">26</td><td class="num">17</td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">1</span></td>
+  <td style="width:150px"><div class="bar"><span style="width:94%;background:var(--warn)"></span></div></td>
+  <td class="num" style="color:var(--warn);font-weight:700">94%</td></tr></tbody>
+  </table>
+</div>
+</div>
+</section>
+  </div>
+</div>
+
+<section class="chunk" id="s-planmanage">
+  <div class="chead"><h2>⚙️ จัดการแผน PM ประจำปี</h2><p>ที่ที่กรอกแผนทั้งปีเข้าไป — ระบบออกงานให้เองตามสัปดาห์ที่ติ๊กไว้</p></div>
+  <div class="cbody"><div class="wrap">
+<div class="eyebrow">🔧 งานซ่อมบำรุง · งาน PM</div>
+<div class="phead">
+  <h1>⚙️ จัดการแผน PM ประจำปี</h1>
+  <div class="sub">กำหนดว่าแต่ละรายการต้องทำสัปดาห์ไหนบ้างตลอดปี</div>
+  <div class="sp"></div>
+  <span class="chip warn">🛠️ หัวหน้างานเท่านั้น</span>
+</div>
+
+<div class="okbox" style="margin:14px 0 12px">
+  <b>แผนปี 2026 กรอกแล้ว 13 รายการ</b> — เพิ่มได้เรื่อย ๆ ระบบจะเริ่มออกงานให้ตั้งแต่สัปดาห์ที่ติ๊กไว้
+  · คัดลอกทั้งแผนไปปีหน้าได้ในคลิกเดียว
+</div>
+
+<div class="ifilters" style="margin-top:0">
+  <button class="ibtn pri">＋ เพิ่มรายการในแผน</button>
+  <div class="divider"></div>
+  <select class="isel"><option>ปี 2026</option></select>
+  <select class="isel"><option>ทุกความถี่</option></select>
+  <input class="isel srch" value="ค้นหาชื่อรายการ…">
+  <div class="sp"></div>
+  <button class="ibtn">📋 คัดลอกแผนไปปี 2027</button>
+  <button class="ibtn">📊 Export Excel</button>
+</div>
+
+<div class="card" style="padding:4px 4px 8px">
+  <table class="tb">
+    <thead><tr>
+      <th>รายการ PM</th><th>ความถี่</th><th style="text-align:right">รอบ/ปี</th>
+      <th style="width:280px">สัปดาห์ที่ต้องทำ (W1 → W52)</th><th>สถานะ</th><th></th>
+    </tr></thead>
+    <tbody><tr>
+  <td><div class="t">ไลน์ไอซิ่ง</div><div class="s">🔩 ผูกกับทะเบียนเครื่องจักร · 👤 จักรกฤษ</div></td>
+  <td><span class="chip freq">ทุก 2 สัปดาห์</span></td>
+  <td class="num">26</td>
+  <td><div class="strip"><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i></div></td>
+  <td></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">✏️ แก้ไข</button><button class="ibtn sm dgr">🗑</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="t">ไลน์ต้ม 1</div><div class="s">🔩 ผูกกับทะเบียนเครื่องจักร · 👤 ณรินศ์</div></td>
+  <td><span class="chip freq">ทุกเดือน</span></td>
+  <td class="num">13</td>
+  <td><div class="strip"><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i></div></td>
+  <td></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">✏️ แก้ไข</button><button class="ibtn sm dgr">🗑</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="t">ไลน์ต้ม 2</div><div class="s">🔩 ผูกกับทะเบียนเครื่องจักร · 👤 พัฒพริศ</div></td>
+  <td><span class="chip freq">ทุกเดือน</span></td>
+  <td class="num">13</td>
+  <td><div class="strip"><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i></div></td>
+  <td></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">✏️ แก้ไข</button><button class="ibtn sm dgr">🗑</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="t">ไลน์ L1</div><div class="s">🔩 ผูกกับทะเบียนเครื่องจักร · 👤 จักรกฤษ</div></td>
+  <td><span class="chip freq">ทุก 2 สัปดาห์</span></td>
+  <td class="num">26</td>
+  <td><div class="strip"><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i></div></td>
+  <td><span class="chip due">แก้รอบแล้ว</span></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">✏️ แก้ไข</button><button class="ibtn sm dgr">🗑</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="t">ไลน์ L2</div><div class="s">🔩 ผูกกับทะเบียนเครื่องจักร · 👤 ณรินศ์</div></td>
+  <td><span class="chip freq">ทุก 2 สัปดาห์</span></td>
+  <td class="num">25</td>
+  <td><div class="strip"><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i></div></td>
+  <td></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">✏️ แก้ไข</button><button class="ibtn sm dgr">🗑</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="t">Robot Clear Packer</div><div class="s">🔩 ผูกกับทะเบียนเครื่องจักร · 👤 พัฒพริศ</div></td>
+  <td><span class="chip freq">ทุก 2 สัปดาห์</span></td>
+  <td class="num">26</td>
+  <td><div class="strip"><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i></div></td>
+  <td></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">✏️ แก้ไข</button><button class="ibtn sm dgr">🗑</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="t">AHU & Chiller</div><div class="s">🔩 ผูกกับทะเบียนเครื่องจักร · 👤 จักรกฤษ</div></td>
+  <td><span class="chip freq">ทุกเดือน</span></td>
+  <td class="num">13</td>
+  <td><div class="strip"><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i></div></td>
+  <td></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">✏️ แก้ไข</button><button class="ibtn sm dgr">🗑</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="t">Cold Room</div><div class="s">🔩 ผูกกับทะเบียนเครื่องจักร · 👤 ณรินศ์</div></td>
+  <td><span class="chip freq">ทุกเดือน</span></td>
+  <td class="num">13</td>
+  <td><div class="strip"><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i></div></td>
+  <td></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">✏️ แก้ไข</button><button class="ibtn sm dgr">🗑</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="t">RO 10,000</div><div class="s">🔩 ผูกกับทะเบียนเครื่องจักร · 👤 พัฒพริศ</div></td>
+  <td><span class="chip freq">ทุกเดือน</span></td>
+  <td class="num">13</td>
+  <td><div class="strip"><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i></div></td>
+  <td></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">✏️ แก้ไข</button><button class="ibtn sm dgr">🗑</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="t">RO 5,000</div><div class="s">🔩 ผูกกับทะเบียนเครื่องจักร · 👤 จักรกฤษ</div></td>
+  <td><span class="chip freq">ทุกเดือน</span></td>
+  <td class="num">13</td>
+  <td><div class="strip"><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i></div></td>
+  <td></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">✏️ แก้ไข</button><button class="ibtn sm dgr">🗑</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="t">บ่อซีเมนต์</div><div class="s">🔩 ผูกกับทะเบียนเครื่องจักร · 👤 ณรินศ์</div></td>
+  <td><span class="chip freq">ทุก 2 สัปดาห์</span></td>
+  <td class="num">26</td>
+  <td><div class="strip"><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i></div></td>
+  <td></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">✏️ แก้ไข</button><button class="ibtn sm dgr">🗑</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="t">ถุง AHU</div><div class="s">🔩 ผูกกับทะเบียนเครื่องจักร · 👤 พัฒพริศ</div></td>
+  <td><span class="chip freq">ทุก 6 เดือน</span></td>
+  <td class="num">2</td>
+  <td><div class="strip"><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i></div></td>
+  <td></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">✏️ แก้ไข</button><button class="ibtn sm dgr">🗑</button>
+  </td>
+</tr>
+<tr>
+  <td><div class="t">ไลน์ปี๊บ</div><div class="s">🔩 ผูกกับทะเบียนเครื่องจักร · 👤 จักรกฤษ</div></td>
+  <td><span class="chip freq">ทุก 2 สัปดาห์</span></td>
+  <td class="num">26</td>
+  <td><div class="strip"><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i><i class="on"></i><i class=""></i></div></td>
+  <td><span class="chip mute">เพิ่มเอง</span></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">✏️ แก้ไข</button><button class="ibtn sm dgr">🗑</button>
+  </td>
+</tr></tbody>
+  </table>
+</div>
+
+<div class="infobox" style="margin-top:12px">
+  ⚠️ <b>ตั้งชื่อให้ชี้เฉพาะเจาะจง</b> — เช่น “ไลน์ต้ม 1” ไม่ใช่ “Line 1” เปล่า ๆ เพราะชนกับชื่อไลน์ CIP ที่ใช้อยู่ในระบบเดิม
+</div>
+</div></div>
+</section>
+
+<section class="chunk" id="s-planedit">
+  <div class="chead"><h2>✏️ แผ่นแก้ไขรายการในแผน</h2><p>สร้างรูปแบบสัปดาห์อัตโนมัติ แล้วปรับรายช่องเองได้</p></div>
+  <div class="cbody"><div style="padding:22px;background:rgba(20,14,8,.62);min-height:100%">
+<div class="sheet">
+  <h3>✏️ แก้ไขรายการในแผน PM</h3>
+  <div class="hint">ไลน์ต้ม 1 · แผนปี 2026</div>
+
+  <div class="fld">
+    <label>ชื่อรายการ PM <span class="req">*</span></label>
+    <div class="combo">
+      <input value="ไลน์ต้ม 1">
+      <button class="cbtn">▾</button>
+    </div>
+    <div class="hintline">เลือกจากรายการที่มีอยู่ หรือพิมพ์ชื่อใหม่ได้เลย — ระบบจำไว้ให้เลือกครั้งหน้า</div>
+  </div>
+
+  <div class="grid2">
+    <div class="fld">
+      <label>ความถี่ (ป้ายกำกับ)</label>
+      <div class="pills">
+        <button class="ipill">ทุกสัปดาห์</button>
+        <button class="ipill">ทุก 2 สัปดาห์</button>
+        <button class="ipill on brand">ทุกเดือน</button>
+        <button class="ipill">ทุก 3 เดือน</button>
+        <button class="ipill">ทุก 6 เดือน</button>
+        <button class="ipill">ทุกปี</button>
+      </div>
+    </div>
+    <div class="fld">
+      <label>ผูกกับเครื่องในทะเบียน</label>
+      <select><option>ไลน์ต้ม 1</option></select>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="fld"><label>ผู้รับผิดชอบตั้งต้น</label><select><option>จักรกฤษ พูลสวัสดิ์</option></select></div>
+    <div class="fld"><label>แจ้งเตือนเข้ากลุ่มช่าง</label><select><option>ล่วงหน้า 3 วันก่อนถึงสัปดาห์</option></select></div>
+  </div>
+
+  <div class="fld" style="margin-top:4px">
+    <label>สร้างรูปแบบสัปดาห์อัตโนมัติ</label>
+    <div class="autorow">
+      <div><span class="al">เริ่มสัปดาห์ที่</span><input value="3"></div>
+      <div><span class="al">ทำซ้ำทุก ๆ (สัปดาห์)</span><input value="4"></div>
+      <button class="ibtn">⚡ สร้างตาราง</button>
+    </div>
+  </div>
+
+  <div class="fld">
+    <label>สัปดาห์ที่ต้องทำ PM — คลิกเพื่อเลือก / ยกเลิก ปรับเองได้อิสระ</label>
+    <div class="wgrid"><button class="wq">1</button><button class="wq">2</button><button class="wq on">3</button><button class="wq">4</button><button class="wq">5</button><button class="wq">6</button><button class="wq on">7</button><button class="wq">8</button><button class="wq">9</button><button class="wq">10</button><button class="wq on">11</button><button class="wq">12</button><button class="wq">13</button><button class="wq">14</button><button class="wq on">15</button><button class="wq">16</button><button class="wq">17</button><button class="wq">18</button><button class="wq on">19</button><button class="wq">20</button><button class="wq">21</button><button class="wq">22</button><button class="wq on">23</button><button class="wq">24</button><button class="wq">25</button><button class="wq">26</button><button class="wq on">27</button><button class="wq">28</button><button class="wq">29</button><button class="wq">30</button><button class="wq on">31</button><button class="wq">32</button><button class="wq">33</button><button class="wq">34</button><button class="wq on">35</button><button class="wq">36</button><button class="wq cur">37</button><button class="wq">38</button><button class="wq on">39</button><button class="wq">40</button><button class="wq">41</button><button class="wq">42</button><button class="wq on">43</button><button class="wq">44</button><button class="wq">45</button><button class="wq">46</button><button class="wq on">47</button><button class="wq">48</button><button class="wq">49</button><button class="wq">50</button><button class="wq on">51</button><button class="wq">52</button></div>
+    <div class="wcount">เลือกแล้ว <b>13</b> สัปดาห์ · <span style="color:var(--brand-deep)">W37 = สัปดาห์ปัจจุบัน</span></div>
+  </div>
+
+  <div class="warnbox">
+    การแก้สัปดาห์มีผลกับ <b>รอบที่ยังไม่ถึงกำหนด</b> เท่านั้น — ประวัติที่ทำไปแล้วและรอบที่เลยกำหนดยังอยู่ครบ
+    ไม่ถูกล้างทิ้งและไม่ถูกนับใหม่
+  </div>
+
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="ibtn">ยกเลิก</button>
+    <button class="ibtn pri">✔ บันทึก</button>
+  </div>
+</div>
+</div></div>
+</section>
+
+<section class="chunk" id="s-done">
+  <div class="chead"><h2>✅ แผ่นปิดงาน PM</h2><p>วันที่ทำจริงแก้ได้ · รอบถัดไปเลือกวันเองได้</p></div>
+  <div class="cbody"><div style="padding:22px;background:rgba(20,14,8,.62);min-height:100%">
+<div class="sheet">
+  <h3>✅ บันทึกว่าทำ PM เสร็จแล้ว</h3>
+  <div class="hint">RO 10,000 · W37/2026 — ล้างเมมเบรนและตรวจค่าความนำไฟฟ้า</div>
+
+  <div class="grid2">
+    <div class="fld"><label>ผู้ทำ PM <span class="req">*</span></label><select><option>พัฒพริศ อ่ำอยู่</option></select></div>
+    <div class="fld"><label>วันที่ทำจริง</label><input value="2026-09-09">
+      <div class="hintline">แก้ได้ ถ้าลงข้อมูลย้อนหลัง — วันนี้คือ 9 ก.ย. 2026</div></div>
+  </div>
+
+  <div class="fld"><label>หมายเหตุ / สิ่งที่เจอ</label>
+    <textarea rows="2">ค่าความนำไฟฟ้าสูงกว่าปกติเล็กน้อย ครั้งหน้าอาจต้องร่นรอบเป็นทุก 3 สัปดาห์</textarea></div>
+
+  <div class="fld">
+    <label>รูปหลังทำ</label>
+    <div class="thumbs">
+      <div class="th b">รูปก่อนทำ<br>(แนบไว้แล้ว)</div>
+      <div class="th">รูปหลังทำ</div>
+      <div class="th" style="border-style:dashed;background:transparent">＋ ถ่ายรูป</div>
+    </div>
+  </div>
+
+  <div class="nextbox">
+    <div class="nhead">🔁 ตั้งรอบถัดไป</div>
+    <div class="nrow">
+      <button class="ipill on brand">ตามรอบ · 5 ต.ค. (W41)</button>
+      <button class="ipill">เลือกวันเอง</button>
+      <button class="ipill">ไม่ต้องตั้ง</button>
+    </div>
+    <div class="ndate">
+      <span class="al">วันที่ของรอบถัดไป</span>
+      <input value="2026-10-05">
+      <span class="hintline">ระบบเสนอให้ตามรอบ “ทุกเดือน” (W41) — เลื่อนเองได้ทุกครั้ง วันที่ที่เลือกคือวันที่ระบบจะออกใบถัดไป</span>
+    </div>
+  </div>
+
+  <div class="okbox" style="margin-top:12px">
+    ปิดงานแล้วระบบทำให้อีก 3 อย่างอัตโนมัติ: ขยับ <b>“PM ล่าสุด”</b> ของ RO 10,000 ·
+    ติ๊กจุด W37 ในตารางทั้งปีให้เป็นสีเขียว · ส่ง<b>การ์ดสรุปเข้ากลุ่มช่าง</b>พร้อมรูปหลังทำ
+  </div>
+
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="ibtn">ยกเลิก</button>
+    <button class="ibtn pri">✔ ยืนยันบันทึก</button>
+  </div>
+</div>
+</div></div>
+</section>
+
+<section class="chunk" id="s-perm">
+  <div class="chead"><h2>🔒 สิทธิ์หัวหน้างาน &amp; การปิดใช้งานรายรอบ</h2><p>หน้าจอเดียวกัน เห็นไม่เหมือนกันตามบทบาท</p></div>
+  <div class="cbody"><div class="wrap">
+<div class="eyebrow">🔧 งานซ่อมบำรุง · งาน PM</div>
+<div class="phead"><h1>สิทธิ์การใช้งาน &amp; การปิดรอบ</h1>
+  <div class="sub">หน้าจอเดียวกัน เห็นไม่เหมือนกันตามบทบาท</div></div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px">
+  <div class="card" style="padding:15px 16px">
+  <div style="display:flex;align-items:center;gap:9px;margin-bottom:11px">
+    <span class="rb ">👷 ช่างทั่วไป</span>
+    <span class="hintline">ณรินศ์ · พัฒพริศ</span>
+  </div>
+  <article class="tk done" style="box-shadow:none">
+    <div class="r1"><h3 style="font-size:14.5px;text-decoration:line-through;text-decoration-color:var(--sep)">AHU &amp; Chiller — เช็คแรงดันน้ำยาและล้างฟิลเตอร์</h3>
+      <span class="chip freq">ทุกเดือน</span></div>
+    <div class="meta"><span>👤 ณรินศ์</span><span class="dot">·</span><span style="color:var(--ok);font-weight:600">✅ เสร็จ 8 ก.ย.</span></div>
+    <div class="acts">
+      <span class="lock-note">🔒 ยกเลิก/ลบได้เฉพาะหัวหน้างาน</span>
+      <button class="ibtn sm">🖼 ดูรูป</button>
+    </div>
+  </article>
+  <article class="tk due" style="box-shadow:none;margin-top:10px">
+    <div class="r1"><h3 style="font-size:14.5px">บ่อซีเมนต์ — ตรวจปั๊มสูบและวาล์วกันกลับ</h3><span class="chip due">W37</span></div>
+    <div class="acts">
+      <button class="ibtn sm ok">✅ ทำเสร็จแล้ว</button>
+      <button class="ibtn sm lock">⛔ ปิดรอบนี้ 🔒</button><button class="ibtn sm lock">✏️ แก้แผน 🔒</button>
+    </div>
+  </article>
+  <div class="infobox" style="margin-top:11px;margin-bottom:0">
+    ติ๊กเสร็จ · แนบรูป · เขียนหมายเหตุ — <b>ทำได้</b> · ส่วนที่กระทบตัวเลขในรายงานถูกล็อกไว้
+  </div>
+</div>
+  <div class="card" style="padding:15px 16px">
+  <div style="display:flex;align-items:center;gap:9px;margin-bottom:11px">
+    <span class="rb sup">🛠️ หัวหน้างาน</span>
+    <span class="hintline">จักรกฤษ พูลสวัสดิ์</span>
+  </div>
+  <article class="tk done" style="box-shadow:none">
+    <div class="r1"><h3 style="font-size:14.5px;text-decoration:line-through;text-decoration-color:var(--sep)">AHU &amp; Chiller — เช็คแรงดันน้ำยาและล้างฟิลเตอร์</h3>
+      <span class="chip freq">ทุกเดือน</span></div>
+    <div class="meta"><span>👤 ณรินศ์</span><span class="dot">·</span><span style="color:var(--ok);font-weight:600">✅ เสร็จ 8 ก.ย.</span></div>
+    <div class="acts">
+      <button class="ibtn sm">↩ ยกเลิกสถานะเสร็จ</button><button class="ibtn sm dgr">🗑 ลบ</button>
+      <button class="ibtn sm">🖼 ดูรูป</button>
+    </div>
+  </article>
+  <article class="tk due" style="box-shadow:none;margin-top:10px">
+    <div class="r1"><h3 style="font-size:14.5px">บ่อซีเมนต์ — ตรวจปั๊มสูบและวาล์วกันกลับ</h3><span class="chip due">W37</span></div>
+    <div class="acts">
+      <button class="ibtn sm ok">✅ ทำเสร็จแล้ว</button>
+      <button class="ibtn sm">⛔ ปิดรอบนี้</button><button class="ibtn sm">✏️ แก้แผน</button>
+    </div>
+  </article>
+  <div class="okbox" style="margin-top:11px;margin-bottom:0">
+    แก้แผนรายปี · ยกเลิกสถานะเสร็จ · ลบงาน · ปิด/เปิดรอบ — <b>ทำได้ทั้งหมด</b>
+  </div>
+</div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;align-items:start">
+  <div class="sheet">
+    <h3>⛔ ปิดใช้งานรอบนี้</h3>
+    <div class="hint">ไลน์ A3 — ตรวจชุดเติมลมและหัวจ่าย · W37/2026</div>
+    <div class="fld"><label>เหตุผล <span class="req">*</span></label>
+      <select><option>เครื่องยังไม่ติดตั้ง</option></select></div>
+    <div class="fld"><label>รายละเอียด (ถ้ามี)</label><input value="รอผู้ขายเข้าติดตั้ง คาดว่าปลาย ต.ค."></div>
+    <div class="fld"><label>ปิดถึงเมื่อไหร่</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="ipill on brand">เฉพาะรอบนี้</button>
+        <button class="ipill">ถึงสิ้นปี</button>
+        <button class="ipill">จนกว่าจะเปิดเอง</button>
+      </div></div>
+    <div class="warnbox">
+      รอบที่ปิดไว้ <b>ไม่นับทั้งตัวตั้งและตัวหาร</b> — ไม่ขึ้นว่าเลยกำหนด และไม่ทำให้ % ในหน้าสรุปผลเพี้ยน
+      ต่างจากการลบรายการทิ้งซึ่งทำให้ประวัติหาย
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="ibtn">ยกเลิก</button><button class="ibtn pri">⛔ ปิดรอบนี้</button>
+    </div>
+  </div>
+
+  <div class="card" style="padding:15px 16px">
+    <h3 class="hd">🚫 รอบที่ถูกปิดไว้ตอนนี้</h3>
+    <table class="tb">
+      <thead><tr><th>รายการ</th><th>รอบ</th><th>เหตุผล</th><th></th></tr></thead>
+      <tbody>
+        <tr><td>ไลน์ A3</td><td>W37</td><td>เครื่องยังไม่ติดตั้ง</td><td style="text-align:right"><button class="ibtn sm">▶️ เปิด</button></td></tr>
+        <tr><td>ถุง AHU</td><td>W11</td><td>ถุงกรองยังไม่เข้า</td><td style="text-align:right"><button class="ibtn sm">▶️ เปิด</button></td></tr>
+      </tbody>
+    </table>
+    <div class="infobox" style="margin-top:11px">
+      🔎 <b>คำถามที่ยังต้องเคาะ:</b> ในแอปหลักยังไม่มีระบบบทบาท — จะรู้ว่าใครเป็น “หัวหน้างาน” จากอะไร
+      (ชื่อผู้ใช้ที่เลือกไว้ · รหัสผ่านหน้า Admin · หรือธงในตารางทีมช่าง)
+    </div>
+  </div>
+</div>
+</div></div>
+</section>
+
+<section class="chunk" id="s-tg">
+  <div class="chead"><h2>📮 การ์ดในกลุ่มช่าง (Telegram)</h2><p>แจ้งเตือนล่วงหน้า · ถึงกำหนดวันนี้ · ปิดงานแล้ว</p></div>
+  <div class="cbody"><div class="tglayout">
+<div class="tgwrap">
+  <div class="tgbar">
+    <div class="ava">🔧</div>
+    <div><div class="gn">SPP ช่างซ่อมบำรุง</div><div class="gm">4 สมาชิก · บอท @spp_maint_bot</div></div>
+  </div>
+  <div class="chat">
+
+    <div class="bub"><div class="t">🗓 <b>งาน PM สัปดาห์หน้า</b> — W38 · 14–20 ก.ย.</div>
+      <div class="l">แจ้งล่วงหน้า 3 วัน · <b>4 รายการ</b></div>
+      <div class="ls">
+        <div>🔧 <b>ไลน์ L1</b> — อัดจาระบีชุดสายพาน · 👤 ณรินศ์</div>
+        <div>🔧 <b>Robot Clear Packer</b> — อัดจาระบีแกนหมุน · 👤 ณรินศ์</div>
+        <div>🔧 <b>ไลน์ไอซิ่ง</b> — ตรวจระดับน้ำยา · 👤 จักรกฤษ</div>
+        <div>🔧 <b>RO 5,000</b> — ล้างไส้กรอง Pre-filter · 👤 พัฒพริศ</div>
+      </div>
+      <div class="warn">⚠️ งานค้างสะสมอีก 11 รายการ — เก่าสุด ไลน์ไอซิ่ง W29</div><div class="kb"><div class="kr"><button class="kbtn">📋 เปิดกระดาน PM</button></div><div class="kr"><button class="kbtn">✅ ปิดงาน</button><button class="kbtn">👤 รับงานที่ยังไม่มีคน</button></div></div>
+  <div class="time">08:00 ✓✓</div></div>
+
+    <div class="bub"><div class="t">⏰ <b>ถึงกำหนดวันนี้</b></div>
+      <div class="l"><b>RO 10,000</b> — ล้างเมมเบรนและตรวจค่าความนำไฟฟ้า</div>
+      <div class="ls">
+        <div>🔩 RO 10,000 · 🗓 W37/2026 · 👤 พัฒพริศ</div>
+        <div>🔁 ทุกเดือน · PM ล่าสุด 10 ส.ค.</div>
+      </div><div class="kb"><div class="kr"><button class="kbtn">✅ ทำเสร็จแล้ว</button><button class="kbtn">📸 แนบรูป</button></div><div class="kr"><button class="kbtn">📅 เลื่อนวัน</button><button class="kbtn">⛔ ปิดรอบนี้</button></div></div>
+  <div class="time">08:00 ✓✓</div></div>
+
+    <div class="bub"><div class="t">✅ <b>ปิดงาน PM แล้ว</b></div>
+      <div class="l">RO 10,000 — ล้างเมมเบรนและตรวจค่าความนำไฟฟ้า</div>
+      <div class="ls">
+        <div>👤 พัฒพริศ · 🗓 ทำจริง 9 ก.ย. 2026</div>
+        <div>📝 ค่าความนำไฟฟ้าสูงกว่าปกติ — อาจต้องร่นรอบเป็นทุก 3 สัปดาห์</div>
+        <div>🔁 รอบถัดไป <b>5 ต.ค. (W41)</b></div>
+      </div>
+      <div class="ph"><span>รูปก่อนทำ</span><span>รูปหลังทำ</span></div><div class="kb"><div class="kr"><button class="kbtn">🗓 ดูงาน PM ทั้งหมด</button></div></div>
+  <div class="time">08:00 ✓✓</div></div>
+  </div>
+</div>
+
+<div class="side">
+  <div class="card" style="padding:14px 16px">
+    <h3 class="hd">🔑 กติกาที่การ์ดชุดนี้ยึด</h3>
+    <ul class="rules">
+      <li><b>เข้ากลุ่มช่างเท่านั้น</b> — routing ตัดสินจาก “ใครต้องทำ” ไม่ใช่ชื่อฟีเจอร์ งาน PM เป็นงานช่าง</li>
+      <li><b>การ์ดแก้ทับตัวเอง</b> ไม่โพสต์ใหม่ทุกครั้ง เหมือนการ์ดใบแจ้งซ่อมที่ใช้อยู่</li>
+      <li><b>ปุ่มเฉพาะช่าง</b> — คนที่ยังไม่ผูกบัญชีกดแล้วขึ้นข้อความให้กด “🔧 ผมเป็นช่าง” ก่อน</li>
+      <li><b>ไม่โชว์ค่าเสียโอกาสเป็นเงินในกลุ่ม</b></li>
+    </ul>
+    <div class="infobox" style="margin-top:10px">
+      🔎 <b>ยังต้องเคาะ:</b> เตือนล่วงหน้ากี่วัน (ตอนนี้วาดไว้ 3 วัน) และส่งวันไหน — เช้าวันศุกร์ก่อนสัปดาห์ใหม่ หรือเช้าวันจันทร์
+    </div>
+  </div>
+</div>
+</div></div>
+</section>
+
+<section class="chunk" id="s-am">
+  <div class="chead"><h2>📋 ใบเช็ก AM → ตั้งเป็นงาน PM</h2><p>ข้อที่ติ๊ก “ไม่ปกติ” เลือกปลายทางได้ 2 ทาง</p></div>
+  <div class="cbody"><div class="wrap">
+<div class="eyebrow">🔧 งานซ่อมบำรุง · เชื่อมกับของเดิม</div>
+<div class="phead"><h1>ใบเช็ก AM → เปิดงานต่อ</h1>
+  <div class="sub">ข้อที่ติ๊ก “ไม่ปกติ” เลือกปลายทางได้ 2 ทาง — ของเดิมมีทางเดียวคือใบแจ้งซ่อม</div></div>
+
+<div class="flow">
+  <div class="step">
+    <div class="sn">1</div>
+    <div class="card" style="padding:14px 15px">
+      <div class="hd" style="margin-bottom:6px">📋 ใบเช็ก AM รายกะ · กะเช้า 9 ก.ย.</div>
+      <div class="amrow ok"><span class="ck">✓</span><div><b>Line ต้ม 1</b> — ตรวจระดับน้ำมันเกียร์</div><span class="chip low">ปกติ</span></div>
+      <div class="amrow bad"><span class="ck bad">!</span><div><b>Line ต้ม 1</b> — เสียงมอเตอร์ปั๊มจ่าย
+        <div class="s">ดังผิดปกติตอนเดินเครื่องเกิน 2 ชม.</div></div><span class="chip stop">ไม่ปกติ</span></div>
+      <div class="amrow ok"><span class="ck">✓</span><div><b>Line ต้ม 2</b> — ตรวจแรงดันไอน้ำ</div><span class="chip low">ปกติ</span></div>
+    </div>
+  </div>
+
+  <div class="arrow">→</div>
+
+  <div class="step">
+    <div class="sn">2</div>
+    <div class="sheet">
+      <h3>เจอข้อผิดปกติ — จะเปิดงานแบบไหน</h3>
+      <div class="hint">Line ต้ม 1 — เสียงมอเตอร์ปั๊มจ่าย</div>
+      <button class="pick">
+        <div class="pi">🛠</div>
+        <div><div class="pt">เปิดใบแจ้งซ่อม</div>
+        <div class="ps">ของเดิม — ต้องแก้เดี๋ยวนี้ เข้าคิวงานซ่อม มีเวลาเครื่องหยุด</div></div>
+      </button>
+      <button class="pick on">
+        <div class="pi br">🗓</div>
+        <div><div class="pt">ตั้งเป็นงาน PM <span class="chip due">ใหม่</span></div>
+        <div class="ps">ยังเดินเครื่องได้ แต่ต้องเข้าไปทำตามแผน — เลือกวันหรือใส่เข้ารอบประจำปีก็ได้</div></div>
+      </button>
+      <div class="fld" style="margin-top:12px"><label>วันที่จะทำ</label><input value="2026-09-14"></div>
+      <div class="fld"><label>เพิ่มเข้าแผนประจำปีด้วยไหม</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="ipill on brand">ครั้งเดียวพอ</button>
+          <button class="ipill">เพิ่มเป็นรายการในแผน</button>
+        </div></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+        <button class="ibtn">ยกเลิก</button><button class="ibtn pri">🗓 ตั้งงาน PM</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">→</div>
+
+  <div class="step">
+    <div class="sn">3</div>
+    <article class="tk due" style="margin-bottom:12px">
+      <div class="r1"><h3>ไลน์ต้ม 1 — ตรวจมอเตอร์ปั๊มจ่าย (เสียงดังผิดปกติ)</h3>
+        <span class="chip kind-pm">🔧 บำรุงรักษา</span><span class="src am">มาจากใบเช็ก AM</span></div>
+      <div class="meta"><span>🔩 ไลน์ต้ม 1</span><span class="dot">·</span><span>👤 จักรกฤษ</span>
+        <span class="dot">·</span><span>📅 14 ก.ย. 2026</span><span class="dot">·</span>
+        <span>📋 ใบเช็ก AM กะเช้า 9 ก.ย.</span></div>
+      <div class="acts"><button class="ibtn sm ok">✅ ทำเสร็จแล้ว</button><button class="ibtn sm">📋 ดูใบเช็กต้นเรื่อง</button></div>
+    </article>
+    <div class="okbox">
+      ผูกกลับไปที่ใบเช็กต้นเรื่องด้วย <b>ref_key</b> เหมือนที่ใบแจ้งซ่อมทำอยู่ — ติ๊กข้อเดิมซ้ำในกะถัดไป
+      <b>ไม่เปิดงานซ้ำ</b> แต่ไปเพิ่มจำนวนครั้งในงานเดิมแทน
+    </div>
+    <div class="infobox" style="margin-top:10px">
+      🔎 <b>ยังต้องเคาะ:</b> ให้ทีมผลิตที่กรอกใบเช็กตั้งงาน PM ได้เอง หรือให้เสนอเข้าคิวรอช่างยืนยันก่อน
+    </div>
+  </div>
+</div>
+</div></div>
+</section>
+
+<section class="chunk" id="s-mobile">
+  <div class="chead"><h2>📱 บนมือถือหน้างาน (390px)</h2>
+  <p>ปุ่มใหญ่กดด้วยนิ้วได้ · ติ๊กต่อได้ตอนเน็ตหลุด แล้วค่อยส่งขึ้นทีหลัง</p></div>
+  <div class="phones"><figure class="phonewrap"><div class="phone" id="p-week"><div class="mw">
+  <div class="mhead">
+    <div><h1>งาน PM</h1><div class="sub">แผนประจำปี · W37/2026</div></div>
+    <div class="sp" style="flex:1"></div>
+    <button class="nav">⋯</button>
+  </div>
+
+  <div class="off">
+    <span style="font-size:15px">📴</span>
+    <div><b>ไม่มีสัญญาณ</b><br>ติ๊กต่อได้เลย เดี๋ยวส่งให้เองเมื่อเน็ตกลับมา</div>
+    <span class="badge">รอส่ง 3</span>
+  </div>
+
+  <div class="wknav">
+    <button class="nav">‹</button>
+    <div style="flex:1"><div class="t">สัปดาห์ที่ 37</div><div class="s">7 – 13 ก.ย. · สัปดาห์นี้</div></div>
+    <button class="nav">›</button>
+  </div>
+
+  <div class="mstats">
+    <div class="ms"><div class="v">6</div><div class="l">ต้องทำ</div></div>
+    <div class="ms"><div class="v" style="color:var(--ok)">2</div><div class="l">ทำแล้ว</div></div>
+    <div class="ms"><div class="v" style="color:var(--warn)">4</div><div class="l">ยังไม่ทำ</div></div>
+    <div class="ms"><div class="v" style="color:var(--danger)">11</div><div class="l">ค้างเก่า</div></div>
+  </div>
+
+  <div class="mtk late">
+    <div class="chips"><span class="chip stop">เกินกำหนด 17 วัน</span><span class="chip freq">ทุกเดือน</span></div>
+    <h3>RO 5,000 — ล้างไส้กรอง Pre-filter</h3>
+    <div class="meta"><span>🔩 RO 5,000</span><span>👤 พัฒพริศ</span><span>📅 W34 · 17 ส.ค.</span></div>
+    <div class="big"><button class="ok">✅ ทำเสร็จแล้ว</button><button class="q">📸</button><button class="q">⋯</button></div>
+  </div>
+
+  <div class="mtk due">
+    <div class="chips"><span class="chip due">W37 · สัปดาห์นี้</span><span class="chip kind-pm">🔧 บำรุงรักษา</span></div>
+    <h3>RO 10,000 — ล้างเมมเบรนและตรวจค่าความนำไฟฟ้า</h3>
+    <div class="meta"><span>🔩 RO 10,000</span><span>👤 พัฒพริศ</span><span>🔁 ทุกเดือน</span></div>
+    <div class="big"><button class="ok">✅ ทำเสร็จแล้ว</button><button class="q">📸</button><button class="q">⋯</button></div>
+  </div>
+
+  <div class="mtk done">
+    <div class="chips"><span class="chip low">✅ เสร็จ 8 ก.ย.</span></div>
+    <h3 style="text-decoration:line-through;text-decoration-color:var(--sep)">ไลน์ไอซิ่ง — ตรวจระดับน้ำยาและทำความสะอาดคอยล์</h3>
+    <div class="meta"><span>👤 จักรกฤษ</span><span>🖼 2 รูป</span></div>
+    <div class="queued">⏳ รอส่งเมื่อเน็ตกลับมา</div>
+  </div>
+
+  <div class="mtk">
+    <div class="chips"><span class="chip mute">🚫 ปิดรอบนี้</span></div>
+    <h3 style="color:var(--muted)">ไลน์ A3 — ตรวจชุดเติมลมและหัวจ่าย</h3>
+    <div class="meta"><span>เครื่องยังไม่ติดตั้ง · โดย จักรกฤษ</span></div>
+  </div>
+</div>
+
+<div class="tabbar">
+  <button class="tb on"><span class="i">🗓️</span>สัปดาห์นี้</button>
+  <button class="tb"><span class="i">📊</span>ทั้งปี</button>
+  <button class="tb"><span class="i">🔩</span>เครื่อง</button>
+  <button class="tb"><span class="i">📆</span>ปฏิทิน</button>
+</div></div><figcaption>สัปดาห์นี้ (ตอนเน็ตหลุด)</figcaption></figure>
+<figure class="phonewrap"><div class="phone" id="p-done"><div class="mw" style="padding-bottom:96px">
+  <div class="shhead">
+    <button class="nav">✕</button>
+    <div><div class="t">✅ ปิดงาน PM</div><div class="s">RO 10,000 · W37/2026</div></div>
+  </div>
+
+  <div class="card" style="padding:12px 13px;margin-bottom:11px">
+    <div style="font-family:var(--font-head);font-size:14.5px;font-weight:600;line-height:1.4">ล้างเมมเบรนและตรวจค่าความนำไฟฟ้า</div>
+    <div style="font-size:11.5px;color:var(--ink-soft);margin-top:3px">🔁 ทุกเดือน · PM ล่าสุด 10 ส.ค. 2026</div>
+  </div>
+
+  <div class="fld"><label>ผู้ทำ PM</label><select style="min-height:44px"><option>พัฒพริศ อ่ำอยู่</option></select></div>
+  <div class="fld"><label>วันที่ทำจริง</label><input style="min-height:44px" value="2026-09-09">
+    <div class="hintline">แก้ได้ ถ้าลงย้อนหลัง</div></div>
+  <div class="fld"><label>หมายเหตุ / สิ่งที่เจอ</label><textarea rows="2" style="min-height:64px">ค่าความนำไฟฟ้าสูงกว่าปกติเล็กน้อย</textarea></div>
+
+  <div class="fld">
+    <label>รูปหลังทำ</label>
+    <div class="mth">
+      <div class="th b">รูปก่อนทำ</div>
+      <button class="th cam">📷<br>ถ่ายรูป</button>
+    </div>
+  </div>
+
+  <div class="nextbox">
+    <div class="nhead">🔁 ตั้งรอบถัดไป</div>
+    <div class="nopt on"><span class="rd on"></span><div><b>ตามรอบ · 5 ต.ค. (W41)</b><div class="s">ตามความถี่ “ทุกเดือน”</div></div></div>
+    <div class="nopt"><span class="rd"></span><div><b>เลือกวันเอง</b><div class="s">เลื่อนได้ตามสภาพหน้างาน</div></div></div>
+    <div class="nopt"><span class="rd"></span><div><b>ไม่ต้องตั้ง</b><div class="s">ปิดจบรอบนี้อย่างเดียว</div></div></div>
+  </div>
+
+  <div class="okbox" style="margin-top:11px">ปิดแล้วส่งการ์ดเข้ากลุ่มช่างให้อัตโนมัติ พร้อมรูปหลังทำ</div>
+</div>
+
+<div class="bottombar">
+  <button class="cancel">ยกเลิก</button>
+  <button class="confirm">✔ ยืนยันบันทึก</button>
+</div></div><figcaption>ปิดงานเต็มจอ</figcaption></figure></div>
+</section>
+
+<div class="foot">
+  <h3>❓ ที่ยังต้องเคาะก่อนลงโค้ดจริง</h3>
+  <ol>
+    <li>รายการในแผนรายปีคือ “ไลน์ / พื้นที่” ซึ่งไม่ตรงกับทะเบียนเครื่องจักรเป๊ะ ๆ — จะผูกเข้าทะเบียนเดิม หรือแยกทะเบียนของแผน PM</li>
+    <li>แจ้งเตือนล่วงหน้ากี่วัน และส่งเช้าวันไหน (ในภาพร่างไว้ 3 วัน)</li>
+    <li>“หัวหน้างาน” ในแอปหลักจะรู้จากอะไร — ตอนนี้ยังไม่มีระบบบทบาท</li>
+    <li>ให้ทีมผลิตตั้งงาน PM จากใบเช็ก AM ได้เอง หรือให้เข้าคิวรอช่างยืนยันก่อน</li>
+    <li>แอป Netlify เดิมจะเลิกใช้หรือใช้คู่กัน (มีผลกับการย้ายข้อมูลจาก Firebase)</li>
+  </ol>
+</div>
+
+<script>
+const views = {plan:['v-week','v-year','v-machine','v-month'], adhoc:['v-adhoc'], sum:['v-sum']};
+function show(id){
+  document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on', v.id===id));
+  document.querySelectorAll('#modes .ipill').forEach(p=>p.classList.toggle('on', p.dataset.view===id));
+  document.querySelectorAll('#modes .ipill').forEach(p=>p.classList.toggle('brand', p.dataset.view===id));
+}
+document.querySelectorAll('.itab').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('.itab').forEach(x=>x.classList.toggle('on', x===t));
+  const tab = t.dataset.tab;
+  document.getElementById('modes').style.display = tab==='plan' ? '' : 'none';
+  show(views[tab][0]);
+}));
+document.querySelectorAll('#modes .ipill').forEach(p=>p.addEventListener('click',()=>show(p.dataset.view)));
+</script>
+</body>
+</html>

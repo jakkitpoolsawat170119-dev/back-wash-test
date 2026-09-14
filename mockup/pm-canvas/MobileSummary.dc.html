@@ -1,0 +1,317 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&display=swap">
+  <style>
+:root{
+  --brand:#ff6b00; --brand-deep:#c24f00; --brand-soft:#fff3ea;
+  --ink:#2b2119; --ink-soft:#6d6259; --paper:#faf7f4; --card:#ffffff; --line:#eee3d9;
+  --ok:#1c8a4c; --warn:#c77700; --danger:#c62828;
+  --cip1:#1565c0; --cip2:#01579b; --cipx:#6a1b9a;
+  --radius:16px;
+  --shadow-card:0 1px 2px rgba(63,37,10,.06),0 6px 18px -6px rgba(63,37,10,.12);
+  --shadow-float:0 2px 4px rgba(63,37,10,.08),0 16px 40px -12px rgba(63,37,10,.22);
+  --font-head:'Kanit',sans-serif; --font-body:'Sarabun',sans-serif;
+  --surface-2:#fbf7f3; --surface-3:#fdfbf9; --row-line:#f5efe9; --muted:#a49a90; --sep:#d8cabb;
+  --danger-soft-bg:#fdecea; --danger-soft-line:#f7d9d5; --warn-soft-bg:#fff6e6;
+  --p-stop:#c62828; --p-stop-w:#fdecea; --p-warn:#c77700; --p-warn-w:#fff6e6;
+  --p-low:#1c8a4c; --p-low-w:#e6f4ec;
+  --s-wip:#0277bd; --s-wip-w:#e1f2fb;
+}
+*,*::before,*::after{box-sizing:border-box}
+body{
+  margin:0;font-family:var(--font-body);color:var(--ink);line-height:1.7;
+  background:var(--paper);
+  background-image:
+    radial-gradient(1200px 500px at 85% -10%, rgba(255,107,0,.07), transparent 60%),
+    radial-gradient(900px 420px at -10% 20%, rgba(21,101,192,.05), transparent 55%);
+}
+h1,h2,h3,h4,p,ul,ol,li{margin:0;padding:0}
+h1,h2,h3,h4{font-family:var(--font-head);letter-spacing:-.02em;line-height:1.3;color:var(--ink);font-weight:600}
+a{color:var(--brand-deep);text-decoration:none} a:hover{color:var(--brand)}
+.wrap{padding:26px 30px 30px}
+.eyebrow{font-family:var(--font-head);font-size:11.5px;font-weight:600;color:var(--brand-deep);
+  background:var(--brand-soft);display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;margin-bottom:10px}
+.phead{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+.phead h1{font-size:25px;letter-spacing:-.03em}
+.phead .sub{font-size:13px;color:var(--ink-soft)}
+.sp{flex:1}
+.itabs{display:inline-flex;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:4px;gap:4px;margin:14px 0 4px}
+.itab{border:none;background:transparent;color:var(--ink-soft);font-family:var(--font-head);font-size:13.5px;font-weight:600;
+  padding:8px 20px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+.itab.on{background:var(--card);color:var(--ink);box-shadow:var(--shadow-card)}
+.itab .n{font-family:var(--font-body);font-size:11.5px;font-weight:700;border-radius:999px;padding:1px 8px;background:var(--surface-3);color:var(--ink-soft)}
+.itab.on .n{background:var(--brand-soft);color:var(--brand-deep)}
+.ifilters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0 14px}
+.ipill{border:1px solid var(--line);background:var(--card);color:var(--ink-soft);padding:6px 14px;border-radius:999px;
+  font-size:12.8px;font-weight:600;font-family:var(--font-head);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.ipill.on{color:#fff;border-color:transparent;background:var(--ink)}
+.ipill.on.brand{background:var(--brand-deep)}
+.isel{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:6px 12px;font-size:12.8px;font-weight:600;font-family:var(--font-head)}
+.divider{width:1px;height:22px;background:var(--line)}
+.ibtn{border:1px solid var(--line);background:var(--card);color:var(--ink-soft);padding:7px 15px;border-radius:999px;
+  font-size:12.8px;font-weight:600;font-family:var(--font-head);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.ibtn.pri{background:var(--brand);border-color:var(--brand);color:#fff}
+.ibtn.sm{padding:4px 12px;font-size:12px}
+.ibtn.ok{color:var(--ok);background:var(--p-low-w);border-color:transparent}
+.ibtn.dgr{color:var(--danger);background:var(--danger-soft-bg);border-color:var(--danger-soft-line)}
+.ibtn.lock{color:var(--muted);background:var(--surface-2);border-color:var(--line);cursor:not-allowed}
+.istats{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:14px 0}
+.istat{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-card);padding:11px 14px}
+.istat .l{font-size:11.5px;font-weight:600;color:var(--ink-soft);display:flex;align-items:center;gap:5px}
+.istat .v{font-family:var(--font-head);font-size:26px;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums}
+.istat .u{font-size:12px;font-weight:500;color:var(--ink-soft);margin-left:3px;font-family:var(--font-body)}
+.istat.hot{border-color:var(--p-stop);background:linear-gradient(180deg,var(--p-stop-w),var(--card) 70%)}
+.istat.hot .v{color:var(--p-stop)}
+.istat.good .v{color:var(--ok)}
+.istat.gap .v{color:var(--warn)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-card)}
+.ilist{display:flex;flex-direction:column;gap:11px}
+.tk{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-card);
+  padding:14px 16px 13px;border-left:4px solid var(--sep)}
+.tk.late{border-left-color:var(--p-stop)}
+.tk.due{border-left-color:var(--brand)}
+.tk.done{border-left-color:var(--ok);background:linear-gradient(180deg,#fbfdfb,var(--card) 60%)}
+.tk.skip{border-left-color:var(--muted);background:var(--surface-2)}
+.tk .r1{display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap}
+.tk h3{font-size:15.5px;flex:1;min-width:200px;letter-spacing:-.01em;line-height:1.35}
+.chip{font-size:11px;font-weight:700;border-radius:999px;padding:2px 10px;white-space:nowrap;font-family:var(--font-body)}
+.chip.stop{color:var(--p-stop);background:var(--p-stop-w)}
+.chip.warn{color:var(--p-warn);background:var(--p-warn-w)}
+.chip.low{color:var(--p-low);background:var(--p-low-w)}
+.chip.due{color:var(--brand-deep);background:var(--brand-soft)}
+.chip.freq{color:var(--cip1);background:#e8f1fb}
+.chip.mute{color:var(--muted);background:var(--surface-3);border:1px solid var(--line)}
+.chip.kind-pm{color:#0d47a1;background:#e8f1fb}
+.chip.kind-up{color:#14653a;background:#e6f4ec}
+.chip.kind-fix{color:#c24f00;background:#fff3ea}
+.src{font-size:10.5px;font-weight:700;border-radius:6px;padding:2px 8px;white-space:nowrap;border:1px solid var(--line);background:var(--surface-2);color:var(--ink-soft)}
+.src.plan{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-deep)}
+.src.adhoc{border-color:var(--cip1);background:#e8f1fb;color:var(--cip1)}
+.src.am{border-color:var(--cip2);background:#e3f0f8;color:var(--cip2)}
+.meta{font-size:12px;color:var(--ink-soft);margin-top:5px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 9px}
+.meta .dot{color:var(--sep)}
+.thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center}
+.th{width:54px;height:54px;border-radius:9px;border:1px solid var(--line);background:var(--surface-2);
+  display:grid;place-items:center;font-size:10px;color:var(--muted);text-align:center;line-height:1.3}
+.th.b{background:#efe6dc}
+.acts{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:11px}
+.lock-note{font-size:11.5px;color:var(--muted);display:inline-flex;align-items:center;gap:4px}
+.fld{margin-bottom:11px}
+.fld > label{display:block;font-size:11.5px;font-weight:700;color:var(--ink-soft);margin-bottom:4px}
+.fld input,.fld select,.fld textarea{width:100%;border:1px solid var(--line);background:var(--surface-3);color:var(--ink);
+  border-radius:10px;padding:8px 11px;font-size:13px;line-height:1.6;font-family:inherit}
+.grid2{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.warnbox{background:var(--warn-soft-bg);border-radius:10px;padding:9px 12px;font-size:12.3px;color:var(--ink-soft);
+  border-left:3px solid var(--warn);margin-bottom:12px;line-height:1.65}
+.okbox{background:var(--p-low-w);border-radius:10px;padding:9px 12px;font-size:12.3px;color:var(--ink-soft);
+  border-left:3px solid var(--ok);margin-bottom:12px;line-height:1.65}
+.infobox{background:var(--surface-2);border-radius:10px;padding:9px 12px;font-size:12.3px;color:var(--ink-soft);
+  border-left:3px solid var(--sep);line-height:1.65}
+table.tb{width:100%;border-collapse:collapse;font-size:12.8px}
+table.tb th{font-family:var(--font-head);font-size:11.5px;font-weight:600;color:var(--ink-soft);text-align:left;
+  padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.tb td{padding:10px 12px;border-bottom:1px solid var(--row-line);vertical-align:middle}
+table.tb tr:last-child td{border-bottom:none}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.sheet{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow-float);padding:20px 22px}
+.sheet h3{font-size:17px;margin:0 0 3px}
+.sheet .hint{font-size:12.4px;color:var(--ink-soft);margin-bottom:13px}
+.hd{font-family:var(--font-head);font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;margin:0 0 9px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11.5px;color:var(--ink-soft);margin-top:10px}
+.legend i{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:-1px}
+
+body{background:var(--paper)}
+.mw{padding:12px 12px 78px}
+.mhead{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+.mhead h1{font-size:19px;letter-spacing:-.03em}
+.mhead .sub{font-size:11.5px;color:var(--ink-soft)}
+.nav{width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface-3);
+  color:var(--ink-soft);font-size:14px}
+.tabbar{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.96);border-top:1px solid var(--line);
+  display:grid;grid-template-columns:repeat(4,1fr);padding:6px 6px calc(6px + env(safe-area-inset-bottom));gap:4px}
+.tb{border:none;background:transparent;min-height:48px;border-radius:12px;font-family:var(--font-head);
+  font-size:11px;font-weight:600;color:var(--ink-soft);display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:2px;cursor:pointer}
+.tb .i{font-size:17px;line-height:1}
+.tb.on{background:var(--brand-soft);color:var(--brand-deep)}
+
+/* แถบเลือกไตรมาส */
+.qbar{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;background:var(--surface-2);
+  border:1px solid var(--line);border-radius:14px;padding:4px;margin-bottom:9px}
+.qb{min-height:38px;border:none;background:transparent;border-radius:11px;font-family:var(--font-head);
+  font-size:13px;font-weight:600;color:var(--ink-soft);cursor:pointer}
+.qb.on{background:var(--card);color:var(--brand-deep);box-shadow:var(--shadow-card)}
+.qcap{font-size:11.5px;color:var(--ink-soft);margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap}
+.qcap b{color:var(--ink)}
+
+/* แถวหนึ่ง = เครื่องหนึ่ง พร้อมแถบ 13 สัปดาห์ของไตรมาส */
+.yr{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:9px 10px 10px;
+  box-shadow:var(--shadow-card);margin-bottom:8px}
+.yr .top{display:flex;align-items:baseline;gap:7px;margin-bottom:2px}
+.yr h3{font-size:13.5px;flex:1;line-height:1.35}
+.yr .fq{font-size:10.5px;color:var(--ink-soft);background:var(--surface-2);border-radius:999px;padding:1px 8px;
+  white-space:nowrap}
+.yr .cnt{font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.wks{display:grid;grid-template-columns:repeat(13,1fr);gap:2px;margin-top:6px}
+.wn{font-size:8.5px;color:var(--muted);text-align:center;font-variant-numeric:tabular-nums;line-height:1.4}
+.wn.cur{color:var(--brand-deep);font-weight:700}
+.wc{height:26px;border:none;background:var(--surface-3);border-radius:7px;display:grid;place-items:center;
+  cursor:pointer;padding:0;transition:transform .18s cubic-bezier(.34,1.56,.64,1)}
+.wc:active{transform:scale(.92)}
+.wc.cur{background:var(--brand-soft)}
+.wc.off{background:transparent}
+.wc i{width:10px;height:10px;border-radius:50%;display:block}
+.mbar{height:5px;border-radius:999px;background:var(--surface-2);overflow:hidden;margin-top:7px}
+.mbar span{display:block;height:100%;border-radius:999px}
+.mleg{display:flex;gap:10px;flex-wrap:wrap;font-size:10.5px;color:var(--ink-soft);margin:10px 2px 0}
+.mleg i{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px;vertical-align:-1px}
+
+/* สรุปผล */
+.m2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.mc{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px;box-shadow:var(--shadow-card)}
+.mc .l{font-size:11px;color:var(--ink-soft)}
+.mc .v{font-family:var(--font-head);font-size:24px;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums}
+.mc .d{font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.mc.hot{border-color:var(--p-stop);background:linear-gradient(180deg,var(--p-stop-w),var(--card) 70%)}
+.mc.hot .v{color:var(--p-stop)}
+.chartcard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:11px 12px 6px;
+  box-shadow:var(--shadow-card);margin-bottom:10px}
+.chartcard h3{font-size:13px;margin-bottom:1px}
+.chartcard .s{font-size:10.8px;color:var(--muted);margin-bottom:6px;line-height:1.5}
+.sec{font-family:var(--font-head);font-size:11.5px;font-weight:700;color:var(--muted);margin:2px 2px 7px}
+.si{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:9px 11px 10px;
+  box-shadow:var(--shadow-card);margin-bottom:7px}
+.si.bad{border-left:4px solid var(--danger)}
+.si .top{display:flex;align-items:baseline;gap:8px}
+.si h3{font-size:13.5px;flex:1}
+.si .p{font-family:var(--font-head);font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+.si .d{font-size:10.8px;color:var(--muted);margin-top:3px;font-variant-numeric:tabular-nums}
+</style>
+</helmet>
+<div class="mw">
+  <div class="mhead">
+    <div><h1>สรุปผล PM</h1><div class="sub">ปี 2026 · ถึงสัปดาห์ที่ 37</div></div>
+    <div class="sp" style="flex:1"></div>
+    <button class="nav">⋯</button>
+  </div>
+
+  <div class="m2">
+    <div class="mc"><div class="l">✅ ทำเสร็จแล้ว</div>
+      <div class="v" style="color:var(--ok)">93<span style="font-size:13px">%</span></div>
+      <div class="d">153 จาก 164 รอบที่ถึงกำหนด</div></div>
+    <div class="mc hot"><div class="l">⚠️ เลยกำหนด ยังไม่ทำ</div>
+      <div class="v">11</div>
+      <div class="d">จากแผนทั้งปี 234 รอบ</div></div>
+  </div>
+
+  <div class="chartcard">
+    <h3>แผนสะสม เทียบผลจริง</h3>
+    <div class="s">คิดจากรอบทั้งปี 234 รอบ — คนละตัวหารกับ 93% ข้างบน<br>
+      ถึงสิ้น ก.ย.: แผน <b style="color:var(--brand-deep)">75%</b> ·
+      ทำจริง <b style="color:var(--cip1)">64%</b> · ตามหลัง <b>11 จุด</b></div>
+    <svg viewBox="0 0 340 150" width="100%" height="150" role="img"
+  aria-label="กราฟ S-Curve แผน PM สะสมเทียบผลจริง คิดจากรอบทั้งปี 234 รอบ ถึง ก.ย. แผน 75% ทำจริง 64%">
+  <line x1="26" y1="128" x2="330" y2="128" stroke="#eee3d9"/>
+    <text x="21" y="131.5" text-anchor="end" font-size="8" fill="#a49a90">0</text><line x1="26" y1="70" x2="330" y2="70" stroke="#eee3d9"/>
+    <text x="21" y="73.5" text-anchor="end" font-size="8" fill="#a49a90">50</text><line x1="26" y1="12" x2="330" y2="12" stroke="#eee3d9"/>
+    <text x="21" y="15.5" text-anchor="end" font-size="8" fill="#a49a90">100</text>
+  <text x="26" y="142" text-anchor="middle" font-size="8" fill="#a49a90"
+        font-weight="400">ม.ค.</text><text x="81.27272727272728" y="142" text-anchor="middle" font-size="8" fill="#a49a90"
+        font-weight="400">มี.ค.</text><text x="136.54545454545456" y="142" text-anchor="middle" font-size="8" fill="#a49a90"
+        font-weight="400">พ.ค.</text><text x="191.8181818181818" y="142" text-anchor="middle" font-size="8" fill="#a49a90"
+        font-weight="400">ก.ค.</text><text x="247.0909090909091" y="142" text-anchor="middle" font-size="8" fill="#c24f00"
+        font-weight="700">ก.ย.</text><text x="302.3636363636364" y="142" text-anchor="middle" font-size="8" fill="#a49a90"
+        font-weight="400">พ.ย.</text>
+  <polygon fill="rgba(255,107,0,.15)" points="26.0,118.7 53.6,110.6 81.3,100.2 108.9,90.9 136.5,81.6 164.2,70.0 191.8,60.7 219.5,49.1 247.1,41.0 247.1,53.8 219.5,54.9 191.8,65.4 164.2,73.5 136.5,85.1 108.9,94.4 81.3,101.3 53.6,111.8 26.0,119.9"/>
+  <line x1="247.0909090909091" y1="12" x2="247.0909090909091" y2="128" stroke="#c24f00" stroke-dasharray="3 4" opacity=".5"/>
+  <polyline points="26.0,118.7 53.6,110.6 81.3,100.2 108.9,90.9 136.5,81.6 164.2,70.0 191.8,60.7 219.5,49.1 247.1,41.0 274.7,31.7 302.4,20.1 330.0,12.0" fill="none" stroke="#c24f00" stroke-width="1.8" stroke-dasharray="6 4"/>
+  <polyline points="26.0,119.9 53.6,111.8 81.3,101.3 108.9,94.4 136.5,85.1 164.2,73.5 191.8,65.4 219.5,54.9 247.1,53.8" fill="none" stroke="#1565c0" stroke-width="1.8"/>
+  <circle cx="247.0909090909091" cy="41" r="3.5" fill="#fff" stroke="#c24f00" stroke-width="2"/>
+  <circle cx="247.0909090909091" cy="53.76" r="3.5" fill="#fff" stroke="#1565c0" stroke-width="2"/>
+</svg>
+  </div>
+
+  <div class="sec">เรียงตัวที่ตกแผนมากสุดขึ้นก่อน</div>
+  <article class="si bad">
+    <div class="top"><h3>RO 5,000</h3><span class="p" style="color:var(--danger)">67%</span></div>
+    <div class="mbar"><span style="width:67%;background:var(--danger)"></span></div>
+    <div class="d">6 จาก 9 รอบที่ถึงกำหนด · ค้าง 3</div>
+  </article>
+<article class="si bad">
+    <div class="top"><h3>ไลน์ L2</h3><span class="p" style="color:var(--danger)">78%</span></div>
+    <div class="mbar"><span style="width:78%;background:var(--danger)"></span></div>
+    <div class="d">14 จาก 18 รอบที่ถึงกำหนด · ค้าง 4</div>
+  </article>
+<article class="si">
+    <div class="top"><h3>ไลน์ L1</h3><span class="p" style="color:var(--warn)">94%</span></div>
+    <div class="mbar"><span style="width:94%;background:var(--warn)"></span></div>
+    <div class="d">17 จาก 18 รอบที่ถึงกำหนด · ค้าง 1</div>
+  </article>
+<article class="si">
+    <div class="top"><h3>บ่อซีเมนต์</h3><span class="p" style="color:var(--warn)">94%</span></div>
+    <div class="mbar"><span style="width:94%;background:var(--warn)"></span></div>
+    <div class="d">17 จาก 18 รอบที่ถึงกำหนด · ค้าง 1</div>
+  </article>
+<article class="si">
+    <div class="top"><h3>ไลน์ปี๊บ</h3><span class="p" style="color:var(--warn)">94%</span></div>
+    <div class="mbar"><span style="width:94%;background:var(--warn)"></span></div>
+    <div class="d">17 จาก 18 รอบที่ถึงกำหนด · ค้าง 1</div>
+  </article>
+<article class="si">
+    <div class="top"><h3>ไลน์ไอซิ่ง</h3><span class="p" style="color:var(--ok)">95%</span></div>
+    <div class="mbar"><span style="width:95%;background:var(--ok)"></span></div>
+    <div class="d">18 จาก 19 รอบที่ถึงกำหนด · ค้าง 1</div>
+  </article>
+<article class="si">
+    <div class="top"><h3>ไลน์ต้ม 1</h3><span class="p" style="color:var(--ok)">100%</span></div>
+    <div class="mbar"><span style="width:100%;background:var(--ok)"></span></div>
+    <div class="d">9 จาก 9 รอบที่ถึงกำหนด</div>
+  </article>
+<article class="si">
+    <div class="top"><h3>ไลน์ต้ม 2</h3><span class="p" style="color:var(--ok)">100%</span></div>
+    <div class="mbar"><span style="width:100%;background:var(--ok)"></span></div>
+    <div class="d">9 จาก 9 รอบที่ถึงกำหนด</div>
+  </article>
+<article class="si">
+    <div class="top"><h3>Robot Clear Packer</h3><span class="p" style="color:var(--ok)">100%</span></div>
+    <div class="mbar"><span style="width:100%;background:var(--ok)"></span></div>
+    <div class="d">18 จาก 18 รอบที่ถึงกำหนด</div>
+  </article>
+<article class="si">
+    <div class="top"><h3>AHU & Chiller</h3><span class="p" style="color:var(--ok)">100%</span></div>
+    <div class="mbar"><span style="width:100%;background:var(--ok)"></span></div>
+    <div class="d">9 จาก 9 รอบที่ถึงกำหนด</div>
+  </article>
+<article class="si">
+    <div class="top"><h3>Cold Room</h3><span class="p" style="color:var(--ok)">100%</span></div>
+    <div class="mbar"><span style="width:100%;background:var(--ok)"></span></div>
+    <div class="d">9 จาก 9 รอบที่ถึงกำหนด</div>
+  </article>
+<article class="si">
+    <div class="top"><h3>RO 10,000</h3><span class="p" style="color:var(--ok)">100%</span></div>
+    <div class="mbar"><span style="width:100%;background:var(--ok)"></span></div>
+    <div class="d">9 จาก 9 รอบที่ถึงกำหนด</div>
+  </article>
+<article class="si">
+    <div class="top"><h3>ถุง AHU</h3><span class="p" style="color:var(--ok)">100%</span></div>
+    <div class="mbar"><span style="width:100%;background:var(--ok)"></span></div>
+    <div class="d">1 จาก 1 รอบที่ถึงกำหนด</div>
+  </article>
+</div>
+
+<div class="tabbar">
+  <button class="tb"><span class="i">🗓️</span>สัปดาห์นี้</button>
+  <button class="tb"><span class="i">📊</span>ทั้งปี</button>
+  <button class="tb"><span class="i">🔩</span>เครื่อง</button>
+  <button class="tb on"><span class="i">📈</span>สรุปผล</button>
+</div>
+</x-dc>
+</body>
+</html>

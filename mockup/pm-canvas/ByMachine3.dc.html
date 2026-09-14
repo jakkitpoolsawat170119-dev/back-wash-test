@@ -1,0 +1,369 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&display=swap">
+  <style>
+:root{
+  --brand:#ff6b00; --brand-deep:#c24f00; --brand-soft:#fff3ea;
+  --ink:#2b2119; --ink-soft:#6d6259; --paper:#faf7f4; --card:#ffffff; --line:#eee3d9;
+  --ok:#1c8a4c; --warn:#c77700; --danger:#c62828;
+  --cip1:#1565c0; --cip2:#01579b; --cipx:#6a1b9a;
+  --radius:16px;
+  --shadow-card:0 1px 2px rgba(63,37,10,.06),0 6px 18px -6px rgba(63,37,10,.12);
+  --shadow-float:0 2px 4px rgba(63,37,10,.08),0 16px 40px -12px rgba(63,37,10,.22);
+  --font-head:'Kanit',sans-serif; --font-body:'Sarabun',sans-serif;
+  --surface-2:#fbf7f3; --surface-3:#fdfbf9; --row-line:#f5efe9; --muted:#a49a90; --sep:#d8cabb;
+  --danger-soft-bg:#fdecea; --danger-soft-line:#f7d9d5; --warn-soft-bg:#fff6e6;
+  --p-stop:#c62828; --p-stop-w:#fdecea; --p-warn:#c77700; --p-warn-w:#fff6e6;
+  --p-low:#1c8a4c; --p-low-w:#e6f4ec;
+  --s-wip:#0277bd; --s-wip-w:#e1f2fb;
+}
+*,*::before,*::after{box-sizing:border-box}
+body{
+  margin:0;font-family:var(--font-body);color:var(--ink);line-height:1.7;
+  background:var(--paper);
+  background-image:
+    radial-gradient(1200px 500px at 85% -10%, rgba(255,107,0,.07), transparent 60%),
+    radial-gradient(900px 420px at -10% 20%, rgba(21,101,192,.05), transparent 55%);
+}
+h1,h2,h3,h4,p,ul,ol,li{margin:0;padding:0}
+h1,h2,h3,h4{font-family:var(--font-head);letter-spacing:-.02em;line-height:1.3;color:var(--ink);font-weight:600}
+a{color:var(--brand-deep);text-decoration:none} a:hover{color:var(--brand)}
+.wrap{padding:26px 30px 30px}
+.eyebrow{font-family:var(--font-head);font-size:11.5px;font-weight:600;color:var(--brand-deep);
+  background:var(--brand-soft);display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;margin-bottom:10px}
+.phead{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+.phead h1{font-size:25px;letter-spacing:-.03em}
+.phead .sub{font-size:13px;color:var(--ink-soft)}
+.sp{flex:1}
+.itabs{display:inline-flex;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:4px;gap:4px;margin:14px 0 4px}
+.itab{border:none;background:transparent;color:var(--ink-soft);font-family:var(--font-head);font-size:13.5px;font-weight:600;
+  padding:8px 20px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+.itab.on{background:var(--card);color:var(--ink);box-shadow:var(--shadow-card)}
+.itab .n{font-family:var(--font-body);font-size:11.5px;font-weight:700;border-radius:999px;padding:1px 8px;background:var(--surface-3);color:var(--ink-soft)}
+.itab.on .n{background:var(--brand-soft);color:var(--brand-deep)}
+.ifilters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0 14px}
+.ipill{border:1px solid var(--line);background:var(--card);color:var(--ink-soft);padding:6px 14px;border-radius:999px;
+  font-size:12.8px;font-weight:600;font-family:var(--font-head);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.ipill.on{color:#fff;border-color:transparent;background:var(--ink)}
+.ipill.on.brand{background:var(--brand-deep)}
+.isel{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:6px 12px;font-size:12.8px;font-weight:600;font-family:var(--font-head)}
+.divider{width:1px;height:22px;background:var(--line)}
+.ibtn{border:1px solid var(--line);background:var(--card);color:var(--ink-soft);padding:7px 15px;border-radius:999px;
+  font-size:12.8px;font-weight:600;font-family:var(--font-head);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.ibtn.pri{background:var(--brand);border-color:var(--brand);color:#fff}
+.ibtn.sm{padding:4px 12px;font-size:12px}
+.ibtn.ok{color:var(--ok);background:var(--p-low-w);border-color:transparent}
+.ibtn.dgr{color:var(--danger);background:var(--danger-soft-bg);border-color:var(--danger-soft-line)}
+.ibtn.lock{color:var(--muted);background:var(--surface-2);border-color:var(--line);cursor:not-allowed}
+.istats{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:14px 0}
+.istat{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-card);padding:11px 14px}
+.istat .l{font-size:11.5px;font-weight:600;color:var(--ink-soft);display:flex;align-items:center;gap:5px}
+.istat .v{font-family:var(--font-head);font-size:26px;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums}
+.istat .u{font-size:12px;font-weight:500;color:var(--ink-soft);margin-left:3px;font-family:var(--font-body)}
+.istat.hot{border-color:var(--p-stop);background:linear-gradient(180deg,var(--p-stop-w),var(--card) 70%)}
+.istat.hot .v{color:var(--p-stop)}
+.istat.good .v{color:var(--ok)}
+.istat.gap .v{color:var(--warn)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-card)}
+.ilist{display:flex;flex-direction:column;gap:11px}
+.tk{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-card);
+  padding:14px 16px 13px;border-left:4px solid var(--sep)}
+.tk.late{border-left-color:var(--p-stop)}
+.tk.due{border-left-color:var(--brand)}
+.tk.done{border-left-color:var(--ok);background:linear-gradient(180deg,#fbfdfb,var(--card) 60%)}
+.tk.skip{border-left-color:var(--muted);background:var(--surface-2)}
+.tk .r1{display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap}
+.tk h3{font-size:15.5px;flex:1;min-width:200px;letter-spacing:-.01em;line-height:1.35}
+.chip{font-size:11px;font-weight:700;border-radius:999px;padding:2px 10px;white-space:nowrap;font-family:var(--font-body)}
+.chip.stop{color:var(--p-stop);background:var(--p-stop-w)}
+.chip.warn{color:var(--p-warn);background:var(--p-warn-w)}
+.chip.low{color:var(--p-low);background:var(--p-low-w)}
+.chip.due{color:var(--brand-deep);background:var(--brand-soft)}
+.chip.freq{color:var(--cip1);background:#e8f1fb}
+.chip.mute{color:var(--muted);background:var(--surface-3);border:1px solid var(--line)}
+.chip.kind-pm{color:#0d47a1;background:#e8f1fb}
+.chip.kind-up{color:#14653a;background:#e6f4ec}
+.chip.kind-fix{color:#c24f00;background:#fff3ea}
+.src{font-size:10.5px;font-weight:700;border-radius:6px;padding:2px 8px;white-space:nowrap;border:1px solid var(--line);background:var(--surface-2);color:var(--ink-soft)}
+.src.plan{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-deep)}
+.src.adhoc{border-color:var(--cip1);background:#e8f1fb;color:var(--cip1)}
+.src.am{border-color:var(--cip2);background:#e3f0f8;color:var(--cip2)}
+.meta{font-size:12px;color:var(--ink-soft);margin-top:5px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 9px}
+.meta .dot{color:var(--sep)}
+.thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center}
+.th{width:54px;height:54px;border-radius:9px;border:1px solid var(--line);background:var(--surface-2);
+  display:grid;place-items:center;font-size:10px;color:var(--muted);text-align:center;line-height:1.3}
+.th.b{background:#efe6dc}
+.acts{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:11px}
+.lock-note{font-size:11.5px;color:var(--muted);display:inline-flex;align-items:center;gap:4px}
+.fld{margin-bottom:11px}
+.fld > label{display:block;font-size:11.5px;font-weight:700;color:var(--ink-soft);margin-bottom:4px}
+.fld input,.fld select,.fld textarea{width:100%;border:1px solid var(--line);background:var(--surface-3);color:var(--ink);
+  border-radius:10px;padding:8px 11px;font-size:13px;line-height:1.6;font-family:inherit}
+.grid2{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.warnbox{background:var(--warn-soft-bg);border-radius:10px;padding:9px 12px;font-size:12.3px;color:var(--ink-soft);
+  border-left:3px solid var(--warn);margin-bottom:12px;line-height:1.65}
+.okbox{background:var(--p-low-w);border-radius:10px;padding:9px 12px;font-size:12.3px;color:var(--ink-soft);
+  border-left:3px solid var(--ok);margin-bottom:12px;line-height:1.65}
+.infobox{background:var(--surface-2);border-radius:10px;padding:9px 12px;font-size:12.3px;color:var(--ink-soft);
+  border-left:3px solid var(--sep);line-height:1.65}
+table.tb{width:100%;border-collapse:collapse;font-size:12.8px}
+table.tb th{font-family:var(--font-head);font-size:11.5px;font-weight:600;color:var(--ink-soft);text-align:left;
+  padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.tb td{padding:10px 12px;border-bottom:1px solid var(--row-line);vertical-align:middle}
+table.tb tr:last-child td{border-bottom:none}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.sheet{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow-float);padding:20px 22px}
+.sheet h3{font-size:17px;margin:0 0 3px}
+.sheet .hint{font-size:12.4px;color:var(--ink-soft);margin-bottom:13px}
+.hd{font-family:var(--font-head);font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;margin:0 0 9px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11.5px;color:var(--ink-soft);margin-top:10px}
+.legend i{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:-1px}
+
+.mn{display:flex;align-items:center;gap:10px}
+.mic{width:30px;height:30px;border-radius:9px;background:var(--surface-2);border:1px solid var(--line);
+  display:grid;place-items:center;font-size:15px}
+.mn .t{font-family:var(--font-head);font-size:13.5px;font-weight:600;line-height:1.35}
+.mn .s{font-size:11.3px;color:var(--muted);line-height:1.4}
+.bar{height:7px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line);overflow:hidden}
+.bar span{display:block;height:100%;border-radius:999px}
+.bl{font-size:11px;color:var(--ink-soft);margin-top:3px;font-variant-numeric:tabular-nums}
+
+.syncbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  background:linear-gradient(90deg,#eef5fb,var(--card) 72%);border:1px solid #cfe3f3;border-radius:14px;
+  padding:9px 13px;margin:12px 0 0;font-size:12.8px;color:var(--ink-soft)}
+.syncbar .sb-t{flex:1;min-width:230px}
+.syncbar .sb-t b{color:var(--cip1)}
+.sb-time{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.dot2{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none;
+  box-shadow:0 0 0 3px rgba(28,138,76,.16)}
+.acts.ro{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:9px}
+.ro-note{font-size:11.5px;color:var(--muted)}
+.ibtn.ext{color:var(--cip1);border-color:#cfe3f3;background:#eef5fb;text-decoration:none}
+.ibtn.ext:hover{background:#e2eefa;color:#0d4a80}
+.ibtn.ext:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(21,101,192,.28)}
+</style>
+</helmet>
+<div class="wrap">
+<div class="eyebrow">🔧 งานซ่อมบำรุง</div>
+<div class="phead">
+  <h1>งาน PM</h1>
+  <div class="sub">แผนบำรุงรักษาเชิงป้องกัน · ปีแผน 2026</div>
+  <div class="sp"></div>
+  <button class="ibtn">🔄 รีเฟรช</button>
+</div>
+<div class="itabs">
+  <button class="itab on">📅 แผนประจำปี<span class="n">5</span></button>
+  <button class="itab">📋 งานเพิ่มเอง<span class="n">3</span></button>
+  <button class="itab">📈 สรุปผล</button>
+</div>
+<div class="ifilters">
+  <button class="ipill">🗓️ สัปดาห์นี้</button><button class="ipill">📊 ตารางทั้งปี</button><button class="ipill on brand">🔩 ตามเครื่องจักร</button><button class="ipill">📆 ปฏิทินเดือน</button>
+  <div class="divider"></div>
+  <button class="ibtn">⚙️ จัดการแผน PM</button>
+</div>
+<!--HEAD-END-->
+<div class="istats" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
+  <div class="istat"><div class="l">🔩 เครื่อง / พื้นที่ในแผน</div><div class="v">14</div></div>
+  <div class="istat hot"><div class="l">⚠️ มีงานเกินกำหนด</div><div class="v">6</div></div>
+  <div class="istat"><div class="l">🗓️ ครบกำหนดสัปดาห์นี้</div><div class="v" style="color:var(--brand-deep)">3</div></div>
+  <div class="istat good"><div class="l">📈 ทำได้ตามแผน (ทั้งปี)</div><div class="v">93<span class="u">%</span></div></div>
+</div>
+<div class="card" style="padding:4px 4px 8px">
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 14px 6px;flex-wrap:wrap">
+    <h3 style="font-size:15px">แผน PM รายเครื่อง / พื้นที่</h3>
+    <span class="chip mute">เรียงตามงานที่ค้างก่อน</span>
+    <div class="sp"></div>
+    <select class="isel"><option>ทุกความถี่</option></select>
+    <button class="ibtn">📊 Export Excel</button>
+  </div>
+  <table class="tb">
+    <thead><tr>
+      <th>เครื่อง / พื้นที่</th><th>PM ล่าสุด</th><th>ครบกำหนดถัดไป</th>
+      <th style="text-align:right">ค้าง</th><th>ทำได้ตามแผน (ปี 2026)</th><th></th>
+    </tr></thead>
+    <tbody><tr>
+  <td><div class="mn"><span class="mic">📦</span><div><div class="t">ไลน์ L2</div>
+    <div class="s">ทุก 2 สัปดาห์</div></div></div></td>
+  <td style="color:var(--ink-soft)">7 ก.ย. 2026</td>
+  <td><span class="chip stop">W39 · 21 ก.ย.</span></td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">4</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:78%;background:var(--danger)"></span></div><div class="bl">14/18 รอบที่ถึงกำหนด · <b style="color:var(--danger)">78%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">💧</span><div><div class="t">RO 5,000</div>
+    <div class="s">ทุกเดือน</div></div></div></td>
+  <td style="color:var(--ink-soft)">20 ก.ค. 2026</td>
+  <td><span class="chip stop">W38 · 14 ก.ย.</span></td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">3</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:67%;background:var(--danger)"></span></div><div class="bl">6/9 รอบที่ถึงกำหนด · <b style="color:var(--danger)">67%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">📦</span><div><div class="t">ไลน์ L1</div>
+    <div class="s">ทุก 2 สัปดาห์</div></div></div></td>
+  <td style="color:var(--ink-soft)">31 ส.ค. 2026</td>
+  <td><span class="chip stop">W38 · 14 ก.ย.</span></td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">1</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:94%;background:var(--warn)"></span></div><div class="bl">17/18 รอบที่ถึงกำหนด · <b style="color:var(--warn)">94%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">🕳</span><div><div class="t">บ่อซีเมนต์</div>
+    <div class="s">ทุก 2 สัปดาห์</div></div></div></td>
+  <td style="color:var(--ink-soft)">24 ส.ค. 2026</td>
+  <td><span class="chip stop">W37 · สัปดาห์นี้</span></td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">1</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:94%;background:var(--warn)"></span></div><div class="bl">17/18 รอบที่ถึงกำหนด · <b style="color:var(--warn)">94%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">🫙</span><div><div class="t">ไลน์ปี๊บ</div>
+    <div class="s">ทุก 2 สัปดาห์</div></div></div></td>
+  <td style="color:var(--ink-soft)">24 ส.ค. 2026</td>
+  <td><span class="chip stop">W37 · สัปดาห์นี้</span></td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">1</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:94%;background:var(--warn)"></span></div><div class="bl">17/18 รอบที่ถึงกำหนด · <b style="color:var(--warn)">94%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">🧊</span><div><div class="t">ไลน์ไอซิ่ง</div>
+    <div class="s">ทุก 2 สัปดาห์</div></div></div></td>
+  <td style="color:var(--ink-soft)">7 ก.ย. 2026</td>
+  <td><span class="chip stop">W39 · 21 ก.ย.</span></td>
+  <td class="num"><span style="color:var(--danger);font-weight:700">1</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:95%;background:var(--ok)"></span></div><div class="bl">18/19 รอบที่ถึงกำหนด · <b style="color:var(--ok)">95%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">🍯</span><div><div class="t">ไลน์ต้ม 1</div>
+    <div class="s">ทุกเดือน</div></div></div></td>
+  <td style="color:var(--ink-soft)">24 ส.ค. 2026</td>
+  <td><span class="chip mute">W39 · 21 ก.ย.</span></td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div><div class="bl">9/9 รอบที่ถึงกำหนด · <b style="color:var(--ok)">100%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">🍯</span><div><div class="t">ไลน์ต้ม 2</div>
+    <div class="s">ทุกเดือน</div></div></div></td>
+  <td style="color:var(--ink-soft)">31 ส.ค. 2026</td>
+  <td><span class="chip mute">W40 · 28 ก.ย.</span></td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div><div class="bl">9/9 รอบที่ถึงกำหนด · <b style="color:var(--ok)">100%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">🤖</span><div><div class="t">Robot Clear Packer</div>
+    <div class="s">ทุก 2 สัปดาห์</div></div></div></td>
+  <td style="color:var(--ink-soft)">31 ส.ค. 2026</td>
+  <td><span class="chip mute">W38 · 14 ก.ย.</span></td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div><div class="bl">18/18 รอบที่ถึงกำหนด · <b style="color:var(--ok)">100%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">❄️</span><div><div class="t">AHU & Chiller</div>
+    <div class="s">ทุกเดือน</div></div></div></td>
+  <td style="color:var(--ink-soft)">24 ส.ค. 2026</td>
+  <td><span class="chip mute">W39 · 21 ก.ย.</span></td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div><div class="bl">9/9 รอบที่ถึงกำหนด · <b style="color:var(--ok)">100%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">❄️</span><div><div class="t">Cold Room</div>
+    <div class="s">ทุกเดือน</div></div></div></td>
+  <td style="color:var(--ink-soft)">24 ส.ค. 2026</td>
+  <td><span class="chip mute">W39 · 21 ก.ย.</span></td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div><div class="bl">9/9 รอบที่ถึงกำหนด · <b style="color:var(--ok)">100%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">💧</span><div><div class="t">RO 10,000</div>
+    <div class="s">ทุกเดือน</div></div></div></td>
+  <td style="color:var(--ink-soft)">10 ส.ค. 2026</td>
+  <td><span class="chip due">W37 · สัปดาห์นี้</span></td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div><div class="bl">9/9 รอบที่ถึงกำหนด · <b style="color:var(--ok)">100%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">🌬</span><div><div class="t">ถุง AHU</div>
+    <div class="s">ทุก 6 เดือน</div></div></div></td>
+  <td style="color:var(--ink-soft)">24 ส.ค. 2026</td>
+  <td><span class="chip mute">ครบทุกรอบของปีแล้ว</span></td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:190px"><div class="bar"><span style="width:100%;background:var(--ok)"></span></div><div class="bl">1/1 รอบที่ถึงกำหนด · <b style="color:var(--ok)">100%</b></div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    
+  </td>
+</tr>
+<tr>
+  <td><div class="mn"><span class="mic">🌀</span><div><div class="t">ไลน์ A3</div>
+    <div class="s">ทุก 2 สัปดาห์ · 🚫 ปิดใช้งานอยู่</div></div></div></td>
+  <td style="color:var(--ink-soft)">—</td>
+  <td><span class="chip mute">W37 · ปิดใช้งาน</span></td>
+  <td class="num"><span style="color:var(--muted)">—</span></td>
+  <td style="width:190px"><div class="bl" style="color:var(--muted)">ยังไม่นับในแผน</div></td>
+  <td style="text-align:right;white-space:nowrap">
+    <button class="ibtn sm">📋 ดูงาน</button>
+    
+  </td>
+</tr></tbody>
+  </table>
+</div>
+<div class="infobox" style="margin-top:12px">
+  <b>ช่อง “PM ล่าสุด”</b> ขยับเองทุกครั้งที่ปิดงาน PM (ที่ไหนก็ได้ — เว็บ ตารางทั้งปี หรือกลุ่ม Telegram)
+  เหมือนที่ทะเบียนเครื่องจักรทำอยู่แล้ววันนี้
+</div>
+</div>
+</x-dc>
+</body>
+</html>
