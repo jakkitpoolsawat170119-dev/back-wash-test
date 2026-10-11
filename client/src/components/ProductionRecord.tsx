@@ -220,6 +220,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
   const flavorColors: Record<string, { bg: string; border: string }> = {
     "Amazon":            { bg: '#efebe9', border: '#795548' },
     "FDS":               { bg: '#eceff1', border: '#607d8b' },
+    "Tim Hortons":       { bg: '#eceff1', border: '#607d8b' },
     "Golden":            { bg: '#fff8e1', border: '#ffc107' },
     "Freshy Brownsugar":{ bg: '#fff8e1', border: '#ffc107' },
     "Freshy Lychee":     { bg: '#fce4ec', border: '#e91e63' },
