@@ -207,7 +207,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
   }, [lines, operatorName]);
 
   const flavorList = [
-    "Amazon", "FDS", "Golden", "Freshy Lychee", "Freshy Strawberry",
+    "Amazon", "FDS", "Golden", "Tim Hortons", "Freshy Lychee", "Freshy Strawberry",
     "Senorita Coconut", "Senorita Caramel","Senorita Lychee", "Freshy Blue Hawaii", "Freshy Lime",
     "Freshy Green Apple", "Freshy Passion fruit", "Freshy Sala", "Senorita Yuzu", "Senorita Peach",
     "MLH 02", "Freshy Pineapple", "Operator Name", "Freshy Grape",
