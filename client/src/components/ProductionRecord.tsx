@@ -214,7 +214,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     "Freshy Punch", "Freshy blue Lemon", "Senorita Fres Mint","Senorita Strawberry",
     "Freshy Orange", "Signature Rose", "Freshy Shine Muscat Grape", "Freshy Peach",
     "Freshy Mango", "Dilute W-Molass", "Freshy Brownsugar", "Freshy Blueberry", "Senorita Signature Pomegranate", "CIP",
-    "Senorita Blue Curacao", "Freshy Kiwi", "Senorita Vanilla", "Freshy Grape Kyoho","Eldenflower", "Senorita Japanese Melon", 
+    "Senorita Blue Curacao", "Freshy Kiwi", "Senorita Vanilla", "Freshy Grape Kyoho","Eldenflower", "Senorita Japanese Melon", "Cheesecake Señorita",
   ];
 
   const flavorColors: Record<string, { bg: string; border: string }> = {
@@ -231,6 +231,7 @@ const ProductionRecord: React.FC<ProductionRecordProps> = ({ operatorName, onHom
     "Senorita Coconut":  { bg: '#fafafa', border: '#bdbdbd' },
     "Senorita Peach":     { bg: '#fce4ec', border: '#e91e63' },
     "Senorita Caramel":  { bg: '#efebe9', border: '#a1887f' },
+    "Cheesecake Señorita":  { bg: '#efebe9', border: '#a1887f' },
     "Freshy Blue Hawaii":{ bg: '#e1f5fe', border: '#03a9f4' },
     "Senorita Blue Curacao":{ bg: '#e1f5fe', border: '#03a9f4' },
     "Freshy Lime":       { bg: '#f9fbe7', border: '#8bc34a' },
